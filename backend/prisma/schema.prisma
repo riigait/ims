@@ -1,0 +1,89 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        String     @id @default(cuid())
+  name      String
+  email     String     @unique
+  passwordHash String
+  role      String     @default("staff") // admin, staff
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+  movements StockMovement[]
+}
+
+model Product {
+  id                  String     @id @default(cuid())
+  sku                 String     @unique
+  name                String
+  description         String?
+  categoryId          String
+  category            Category   @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  unit                String     @default("pcs")
+  currentStock        Int        @default(0)
+  lowStockThreshold   Int        @default(10)
+  locationId          String?
+  location            Location?  @relation(fields: [locationId], references: [id], onDelete: SetNull)
+  createdAt           DateTime   @default(now())
+  updatedAt           DateTime   @updatedAt
+  movements           StockMovement[]
+}
+
+model Category {
+  id          String     @id @default(cuid())
+  name        String     @unique
+  description String?
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+  products    Product[]
+}
+
+model Location {
+  id          String     @id @default(cuid())
+  name        String
+  type        String     // branch, building, floor, room, rack, shelf
+  parentId    String?
+  parent      Location?  @relation("LocationParent", fields: [parentId], references: [id], onDelete: Cascade)
+  children    Location[] @relation("LocationParent")
+  notes       String?
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+  products    Product[]
+  movements   StockMovement[]
+  floorPlans  FloorPlan[]
+}
+
+model StockMovement {
+  id            String     @id @default(cuid())
+  productId     String
+  product       Product    @relation(fields: [productId], references: [id], onDelete: Cascade)
+  movementType  String     // stock_in, stock_out
+  quantity      Int
+  reason        String?
+  locationId    String?
+  location      Location?  @relation(fields: [locationId], references: [id], onDelete: SetNull)
+  userId        String
+  user          User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt     DateTime   @default(now())
+}
+
+model FloorPlan {
+  id          String     @id @default(cuid())
+  name        String
+  locationId  String?
+  location    Location?  @relation(fields: [locationId], references: [id], onDelete: SetNull)
+  width       Int
+  height      Int
+  planJson    String     // JSON serialized floor plan data
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+}

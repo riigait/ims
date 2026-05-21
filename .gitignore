@@ -1,0 +1,38 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+build/
+out/
+.next/
+.turbo/
+
+# Environment variables (contain secrets)
+.env
+.env.local
+.env.*.local
+
+# Database files (SQLite - local data only)
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editor config
+.vscode/
+.idea/
+
+# Test coverage
+coverage/
+
+# Deployment
+.vercel/

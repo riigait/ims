@@ -1,0 +1,21 @@
+{
+  "name": "inventory-management-system",
+  "version": "0.1.0",
+  "description": "Inventory Management System with Interactive 2D Floor Plan Builder",
+  "private": true,
+  "scripts": {
+    "dev": "concurrently -n frontend,backend -c cyan,yellow \"npm run frontend:dev\" \"npm run backend:dev\"",
+    "frontend:install": "cd frontend && npm install",
+    "backend:install": "cd backend && npm install",
+    "install": "npm run frontend:install && npm run backend:install",
+    "frontend:dev": "cd frontend && npm run dev",
+    "backend:dev": "cd backend && npm run dev",
+    "frontend:build": "cd frontend && npm run build",
+    "backend:build": "cd backend && npm run build",
+    "backend:db:migrate": "cd backend && npx prisma migrate dev",
+    "backend:db:studio": "cd backend && npx prisma studio"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  }
+}
