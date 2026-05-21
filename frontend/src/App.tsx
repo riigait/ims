@@ -8,6 +8,7 @@ import Locations from '@/pages/Locations';
 import StockMovements from '@/pages/StockMovements';
 import FloorPlans from '@/pages/FloorPlans';
 import FloorPlanEditor from '@/pages/FloorPlanEditor';
+import Scanner from '@/pages/Scanner';
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
   const isLoggedIn = !!localStorage.getItem('token');
@@ -92,6 +93,16 @@ function App() {
           element={
             <PrivateRoute>
               <FloorPlanEditor />
+            </PrivateRoute>
+          }
+        />
+        <Route
+          path="/scanner"
+          element={
+            <PrivateRoute>
+              <Layout>
+                <Scanner />
+              </Layout>
             </PrivateRoute>
           }
         />

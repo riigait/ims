@@ -31,10 +31,12 @@ export interface Location {
   updatedAt: string;
 }
 
+export type MovementType = 'stock_in' | 'stock_out' | 'adjustment' | 'transfer' | 'damaged' | 'returned';
+
 export interface StockMovement {
   id: string;
   productId: string;
-  movementType: 'stock_in' | 'stock_out';
+  movementType: MovementType;
   quantity: number;
   reason: string;
   locationId?: string;

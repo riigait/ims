@@ -99,10 +99,6 @@ export default function Locations() {
     return locations.filter((loc) => loc.parentId === parentId);
   };
 
-  const getParentName = (parentId: string | undefined) => {
-    if (!parentId) return '-';
-    return locations.find((loc) => loc.id === parentId)?.name || 'Unknown';
-  };
 
   const rootLocations = locations.filter((loc) => !loc.parentId);
 

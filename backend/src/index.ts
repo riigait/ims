@@ -9,6 +9,7 @@ import locationsRoutes from './routes/locations';
 import stockMovementsRoutes from './routes/stockMovements';
 import floorPlansRoutes from './routes/floorPlans';
 import dashboardRoutes from './routes/dashboard';
+import auditLogsRoutes from './routes/auditLogs';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -27,6 +28,7 @@ app.use('/api/locations', authMiddleware, locationsRoutes);
 app.use('/api/stock-movements', authMiddleware, stockMovementsRoutes);
 app.use('/api/floor-plans', authMiddleware, floorPlansRoutes);
 app.use('/api/dashboard', authMiddleware, dashboardRoutes);
+app.use('/api/audit-logs', authMiddleware, auditLogsRoutes);
 
 // Health check
 app.get('/api/health', (req, res) => {

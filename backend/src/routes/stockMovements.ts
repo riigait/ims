@@ -1,11 +1,26 @@
-import express, { Router, Request, Response } from 'express';
+import { Router, Response } from 'express';
 import { PrismaClient } from '@prisma/client';
+import { AuthRequest } from '../middleware/auth';
+import { logAudit } from '../utils/audit';
 
 const router = Router();
 const prisma = new PrismaClient();
 
+const VALID_MOVEMENT_TYPES = ['stock_in', 'stock_out', 'adjustment', 'transfer', 'damaged', 'returned'] as const;
+type MovementType = typeof VALID_MOVEMENT_TYPES[number];
+
+// Types that reduce stock (require stock validation)
+const DEDUCTING_TYPES: MovementType[] = ['stock_out', 'transfer', 'damaged'];
+// Types that increase stock
+const ADDING_TYPES: MovementType[] = ['stock_in', 'returned', 'adjustment'];
+
+function stockDelta(type: MovementType, quantity: number): number {
+  if (DEDUCTING_TYPES.includes(type)) return -quantity;
+  return quantity; // ADDING_TYPES
+}
+
 // Get all stock movements
-router.get('/', async (req: Request, res: Response) => {
+router.get('/', async (req: AuthRequest, res: Response) => {
   try {
     const movements = await prisma.stockMovement.findMany({
       include: { product: true, location: true, user: true },
@@ -19,17 +34,13 @@ router.get('/', async (req: Request, res: Response) => {
 });
 
 // Get stock movement by ID
-router.get('/:id', async (req: Request, res: Response) => {
+router.get('/:id', async (req: AuthRequest, res: Response) => {
   try {
     const movement = await prisma.stockMovement.findUnique({
       where: { id: req.params.id },
       include: { product: true, location: true, user: true },
     });
-
-    if (!movement) {
-      return res.status(404).json({ error: 'Stock movement not found' });
-    }
-
+    if (!movement) return res.status(404).json({ error: 'Stock movement not found' });
     res.json(movement);
   } catch (error) {
     console.error(error);
@@ -38,47 +49,86 @@ router.get('/:id', async (req: Request, res: Response) => {
 });
 
 // Create stock movement
-router.post('/', async (req: Request, res: Response) => {
+router.post('/', async (req: AuthRequest, res: Response) => {
   try {
     const { productId, movementType, quantity, reason, locationId } = req.body;
-    const userId = (req as any).userId;
+    const userId = req.userId!;
+    const userRole = req.userRole ?? 'staff';
 
-    if (!productId || !movementType || !quantity || !userId) {
-      return res.status(400).json({ error: 'Missing required fields' });
+    // ── Validation ──────────────────────────────────────────────────────────
+    if (!productId || !movementType || quantity === undefined || quantity === null) {
+      return res.status(400).json({ error: 'productId, movementType, and quantity are required' });
     }
 
-    // Create movement
-    const movement = await prisma.stockMovement.create({
-      data: {
-        productId,
-        movementType,
-        quantity,
-        reason,
-        locationId: locationId || null,
-        userId,
-      },
-      include: { product: true },
-    });
-
-    // Update product stock
-    const product = await prisma.product.findUnique({
-      where: { id: productId },
-    });
-
-    if (product) {
-      const newStock =
-        movementType === 'stock_in'
-          ? product.currentStock + quantity
-          : Math.max(0, product.currentStock - quantity);
-
-      await prisma.product.update({
-        where: { id: productId },
-        data: { currentStock: newStock },
+    if (!VALID_MOVEMENT_TYPES.includes(movementType as MovementType)) {
+      return res.status(400).json({
+        error: `movementType must be one of: ${VALID_MOVEMENT_TYPES.join(', ')}`,
       });
     }
 
-    res.status(201).json(movement);
-  } catch (error) {
+    const qty = Number(quantity);
+    if (!Number.isInteger(qty) || qty <= 0) {
+      return res.status(400).json({ error: 'quantity must be a positive integer' });
+    }
+
+    const type = movementType as MovementType;
+
+    // ── Transaction: validate stock + create movement + update product ──────
+    const result = await prisma.$transaction(async (tx) => {
+      const product = await tx.product.findUnique({ where: { id: productId } });
+      if (!product) throw Object.assign(new Error('Product not found'), { status: 404 });
+
+      // stock_out guard — admin can override
+      if (DEDUCTING_TYPES.includes(type) && product.currentStock < qty) {
+        if (userRole !== 'admin') {
+          throw Object.assign(
+            new Error(`Insufficient stock. Available: ${product.currentStock}, requested: ${qty}`),
+            { status: 400 }
+          );
+        }
+        // Admin override: allow negative stock
+      }
+
+      const delta = stockDelta(type, qty);
+      const newStock = Math.max(0, product.currentStock + delta);
+      // Allow admins to go below zero only on deducting moves; otherwise floor at 0
+      const finalStock = userRole === 'admin' && DEDUCTING_TYPES.includes(type)
+        ? product.currentStock + delta
+        : newStock;
+
+      const movement = await tx.stockMovement.create({
+        data: {
+          productId,
+          movementType: type,
+          quantity: qty,
+          reason: reason ?? null,
+          locationId: locationId || null,
+          userId,
+        },
+        include: { product: true },
+      });
+
+      await tx.product.update({
+        where: { id: productId },
+        data: { currentStock: finalStock },
+      });
+
+      return movement;
+    });
+
+    await logAudit({
+      userId,
+      action: type.toUpperCase(),
+      entityType: 'stock_movement',
+      entityId: result.id,
+      changes: { productId, movementType: type, quantity: qty, reason },
+    });
+
+    res.status(201).json(result);
+  } catch (error: any) {
+    if (error?.status) {
+      return res.status(error.status).json({ error: error.message });
+    }
     console.error(error);
     res.status(500).json({ error: 'Internal server error' });
   }

@@ -25,7 +25,7 @@ A full-stack Web App/PWA for inventory management with an interactive 2D floor p
 
 ### Backend
 - Node.js + Express + TypeScript
-- PostgreSQL
+- **SQLite** (local development) / **PostgreSQL** (production)
 - Prisma ORM
 - JWT authentication
 - bcryptjs for password hashing
@@ -57,8 +57,21 @@ inventory-pwa/
 
 ### Prerequisites
 - Node.js 18+
-- PostgreSQL 12+
 - npm or yarn
+- SQLite (bundled — no installation needed for local dev)
+- PostgreSQL 14+ (for production only)
+
+### Database decision
+
+| Environment | Database  | Why |
+|-------------|-----------|-----|
+| Local dev   | SQLite    | Zero setup, file-based, fast for iteration |
+| Production  | PostgreSQL| Concurrent writes, row-level locking, production reliability |
+
+To switch to PostgreSQL for production:
+1. Change `provider = "sqlite"` → `provider = "postgresql"` in `backend/prisma/schema.prisma`
+2. Update `DATABASE_URL` in `.env` to a Postgres connection string, e.g. `postgresql://user:pass@host:5432/ims`
+3. Re-run `npx prisma migrate deploy`
 
 ### Setup
 
@@ -74,9 +87,16 @@ inventory-pwa/
    npx prisma migrate dev --name init
    ```
 
-3. **Create demo user**
-   - Use the Prisma Studio: `npx prisma studio`
-   - Or run migrations to create default user
+3. **Create the first admin user**
+   ```bash
+   cd backend
+   # Optionally override defaults via env vars before running:
+   # ADMIN_EMAIL=you@company.com ADMIN_PASSWORD=strongpassword npm run seed
+   npm run seed
+   ```
+   Default credentials (change immediately after login):
+   - Email: `admin@ims.local`
+   - Password: `changeme123`
 
 4. **Start backend**
    ```bash
@@ -92,12 +112,16 @@ inventory-pwa/
 
 6. **Access the app**
    - Open http://localhost:5173 in your browser
-   - Login with: admin@example.com / password
+   - Login with the credentials set during the seed step
 
-## Demo Credentials
+## First-time credentials
 
-- Email: `admin@example.com`
-- Password: `password`
+Set via `npm run seed` (override with env vars — see Setup step 3).
+
+- Email: `admin@ims.local`
+- Password: `changeme123`
+
+**Change the password immediately after first login.**
 
 ## Usage
 
@@ -191,11 +215,13 @@ inventory-pwa/
 
 ## Security Notes
 
-- Change `JWT_SECRET` in `.env` for production
-- Use environment variables for sensitive data
-- Validate all inputs on backend
-- Password hashing with bcryptjs
-- Protected routes require authentication
+- `JWT_SECRET` **must** be set in `.env` — the server will refuse to start without it
+- All registrations default to `staff` role; use the seed script to create admin users
+- Stock movements validate: quantity > 0, valid movement type, no overselling (admin override allowed)
+- `currentStock` cannot be directly edited via the product form — use stock movements
+- Audit log records all product and stock movement changes
+- Password hashing with bcryptjs (bcrypt, 10 rounds)
+- Protected routes require a valid JWT in the `Authorization: Bearer <token>` header
 
 ## Future Enhancements
 

@@ -203,13 +203,23 @@ export default function Products() {
                   className="w-full px-4 py-2 border border-gray-300 rounded-lg" />
               </div>
 
-              {/* Current Stock */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Current Stock *</label>
-                <input type="number" value={formData.currentStock} required min={0}
-                  onChange={e => setFormData({ ...formData, currentStock: parseInt(e.target.value) || 0 })}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg" />
-              </div>
+              {/* Current Stock — editable only when creating; use Stock Movements to change it */}
+              {editingId ? (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Current Stock</label>
+                  <div className="w-full px-4 py-2 border border-gray-200 rounded-lg bg-gray-50 text-gray-500 text-sm">
+                    {formData.currentStock} {formData.unit}
+                    <span className="ml-2 text-xs text-gray-400">(use Stock Movements to change)</span>
+                  </div>
+                </div>
+              ) : (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Opening Stock *</label>
+                  <input type="number" value={formData.currentStock} required min={0}
+                    onChange={e => setFormData({ ...formData, currentStock: parseInt(e.target.value) || 0 })}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg" />
+                </div>
+              )}
 
               {/* Low Stock Threshold */}
               <div>

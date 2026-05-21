@@ -1,22 +1,27 @@
-import express, { Request, Response, NextFunction } from 'express';
+import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 
 export interface AuthRequest extends Request {
   userId?: string;
-  user?: any;
+  userRole?: string;
 }
+
+function getJwtSecret(): string {
+  const secret = process.env.JWT_SECRET;
+  if (!secret) throw new Error('JWT_SECRET environment variable is not set');
+  return secret;
+}
+
+export { getJwtSecret };
 
 export const authMiddleware = (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const token = req.headers.authorization?.split(' ')[1];
+    if (!token) return res.status(401).json({ error: 'No token provided' });
 
-    if (!token) {
-      return res.status(401).json({ error: 'No token provided' });
-    }
-
-    const secret = process.env.JWT_SECRET || 'secret';
-    const decoded = jwt.verify(token, secret) as { userId: string };
+    const decoded = jwt.verify(token, getJwtSecret()) as { userId: string; role: string };
     req.userId = decoded.userId;
+    req.userRole = decoded.role ?? 'staff';
 
     next();
   } catch (error) {
@@ -25,10 +30,9 @@ export const authMiddleware = (req: AuthRequest, res: Response, next: NextFuncti
 };
 
 export const adminMiddleware = (req: AuthRequest, res: Response, next: NextFunction) => {
-  // Simplified - in production, check user role from database
-  if (req.userId) {
+  if (req.userRole === 'admin') {
     next();
   } else {
-    return res.status(403).json({ error: 'Forbidden' });
+    return res.status(403).json({ error: 'Admin access required' });
   }
 };

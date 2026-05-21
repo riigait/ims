@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Menu, X, LogOut } from 'lucide-react';
+import { Menu, X, LogOut, ScanLine } from 'lucide-react';
 
 export default function Navbar() {
   const [isOpen, setIsOpen] = useState(false);
@@ -42,6 +42,9 @@ export default function Navbar() {
                 </Link>
                 <Link to="/floor-plans" className="hover:text-blue-200">
                   Floor Plans
+                </Link>
+                <Link to="/scanner" className="flex items-center gap-1 hover:text-blue-200">
+                  <ScanLine size={16} /> Scanner
                 </Link>
               </>
             )}
@@ -90,6 +93,9 @@ export default function Navbar() {
                 </Link>
                 <Link to="/floor-plans" className="block hover:text-blue-200 py-2">
                   Floor Plans
+                </Link>
+                <Link to="/scanner" className="block hover:text-blue-200 py-2">
+                  Scanner
                 </Link>
                 <button
                   onClick={handleLogout}
