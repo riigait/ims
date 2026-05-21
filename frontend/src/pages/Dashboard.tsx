@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { dashboardApi } from '@/services/api';
 import { formatNumber } from '@/utils/ids';
-
 interface Stats {
   totalProducts: number;
   totalStock: number;
@@ -18,7 +18,22 @@ interface RecentMovement {
   createdAt: string;
 }
 
+const MOVEMENT_COLORS: Record<string, string> = {
+  stock_in:   'bg-green-100 text-green-800',
+  stock_out:  'bg-red-100 text-red-800',
+  adjustment: 'bg-blue-100 text-blue-800',
+  returned:   'bg-teal-100 text-teal-800',
+  damaged:    'bg-orange-100 text-orange-800',
+  transfer:   'bg-purple-100 text-purple-800',
+};
+
+const MOVEMENT_LABELS: Record<string, string> = {
+  stock_in: 'In', stock_out: 'Out', adjustment: 'Adj',
+  returned: 'Return', damaged: 'Damaged', transfer: 'Transfer',
+};
+
 export default function Dashboard() {
+  const navigate = useNavigate();
   const [stats, setStats] = useState<Stats>({
     totalProducts: 0,
     totalStock: 0,
@@ -44,99 +59,103 @@ export default function Dashboard() {
         setLoading(false);
       }
     };
-
     fetchData();
   }, []);
 
-  if (loading) {
-    return <div className="text-center py-12">Loading...</div>;
-  }
+  if (loading) return <div className="text-center py-12">Loading...</div>;
+
+  const cards = [
+    {
+      label: 'Total Products',
+      value: formatNumber(stats.totalProducts),
+      valueClass: 'text-gray-900',
+      to: '/products',
+      bg: 'hover:bg-blue-50',
+    },
+    {
+      label: 'Total Stock',
+      value: formatNumber(stats.totalStock),
+      valueClass: 'text-gray-900',
+      to: '/stock-movements',
+      bg: 'hover:bg-blue-50',
+    },
+    {
+      label: 'Low Stock Items',
+      value: formatNumber(stats.lowStockCount),
+      valueClass: stats.lowStockCount > 0 ? 'text-red-600' : 'text-gray-900',
+      to: '/products',
+      bg: stats.lowStockCount > 0 ? 'hover:bg-red-50' : 'hover:bg-blue-50',
+    },
+    {
+      label: 'Total Locations',
+      value: formatNumber(stats.totalLocations),
+      valueClass: 'text-gray-900',
+      to: '/locations',
+      bg: 'hover:bg-blue-50',
+    },
+    {
+      label: 'Floor Plans',
+      value: formatNumber(stats.totalFloorPlans),
+      valueClass: 'text-gray-900',
+      to: '/floor-plans',
+      bg: 'hover:bg-blue-50',
+    },
+  ];
 
   return (
     <div className="space-y-8">
       <h1 className="text-3xl font-bold text-gray-900">Dashboard</h1>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
-        <div className="bg-white p-6 rounded-lg shadow">
-          <div className="text-sm text-gray-500">Total Products</div>
-          <div className="text-3xl font-bold text-gray-900">
-            {formatNumber(stats.totalProducts)}
-          </div>
-        </div>
-
-        <div className="bg-white p-6 rounded-lg shadow">
-          <div className="text-sm text-gray-500">Total Stock</div>
-          <div className="text-3xl font-bold text-gray-900">
-            {formatNumber(stats.totalStock)}
-          </div>
-        </div>
-
-        <div className="bg-white p-6 rounded-lg shadow">
-          <div className="text-sm text-gray-500">Low Stock Items</div>
-          <div className="text-3xl font-bold text-red-600">
-            {formatNumber(stats.lowStockCount)}
-          </div>
-        </div>
-
-        <div className="bg-white p-6 rounded-lg shadow">
-          <div className="text-sm text-gray-500">Total Locations</div>
-          <div className="text-3xl font-bold text-gray-900">
-            {formatNumber(stats.totalLocations)}
-          </div>
-        </div>
-
-        <div className="bg-white p-6 rounded-lg shadow">
-          <div className="text-sm text-gray-500">Floor Plans</div>
-          <div className="text-3xl font-bold text-gray-900">
-            {formatNumber(stats.totalFloorPlans)}
-          </div>
-        </div>
+        {cards.map(card => (
+          <button
+            key={card.label}
+            onClick={() => navigate(card.to)}
+            className={`bg-white p-6 rounded-lg shadow text-left transition cursor-pointer ${card.bg} hover:shadow-md active:scale-95`}
+          >
+            <div className="text-sm text-gray-500 mb-1">{card.label}</div>
+            <div className={`text-3xl font-bold ${card.valueClass}`}>{card.value}</div>
+          </button>
+        ))}
       </div>
 
       <div className="bg-white rounded-lg shadow">
-        <div className="px-6 py-4 border-b">
-          <h2 className="text-xl font-semibold text-gray-900">
-            Recent Stock Movements
-          </h2>
+        <div className="px-6 py-4 border-b flex items-center justify-between">
+          <h2 className="text-xl font-semibold text-gray-900">Recent Stock Movements</h2>
+          <button
+            onClick={() => navigate('/stock-movements')}
+            className="text-sm text-blue-600 hover:text-blue-800 font-medium"
+          >
+            View all →
+          </button>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full">
             <thead className="bg-gray-50">
               <tr>
-                <th className="px-6 py-3 text-left text-sm font-medium text-gray-700">
-                  Product
-                </th>
-                <th className="px-6 py-3 text-left text-sm font-medium text-gray-700">
-                  Type
-                </th>
-                <th className="px-6 py-3 text-left text-sm font-medium text-gray-700">
-                  Quantity
-                </th>
-                <th className="px-6 py-3 text-left text-sm font-medium text-gray-700">
-                  Date
-                </th>
+                <th className="px-6 py-3 text-left text-sm font-medium text-gray-700">Product</th>
+                <th className="px-6 py-3 text-left text-sm font-medium text-gray-700">Type</th>
+                <th className="px-6 py-3 text-left text-sm font-medium text-gray-700">Quantity</th>
+                <th className="px-6 py-3 text-left text-sm font-medium text-gray-700">Date</th>
               </tr>
             </thead>
             <tbody className="divide-y">
-              {recentMovements.map((movement) => (
-                <tr key={movement.id}>
-                  <td className="px-6 py-4 text-sm text-gray-900">
-                    {movement.productName}
+              {recentMovements.length === 0 ? (
+                <tr>
+                  <td colSpan={4} className="px-6 py-8 text-center text-gray-400 text-sm">
+                    No stock movements yet.
                   </td>
-                  <td className="px-6 py-4 text-sm text-gray-900">
-                    <span
-                      className={`px-2 py-1 rounded-full text-xs font-semibold ${
-                        movement.movementType === 'stock_in'
-                          ? 'bg-green-100 text-green-800'
-                          : 'bg-red-100 text-red-800'
-                      }`}
-                    >
-                      {movement.movementType === 'stock_in' ? 'In' : 'Out'}
+                </tr>
+              ) : recentMovements.map(movement => (
+                <tr key={movement.id} className="hover:bg-gray-50 cursor-pointer"
+                  onClick={() => navigate('/stock-movements')}>
+                  <td className="px-6 py-4 text-sm text-gray-900">{movement.productName}</td>
+                  <td className="px-6 py-4 text-sm">
+                    <span className={`px-2 py-1 rounded-full text-xs font-semibold ${MOVEMENT_COLORS[movement.movementType] ?? 'bg-gray-100 text-gray-800'}`}>
+                      {MOVEMENT_LABELS[movement.movementType] ?? movement.movementType}
                     </span>
                   </td>
-                  <td className="px-6 py-4 text-sm text-gray-900">
-                    {movement.quantity}
-                  </td>
+                  <td className="px-6 py-4 text-sm text-gray-900">{movement.quantity}</td>
                   <td className="px-6 py-4 text-sm text-gray-500">
                     {new Date(movement.createdAt).toLocaleDateString()}
                   </td>
