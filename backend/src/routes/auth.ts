@@ -11,10 +11,10 @@ function signToken(userId: string, role: string): string {
   return jwt.sign({ userId, role }, getJwtSecret(), { expiresIn: '7d' });
 }
 
-// Register — all new registrations are staff; use seed script to create the first admin
+// Register — use invite code to get role; defaults to staff if no invite
 router.post('/register', async (req: Request, res: Response) => {
   try {
-    const { name, email, password } = req.body;
+    const { name, email, password, inviteCode } = req.body;
 
     if (!name || !email || !password) {
       return res.status(400).json({ error: 'Missing required fields' });
@@ -23,10 +23,38 @@ router.post('/register', async (req: Request, res: Response) => {
     const existing = await prisma.user.findUnique({ where: { email } });
     if (existing) return res.status(400).json({ error: 'User already exists' });
 
+    // Validate invite code if provided
+    let role = 'staff';
+    if (inviteCode) {
+      const invite = await prisma.inviteCode.findUnique({ where: { code: inviteCode } });
+      if (!invite) return res.status(400).json({ error: 'Invalid invite code' });
+      if (invite.usedAt) return res.status(400).json({ error: 'Invite already used' });
+      if (new Date() > invite.expiresAt) return res.status(400).json({ error: 'Invite expired' });
+
+      role = invite.role;
+
+      // Mark invite as used
+      await prisma.inviteCode.update({
+        where: { id: invite.id },
+        data: { usedAt: new Date(), usedBy: 'pending' }, // Will be updated to actual user ID after user creation
+      });
+    }
+
     const passwordHash = await bcrypt.hash(password, 10);
     const user = await prisma.user.create({
-      data: { name, email, passwordHash, role: 'staff' },
+      data: { name, email, passwordHash, role },
     });
+
+    // Update invite code with actual user ID if invite was used
+    if (inviteCode) {
+      const invite = await prisma.inviteCode.findUnique({ where: { code: inviteCode } });
+      if (invite) {
+        await prisma.inviteCode.update({
+          where: { id: invite.id },
+          data: { usedBy: user.id },
+        });
+      }
+    }
 
     const token = signToken(user.id, user.role);
     res.json({ token, user: { id: user.id, name: user.name, email: user.email, role: user.role } });

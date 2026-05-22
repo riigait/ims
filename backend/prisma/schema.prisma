@@ -19,6 +19,7 @@ model User {
   createdAt DateTime   @default(now())
   updatedAt DateTime   @updatedAt
   movements StockMovement[]
+  inviteCodes InviteCode[]
 }
 
 model Product {
@@ -97,4 +98,16 @@ model FloorPlan {
   planJson    String     // JSON serialized floor plan data
   createdAt   DateTime   @default(now())
   updatedAt   DateTime   @updatedAt
+}
+
+model InviteCode {
+  id          String     @id @default(cuid())
+  code        String     @unique
+  role        String     @default("staff") // admin, staff
+  createdBy   String
+  creator     User       @relation(fields: [createdBy], references: [id], onDelete: Cascade)
+  usedBy      String?
+  usedAt      DateTime?
+  expiresAt   DateTime
+  createdAt   DateTime   @default(now())
 }

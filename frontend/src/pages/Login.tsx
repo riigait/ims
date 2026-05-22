@@ -93,9 +93,6 @@ export default function Login() {
           </button>
         </form>
 
-        <p className="mt-4 text-center text-sm text-gray-600">
-          Demo: Use email: admin@example.com, password: admin123
-        </p>
       </div>
     </div>
   );
