@@ -175,6 +175,8 @@ export default function FloorPlans() {
         <div className="space-y-3">
           <div className="flex gap-2">
             <input
+              id="search-floor-plans"
+              name="search"
               type="text"
               placeholder="Search by floor plan name…"
               value={searchTerm}
@@ -187,6 +189,8 @@ export default function FloorPlans() {
           <div className="flex flex-wrap gap-2">
             {user.role === 'superadmin' && (
               <select
+                id="filter-department"
+                name="filter-department"
                 value={departmentFilter}
                 onChange={e => setDepartmentFilter(e.target.value)}
                 className="px-3 py-2 border border-gray-300 rounded text-sm"
@@ -199,6 +203,8 @@ export default function FloorPlans() {
             )}
 
             <select
+              id="sort-by"
+              name="sort-by"
               value={sortBy}
               onChange={e => setSortBy(e.target.value)}
               className="px-3 py-2 border border-gray-300 rounded text-sm font-medium bg-blue-50"

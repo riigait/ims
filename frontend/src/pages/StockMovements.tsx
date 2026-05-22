@@ -208,6 +208,8 @@ export default function StockMovements() {
         <div className="space-y-3">
           <div className="flex gap-2">
             <input
+              id="search-movements"
+              name="search"
               type="text"
               placeholder="Search by product name…"
               value={filters.search}
@@ -219,6 +221,8 @@ export default function StockMovements() {
 
           <div className="flex flex-wrap gap-2">
             <select
+              id="filter-movement-type"
+              name="filter-movement-type"
               value={filters.movementType || ''}
               onChange={e => setFilters({ ...filters, movementType: e.target.value as any || undefined })}
               className="px-3 py-2 border border-gray-300 rounded text-sm"
@@ -230,6 +234,8 @@ export default function StockMovements() {
             </select>
 
             <select
+              id="sort-by"
+              name="sort-by"
               value={sortBy}
               onChange={e => setSortBy(e.target.value)}
               className="px-3 py-2 border border-gray-300 rounded text-sm font-medium bg-blue-50"

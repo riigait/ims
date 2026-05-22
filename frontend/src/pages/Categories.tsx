@@ -201,6 +201,8 @@ export default function Categories() {
         <div className="space-y-3">
           <div className="flex gap-2">
             <input
+              id="search-categories"
+              name="search"
               type="text"
               placeholder="Search by category name…"
               value={filters.search}
@@ -213,6 +215,8 @@ export default function Categories() {
           <div className="flex flex-wrap gap-2">
             {user.role === 'superadmin' && (
               <select
+                id="filter-department"
+                name="filter-department"
                 value={filters.departmentId || ''}
                 onChange={e => setFilters({ ...filters, departmentId: e.target.value || undefined })}
                 className="px-3 py-2 border border-gray-300 rounded text-sm"
@@ -225,6 +229,8 @@ export default function Categories() {
             )}
 
             <select
+              id="sort-by"
+              name="sort-by"
               value={sortBy}
               onChange={e => setSortBy(e.target.value)}
               className="px-3 py-2 border border-gray-300 rounded text-sm font-medium bg-blue-50"

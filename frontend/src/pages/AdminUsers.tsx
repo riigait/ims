@@ -217,9 +217,12 @@ export default function AdminUsers() {
             <h2 className="text-lg font-semibold mb-4">Generate New Invite Code</h2>
             <div className="flex gap-3">
               <select
+                id="generate-role"
+                name="generate-role"
                 value={generateRole}
                 onChange={(e) => setGenerateRole(e.target.value as 'superadmin' | 'admin' | 'staff')}
                 className="px-4 py-2 border border-gray-300 rounded-lg font-medium text-sm"
+                aria-label="Select role for new invite code"
               >
                 <option value="staff">Staff User</option>
                 <option value="admin">Admin User</option>

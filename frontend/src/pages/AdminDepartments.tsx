@@ -101,10 +101,12 @@ export default function AdminDepartments() {
             <h2 className="text-lg font-semibold mb-4">Create New Department</h2>
             <div className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
+                <label htmlFor="dept-name" className="block text-sm font-medium text-gray-700 mb-2">
                   Department Name *
                 </label>
                 <input
+                  id="dept-name"
+                  name="name"
                   type="text"
                   placeholder="e.g., SCADA Office"
                   value={newDept.name}
@@ -113,10 +115,12 @@ export default function AdminDepartments() {
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
+                <label htmlFor="dept-description" className="block text-sm font-medium text-gray-700 mb-2">
                   Description
                 </label>
                 <textarea
+                  id="dept-description"
+                  name="description"
                   placeholder="Optional description"
                   value={newDept.description}
                   onChange={(e) => setNewDept({ ...newDept, description: e.target.value })}

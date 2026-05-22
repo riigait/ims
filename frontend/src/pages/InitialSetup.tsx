@@ -87,10 +87,11 @@ export default function InitialSetup() {
 
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Name</label>
+              <label htmlFor="setup-name" className="block text-sm font-medium text-gray-700 mb-2">Name</label>
               <div className="relative">
                 <User size={18} className="absolute left-3 top-3 text-gray-400" />
                 <input
+                  id="setup-name"
                   type="text"
                   name="name"
                   value={form.name}
@@ -102,10 +103,11 @@ export default function InitialSetup() {
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Email</label>
+              <label htmlFor="setup-email" className="block text-sm font-medium text-gray-700 mb-2">Email</label>
               <div className="relative">
                 <Mail size={18} className="absolute left-3 top-3 text-gray-400" />
                 <input
+                  id="setup-email"
                   type="email"
                   name="email"
                   value={form.email}
@@ -117,10 +119,11 @@ export default function InitialSetup() {
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Password</label>
+              <label htmlFor="setup-password" className="block text-sm font-medium text-gray-700 mb-2">Password</label>
               <div className="relative">
                 <Lock size={18} className="absolute left-3 top-3 text-gray-400" />
                 <input
+                  id="setup-password"
                   type="password"
                   name="password"
                   value={form.password}
@@ -132,10 +135,11 @@ export default function InitialSetup() {
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Confirm Password</label>
+              <label htmlFor="setup-confirm-password" className="block text-sm font-medium text-gray-700 mb-2">Confirm Password</label>
               <div className="relative">
                 <Lock size={18} className="absolute left-3 top-3 text-gray-400" />
                 <input
+                  id="setup-confirm-password"
                   type="password"
                   name="confirmPassword"
                   value={form.confirmPassword}

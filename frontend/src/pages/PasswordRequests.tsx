@@ -161,11 +161,13 @@ export default function PasswordRequests() {
             {showPasswordForm && (
               <div className="bg-blue-50 border-t p-6">
                 <div className="max-w-md">
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                  <label htmlFor="temp-password" className="block text-sm font-medium text-gray-700 mb-2">
                     Temporary Password (min 8 characters)
                   </label>
                   <div className="flex gap-2">
                     <input
+                      id="temp-password"
+                      name="tempPassword"
                       type="text"
                       value={tempPassword}
                       onChange={(e) => setTempPassword(e.target.value)}

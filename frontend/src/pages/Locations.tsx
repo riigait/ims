@@ -345,6 +345,8 @@ export default function Locations() {
         <div className="space-y-3">
           <div className="flex gap-2">
             <input
+              id="search-locations"
+              name="search"
               type="text"
               placeholder="Search by location name…"
               value={searchTerm}
@@ -356,6 +358,8 @@ export default function Locations() {
 
           <div className="flex flex-wrap gap-2">
             <select
+              id="filter-type"
+              name="filter-type"
               value={typeFilter}
               onChange={e => setTypeFilter(e.target.value)}
               className="px-3 py-2 border border-gray-300 rounded text-sm"
@@ -370,6 +374,8 @@ export default function Locations() {
 
             {user.role === 'superadmin' && (
               <select
+                id="filter-department"
+                name="filter-department"
                 value={departmentFilter}
                 onChange={e => setDepartmentFilter(e.target.value)}
                 className="px-3 py-2 border border-gray-300 rounded text-sm"
@@ -382,6 +388,8 @@ export default function Locations() {
             )}
 
             <select
+              id="sort-by"
+              name="sort-by"
               value={sortBy}
               onChange={e => setSortBy(e.target.value)}
               className="px-3 py-2 border border-gray-300 rounded text-sm font-medium bg-blue-50"

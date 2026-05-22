@@ -207,12 +207,15 @@ export default function Scanner() {
           </p>
           <form onSubmit={handleManualSubmit} className="flex gap-2">
             <input
+              id="scanner-input"
+              name="barcode"
               autoFocus
               type="text"
               value={manualInput}
               onChange={e => setManualInput(e.target.value)}
               placeholder={target === 'product' ? 'Enter SKU or product ID…' : 'Enter location ID or name…'}
               className="flex-1 px-4 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              aria-label="Barcode or QR code input"
             />
             <button type="submit" disabled={!manualInput.trim() || scanning}
               className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 text-sm font-medium">

@@ -50,26 +50,26 @@ export default function Products() {
   const [formData, setFormData] = useState(emptyForm);
   const [error, setError] = useState('');
 
-  useEffect(() => {
-    const fetchData = async () => {
-      try {
-        const [productsRes, categoriesRes, locationsRes, deptRes] = await Promise.all([
-          productsApi.getAll(),
-          categoriesApi.getAll(),
-          locationsApi.getAll(),
-          user.role === 'superadmin' ? departmentsApi.getAll() : Promise.resolve({ data: [] }),
-        ]);
-        setProducts(productsRes.data);
-        setCategories(categoriesRes.data);
-        setLocations(locationsRes.data);
-        setDepartments(deptRes.data);
-      } catch (error) {
-        console.error('Failed to fetch data:', error);
-      } finally {
-        setLoading(false);
-      }
-    };
+  const fetchData = async () => {
+    try {
+      const [productsRes, categoriesRes, locationsRes, deptRes] = await Promise.all([
+        productsApi.getAll(),
+        categoriesApi.getAll(),
+        locationsApi.getAll(),
+        user.role === 'superadmin' ? departmentsApi.getAll() : Promise.resolve({ data: [] }),
+      ]);
+      setProducts(productsRes.data);
+      setCategories(categoriesRes.data);
+      setLocations(locationsRes.data);
+      setDepartments(deptRes.data);
+    } catch (error) {
+      console.error('Failed to fetch data:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
 
+  useEffect(() => {
     const handleStorageChange = () => {
       setLoading(true);
       fetchData();
@@ -357,7 +357,7 @@ export default function Products() {
               onChange={e => setFilters({ ...filters, search: e.target.value })}
               className="flex-1 px-4 py-2 border border-gray-300 rounded-lg text-sm"
               aria-label="Search products by name or SKU" />
-            <select value={`${sort.field}-${sort.order}`} onChange={e => {
+            <select id="sort-by" name="sort-by" value={`${sort.field}-${sort.order}`} onChange={e => {
               const [field, order] = e.target.value.split('-');
               setSort({ field: field as ProductSort['field'], order: order as ProductSort['order'] });
             }}
@@ -372,7 +372,7 @@ export default function Products() {
           </div>
 
           <div className="flex gap-1 w-full">
-            <select id="filter-category" value={filters.categoryId || ''} onChange={e => setFilters({ ...filters, categoryId: e.target.value || undefined })}
+            <select id="filter-category" name="filter-category" value={filters.categoryId || ''} onChange={e => setFilters({ ...filters, categoryId: e.target.value || undefined })}
               className="flex-1 px-2 py-2 border border-gray-300 rounded text-sm"
               aria-label="Filter by category">
               <option value="">All Categories</option>
@@ -381,7 +381,7 @@ export default function Products() {
               ))}
             </select>
 
-            <select id="filter-location" value={filters.locationId || ''} onChange={e => setFilters({ ...filters, locationId: e.target.value || undefined })}
+            <select id="filter-location" name="filter-location" value={filters.locationId || ''} onChange={e => setFilters({ ...filters, locationId: e.target.value || undefined })}
               className="flex-1 px-2 py-2 border border-gray-300 rounded text-sm"
               aria-label="Filter by location">
               <option value="">All Locations</option>
@@ -390,7 +390,7 @@ export default function Products() {
               ))}
             </select>
 
-            <select value={filters.stockStatus || ''} onChange={e => setFilters({ ...filters, stockStatus: e.target.value as any || undefined })}
+            <select id="filter-stock-status" name="filter-stock-status" value={filters.stockStatus || ''} onChange={e => setFilters({ ...filters, stockStatus: e.target.value as any || undefined })}
               className="flex-1 px-2 py-2 border border-gray-300 rounded text-sm"
               aria-label="Filter by stock status">
               <option value="">All Stock Status</option>
@@ -399,7 +399,7 @@ export default function Products() {
               <option value="in-stock">In Stock</option>
             </select>
 
-            <select value={filters.unit || ''} onChange={e => setFilters({ ...filters, unit: e.target.value || undefined })}
+            <select id="filter-unit" name="filter-unit" value={filters.unit || ''} onChange={e => setFilters({ ...filters, unit: e.target.value || undefined })}
               className="flex-1 px-2 py-2 border border-gray-300 rounded text-sm"
               aria-label="Filter by unit">
               <option value="">All Units</option>
@@ -408,7 +408,7 @@ export default function Products() {
               ))}
             </select>
 
-            <select value={filters.dateRange} onChange={e => setFilters({ ...filters, dateRange: e.target.value as any })}
+            <select id="filter-date-range" name="filter-date-range" value={filters.dateRange} onChange={e => setFilters({ ...filters, dateRange: e.target.value as any })}
               className="flex-1 px-2 py-2 border border-gray-300 rounded text-sm"
               aria-label="Filter by date range">
               <option value="all">All Time</option>
@@ -418,7 +418,7 @@ export default function Products() {
             </select>
 
             {user.role === 'superadmin' && (
-              <select value={filters.departmentId || ''} onChange={e => setFilters({ ...filters, departmentId: e.target.value || undefined })}
+              <select id="filter-department" name="filter-department" value={filters.departmentId || ''} onChange={e => setFilters({ ...filters, departmentId: e.target.value || undefined })}
                 className="flex-1 px-2 py-2 border border-gray-300 rounded text-sm"
                 aria-label="Filter by department">
                 <option value="">All Departments</option>

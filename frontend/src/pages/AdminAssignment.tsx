@@ -294,7 +294,9 @@ export default function AdminAssignment() {
                   <div className="flex gap-2">
                     <select
                       id={`select-${admin.id}`}
+                      name="admin-department"
                       className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-600 text-sm"
+                      aria-label="Select department to assign to admin"
                     >
                       <option value="">Select a department to assign...</option>
                       {getAvailableDepartments(admin.id).map(dept => (
@@ -379,7 +381,9 @@ export default function AdminAssignment() {
                   <div className="flex gap-2">
                     <select
                       id={`staff-select-${s.id}`}
+                      name="staff-department"
                       className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-600 text-sm"
+                      aria-label="Select department to assign to staff"
                     >
                       <option value="">Select a department to assign...</option>
                       {getAvailableStaffDepartments(s.id).map(dept => (

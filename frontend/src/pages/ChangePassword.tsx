@@ -100,10 +100,11 @@ export default function ChangePassword() {
           {isStaff ? (
             <form onSubmit={handleRequestPassword} className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
+                <label htmlFor="change-password-reason" className="block text-sm font-medium text-gray-700 mb-2">
                   Reason (Optional)
                 </label>
                 <textarea
+                  id="change-password-reason"
                   name="reason"
                   value={form.reason}
                   onChange={handleChange}
@@ -133,12 +134,13 @@ export default function ChangePassword() {
           ) : (
             <form onSubmit={handleChangePassword} className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
+                <label htmlFor="current-password" className="block text-sm font-medium text-gray-700 mb-2">
                   Current Password
                 </label>
                 <div className="relative">
                   <Lock size={18} className="absolute left-3 top-3 text-gray-400" />
                   <input
+                    id="current-password"
                     type="password"
                     name="currentPassword"
                     value={form.currentPassword}
@@ -150,12 +152,13 @@ export default function ChangePassword() {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
+                <label htmlFor="new-password" className="block text-sm font-medium text-gray-700 mb-2">
                   New Password
                 </label>
                 <div className="relative">
                   <Lock size={18} className="absolute left-3 top-3 text-gray-400" />
                   <input
+                    id="new-password"
                     type="password"
                     name="newPassword"
                     value={form.newPassword}
@@ -167,12 +170,13 @@ export default function ChangePassword() {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
+                <label htmlFor="confirm-password" className="block text-sm font-medium text-gray-700 mb-2">
                   Confirm New Password
                 </label>
                 <div className="relative">
                   <Lock size={18} className="absolute left-3 top-3 text-gray-400" />
                   <input
+                    id="confirm-password"
                     type="password"
                     name="confirmPassword"
                     value={form.confirmPassword}
