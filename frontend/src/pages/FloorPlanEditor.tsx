@@ -103,6 +103,15 @@ export default function FloorPlanEditor() {
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      // Disable all keyboard shortcuts in read-only mode
+      if (isReadOnly) {
+        if (e.key === 'Escape') {
+          e.preventDefault();
+          clearSelection();
+        }
+        return;
+      }
+
       if (e.key === 'Escape') {
         e.preventDefault();
         setTool('select');
