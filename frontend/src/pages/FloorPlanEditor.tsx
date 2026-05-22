@@ -1095,6 +1095,17 @@ export default function FloorPlanEditor() {
     return null;
   };
 
+  const handleCanvasDoubleClick = (e: React.MouseEvent) => {
+    if (editorState.tool !== 'select') return;
+    const pos = canvasToWorld(e.clientX, e.clientY);
+    const objId = getObjectAtPoint(pos.x, pos.y);
+    if (objId) {
+      // Double-click: select only this specific object (even if it's in a group)
+      e.preventDefault();
+      setSelectedObject(objId);
+    }
+  };
+
   const handleCanvasPointerDown = (e: React.PointerEvent) => {
     const pos = canvasToWorld(e.clientX, e.clientY);
     if (editorState.tool === 'select') {
@@ -1133,8 +1144,14 @@ export default function FloorPlanEditor() {
                 addToSelection(objId);
               }
             } else {
-              // Regular click: select only this object
-              setSelectedObject(objId);
+              // Regular click: if object is in a group, select all group members; otherwise select just this object
+              const obj = currentFloorPlan?.objects.find(o => o.id === objId);
+              if (obj?.groupId) {
+                const groupMembers = currentFloorPlan?.objects.filter(o => o.groupId === obj.groupId).map(o => o.id) || [];
+                setSelectedObjects(groupMembers);
+              } else {
+                setSelectedObject(objId);
+              }
             }
             const obj = currentFloorPlan?.objects.find(o => o.id === objId);
             if (obj) {
@@ -1622,6 +1639,7 @@ export default function FloorPlanEditor() {
             onPointerDown={handleCanvasPointerDown}
             onPointerMove={handleCanvasPointerMove}
             onPointerUp={handleCanvasPointerUp}
+            onDoubleClick={handleCanvasDoubleClick}
             onPointerLeave={(e) => {
               (e.currentTarget as HTMLCanvasElement).releasePointerCapture(e.pointerId);
               if (!isDragging) { setStartPos(null); setCurrentMousePos(null); }
