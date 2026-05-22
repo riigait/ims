@@ -5,11 +5,16 @@ A full-stack Web App/PWA for inventory management with an interactive 2D floor p
 ## Features
 
 - **Inventory Dashboard** - Summary of products, stock, and locations
-- **Product Management** - Add, edit, delete, and search products
+- **Product Management** - Add, edit, delete, and search products with measurement units
+- **Product Measurement Units** - Support for 31 unit types (pieces, weight, volume, length, area, and other)
 - **Category Management** - Organize products by categories
-- **Stock Movements** - Record stock in/out with reasons
+- **Stock Movements** - Record stock in/out with reasons (stock_in, stock_out, adjustment, transfer, damaged, returned)
 - **Location Management** - Hierarchical location tree (Branch → Building → Floor → Room → Rack → Shelf)
 - **Interactive 2D Floor Plan Editor** - Manually create warehouse layouts with walls, rooms, racks, shelves, and labels
+- **Department-based Access Control** - Multi-department support with department switcher
+  - Admin users can view all departments or select a specific department
+  - Staff users with multiple department assignments can view "All Departments" or switch to a specific department
+  - Single-department users see their department automatically
 - **Basic PWA Support** - Installable app, offline fallback
 - **Authentication** - Login/register with roles (superadmin/admin/staff), role-based access control
 - **Initial Setup** - Secure setup page for default superadmin account on new servers
@@ -137,12 +142,35 @@ Every new server comes with a default superadmin account that must be configured
 ### Dashboard
 - View summary statistics
 - See recent stock movements
+- Department-filtered data (shows data for selected department or all assigned departments)
+
+### Department Switcher
+- Located in the top navigation bar
+- **Admin users**: View all departments or select a specific department
+- **Staff users**: 
+  - Single-department staff: Shows read-only department name
+  - Multi-department staff: Dropdown to select a specific department or view "All Departments"
+- Changes to department selection are reflected across all pages (Dashboard, Products, Categories, Locations, Stock Movements, Floor Plans)
+
+### Product Units
+Products support 31 measurement unit types organized by category:
+
+| Category | Units |
+|----------|-------|
+| Pieces/Count | pcs, dozen, box, pack |
+| Weight | g, kg, mg, oz, lb, ton |
+| Volume/Liquid | ml, liter, gallon, cup |
+| Length/Distance | mm, cm, m, km, inch, ft, yard |
+| Area | cm², m² |
+| Other | roll, sheet, can, bottle, bag, carton |
 
 ### Products
 - Add new products with SKU, name, category, stock levels
-- Search and filter products
+- Select measurement units for products (pieces, kg, liters, meters, etc.)
+- Search and filter products by name, category, location, unit, or stock status
 - Edit or delete products
 - Low stock items are highlighted
+- Department-filtered view (admin/staff can see their department's products)
 
 ### Categories
 - Create and manage product categories
