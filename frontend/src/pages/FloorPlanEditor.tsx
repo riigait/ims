@@ -1662,10 +1662,8 @@ export default function FloorPlanEditor() {
               })()}
 
               {(() => {
-                // Check if all selected objects are the same type
-                const selectedObjs = selectedObjectIds.map(id => currentFloorPlan?.objects.find(o => o.id === id)).filter(Boolean);
-                const allSameType = selectedObjs.length > 0 && selectedObjs.every(o => o?.type === selectedObjs[0]?.type);
-                const showTypeSpecificProps = selectedObjectIds.length === 1 || (selectedObjectIds.length > 1 && allSameType);
+                // Only show type-specific properties for single object selection
+                const showTypeSpecificProps = selectedObjectIds.length === 1;
 
                 return showTypeSpecificProps && selectedObject ? (
               <div className="p-4 border-b space-y-3">
