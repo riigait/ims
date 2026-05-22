@@ -1,4 +1,5 @@
 ﻿import { PrismaClient } from '@prisma/client';
+import bcrypt from 'bcryptjs';
 
 const prisma = new PrismaClient();
 
@@ -24,6 +25,32 @@ async function main() {
     } else {
       console.log(`Department already exists: ${dept.name}`);
     }
+  }
+
+  // Create or update superadmin user
+  const existingAdmin = await prisma.user.findUnique({
+    where: { email: 'admin@example.com' },
+  });
+
+  if (!existingAdmin) {
+    const hashedPassword = await bcrypt.hash('admin123', 10);
+    await prisma.user.create({
+      data: {
+        name: 'Admin',
+        email: 'admin@example.com',
+        passwordHash: hashedPassword,
+        role: 'superadmin',
+      },
+    });
+    console.log('Created superadmin user: admin@example.com');
+  } else if (existingAdmin.role !== 'superadmin') {
+    await prisma.user.update({
+      where: { email: 'admin@example.com' },
+      data: { role: 'superadmin' },
+    });
+    console.log('Updated admin@example.com to superadmin role');
+  } else {
+    console.log('Superadmin user already exists: admin@example.com');
   }
 
   console.log('Seeding complete!');
