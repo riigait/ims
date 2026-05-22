@@ -108,14 +108,17 @@ export default function FloorPlanEditor() {
 
       if (e.ctrlKey && e.key === 'a') {
         e.preventDefault();
-        if (currentFloorPlan) {
-          setSelectedObjects(currentFloorPlan.objects.map(o => o.id));
+        const state = useFloorPlanStore.getState();
+        if (state.currentFloorPlan) {
+          setSelectedObjects(state.currentFloorPlan.objects.map(o => o.id));
         }
         return;
       }
 
-      if (!editorState.selectedObjectId || !currentFloorPlan) return;
-      const obj = currentFloorPlan.objects.find(o => o.id === editorState.selectedObjectId);
+      // Get current state directly from store to avoid stale closure
+      const state = useFloorPlanStore.getState();
+      if (!state.editorState.selectedObjectId || !state.currentFloorPlan) return;
+      const obj = state.currentFloorPlan.objects.find(o => o.id === state.editorState.selectedObjectId);
       if (!obj) return;
 
       const step = e.shiftKey ? 10 : 5;
@@ -197,21 +200,21 @@ export default function FloorPlanEditor() {
 
       if (Object.keys(updates).length > 0) {
         // If multiple objects selected, move all of them together
-        if (selectedObjectIds.length > 1) {
-          updateMultipleObjects(selectedObjectIds, updates);
+        if (state.selectedObjectIds.length > 1) {
+          updateMultipleObjects(state.selectedObjectIds, updates);
         } else if (obj.groupId) {
           // If single object is part of a group, move all objects in the group
-          const groupMembers = currentFloorPlan.objects.filter(o => o.groupId === obj.groupId);
+          const groupMembers = state.currentFloorPlan!.objects.filter(o => o.groupId === obj.groupId);
           updateMultipleObjects(groupMembers.map(m => m.id), updates);
         } else {
-          updateObject(editorState.selectedObjectId, updates);
+          updateObject(state.editorState.selectedObjectId!, updates);
         }
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [editorState.selectedObjectId, currentFloorPlan, selectedObjectIds, updateMultipleObjects, updateObject]);
+  }, [updateMultipleObjects, updateObject]);
 
   useEffect(() => {
     if (currentFloorPlan && canvasRef.current) redrawCanvas();
