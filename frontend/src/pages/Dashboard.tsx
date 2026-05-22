@@ -68,7 +68,7 @@ export default function Dashboard() {
         // For admin users with multiple departments, get the currently selected one
         else if (user.role === 'admin' && user.adminDepartments?.length) {
           const currentDeptId = localStorage.getItem('currentDepartmentId');
-          const currentDept = user.adminDepartments.find(ad => ad.departmentId === currentDeptId);
+          const currentDept = user.adminDepartments.find((ad: any) => ad.departmentId === currentDeptId);
           if (currentDept) {
             setDepartmentName(currentDept.department.name);
           } else if (user.adminDepartments.length > 0) {

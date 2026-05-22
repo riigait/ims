@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Plus, Trash2, MapPin, LayoutGrid, List } from 'lucide-react';
-import { floorPlansApi, deleteRequestsApi, departmentsApi } from '@/services/api';
+import { floorPlansApi, departmentsApi } from '@/services/api';
 import { FloorPlan } from '@/types/floorplan';
 import FloorPlanThumbnail from '@/components/floorplan/FloorPlanThumbnail';
 
@@ -21,7 +21,6 @@ export default function FloorPlans() {
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [formData, setFormData] = useState({ name: '', width: 1200, height: 800 });
-  const [error, setError] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
   const [departmentFilter, setDepartmentFilter] = useState('');
   const [sortBy, setSortBy] = useState('recently-added');
@@ -85,25 +84,6 @@ export default function FloorPlans() {
     }
   };
 
-  const handleRequestDelete = async (id: string, name: string, e: React.MouseEvent) => {
-    e.stopPropagation();
-    const reason = prompt('Reason for deletion (optional):');
-    if (reason === null) return;
-    try {
-      await deleteRequestsApi.create({
-        entityType: 'floor_plan',
-        entityId: id,
-        entityName: name,
-        reason: reason || '',
-      });
-      setError('');
-      alert('Delete request submitted. Awaiting admin approval.');
-    } catch (err) {
-      setError('Failed to submit delete request');
-      console.error(err);
-    }
-  };
-
   const filteredAndSortedPlans = floorPlans
     .filter(plan => {
       const matchesSearch = plan.name.toLowerCase().includes(searchTerm.toLowerCase());
@@ -127,11 +107,6 @@ export default function FloorPlans() {
 
   return (
     <div className="space-y-6">
-      {error && (
-        <div className="bg-red-50 border border-red-200 rounded-lg p-4 text-red-700">
-          {error}
-        </div>
-      )}
       <div className="flex justify-between items-center">
         <div>
           <h1 className="text-3xl font-bold text-gray-900">Floor Plans</h1>

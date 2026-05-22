@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Plus, Edit, Trash2 } from 'lucide-react';
-import { categoriesApi, deleteRequestsApi, departmentsApi } from '@/services/api';
+import { categoriesApi, departmentsApi } from '@/services/api';
 import { Category } from '@/types/inventory';
 
 interface Department {
@@ -15,7 +15,6 @@ export default function Categories() {
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [error, setError] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
   const [departmentFilter, setDepartmentFilter] = useState('');
   const [sortBy, setSortBy] = useState('recently-added');
@@ -89,24 +88,6 @@ export default function Categories() {
     }
   };
 
-  const handleRequestDelete = async (id: string, name: string) => {
-    const reason = prompt('Reason for deletion (optional):');
-    if (reason === null) return;
-    try {
-      await deleteRequestsApi.create({
-        entityType: 'category',
-        entityId: id,
-        entityName: name,
-        reason: reason || '',
-      });
-      setError('');
-      alert('Delete request submitted. Awaiting admin approval.');
-    } catch (err) {
-      setError('Failed to submit delete request');
-      console.error(err);
-    }
-  };
-
   const handleCancel = () => {
     setShowForm(false);
     setEditingId(null);
@@ -137,11 +118,6 @@ export default function Categories() {
 
   return (
     <div className="space-y-6">
-      {error && (
-        <div className="bg-red-50 border border-red-200 rounded-lg p-4 text-red-700">
-          {error}
-        </div>
-      )}
       <div className="flex justify-between items-center">
         <h1 className="text-3xl font-bold text-gray-900">Categories</h1>
         {(user.role === 'admin' || user.role === 'superadmin') && (

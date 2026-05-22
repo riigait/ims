@@ -27,6 +27,12 @@ router.get('/', authMiddleware, async (req: AuthRequest, res: Response) => {
             department: { select: { id: true, name: true, description: true } },
           },
         },
+        staffDepartments: {
+          select: {
+            departmentId: true,
+            department: { select: { id: true, name: true, description: true } },
+          },
+        },
         createdAt: true,
       },
       orderBy: { createdAt: 'desc' },

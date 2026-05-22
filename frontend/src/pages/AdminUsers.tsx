@@ -131,6 +131,18 @@ export default function AdminUsers() {
     setTimeout(() => setCopied(null), 2000);
   };
 
+  const canDeleteUser = (targetUser: User): boolean => {
+    if (!currentUser) return false;
+    // Can't delete yourself
+    if (targetUser.id === currentUser.id) return false;
+    // Superadmin can delete anyone
+    if (currentUser.role === 'superadmin') return true;
+    // Admin can delete admin and staff, but not superadmin
+    if (currentUser.role === 'admin') return targetUser.role !== 'superadmin';
+    // Staff has no delete access
+    return false;
+  };
+
   if (loading) return <div className="flex items-center justify-center h-screen"><div className="text-gray-500">Loading...</div></div>;
   if (!currentUser) return null;
 
@@ -239,7 +251,7 @@ export default function AdminUsers() {
                         </td>
                         <td className="px-4 py-3">
                           <span className={`px-2 py-1 rounded text-xs font-medium ${
-                            invite.role === 'admin' ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'
+                            invite.role === 'superadmin' ? 'bg-blue-100 text-blue-700' : invite.role === 'admin' ? 'bg-green-100 text-green-700' : 'bg-purple-100 text-purple-700'
                           }`}>
                             {invite.role}
                           </span>
@@ -299,7 +311,7 @@ export default function AdminUsers() {
                       </td>
                       <td className="px-4 py-3">
                         <span className={`px-2 py-1 rounded text-xs font-medium ${
-                          invite.role === 'admin' ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'
+                          invite.role === 'superadmin' ? 'bg-blue-100 text-blue-700' : invite.role === 'admin' ? 'bg-green-100 text-green-700' : 'bg-purple-100 text-purple-700'
                         }`}>
                           {invite.role}
                         </span>
@@ -337,19 +349,21 @@ export default function AdminUsers() {
                       <td className="px-4 py-3 text-gray-600">{user.email}</td>
                       <td className="px-4 py-3">
                         <span className={`px-2 py-1 rounded text-xs font-medium flex w-fit gap-1 ${
-                          user.role === 'admin' ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'
+                          user.role === 'superadmin' ? 'bg-blue-100 text-blue-700' : user.role === 'admin' ? 'bg-green-100 text-green-700' : 'bg-purple-100 text-purple-700'
                         }`}>
-                          {user.role === 'admin' && <Shield size={12} />}
+                          {(user.role === 'admin' || user.role === 'superadmin') && <Shield size={12} />}
                           {user.role}
                         </span>
                       </td>
                       <td className="px-4 py-3">
-                        {user.role === 'admin' ? (
+                        {user.role === 'superadmin' ? (
+                          <span className="px-3 py-1 bg-blue-50 text-blue-700 text-xs rounded border border-blue-200 font-medium">All Departments</span>
+                        ) : user.role === 'admin' ? (
                           // Admin: show assigned departments from adminDepartments
                           user.adminDepartments && user.adminDepartments.length > 0 ? (
                             <div className="flex flex-wrap gap-1">
                               {user.adminDepartments.map(ad => (
-                                <span key={ad.departmentId} className="px-2 py-1 bg-blue-50 text-blue-700 text-xs rounded border border-blue-200">
+                                <span key={ad.departmentId} className="px-2 py-1 bg-green-50 text-green-700 text-xs rounded border border-green-200">
                                   {ad.department.name}
                                 </span>
                               ))}
@@ -360,7 +374,7 @@ export default function AdminUsers() {
                         ) : (
                           // Staff: show single department
                           user.departmentId ? (
-                            <span className="text-gray-700 text-xs">{departments.find(d => d.id === user.departmentId)?.name || '-'}</span>
+                            <span className="px-2 py-1 bg-purple-50 text-purple-700 text-xs rounded border border-purple-200">{departments.find(d => d.id === user.departmentId)?.name || '-'}</span>
                           ) : (
                             <span className="text-gray-400 text-xs">Unassigned</span>
                           )
@@ -368,7 +382,7 @@ export default function AdminUsers() {
                       </td>
                       <td className="px-4 py-3 text-gray-600 text-xs">{new Date(user.createdAt).toLocaleDateString()}</td>
                       <td className="px-4 py-3">
-                        {user.id !== currentUser.id && (
+                        {canDeleteUser(user) && (
                           <button
                             onClick={() => deleteUser(user.id)}
                             className="p-2 text-red-600 hover:bg-red-50 rounded transition"

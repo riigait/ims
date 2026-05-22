@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Plus, Edit, Trash2, ChevronRight } from 'lucide-react';
-import { locationsApi, deleteRequestsApi, departmentsApi } from '@/services/api';
+import { locationsApi, departmentsApi } from '@/services/api';
 import { Location } from '@/types/inventory';
 
 interface Department {
@@ -16,7 +16,6 @@ export default function Locations() {
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [expandedParent, setExpandedParent] = useState<string | null>(null);
-  const [error, setError] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
   const [typeFilter, setTypeFilter] = useState('');
   const [departmentFilter, setDepartmentFilter] = useState('');
@@ -97,24 +96,6 @@ export default function Locations() {
     } catch (error) {
       console.error('Failed to delete location:', error);
       alert('Failed to delete location');
-    }
-  };
-
-  const handleRequestDelete = async (id: string, name: string) => {
-    const reason = prompt('Reason for deletion (optional):');
-    if (reason === null) return;
-    try {
-      await deleteRequestsApi.create({
-        entityType: 'location',
-        entityId: id,
-        entityName: name,
-        reason: reason || '',
-      });
-      setError('');
-      alert('Delete request submitted. Awaiting admin approval.');
-    } catch (err) {
-      setError('Failed to submit delete request');
-      console.error(err);
     }
   };
 
@@ -229,11 +210,6 @@ export default function Locations() {
 
   return (
     <div className="space-y-6">
-      {error && (
-        <div className="bg-red-50 border border-red-200 rounded-lg p-4 text-red-700">
-          {error}
-        </div>
-      )}
       <div className="flex justify-between items-center">
         <h1 className="text-3xl font-bold text-gray-900">Locations</h1>
         {(user.role === 'admin' || user.role === 'superadmin') && (

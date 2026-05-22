@@ -18,6 +18,7 @@ model Department {
   updatedAt   DateTime   @updatedAt
   users       User[]
   adminUsers  AdminDepartment[]
+  staffUsers  StaffDepartment[]
   products    Product[]
   categories  Category[]
   locations   Location[]
@@ -34,6 +35,7 @@ model User {
   departmentId  String?
   department    Department? @relation(fields: [departmentId], references: [id], onDelete: SetNull)
   adminDepartments AdminDepartment[]
+  staffDepartments StaffDepartment[]
   createdAt     DateTime   @default(now())
   updatedAt     DateTime   @updatedAt
   movements     StockMovement[]
@@ -160,6 +162,17 @@ model InviteCode {
 }
 
 model AdminDepartment {
+  id            String     @id @default(cuid())
+  userId        String
+  user          User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  departmentId  String
+  department    Department @relation(fields: [departmentId], references: [id], onDelete: Cascade)
+  createdAt     DateTime   @default(now())
+
+  @@unique([userId, departmentId])
+}
+
+model StaffDepartment {
   id            String     @id @default(cuid())
   userId        String
   user          User       @relation(fields: [userId], references: [id], onDelete: Cascade)

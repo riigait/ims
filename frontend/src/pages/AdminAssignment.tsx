@@ -15,6 +15,7 @@ interface User {
   role: string;
   departmentId?: string;
   adminDepartments?: Array<{ departmentId: string; department: Department }>;
+  staffDepartments?: Array<{ departmentId: string; department: Department }>;
 }
 
 export default function AdminAssignment() {
@@ -137,26 +138,42 @@ export default function AdminAssignment() {
     return departments.filter(d => !assignedIds.has(d.id));
   };
 
+  const getAvailableStaffDepartments = (staffId: string) => {
+    const staffMember = staff.find(s => s.id === staffId);
+    const assignedIds = new Set((staffMember?.staffDepartments || []).map(sd => sd.departmentId));
+    return departments.filter(d => !assignedIds.has(d.id));
+  };
+
   const assignStaffDepartment = async (staffId: string, deptId: string) => {
     try {
       setError('');
-      const response = await fetch(`/api/users/${staffId}`, {
-        method: 'PATCH',
+      const response = await fetch(`/api/staff-departments`, {
+        method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${localStorage.getItem('token')}`,
         },
-        body: JSON.stringify({ departmentId: deptId }),
+        body: JSON.stringify({ staffId, departmentId: deptId }),
       });
 
       if (!response.ok) {
-        throw new Error('Unable to assign department');
+        const data = await response.json();
+        if (data.error?.includes('already assigned')) {
+          throw new Error('This staff member is already assigned to this department');
+        }
+        throw new Error('Unable to complete request');
       }
 
       setStaff(
         staff.map(s => {
           if (s.id === staffId) {
-            return { ...s, departmentId: deptId };
+            return {
+              ...s,
+              staffDepartments: [
+                ...(s.staffDepartments || []),
+                { departmentId: deptId, department: departments.find(d => d.id === deptId)! },
+              ],
+            };
           }
           return s;
         })
@@ -167,23 +184,22 @@ export default function AdminAssignment() {
     }
   };
 
-  const unassignStaffDepartment = async (staffId: string) => {
+  const unassignStaffDepartment = async (staffId: string, deptId: string) => {
     try {
-      const response = await fetch(`/api/users/${staffId}`, {
-        method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${localStorage.getItem('token')}`,
-        },
-        body: JSON.stringify({ departmentId: null }),
+      const response = await fetch(`/api/staff-departments/${staffId}/${deptId}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
       });
 
-      if (!response.ok) throw new Error('Unable to unassign department');
+      if (!response.ok) throw new Error('Unable to complete request');
 
       setStaff(
         staff.map(s => {
           if (s.id === staffId) {
-            return { ...s, departmentId: undefined };
+            return {
+              ...s,
+              staffDepartments: (s.staffDepartments || []).filter(sd => sd.departmentId !== deptId),
+            };
           }
           return s;
         })
@@ -311,7 +327,7 @@ export default function AdminAssignment() {
           {/* Staff Assignments Section */}
           <div>
             <h2 className="text-2xl font-bold text-gray-900 mb-4">Staff Assignments</h2>
-            <p className="text-gray-600 mb-4">Assign departments to staff members</p>
+            <p className="text-gray-600 mb-4">Assign multiple departments to staff members</p>
             <div className="space-y-4">
               {staff.length === 0 ? (
                 <div className="text-center py-12 bg-white rounded-lg shadow">
@@ -319,70 +335,77 @@ export default function AdminAssignment() {
                 </div>
               ) : (
                 staff.map(s => (
-                  <div key={s.id} className="bg-white rounded-lg shadow p-6">
-                    <div className="flex items-start justify-between mb-4">
-                      <div>
-                        <h3 className="text-lg font-semibold text-gray-900">{s.name}</h3>
-                        <p className="text-sm text-gray-500">{s.email}</p>
-                      </div>
-                      <span className={`px-3 py-1 rounded-full text-xs font-medium ${s.departmentId ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'}`}>
-                        {s.departmentId ? 'Assigned' : 'Unassigned'}
-                      </span>
-                    </div>
+              <div key={s.id} className="bg-white rounded-lg shadow p-6">
+                <div className="flex items-start justify-between mb-4">
+                  <div>
+                    <h3 className="text-lg font-semibold text-gray-900">{s.name}</h3>
+                    <p className="text-sm text-gray-500">{s.email}</p>
+                  </div>
+                  <span className="px-3 py-1 bg-purple-100 text-purple-800 rounded-full text-xs font-medium">
+                    Staff
+                  </span>
+                </div>
 
-                    {/* Current Department */}
-                    <div className="mb-4">
-                      <p className="text-sm font-medium text-gray-700 mb-2">Current Department</p>
-                      {s.departmentId ? (
-                        <div className="flex items-center gap-2 bg-green-50 border border-green-200 rounded-lg px-3 py-2 w-fit">
-                          <span className="text-sm font-medium text-green-800">
-                            {departments.find(d => d.id === s.departmentId)?.name || 'Unknown'}
-                          </span>
+                {/* Assigned Departments */}
+                <div className="mb-4">
+                  <p className="text-sm font-medium text-gray-700 mb-2">
+                    Assigned Departments ({s.staffDepartments?.length || 0})
+                  </p>
+                  {(s.staffDepartments?.length || 0) === 0 ? (
+                    <p className="text-sm text-gray-500">No departments assigned</p>
+                  ) : (
+                    <div className="flex flex-wrap gap-2">
+                      {s.staffDepartments?.map(sd => (
+                        <div
+                          key={sd.departmentId}
+                          className="flex items-center gap-2 bg-purple-50 border border-purple-200 rounded-lg px-3 py-2"
+                        >
+                          <span className="text-sm font-medium text-purple-800">{sd.department.name}</span>
                           <button
-                            onClick={() => unassignStaffDepartment(s.id)}
-                            className="text-green-600 hover:text-red-600 transition"
+                            onClick={() => unassignStaffDepartment(s.id, sd.departmentId)}
+                            className="text-purple-600 hover:text-red-600 transition"
                             title="Remove"
                           >
                             <X size={16} />
                           </button>
                         </div>
-                      ) : (
-                        <p className="text-sm text-gray-500">No department assigned</p>
-                      )}
+                      ))}
                     </div>
+                  )}
+                </div>
 
-                    {/* Assign Department */}
-                    {!s.departmentId && departments.length > 0 && (
-                      <div className="flex gap-2">
-                        <select
-                          id={`staff-select-${s.id}`}
-                          className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-600 text-sm"
-                        >
-                          <option value="">Select a department to assign...</option>
-                          {departments.map(dept => (
-                            <option key={dept.id} value={dept.id}>
-                              {dept.name}
-                            </option>
-                          ))}
-                        </select>
-                        <button
-                          onClick={() => {
-                            const select = document.getElementById(`staff-select-${s.id}`) as HTMLSelectElement;
-                            if (select.value) {
-                              assignStaffDepartment(s.id, select.value);
-                              select.value = '';
-                            }
-                          }}
-                          className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium text-sm flex items-center gap-2 transition"
-                        >
-                          <Plus size={16} />
-                          Assign
-                        </button>
-                      </div>
-                    )}
+                {/* Assign More Departments */}
+                {getAvailableStaffDepartments(s.id).length > 0 && (
+                  <div className="flex gap-2">
+                    <select
+                      id={`staff-select-${s.id}`}
+                      className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-600 text-sm"
+                    >
+                      <option value="">Select a department to assign...</option>
+                      {getAvailableStaffDepartments(s.id).map(dept => (
+                        <option key={dept.id} value={dept.id}>
+                          {dept.name}
+                        </option>
+                      ))}
+                    </select>
+                    <button
+                      onClick={() => {
+                        const select = document.getElementById(`staff-select-${s.id}`) as HTMLSelectElement;
+                        if (select.value) {
+                          assignStaffDepartment(s.id, select.value);
+                          select.value = '';
+                        }
+                      }}
+                      className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium text-sm flex items-center gap-2 transition"
+                    >
+                      <Plus size={16} />
+                      Assign
+                    </button>
                   </div>
-                ))
-              )}
+                )}
+              </div>
+            ))
+          )}
             </div>
           </div>
         </div>

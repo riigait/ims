@@ -59,7 +59,7 @@ export default function Navbar() {
                       className="px-3 py-2 rounded hover:bg-blue-500 transition text-sm flex items-center gap-1 bg-blue-700"
                     >
                       <Users size={16} />
-                      Admin
+                      Administration
                       <ChevronDown size={16} />
                     </button>
                     {adminOpen && (
@@ -67,7 +67,7 @@ export default function Navbar() {
                         {user.role === 'superadmin' && (
                           <>
                             <Link to="/admin/assignment" className="block px-4 py-2 hover:bg-gray-100 text-sm font-medium text-blue-600">
-                              Admin Assignment
+                              Role Assignment
                             </Link>
                             <div className="border-t border-gray-200"></div>
                           </>
@@ -144,10 +144,10 @@ export default function Navbar() {
                 {(user.role === 'admin' || user.role === 'superadmin') && (
                   <>
                     <div className="border-t border-blue-500 pt-2 mt-2">
-                      <p className="px-4 py-2 text-xs font-semibold text-blue-200">ADMIN</p>
+                      <p className="px-4 py-2 text-xs font-semibold text-blue-200">ADMINISTRATION</p>
                       {user.role === 'superadmin' && (
                         <Link to="/admin/assignment" className="block px-4 py-2 hover:bg-blue-500 rounded text-sm font-medium">
-                          Admin Assignment
+                          Role Assignment
                         </Link>
                       )}
                       <Link to="/admin/users" className="block px-4 py-2 hover:bg-blue-500 rounded text-sm">

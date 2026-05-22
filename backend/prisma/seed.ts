@@ -29,28 +29,28 @@ async function main() {
 
   // Create or update superadmin user
   const existingAdmin = await prisma.user.findUnique({
-    where: { email: 'admin@example.com' },
+    where: { email: 'noc.voxptech@gmail.com' },
   });
 
   if (!existingAdmin) {
-    const hashedPassword = await bcrypt.hash('admin123', 10);
+    const hashedPassword = await bcrypt.hash('Kx9$mL2@pQ7!vN5b', 10);
     await prisma.user.create({
       data: {
-        name: 'Admin',
-        email: 'admin@example.com',
+        name: 'Superadmin',
+        email: 'noc.voxptech@gmail.com',
         passwordHash: hashedPassword,
         role: 'superadmin',
       },
     });
-    console.log('Created superadmin user: admin@example.com');
+    console.log('Created superadmin user: noc.voxptech@gmail.com');
   } else if (existingAdmin.role !== 'superadmin') {
     await prisma.user.update({
-      where: { email: 'admin@example.com' },
+      where: { email: 'noc.voxptech@gmail.com' },
       data: { role: 'superadmin' },
     });
-    console.log('Updated admin@example.com to superadmin role');
+    console.log('Updated noc.voxptech@gmail.com to superadmin role');
   } else {
-    console.log('Superadmin user already exists: admin@example.com');
+    console.log('Superadmin user already exists: noc.voxptech@gmail.com');
   }
 
   console.log('Seeding complete!');
