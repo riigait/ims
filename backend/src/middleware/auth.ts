@@ -32,9 +32,9 @@ export const authMiddleware = (req: AuthRequest, res: Response, next: NextFuncti
 };
 
 export const adminMiddleware = (req: AuthRequest, res: Response, next: NextFunction) => {
-  if (req.userRole === 'admin') {
+  if (req.userRole === 'admin' || req.userRole === 'superadmin') {
     next();
   } else {
-    return res.status(403).json({ error: 'Admin access required' });
+    return res.status(403).json({ error: 'Access denied' });
   }
 };

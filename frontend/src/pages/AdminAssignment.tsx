@@ -35,22 +35,27 @@ export default function AdminAssignment() {
 
   const loadData = async () => {
     try {
-      const [deptsRes, usersRes] = await Promise.all([
-        fetch('/api/departments', {
-          headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
-        }).then(r => r.json()),
-        fetch('/api/users', {
-          headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
-        }).then(r => r.json()),
-      ]);
+      const deptRes = await fetch('/api/departments', {
+        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
+      });
+      const usersRes = await fetch('/api/users', {
+        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
+      });
 
-      const deptList = deptsRes.data || deptsRes;
-      const adminsList = (usersRes || []).filter((u: User) => u.role === 'admin');
+      if (!deptRes.ok || !usersRes.ok) {
+        throw new Error('Failed to fetch data');
+      }
+
+      const deptData = await deptRes.json();
+      const userData = await usersRes.json();
+
+      const deptList = deptData.data || deptData;
+      const adminsList = (userData || []).filter((u: User) => u.role === 'admin');
 
       setDepartments(deptList);
       setAdmins(adminsList);
     } catch (err) {
-      setError('Failed to load data');
+      setError('Unable to load data. Please try again.');
       console.error(err);
     } finally {
       setLoading(false);
@@ -69,7 +74,13 @@ export default function AdminAssignment() {
         body: JSON.stringify({ adminId, departmentId: deptId }),
       });
 
-      if (!response.ok) throw new Error('Failed to assign department');
+      if (!response.ok) {
+        const data = await response.json();
+        if (data.error?.includes('already assigned')) {
+          throw new Error('This admin is already assigned to this department');
+        }
+        throw new Error('Unable to complete request');
+      }
 
       setAdmins(
         admins.map(a => {
@@ -86,7 +97,7 @@ export default function AdminAssignment() {
         })
       );
     } catch (err) {
-      setError('Failed to assign department');
+      setError(err instanceof Error ? err.message : 'Unable to complete request');
       console.error(err);
     }
   };
@@ -98,7 +109,7 @@ export default function AdminAssignment() {
         headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
       });
 
-      if (!response.ok) throw new Error('Failed to unassign department');
+      if (!response.ok) throw new Error('Unable to complete request');
 
       setAdmins(
         admins.map(a => {
@@ -112,7 +123,7 @@ export default function AdminAssignment() {
         })
       );
     } catch (err) {
-      setError('Failed to unassign department');
+      setError('Unable to complete request');
       console.error(err);
     }
   };
