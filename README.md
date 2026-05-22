@@ -11,7 +11,8 @@ A full-stack Web App/PWA for inventory management with an interactive 2D floor p
 - **Location Management** - Hierarchical location tree (Branch → Building → Floor → Room → Rack → Shelf)
 - **Interactive 2D Floor Plan Editor** - Manually create warehouse layouts with walls, rooms, racks, shelves, and labels
 - **Basic PWA Support** - Installable app, offline fallback
-- **Authentication** - Simple login/register with roles (admin/staff)
+- **Authentication** - Login/register with roles (superadmin/admin/staff), role-based access control
+- **Initial Setup** - Secure setup page for default superadmin account on new servers
 
 ## Tech Stack
 
@@ -87,16 +88,12 @@ To switch to PostgreSQL for production:
    npx prisma migrate dev --name init
    ```
 
-3. **Create the first admin user**
+3. **Seed the database**
    ```bash
    cd backend
-   # Optionally override defaults via env vars before running:
-   # ADMIN_EMAIL=you@company.com ADMIN_PASSWORD=strongpassword npm run seed
    npm run seed
    ```
-   Default credentials (change immediately after login):
-   - Email: `admin@ims.local`
-   - Password: `changeme123`
+   This creates a default superadmin account with temporary credentials that **must be changed** on first login (see Initial Setup below).
 
 4. **Start backend**
    ```bash
@@ -112,16 +109,28 @@ To switch to PostgreSQL for production:
 
 6. **Access the app**
    - Open http://localhost:5173 in your browser
-   - Login with the credentials set during the seed step
+   - Login with default credentials (see Initial Setup below)
 
-## First-time credentials
+## Initial Setup
 
-Set via `npm run seed` (override with env vars — see Setup step 3).
+Every new server comes with a default superadmin account that must be configured before use.
 
+### Default Credentials
 - Email: `admin@ims.local`
 - Password: `changeme123`
 
-**Change the password immediately after first login.**
+### Setup Process
+1. Login with the default credentials above
+2. You will be automatically redirected to the **Initial Setup** page
+3. Fill in the form with:
+   - **Name**: Your full name
+   - **Email**: Your permanent email address
+   - **Password**: Strong password (minimum 8 characters)
+   - **Confirm Password**: Verify your password
+4. Click **Complete Setup**
+5. Your superadmin account is now configured and ready to use
+
+**Important**: This is a one-time setup. After completion, use your new credentials to log in.
 
 ## Usage
 
@@ -178,6 +187,7 @@ Set via `npm run seed` (override with env vars — see Setup step 3).
 - `POST /api/auth/register` - Register user
 - `POST /api/auth/login` - Login user
 - `GET /api/auth/me` - Get current user
+- `POST /api/auth/complete-initial-setup` - Complete initial setup (change default email/password)
 
 ### Products
 - `GET /api/products` - List products
