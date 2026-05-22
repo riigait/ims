@@ -134,3 +134,50 @@ export const clearProductFilters = (): ProductFilter => ({
   unit: undefined,
   dateRange: 'all',
 });
+
+export const filterStockMovements = (
+  movements: any[],
+  filter: any,
+  getProductName: (id: string) => string
+): any[] => {
+  const search = filter.search.trim().toLowerCase();
+
+  return movements.filter((movement) => {
+    const productName = getProductName(movement.productId).toLowerCase();
+    const matchesSearch = !search || productName.includes(search);
+    const matchesType = !filter.movementType || movement.movementType === filter.movementType;
+    const matchesDateRange = isWithinDateRange(
+      movement.createdAt || new Date().toISOString(),
+      filter.dateRange
+    );
+
+    return matchesSearch && matchesType && matchesDateRange;
+  });
+};
+
+export const sortStockMovements = (
+  movements: any[],
+  field: string,
+  getProductName: (id: string) => string
+): any[] => {
+  const sorted = [...movements];
+
+  sorted.sort((a, b) => {
+    switch (field) {
+      case 'recently-added':
+        return new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime();
+      case 'oldest':
+        return new Date(a.createdAt || 0).getTime() - new Date(b.createdAt || 0).getTime();
+      case 'product-name':
+        return getProductName(a.productId).localeCompare(getProductName(b.productId));
+      case 'quantity-high':
+        return b.quantity - a.quantity;
+      case 'quantity-low':
+        return a.quantity - b.quantity;
+      default:
+        return 0;
+    }
+  });
+
+  return sorted;
+};

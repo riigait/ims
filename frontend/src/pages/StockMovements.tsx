@@ -2,7 +2,9 @@ import { useState, useEffect } from 'react';
 import { Plus } from 'lucide-react';
 import { stockMovementsApi, productsApi, locationsApi, departmentsApi } from '@/services/api';
 import { StockMovement, MovementType, Product, Location } from '@/types/inventory';
+import { StockMovementFilter } from '@/types/filters';
 import { formatDate } from '@/utils/ids';
+import { filterStockMovements, sortStockMovements } from '@/utils/filterHelpers';
 
 interface Department {
   id: string;
@@ -40,8 +42,11 @@ export default function StockMovements() {
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [formData, setFormData] = useState(emptyForm);
-  const [searchTerm, setSearchTerm] = useState('');
-  const [movementTypeFilter, setMovementTypeFilter] = useState('');
+  const [filters, setFilters] = useState<StockMovementFilter>({
+    search: '',
+    movementType: undefined,
+    dateRange: 'all',
+  });
   const [sortBy, setSortBy] = useState('recently-added');
 
   useEffect(() => { fetchData(); }, []);
@@ -90,25 +95,18 @@ export default function StockMovements() {
     return locations.find(l => l.id === locationId)?.name ?? 'Unknown';
   };
 
-  const filteredAndSortedMovements = movements
-    .filter(movement => {
-      const productName = getProductName(movement.productId).toLowerCase();
-      const matchesSearch = productName.includes(searchTerm.toLowerCase());
-      const matchesType = !movementTypeFilter || movement.movementType === movementTypeFilter;
-      return matchesSearch && matchesType;
-    })
-    .sort((a, b) => {
-      if (sortBy === 'recently-added') return new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime();
-      if (sortBy === 'oldest') return new Date(a.createdAt || 0).getTime() - new Date(b.createdAt || 0).getTime();
-      if (sortBy === 'product-name') return getProductName(a.productId).localeCompare(getProductName(b.productId));
-      if (sortBy === 'quantity-high') return b.quantity - a.quantity;
-      if (sortBy === 'quantity-low') return a.quantity - b.quantity;
-      return 0;
-    });
+  const filteredAndSortedMovements = sortStockMovements(
+    filterStockMovements(movements, filters, getProductName),
+    sortBy,
+    getProductName
+  );
 
   const clearAllFilters = () => {
-    setSearchTerm('');
-    setMovementTypeFilter('');
+    setFilters({
+      search: '',
+      movementType: undefined,
+      dateRange: 'all',
+    });
     setSortBy('recently-added');
   };
 
@@ -202,8 +200,8 @@ export default function StockMovements() {
             <input
               type="text"
               placeholder="Search by product name…"
-              value={searchTerm}
-              onChange={e => setSearchTerm(e.target.value)}
+              value={filters.search}
+              onChange={e => setFilters({ ...filters, search: e.target.value })}
               className="flex-1 px-4 py-2 border border-gray-300 rounded-lg text-sm"
               aria-label="Search stock movements"
             />
@@ -211,8 +209,8 @@ export default function StockMovements() {
 
           <div className="flex flex-wrap gap-2">
             <select
-              value={movementTypeFilter}
-              onChange={e => setMovementTypeFilter(e.target.value)}
+              value={filters.movementType || ''}
+              onChange={e => setFilters({ ...filters, movementType: e.target.value as any || undefined })}
               className="px-3 py-2 border border-gray-300 rounded text-sm"
               aria-label="Filter by movement type">
               <option value="">All Movement Types</option>
