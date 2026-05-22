@@ -1110,6 +1110,24 @@ export default function FloorPlanEditor() {
 
   const handleCanvasPointerDown = (e: React.PointerEvent) => {
     const pos = canvasToWorld(e.clientX, e.clientY);
+
+    // For read-only mode, only allow viewing objects (no editing)
+    if (isReadOnly) {
+      const objId = getObjectAtPoint(pos.x, pos.y);
+      if (objId) {
+        const obj = currentFloorPlan?.objects.find(o => o.id === objId);
+        // Only allow selecting room, rack, and shelf in read-only mode
+        if (obj && ['room', 'rack', 'shelf'].includes(obj.type)) {
+          setSelectedObject(objId);
+        } else {
+          clearSelection();
+        }
+      } else {
+        clearSelection();
+      }
+      return;
+    }
+
     if (editorState.tool === 'select') {
       const currentSelectedObj = editorState.selectedObjectId ? currentFloorPlan?.objects.find(o => o.id === editorState.selectedObjectId) : null;
 
@@ -1213,6 +1231,12 @@ export default function FloorPlanEditor() {
 
   const handleCanvasPointerMove = (e: React.PointerEvent) => {
     const pos = canvasToWorld(e.clientX, e.clientY);
+
+    // No dragging/resizing in read-only mode
+    if (isReadOnly) {
+      setCurrentMousePos(pos);
+      return;
+    }
 
     // Handle drag-to-select
     if (isSelectingRect && selectRectStart) {
@@ -1359,6 +1383,15 @@ export default function FloorPlanEditor() {
   const handleCanvasPointerUp = (e: React.PointerEvent) => {
     const pos = canvasToWorld(e.clientX, e.clientY);
     (e.currentTarget as HTMLCanvasElement).releasePointerCapture(e.pointerId);
+
+    // In read-only mode, just reset drag state
+    if (isReadOnly) {
+      setIsDragging(false);
+      setIsSelectingRect(false);
+      setSelectRectStart(null);
+      setSelectRectEnd(null);
+      return;
+    }
 
     // Handle drag-to-select completion
     if (isSelectingRect && selectRectStart && selectRectEnd) {
@@ -1647,21 +1680,20 @@ export default function FloorPlanEditor() {
             ref={canvasRef}
             width={currentFloorPlan.width}
             height={currentFloorPlan.height}
-            onPointerDown={isReadOnly ? undefined : handleCanvasPointerDown}
-            onPointerMove={isReadOnly ? undefined : handleCanvasPointerMove}
-            onPointerUp={isReadOnly ? undefined : handleCanvasPointerUp}
+            onPointerDown={handleCanvasPointerDown}
+            onPointerMove={handleCanvasPointerMove}
+            onPointerUp={handleCanvasPointerUp}
             onDoubleClick={isReadOnly ? undefined : handleCanvasDoubleClick}
-            onPointerLeave={isReadOnly ? undefined : (e) => {
+            onPointerLeave={(e) => {
               (e.currentTarget as HTMLCanvasElement).releasePointerCapture(e.pointerId);
               if (!isDragging) { setStartPos(null); setCurrentMousePos(null); }
             }}
-            className={`bg-white border border-gray-300 shadow-lg block ${isReadOnly ? 'cursor-default' : getCursor()}`}
+            className={`bg-white border border-gray-300 shadow-lg block ${getCursor()}`}
             style={{ margin: '16px' }}
           />
         </div>
 
-        {/* Right panel - hidden for read-only */}
-        {!isReadOnly && (
+        {/* Right panel */}
         <div className="w-80 bg-white border-l flex flex-col overflow-hidden shadow-sm flex-shrink-0">
           {selectedObjectIds.length > 0 ? (
             <div className="flex flex-col h-full overflow-y-auto">
@@ -1783,9 +1815,15 @@ export default function FloorPlanEditor() {
                 {/* Label */}
                 <div>
                   <label className="block text-xs font-medium text-gray-600 mb-1">Label</label>
-                  <input type="text" value={selectedObject.label || ''}
-                    onChange={e => updateObject(selectedObject.id, { label: e.target.value })}
-                    className="w-full px-2.5 py-1.5 border border-gray-300 rounded text-sm" placeholder="Display label…" />
+                  {isReadOnly ? (
+                    <div className="w-full px-2.5 py-1.5 border border-gray-200 rounded text-sm bg-gray-50 text-gray-700">
+                      {selectedObject.label || '(no label)'}
+                    </div>
+                  ) : (
+                    <input type="text" value={selectedObject.label || ''}
+                      onChange={e => updateObject(selectedObject.id, { label: e.target.value })}
+                      className="w-full px-2.5 py-1.5 border border-gray-300 rounded text-sm" placeholder="Display label…" />
+                  )}
                 </div>
 
                 {/* Label object: text + fontSize */}
@@ -1822,9 +1860,9 @@ export default function FloorPlanEditor() {
                     </div>
                     <div>
                       <label className="block text-xs font-medium text-gray-600 mb-1">Thickness (px)</label>
-                      <input type="number" value={wall.thickness} min={1} max={50}
+                      <input type="number" value={wall.thickness} min={1} max={50} disabled={isReadOnly}
                         onChange={e => updateObject(selectedObject.id, { thickness: parseInt(e.target.value) || 8 })}
-                        className="w-full px-2.5 py-1.5 border border-gray-300 rounded text-sm" />
+                        className={`w-full px-2.5 py-1.5 border rounded text-sm ${isReadOnly ? 'bg-gray-50 border-gray-200' : 'border-gray-300'}`} />
                     </div>
                   </>;
                 })()}
@@ -1968,15 +2006,15 @@ export default function FloorPlanEditor() {
                   return <div className="grid grid-cols-2 gap-2">
                     <div>
                       <label className="block text-xs font-medium text-gray-600 mb-1">Width</label>
-                      <input type="number" value={Math.round(rect.width)} min={10}
+                      <input type="number" value={Math.round(rect.width)} min={10} disabled={isReadOnly}
                         onChange={e => updateObject(selectedObject.id, { width: parseInt(e.target.value) || 10 })}
-                        className="w-full px-2.5 py-1.5 border border-gray-300 rounded text-sm" />
+                        className={`w-full px-2.5 py-1.5 border rounded text-sm ${isReadOnly ? 'bg-gray-50 border-gray-200' : 'border-gray-300'}`} />
                     </div>
                     <div>
                       <label className="block text-xs font-medium text-gray-600 mb-1">Height</label>
-                      <input type="number" value={Math.round(rect.height)} min={10}
+                      <input type="number" value={Math.round(rect.height)} min={10} disabled={isReadOnly}
                         onChange={e => updateObject(selectedObject.id, { height: parseInt(e.target.value) || 10 })}
-                        className="w-full px-2.5 py-1.5 border border-gray-300 rounded text-sm" />
+                        className={`w-full px-2.5 py-1.5 border rounded text-sm ${isReadOnly ? 'bg-gray-50 border-gray-200' : 'border-gray-300'}`} />
                     </div>
                   </div>;
                 })()}
@@ -1985,9 +2023,9 @@ export default function FloorPlanEditor() {
                 {selectedObject.type !== 'label' && selectedObject.type !== 'marker' && (
                   <div>
                     <label className="block text-xs font-medium text-gray-600 mb-1">Color</label>
-                    <input type="color" value={(selectedObject as any).color || '#000000'}
+                    <input type="color" value={(selectedObject as any).color || '#000000'} disabled={isReadOnly}
                       onChange={e => updateObject(selectedObject.id, { color: e.target.value })}
-                      className="w-full h-9 border border-gray-300 rounded cursor-pointer" />
+                      className={`w-full h-9 border rounded ${isReadOnly ? 'cursor-not-allowed bg-gray-50 border-gray-200' : 'border-gray-300 cursor-pointer'}`} />
                   </div>
                 )}
 
@@ -1995,27 +2033,38 @@ export default function FloorPlanEditor() {
                 {(selectedObject.type === 'room' || selectedObject.type === 'rack' || selectedObject.type === 'shelf') && (
                   <div>
                     <label className="block text-xs font-medium text-gray-600 mb-1">Linked Location</label>
-                    <select value={selectedObject.linkedLocationId || ''}
-                      onChange={e => updateObject(selectedObject.id, { linkedLocationId: e.target.value || undefined })}
-                      className="w-full px-2.5 py-1.5 border border-gray-300 rounded text-sm bg-white">
-                      <option value="">— No location linked —</option>
-                      {locations.map(loc => (
-                        <option key={loc.id} value={loc.id}>{loc.name} ({loc.type})</option>
-                      ))}
-                    </select>
+                    {isReadOnly ? (
+                      <div className="w-full px-2.5 py-1.5 border border-gray-200 rounded text-sm bg-gray-50 text-gray-700">
+                        {selectedObject.linkedLocationId
+                          ? locations.find(loc => loc.id === selectedObject.linkedLocationId)?.name || 'Location not found'
+                          : '— No location linked —'
+                        }
+                      </div>
+                    ) : (
+                      <select value={selectedObject.linkedLocationId || ''}
+                        onChange={e => updateObject(selectedObject.id, { linkedLocationId: e.target.value || undefined })}
+                        className="w-full px-2.5 py-1.5 border border-gray-300 rounded text-sm bg-white">
+                        <option value="">— No location linked —</option>
+                        {locations.map(loc => (
+                          <option key={loc.id} value={loc.id}>{loc.name} ({loc.type})</option>
+                        ))}
+                      </select>
+                    )}
                   </div>
                 )}
 
                 {/* Notes */}
-                <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">Notes</label>
-                  <textarea value={selectedObject.notes || ''}
-                    onChange={e => updateObject(selectedObject.id, { notes: e.target.value })}
-                    className="w-full px-2.5 py-1.5 border border-gray-300 rounded text-sm" rows={2} placeholder="Optional notes…" />
-                </div>
+                {!isReadOnly && (
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">Notes</label>
+                    <textarea value={selectedObject.notes || ''}
+                      onChange={e => updateObject(selectedObject.id, { notes: e.target.value })}
+                      className="w-full px-2.5 py-1.5 border border-gray-300 rounded text-sm" rows={2} placeholder="Optional notes…" />
+                  </div>
+                )}
 
-                {/* Layer ordering */}
-                {(() => {
+                {/* Layer ordering - only for editing mode */}
+                {!isReadOnly && (() => {
                   const { index, total } = getObjectLayer(selectedObject.id);
                   const isBack  = index === 0;
                   const isFront = index === total - 1;
@@ -2057,10 +2106,12 @@ export default function FloorPlanEditor() {
                   );
                 })()}
 
-                <button onClick={() => { deleteObject(selectedObject.id); setSelectedObject(null); useFloorPlanStore.getState().pushHistory(); }}
-                  className="w-full px-3 py-1.5 bg-red-600 text-white rounded hover:bg-red-700 text-sm flex items-center justify-center gap-1.5">
-                  <Trash2 size={13} /> Delete Object
-                </button>
+                {!isReadOnly && (
+                  <button onClick={() => { deleteObject(selectedObject.id); setSelectedObject(null); useFloorPlanStore.getState().pushHistory(); }}
+                    className="w-full px-3 py-1.5 bg-red-600 text-white rounded hover:bg-red-700 text-sm flex items-center justify-center gap-1.5">
+                    <Trash2 size={13} /> Delete Object
+                  </button>
+                )}
               </div>
               ) : null;
               })()}
@@ -2176,7 +2227,6 @@ export default function FloorPlanEditor() {
             </div>
           )}
         </div>
-        )}
       </div>
     </div>
   );
