@@ -277,14 +277,6 @@ export default function FloorPlanEditor() {
       }
     });
 
-    // Draw wall measurements for selected wall
-    if (editorState.selectedObjectId && currentFloorPlan) {
-      const selectedObj = currentFloorPlan.objects.find(o => o.id === editorState.selectedObjectId);
-      if (selectedObj && selectedObj.type === 'wall') {
-        const pixelsPerMeter = currentFloorPlan.scale?.pixelsPerMeter ?? 50;
-        drawWallMeasurement(ctx, selectedObj as WallObject, pixelsPerMeter);
-      }
-    }
 
 
     // Live drawing preview
@@ -876,41 +868,6 @@ export default function FloorPlanEditor() {
       }
     }
 
-    ctx.restore();
-  };
-
-  const drawWallMeasurement = (ctx: CanvasRenderingContext2D, wall: WallObject, pixelsPerMeter: number) => {
-    const length = dist(wall.startX, wall.startY, wall.endX, wall.endY);
-    const meters = (length / pixelsPerMeter).toFixed(2);
-    const text = `${meters}m`;
-
-    const midX = (wall.startX + wall.endX) / 2;
-    const midY = (wall.startY + wall.endY) / 2;
-
-    // Offset perpendicular to wall
-    const angle = getWallAngle(wall);
-    const offsetDist = 25;
-    const offsetX = midX - Math.sin(angle) * offsetDist;
-    const offsetY = midY + Math.cos(angle) * offsetDist;
-
-    ctx.save();
-    ctx.font = 'bold 12px Inter, Arial, sans-serif';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-
-    // White background for label
-    const textMetrics = ctx.measureText(text);
-    const textWidth = textMetrics.width;
-    const textHeight = 14;
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.95)';
-    ctx.strokeStyle = '#2563eb';
-    ctx.lineWidth = 1;
-    ctx.fillRect(offsetX - textWidth / 2 - 4, offsetY - textHeight / 2, textWidth + 8, textHeight);
-    ctx.strokeRect(offsetX - textWidth / 2 - 4, offsetY - textHeight / 2, textWidth + 8, textHeight);
-
-    // Blue text
-    ctx.fillStyle = '#2563eb';
-    ctx.fillText(text, offsetX, offsetY);
     ctx.restore();
   };
 
