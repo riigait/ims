@@ -13,19 +13,24 @@ interface AdminDepartment {
 
 export default function DepartmentSwitcher() {
   const user = JSON.parse(localStorage.getItem('user') || '{}');
-  const [departments, setDepartments] = useState<AdminDepartment[]>([]);
-  const [currentDeptId, setCurrentDeptId] = useState(localStorage.getItem('currentDepartmentId') || '');
+  const [departments, setDepartments] = useState<AdminDepartment[]>(user.adminDepartments || []);
+  const [currentDeptId, setCurrentDeptId] = useState<string>(
+    localStorage.getItem('currentDepartmentId') || (user.adminDepartments?.[0]?.departmentId || '')
+  );
   const [isOpen, setIsOpen] = useState(false);
 
   useEffect(() => {
-    if (user.role === 'admin' && user.adminDepartments) {
+    if (user.role === 'admin' && user.adminDepartments && user.adminDepartments.length > 0) {
       setDepartments(user.adminDepartments);
-      if (user.adminDepartments.length > 0 && !currentDeptId) {
-        setCurrentDeptId(user.adminDepartments[0].departmentId);
-        localStorage.setItem('currentDepartmentId', user.adminDepartments[0].departmentId);
+      // Only set default department if not already set
+      const saved = localStorage.getItem('currentDepartmentId');
+      if (!saved) {
+        const firstDept = user.adminDepartments[0].departmentId;
+        setCurrentDeptId(firstDept);
+        localStorage.setItem('currentDepartmentId', firstDept);
       }
     }
-  }, [user, currentDeptId]);
+  }, []);
 
   const handleSwitchDepartment = (deptId: string) => {
     setCurrentDeptId(deptId);
