@@ -13,7 +13,9 @@
     "frontend:build": "cd frontend && npm run build",
     "backend:build": "cd backend && npm run build",
     "backend:db:migrate": "cd backend && npx prisma migrate dev",
-    "backend:db:studio": "cd backend && npx prisma studio"
+    "backend:db:studio": "cd backend && npx prisma studio",
+    "start": "npm run dev",
+    "control": "powershell -ExecutionPolicy Bypass -File ims-control.ps1"
   },
   "devDependencies": {
     "concurrently": "^8.2.2",
