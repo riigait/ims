@@ -1304,8 +1304,8 @@ export default function FloorPlanEditor() {
           } else if (obj.type === 'label') {
             const l = obj as LabelObject;
             return l.x >= minX && l.y >= minY;
-          } else if (obj.type === 'door' || obj.type === 'window') {
-            const o = obj as DoorObject | WindowObject;
+          } else if (obj.type === 'door' || obj.type === 'window' || obj.type === 'entrance') {
+            const o = obj as DoorObject | WindowObject | EntranceObject;
             return o.x >= minX && o.x <= maxX && o.y >= minY && o.y <= maxY;
           } else if (obj.type === 'marker') {
             const m = obj as InventoryMarkerObject;
