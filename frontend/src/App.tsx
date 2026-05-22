@@ -3,6 +3,7 @@ import Layout from '@/components/layout/Layout';
 import DepartmentGuard from '@/components/DepartmentGuard';
 import Login from '@/pages/Login';
 import Register from '@/pages/Register';
+import InitialSetup from '@/pages/InitialSetup';
 import Dashboard from '@/pages/Dashboard';
 import Products from '@/pages/Products';
 import Categories from '@/pages/Categories';
@@ -20,7 +21,14 @@ import ErrorBoundary from '@/components/ErrorBoundary';
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
   const isLoggedIn = !!localStorage.getItem('token');
-  return isLoggedIn ? children : <Navigate to="/login" />;
+  const user = localStorage.getItem('user');
+  const userObj = user ? JSON.parse(user) : null;
+
+  if (!isLoggedIn) return <Navigate to="/login" />;
+  if (userObj?.initialSetupComplete === false) {
+    return <Navigate to="/initial-setup" />;
+  }
+  return children;
 }
 
 function App() {
@@ -30,6 +38,7 @@ function App() {
         <Routes>
         <Route path="/login" element={<Login />} />
         <Route path="/register" element={<Register />} />
+        <Route path="/initial-setup" element={<InitialSetup />} />
         <Route
           path="/"
           element={

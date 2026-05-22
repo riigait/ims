@@ -33,6 +33,8 @@ export const authApi = {
     api.post('/auth/register', { name, email, password }),
   logout: () => localStorage.removeItem('token'),
   getCurrentUser: () => api.get('/auth/me'),
+  completeInitialSetup: (newEmail: string, newPassword: string, newName: string) =>
+    api.post('/auth/complete-initial-setup', { newEmail, newPassword, newName }),
 };
 
 // Products

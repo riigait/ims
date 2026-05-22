@@ -42,7 +42,7 @@ router.post('/register', async (req: Request, res: Response) => {
 
     const passwordHash = await bcrypt.hash(password, 10);
     const user = await prisma.user.create({
-      data: { name, email, passwordHash, role },
+      data: { name, email, passwordHash, role, initialSetupComplete: true },
     });
 
     // Update invite code with actual user ID if invite was used
@@ -59,7 +59,7 @@ router.post('/register', async (req: Request, res: Response) => {
     const token = signToken(user.id, user.role, user.departmentId ?? undefined);
     res.json({
       token,
-      user: { id: user.id, name: user.name, email: user.email, role: user.role, departmentId: user.departmentId }
+      user: { id: user.id, name: user.name, email: user.email, role: user.role, departmentId: user.departmentId, initialSetupComplete: user.initialSetupComplete }
     });
   } catch (error) {
     console.error(error);
@@ -87,6 +87,11 @@ router.post('/login', async (req: Request, res: Response) => {
       select: { departmentId: true, department: { select: { id: true, name: true, description: true } } },
     }) : [];
 
+    const staffDepartments = user.role === 'staff' ? await prisma.staffDepartment.findMany({
+      where: { userId: user.id },
+      select: { departmentId: true, department: { select: { id: true, name: true, description: true } } },
+    }) : [];
+
     const token = signToken(user.id, user.role, user.departmentId ?? undefined);
     res.json({
       token,
@@ -96,7 +101,9 @@ router.post('/login', async (req: Request, res: Response) => {
         email: user.email,
         role: user.role,
         departmentId: user.departmentId,
+        initialSetupComplete: user.initialSetupComplete,
         adminDepartments,
+        staffDepartments,
       }
     });
   } catch (error) {
@@ -116,13 +123,75 @@ router.get('/me', authMiddleware, async (req: AuthRequest, res: Response) => {
       select: { departmentId: true, department: { select: { id: true, name: true, description: true } } },
     }) : [];
 
+    const staffDepartments = user.role === 'staff' ? await prisma.staffDepartment.findMany({
+      where: { userId: user.id },
+      select: { departmentId: true, department: { select: { id: true, name: true, description: true } } },
+    }) : [];
+
     res.json({
       id: user.id,
       name: user.name,
       email: user.email,
       role: user.role,
       departmentId: user.departmentId,
+      initialSetupComplete: user.initialSetupComplete,
       adminDepartments,
+      staffDepartments,
+    });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Complete initial setup — change default email and password
+router.post('/complete-initial-setup', authMiddleware, async (req: AuthRequest, res: Response) => {
+  try {
+    const { newEmail, newPassword, newName } = req.body;
+
+    if (!newEmail || !newPassword || !newName) {
+      return res.status(400).json({ error: 'Missing required fields' });
+    }
+
+    const user = await prisma.user.findUnique({ where: { id: req.userId } });
+    if (!user) return res.status(404).json({ error: 'User not found' });
+
+    if (user.role !== 'superadmin') {
+      return res.status(403).json({ error: 'Only superadmin can complete initial setup' });
+    }
+
+    if (user.initialSetupComplete) {
+      return res.status(400).json({ error: 'Initial setup already completed' });
+    }
+
+    // Check if new email is already taken
+    const existingEmail = await prisma.user.findUnique({ where: { email: newEmail } });
+    if (existingEmail && existingEmail.id !== user.id) {
+      return res.status(400).json({ error: 'Email already in use' });
+    }
+
+    const passwordHash = await bcrypt.hash(newPassword, 10);
+    const updatedUser = await prisma.user.update({
+      where: { id: user.id },
+      data: {
+        email: newEmail,
+        passwordHash,
+        name: newName,
+        initialSetupComplete: true,
+      },
+    });
+
+    const token = signToken(updatedUser.id, updatedUser.role, updatedUser.departmentId ?? undefined);
+    res.json({
+      token,
+      user: {
+        id: updatedUser.id,
+        name: updatedUser.name,
+        email: updatedUser.email,
+        role: updatedUser.role,
+        departmentId: updatedUser.departmentId,
+        initialSetupComplete: updatedUser.initialSetupComplete,
+      },
     });
   } catch (error) {
     console.error(error);

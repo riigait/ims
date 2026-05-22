@@ -48,13 +48,28 @@ export interface StockMovement {
   createdAt: string;
 }
 
+export interface Department {
+  id: string;
+  name: string;
+  description?: string;
+}
+
+export interface AdminDepartment {
+  departmentId: string;
+  department: Department;
+}
+
 export interface User {
   id: string;
   name: string;
   email: string;
-  role: 'admin' | 'staff';
-  createdAt: string;
-  updatedAt: string;
+  role: 'admin' | 'staff' | 'superadmin';
+  departmentId?: string;
+  initialSetupComplete?: boolean;
+  adminDepartments?: AdminDepartment[];
+  staffDepartments?: AdminDepartment[];
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 export interface AuthResponse {

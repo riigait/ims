@@ -27,21 +27,22 @@ model Department {
 }
 
 model User {
-  id            String     @id @default(cuid())
-  name          String
-  email         String     @unique
-  passwordHash  String
-  role          String     @default("staff") // superadmin, admin, staff
-  departmentId  String?
-  department    Department? @relation(fields: [departmentId], references: [id], onDelete: SetNull)
-  adminDepartments AdminDepartment[]
-  staffDepartments StaffDepartment[]
-  createdAt     DateTime   @default(now())
-  updatedAt     DateTime   @updatedAt
-  movements     StockMovement[]
-  inviteCodes   InviteCode[]
-  deleteRequests DeleteRequest[] @relation("requestedBy")
-  reviewedRequests DeleteRequest[] @relation("reviewedBy")
+  id                    String     @id @default(cuid())
+  name                  String
+  email                 String     @unique
+  passwordHash          String
+  role                  String     @default("staff") // superadmin, admin, staff
+  departmentId          String?
+  department            Department? @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+  initialSetupComplete  Boolean    @default(false)
+  adminDepartments      AdminDepartment[]
+  staffDepartments      StaffDepartment[]
+  createdAt             DateTime   @default(now())
+  updatedAt             DateTime   @updatedAt
+  movements             StockMovement[]
+  inviteCodes           InviteCode[]
+  deleteRequests        DeleteRequest[] @relation("requestedBy")
+  reviewedRequests      DeleteRequest[] @relation("reviewedBy")
 }
 
 model Product {
