@@ -1,10 +1,14 @@
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
+import { PrismaClient } from '@prisma/client';
+
+const prisma = new PrismaClient();
 
 export interface AuthRequest extends Request {
   userId?: string;
   userRole?: string;
   departmentId?: string;
+  departmentIds?: string[]; // For staff/admin viewing all assigned departments
 }
 
 function getJwtSecret(): string {
@@ -15,7 +19,7 @@ function getJwtSecret(): string {
 
 export { getJwtSecret };
 
-export const authMiddleware = (req: AuthRequest, res: Response, next: NextFunction) => {
+export const authMiddleware = async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const token = req.headers.authorization?.split(' ')[1];
     if (!token) return res.status(401).json({ error: 'No token provided' });
@@ -27,15 +31,37 @@ export const authMiddleware = (req: AuthRequest, res: Response, next: NextFuncti
     // Superadmin sees all data across all departments (no department filter)
     if (req.userRole === 'superadmin') {
       req.departmentId = undefined;
-    } else if (req.userRole === 'admin') {
-      // For admins, check if X-Department-Id header is provided (from department switcher)
+    } else if (req.userRole === 'admin' || req.userRole === 'staff') {
+      // For admins and staff, check if X-Department-Id header is provided (from department switcher)
       const headerDeptId = req.headers['x-department-id'] as string;
-      req.departmentId = headerDeptId;
-    } else {
-      // For staff, use departmentId from JWT
-      req.departmentId = decoded.departmentId;
+      console.log(`[AUTH] Header dept ID: ${headerDeptId}, User role: ${req.userRole}, User ID: ${decoded.userId}`);
+      if (headerDeptId && headerDeptId !== 'all-departments') {
+        // Use the selected department
+        req.departmentId = headerDeptId;
+        console.log(`[AUTH] Set single departmentId: ${req.departmentId}`);
+      } else if (headerDeptId === 'all-departments') {
+        if (req.userRole === 'admin') {
+          // Admins can view all departments
+          req.departmentId = undefined;
+          console.log(`[AUTH] Admin with all-departments: cleared departmentId`);
+        } else if (req.userRole === 'staff') {
+          // Staff viewing "all departments" - get their assigned departments
+          const staffDepts = await prisma.staffDepartment.findMany({
+            where: { userId: decoded.userId },
+            select: { departmentId: true },
+          });
+          req.departmentIds = staffDepts.map(sd => sd.departmentId);
+          req.departmentId = undefined; // No single department filter
+          console.log(`[AUTH] Staff with all-departments: departmentIds = [${req.departmentIds.join(', ')}]`);
+        }
+      } else {
+        // Fallback to JWT departmentId (for single-department users)
+        req.departmentId = decoded.departmentId;
+        console.log(`[AUTH] Fallback to JWT departmentId: ${req.departmentId}`);
+      }
     }
 
+    console.log(`[AUTH] Final state - departmentId: ${req.departmentId}, departmentIds: ${req.departmentIds?.join(',') || 'undefined'}`);
     next();
   } catch (error) {
     return res.status(401).json({ error: 'Invalid token' });

@@ -10,21 +10,35 @@ const prisma = new PrismaClient();
 router.get('/', async (req: AuthRequest, res: Response) => {
   try {
     // For admins without a selected department, fetch all products they have access to
-    // For staff, only fetch products from their department
+    // For staff, only fetch products from their department(s)
     // For superadmins, fetch all products
     let whereFilter: any = {};
 
-    if (req.userRole === 'staff' && req.departmentId) {
+    console.log(`[PRODUCTS] departmentId: ${req.departmentId}, departmentIds: ${req.departmentIds?.join(',') || 'undefined'}`);
+
+    if (req.departmentIds && req.departmentIds.length > 0) {
+      // Staff viewing all assigned departments - include products with null departmentId
+      whereFilter = {
+        OR: [
+          { departmentId: { in: req.departmentIds } },
+          { departmentId: null }
+        ]
+      };
+      console.log(`[PRODUCTS] Using departmentIds filter with null inclusion: ${req.departmentIds.join(',')}`);
+    } else if (req.departmentId) {
+      // Single department filter (staff or admin with selected department)
       whereFilter = { departmentId: req.departmentId };
-    } else if (req.userRole === 'admin' && req.departmentId) {
-      whereFilter = { departmentId: req.departmentId };
+      console.log(`[PRODUCTS] Using departmentId filter: ${req.departmentId}`);
+    } else {
+      console.log(`[PRODUCTS] No department filter, showing all products`);
     }
-    // For superadmin or admin without selected department: no filter (show all)
+    // For superadmin or admin/staff without selected department: no filter (show all)
 
     const products = await prisma.product.findMany({
       where: whereFilter,
       include: { category: true, location: true },
     });
+    console.log(`[PRODUCTS] Found ${products.length} products`);
     res.json(products);
   } catch (error) {
     console.error(error);

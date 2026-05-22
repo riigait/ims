@@ -10,15 +10,25 @@ router.get('/stats', authMiddleware, async (req: AuthRequest, res: Response) => 
   try {
     // Filter by department for staff/admin with selected department, show all for superadmin
     let departmentFilter: any = {};
-    // For admins: if not "all-departments", filter by specific department
-    if (req.userRole === 'admin' && req.departmentId && req.departmentId !== 'all-departments') {
+    // For multiple departments (staff/admin viewing "all-departments")
+    if (req.departmentIds && req.departmentIds.length > 0) {
+      // Include items with null departmentId
+      departmentFilter = {
+        OR: [
+          { departmentId: { in: req.departmentIds } },
+          { departmentId: null }
+        ]
+      };
+    }
+    // For admins: if single department selected, filter by specific department
+    else if (req.userRole === 'admin' && req.departmentId && req.departmentId !== 'all-departments') {
       departmentFilter = { departmentId: req.departmentId };
     }
     // For staff: always filter by their assigned department
     else if (req.userRole === 'staff' && req.departmentId) {
       departmentFilter = { departmentId: req.departmentId };
     }
-    // For superadmin or admin with "all-departments": no filter, show all
+    // For superadmin or admin/staff with "all-departments": no filter, show all
 
     const [totalProducts, totalStock, lowStockCount, totalLocations, totalFloorPlans] =
       await Promise.all([
@@ -60,12 +70,20 @@ router.get('/recent-movements', authMiddleware, async (req: AuthRequest, res: Re
   try {
     // For admins with "all-departments" or superadmin: no filter. Otherwise filter by specific department
     let departmentFilter: any = {};
-    if (req.userRole === 'admin' && req.departmentId && req.departmentId !== 'all-departments') {
+    if (req.departmentIds && req.departmentIds.length > 0) {
+      // Include movements with null departmentId
+      departmentFilter = {
+        OR: [
+          { departmentId: { in: req.departmentIds } },
+          { departmentId: null }
+        ]
+      };
+    } else if (req.userRole === 'admin' && req.departmentId && req.departmentId !== 'all-departments') {
       departmentFilter = { departmentId: req.departmentId };
     } else if (req.userRole === 'staff' && req.departmentId) {
       departmentFilter = { departmentId: req.departmentId };
     }
-    // For superadmin or admin with "all-departments": no filter
+    // For superadmin or admin/staff with "all-departments": no filter
 
     const movements = await prisma.stockMovement.findMany({
       include: { product: true },

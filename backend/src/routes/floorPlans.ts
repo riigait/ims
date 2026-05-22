@@ -9,7 +9,15 @@ const prisma = new PrismaClient();
 router.get('/', async (req: AuthRequest, res: Response) => {
   try {
     let departmentFilter: any = {};
-    if ((req.userRole === 'staff' || req.userRole === 'admin') && req.departmentId) {
+    if (req.departmentIds && req.departmentIds.length > 0) {
+      // Include floor plans with null departmentId
+      departmentFilter = {
+        OR: [
+          { departmentId: { in: req.departmentIds } },
+          { departmentId: null }
+        ]
+      };
+    } else if ((req.userRole === 'staff' || req.userRole === 'admin') && req.departmentId) {
       departmentFilter = { departmentId: req.departmentId };
     }
     const floorPlans = await prisma.floorPlan.findMany({

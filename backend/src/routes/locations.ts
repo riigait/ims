@@ -9,7 +9,15 @@ const prisma = new PrismaClient();
 router.get('/', async (req: AuthRequest, res: Response) => {
   try {
     let whereFilter: any = {};
-    if ((req.userRole === 'staff' || req.userRole === 'admin') && req.departmentId) {
+    if (req.departmentIds && req.departmentIds.length > 0) {
+      // Include locations with null departmentId
+      whereFilter = {
+        OR: [
+          { departmentId: { in: req.departmentIds } },
+          { departmentId: null }
+        ]
+      };
+    } else if ((req.userRole === 'staff' || req.userRole === 'admin') && req.departmentId) {
       whereFilter = { departmentId: req.departmentId };
     }
     const locations = await prisma.location.findMany({
