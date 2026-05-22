@@ -3,8 +3,10 @@ import { useNavigate } from 'react-router-dom';
 import { Plus, Edit, Trash2, MapPin } from 'lucide-react';
 import { productsApi, categoriesApi, locationsApi, deleteRequestsApi, departmentsApi } from '@/services/api';
 import { Product, Category, Location } from '@/types/inventory';
+import { ProductFilter, ProductSort } from '@/types/filters';
 import { validateProductName, validateSKU, validateStock } from '@/utils/validation';
 import { generateSKU } from '@/utils/ids';
+import { filterAndSortProducts, clearProductFilters } from '@/utils/filterHelpers';
 
 const emptyForm = {
   sku: '',
@@ -32,14 +34,19 @@ export default function Products() {
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [searchTerm, setSearchTerm] = useState('');
-  const [categoryFilter, setCategoryFilter] = useState('');
-  const [locationFilter, setLocationFilter] = useState('');
-  const [stockStatusFilter, setStockStatusFilter] = useState('');
-  const [departmentFilter, setDepartmentFilter] = useState('');
-  const [unitFilter, setUnitFilter] = useState('');
-  const [dateRangeFilter, setDateRangeFilter] = useState('all');
-  const [sortBy, setSortBy] = useState('recently-added');
+  const [filters, setFilters] = useState<ProductFilter>({
+    search: '',
+    categoryId: undefined,
+    locationId: undefined,
+    stockStatus: undefined,
+    departmentId: undefined,
+    unit: undefined,
+    dateRange: 'all',
+  });
+  const [sort, setSort] = useState<ProductSort>({
+    field: 'date',
+    order: 'desc',
+  });
   const [formData, setFormData] = useState(emptyForm);
   const [error, setError] = useState('');
 
@@ -142,52 +149,11 @@ export default function Products() {
   };
 
   const clearAllFilters = () => {
-    setSearchTerm('');
-    setCategoryFilter('');
-    setLocationFilter('');
-    setStockStatusFilter('');
-    setDepartmentFilter('');
-    setUnitFilter('');
-    setDateRangeFilter('all');
-    setSortBy('recently-added');
+    setFilters(clearProductFilters());
+    setSort({ field: 'date', order: 'desc' });
   };
 
-  const getStockStatus = (product: Product) => {
-    if (product.currentStock === 0) return 'out-of-stock';
-    if (product.currentStock > 0 && product.currentStock <= product.lowStockThreshold) return 'low-stock';
-    return 'in-stock';
-  };
-
-  const isWithinDateRange = (createdAt: string, range: string) => {
-    const now = new Date();
-    const created = new Date(createdAt);
-    const daysDiff = (now.getTime() - created.getTime()) / (1000 * 60 * 60 * 24);
-    if (range === '7days') return daysDiff <= 7;
-    if (range === '30days') return daysDiff <= 30;
-    return true;
-  };
-
-  const filteredProducts = products
-    .filter((product) => {
-      const matchesSearch =
-        product.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        product.sku.toLowerCase().includes(searchTerm.toLowerCase());
-      const matchesCategory = !categoryFilter || product.categoryId === categoryFilter;
-      const matchesLocation = !locationFilter || product.locationId === locationFilter;
-      const matchesStockStatus = !stockStatusFilter || getStockStatus(product) === stockStatusFilter;
-      const matchesDepartment = !departmentFilter || product.departmentId === departmentFilter;
-      const matchesUnit = !unitFilter || product.unit === unitFilter;
-      const matchesDateRange = isWithinDateRange(product.createdAt || new Date().toISOString(), dateRangeFilter);
-      return matchesSearch && matchesCategory && matchesLocation && matchesStockStatus && matchesDepartment && matchesUnit && matchesDateRange;
-    })
-    .sort((a, b) => {
-      if (sortBy === 'name') return a.name.localeCompare(b.name);
-      if (sortBy === 'sku') return a.sku.localeCompare(b.sku);
-      if (sortBy === 'stock') return b.currentStock - a.currentStock;
-      if (sortBy === 'recently-added') return new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime();
-      if (sortBy === 'low-stock') return a.currentStock - b.currentStock;
-      return 0;
-    });
+  const filteredProducts = filterAndSortProducts(products, filters, sort);
 
   const uniqueUnits = Array.from(new Set(products.map(p => p.unit))).sort();
   const locationsMap = new Map(locations.map(l => [l.id, l]));
@@ -335,23 +301,26 @@ export default function Products() {
         {/* Filters */}
         <div className="space-y-3">
           <div className="flex gap-2">
-            <input id="search-products" name="search" type="text" placeholder="Search by name or SKU…" value={searchTerm}
-              onChange={e => setSearchTerm(e.target.value)}
+            <input id="search-products" name="search" type="text" placeholder="Search by name or SKU…" value={filters.search}
+              onChange={e => setFilters({ ...filters, search: e.target.value })}
               className="flex-1 px-4 py-2 border border-gray-300 rounded-lg text-sm"
               aria-label="Search products by name or SKU" />
-            <select value={sortBy} onChange={e => setSortBy(e.target.value)}
+            <select value={`${sort.field}-${sort.order}`} onChange={e => {
+              const [field, order] = e.target.value.split('-');
+              setSort({ field: field as ProductSort['field'], order: order as ProductSort['order'] });
+            }}
               className="px-3 py-2 border border-gray-300 rounded-lg text-sm font-medium bg-blue-50"
               aria-label="Sort by">
-              <option value="name">Sort: Name</option>
-              <option value="sku">Sort: SKU</option>
-              <option value="stock">Sort: Stock (High to Low)</option>
-              <option value="low-stock">Sort: Stock (Low to High)</option>
-              <option value="recently-added">Sort: Recently Added</option>
+              <option value="name-asc">Sort: Name</option>
+              <option value="sku-asc">Sort: SKU</option>
+              <option value="stock-desc">Sort: Stock (High to Low)</option>
+              <option value="low-stock-asc">Sort: Stock (Low to High)</option>
+              <option value="date-desc">Sort: Recently Added</option>
             </select>
           </div>
 
           <div className="flex gap-1 w-full">
-            <select id="filter-category" value={categoryFilter} onChange={e => setCategoryFilter(e.target.value)}
+            <select id="filter-category" value={filters.categoryId || ''} onChange={e => setFilters({ ...filters, categoryId: e.target.value || undefined })}
               className="flex-1 px-2 py-2 border border-gray-300 rounded text-sm"
               aria-label="Filter by category">
               <option value="">All Categories</option>
@@ -360,7 +329,7 @@ export default function Products() {
               ))}
             </select>
 
-            <select id="filter-location" value={locationFilter} onChange={e => setLocationFilter(e.target.value)}
+            <select id="filter-location" value={filters.locationId || ''} onChange={e => setFilters({ ...filters, locationId: e.target.value || undefined })}
               className="flex-1 px-2 py-2 border border-gray-300 rounded text-sm"
               aria-label="Filter by location">
               <option value="">All Locations</option>
@@ -369,7 +338,7 @@ export default function Products() {
               ))}
             </select>
 
-            <select value={stockStatusFilter} onChange={e => setStockStatusFilter(e.target.value)}
+            <select value={filters.stockStatus || ''} onChange={e => setFilters({ ...filters, stockStatus: e.target.value as any || undefined })}
               className="flex-1 px-2 py-2 border border-gray-300 rounded text-sm"
               aria-label="Filter by stock status">
               <option value="">All Stock Status</option>
@@ -378,7 +347,7 @@ export default function Products() {
               <option value="in-stock">In Stock</option>
             </select>
 
-            <select value={unitFilter} onChange={e => setUnitFilter(e.target.value)}
+            <select value={filters.unit || ''} onChange={e => setFilters({ ...filters, unit: e.target.value || undefined })}
               className="flex-1 px-2 py-2 border border-gray-300 rounded text-sm"
               aria-label="Filter by unit">
               <option value="">All Units</option>
@@ -387,16 +356,17 @@ export default function Products() {
               ))}
             </select>
 
-            <select value={dateRangeFilter} onChange={e => setDateRangeFilter(e.target.value)}
+            <select value={filters.dateRange} onChange={e => setFilters({ ...filters, dateRange: e.target.value as any })}
               className="flex-1 px-2 py-2 border border-gray-300 rounded text-sm"
               aria-label="Filter by date range">
               <option value="all">All Time</option>
               <option value="7days">Last 7 Days</option>
               <option value="30days">Last 30 Days</option>
+              <option value="90days">Last 90 Days</option>
             </select>
 
             {user.role === 'superadmin' && (
-              <select value={departmentFilter} onChange={e => setDepartmentFilter(e.target.value)}
+              <select value={filters.departmentId || ''} onChange={e => setFilters({ ...filters, departmentId: e.target.value || undefined })}
                 className="flex-1 px-2 py-2 border border-gray-300 rounded text-sm"
                 aria-label="Filter by department">
                 <option value="">All Departments</option>
