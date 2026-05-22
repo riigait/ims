@@ -1,5 +1,6 @@
 ﻿import { useState, useEffect } from 'react';
-import { Check, X, Clock, CheckCircle, AlertCircle, Trash2 } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { Check, X, Clock, CheckCircle, AlertCircle, Trash2, ArrowLeft } from 'lucide-react';
 import { deleteRequestsApi } from '@/services/api';
 
 interface DeleteRequest {
@@ -16,6 +17,7 @@ interface DeleteRequest {
 }
 
 export default function DeleteRequests() {
+  const navigate = useNavigate();
   const user = JSON.parse(localStorage.getItem('user') || '{}');
   const [requests, setRequests] = useState<DeleteRequest[]>([]);
   const [loading, setLoading] = useState(true);
@@ -72,16 +74,25 @@ export default function DeleteRequests() {
   return (
     <div className="min-h-screen bg-gray-50">
       <div className="max-w-5xl mx-auto p-6 space-y-6">
-        <div>
-          <h1 className="text-4xl font-bold text-gray-900 flex items-center gap-3">
-            <Trash2 size={36} className="text-orange-600" />
-            Delete Requests
-          </h1>
-          <p className="text-gray-600 mt-2">
-            {user.role === 'admin'
-              ? 'Review and approve deletion requests from staff'
-              : 'Your deletion requests and status'}
-          </p>
+        <div className="flex items-center gap-4">
+          <button
+            onClick={() => navigate('/scanner')}
+            className="p-2 hover:bg-gray-200 rounded-lg transition flex-shrink-0"
+            title="Back to Scanner"
+          >
+            <ArrowLeft size={24} className="text-gray-700" />
+          </button>
+          <div>
+            <h1 className="text-4xl font-bold text-gray-900 flex items-center gap-3">
+              <Trash2 size={36} className="text-orange-600" />
+              Delete Requests
+            </h1>
+            <p className="text-gray-600 mt-2">
+              {user.role === 'admin'
+                ? 'Review and approve deletion requests from staff'
+                : 'Your deletion requests and status'}
+            </p>
+          </div>
         </div>
 
         {/* Stats Cards */}

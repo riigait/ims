@@ -1,6 +1,6 @@
 ﻿import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Copy, Trash2, Shield, Users, CheckCircle, Mail } from 'lucide-react';
+import { Copy, Trash2, Shield, Users, CheckCircle, Mail, ArrowLeft } from 'lucide-react';
 import { authApi, departmentsApi } from '@/services/api';
 
 interface Department {
@@ -161,9 +161,18 @@ export default function AdminUsers() {
       )}
 
       <div className="max-w-6xl mx-auto p-6 space-y-6">
-        <div>
-          <h1 className="text-4xl font-bold text-gray-900">User Management</h1>
-          <p className="text-gray-600 mt-2">Manage users and generate invite codes</p>
+        <div className="flex items-center gap-4">
+          <button
+            onClick={() => navigate('/scanner')}
+            className="p-2 hover:bg-gray-200 rounded-lg transition"
+            title="Back to Scanner"
+          >
+            <ArrowLeft size={24} className="text-gray-700" />
+          </button>
+          <div>
+            <h1 className="text-4xl font-bold text-gray-900">User Management</h1>
+            <p className="text-gray-600 mt-2">Manage users and generate invite codes</p>
+          </div>
         </div>
 
         {/* Tabs */}

@@ -1,5 +1,6 @@
 ﻿import { useState, useEffect } from 'react';
-import { Plus, Trash2, Building2 } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { Plus, Trash2, Building2, ArrowLeft } from 'lucide-react';
 import { departmentsApi } from '@/services/api';
 
 interface Department {
@@ -10,6 +11,7 @@ interface Department {
 }
 
 export default function AdminDepartments() {
+  const navigate = useNavigate();
   const [departments, setDepartments] = useState<Department[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -63,12 +65,21 @@ export default function AdminDepartments() {
     <div className="min-h-screen bg-gray-50">
       <div className="max-w-4xl mx-auto p-6 space-y-6">
         <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-4xl font-bold text-gray-900 flex items-center gap-3">
-              <Building2 size={36} className="text-blue-600" />
-              Departments
-            </h1>
-            <p className="text-gray-600 mt-2">Manage warehouse departments and locations</p>
+          <div className="flex items-center gap-4">
+            <button
+              onClick={() => navigate('/scanner')}
+              className="p-2 hover:bg-gray-200 rounded-lg transition"
+              title="Back to Scanner"
+            >
+              <ArrowLeft size={24} className="text-gray-700" />
+            </button>
+            <div>
+              <h1 className="text-4xl font-bold text-gray-900 flex items-center gap-3">
+                <Building2 size={36} className="text-blue-600" />
+                Departments
+              </h1>
+              <p className="text-gray-600 mt-2">Manage warehouse departments and locations</p>
+            </div>
           </div>
           <button
             onClick={() => setShowForm(!showForm)}
