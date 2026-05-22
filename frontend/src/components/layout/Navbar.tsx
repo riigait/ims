@@ -7,6 +7,7 @@ export default function Navbar() {
   const [isOpen, setIsOpen] = useState(false);
   const [adminOpen, setAdminOpen] = useState(false);
   const [userOpen, setUserOpen] = useState(false);
+  const [deptOpen, setDeptOpen] = useState(false);
   const navigate = useNavigate();
   const location = useLocation();
   const user = JSON.parse(localStorage.getItem('user') || '{}');
@@ -16,12 +17,37 @@ export default function Navbar() {
     setAdminOpen(false);
     setIsOpen(false);
     setUserOpen(false);
+    setDeptOpen(false);
   }, [location]);
 
   const handleLogout = () => {
     localStorage.removeItem('token');
     localStorage.removeItem('user');
     navigate('/login');
+  };
+
+  const handleDeptOpenChange = (open: boolean) => {
+    setDeptOpen(open);
+    if (open) {
+      setAdminOpen(false);
+      setUserOpen(false);
+    }
+  };
+
+  const handleAdminOpenChange = (open: boolean) => {
+    setAdminOpen(open);
+    if (open) {
+      setDeptOpen(false);
+      setUserOpen(false);
+    }
+  };
+
+  const handleUserOpenChange = (open: boolean) => {
+    setUserOpen(open);
+    if (open) {
+      setDeptOpen(false);
+      setAdminOpen(false);
+    }
   };
 
   return (
@@ -58,41 +84,42 @@ export default function Navbar() {
                   <ScanLine size={16} />
                 </Link>
 
-                {user.role === 'admin' && <DepartmentSwitcher />}
+                {user.role === 'admin' && <DepartmentSwitcher isOpen={deptOpen} onOpenChange={handleDeptOpenChange} />}
 
                 {(user.role === 'admin' || user.role === 'superadmin') && (
                   <div className="relative">
                     <button
-                      onClick={() => setAdminOpen(!adminOpen)}
-                      className="px-3 py-2 rounded hover:bg-blue-500 transition text-sm flex items-center gap-1 bg-blue-700"
+                      onClick={() => handleAdminOpenChange(!adminOpen)}
+                      className="h-16 px-2 rounded hover:bg-blue-500 transition text-sm flex items-center gap-1 bg-blue-700"
                     >
-                      <Users size={16} />
+                      <Users size={14} />
                       Administration
-                      <ChevronDown size={16} />
+                      <ChevronDown size={14} />
                     </button>
                     {adminOpen && (
-                      <div className="absolute right-0 mt-0 w-48 bg-white text-gray-800 rounded-lg shadow-lg py-2 z-10">
+                      <div className="absolute left-0 mt-0 min-w-full bg-white text-gray-800 rounded-lg shadow-lg py-0.5 z-10">
                         {user.role === 'superadmin' && (
                           <>
-                            <Link to="/admin/assignment" onClick={() => setAdminOpen(false)} className="block px-4 py-2 hover:bg-gray-100 text-sm font-medium text-blue-600">
+                            <Link to="/admin/assignment" onClick={() => setAdminOpen(false)} className="block px-2 py-0.5 hover:bg-gray-100 text-sm font-medium text-blue-600">
                               Role Assignment
                             </Link>
                             <div className="border-t border-gray-200"></div>
                           </>
                         )}
-                        <Link to="/admin/users" onClick={() => setAdminOpen(false)} className="block px-4 py-2 hover:bg-gray-100 text-sm">
+                        <Link to="/admin/users" onClick={() => setAdminOpen(false)} className="block px-2 py-0.5 hover:bg-gray-100 text-sm">
                           Users
                         </Link>
-                        <Link to="/admin/departments" onClick={() => setAdminOpen(false)} className="block px-4 py-2 hover:bg-gray-100 text-sm">
+                        <Link to="/admin/departments" onClick={() => setAdminOpen(false)} className="block px-2 py-0.5 hover:bg-gray-100 text-sm">
                           Departments
                         </Link>
-                        <Link to="/delete-requests" onClick={() => setAdminOpen(false)} className="block px-4 py-2 hover:bg-gray-100 text-sm">
-                          Delete Requests
-                        </Link>
-                        {(user.role === 'admin' || user.role === 'superadmin') && (
+                        {user.role === 'admin' && (
                           <>
                             <div className="border-t border-gray-200"></div>
-                            <Link to="/password-requests" onClick={() => setAdminOpen(false)} className="block px-4 py-2 hover:bg-gray-100 text-sm">
+                            <Link to="/delete-requests" onClick={() => setAdminOpen(false)} className="block px-2 py-0.5 hover:bg-gray-100 text-sm">
+                              Delete Requests
+                            </Link>
+                            <div className="border-t border-gray-200"></div>
+                            <Link to="/password-requests" onClick={() => setAdminOpen(false)} className="block px-2 py-0.5 hover:bg-gray-100 text-sm">
                               Password Requests
                             </Link>
                           </>
@@ -111,7 +138,7 @@ export default function Navbar() {
               <>
                 <div className="relative">
                   <button
-                    onClick={() => setUserOpen(!userOpen)}
+                    onClick={() => handleUserOpenChange(!userOpen)}
                     className="text-sm font-medium flex items-center gap-1 hover:opacity-80"
                   >
                     {user.name}
@@ -119,10 +146,14 @@ export default function Navbar() {
                   </button>
                   {userOpen && (
                     <div className="absolute right-0 mt-0 w-40 bg-white text-gray-800 rounded-lg shadow-lg py-2 z-10">
-                      <Link to="/change-password" onClick={() => setUserOpen(false)} className="block px-4 py-2 hover:bg-gray-100 text-sm flex items-center gap-2">
-                        <Lock size={16} /> Change Password
-                      </Link>
-                      <div className="border-t border-gray-200"></div>
+                      {['admin', 'superadmin', 'staff'].includes(user.role) && (
+                        <>
+                          <Link to="/change-password" onClick={() => setUserOpen(false)} className="block px-4 py-2 hover:bg-gray-100 text-sm flex items-center gap-2">
+                            <Lock size={16} /> Change Password
+                          </Link>
+                          <div className="border-t border-gray-200"></div>
+                        </>
+                      )}
                       <button
                         onClick={handleLogout}
                         className="block w-full text-left px-4 py-2 hover:bg-gray-100 text-sm flex items-center gap-2"

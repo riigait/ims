@@ -68,11 +68,15 @@ export default function Dashboard() {
         // For admin users with multiple departments, get the currently selected one
         else if (user.role === 'admin' && user.adminDepartments?.length) {
           const currentDeptId = localStorage.getItem('currentDepartmentId');
-          const currentDept = user.adminDepartments.find((ad: any) => ad.departmentId === currentDeptId);
-          if (currentDept) {
-            setDepartmentName(currentDept.department.name);
-          } else if (user.adminDepartments.length > 0) {
-            setDepartmentName(user.adminDepartments[0].department.name);
+          if (currentDeptId === 'all-departments') {
+            setDepartmentName('All Departments');
+          } else {
+            const currentDept = user.adminDepartments.find((ad: any) => ad.departmentId === currentDeptId);
+            if (currentDept) {
+              setDepartmentName(currentDept.department.name);
+            } else if (user.adminDepartments.length > 0) {
+              setDepartmentName(user.adminDepartments[0].department.name);
+            }
           }
         }
       } catch (error) {
@@ -81,8 +85,9 @@ export default function Dashboard() {
         setLoading(false);
       }
     };
+    setLoading(true);
     fetchData();
-  }, []);
+  }, [localStorage.getItem('currentDepartmentId')]);
 
   if (loading) return <div className="text-center py-12">Loading...</div>;
 

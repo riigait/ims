@@ -200,7 +200,9 @@ function App() {
           path="/change-password"
           element={
             <PrivateRoute>
-              <ChangePassword />
+              <Layout>
+                <ChangePassword />
+              </Layout>
             </PrivateRoute>
           }
         />
