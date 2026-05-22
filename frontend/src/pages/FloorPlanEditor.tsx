@@ -1065,8 +1065,16 @@ export default function FloorPlanEditor() {
               (e.currentTarget as HTMLCanvasElement).setPointerCapture(e.pointerId);
               setIsDragging(true);
               setDragStart(pos);
-              // If we captured group snapshots, use them; otherwise capture just this one
-              if (groupSnapshots.length > 0) {
+
+              // For Ctrl+click multi-select, capture all selected objects
+              if (e.ctrlKey) {
+                const allSelected = currentFloorPlan?.objects.filter(o => {
+                  const newSelection = selectedObjectIds.includes(objId) ? selectedObjectIds : [...selectedObjectIds, objId];
+                  return newSelection.includes(o.id);
+                }) || [];
+                dragSnapshotsRef.current = allSelected.map(o => ({ ...o }));
+                setDragSnapshot(null);
+              } else if (groupSnapshots.length > 0) {
                 dragSnapshotsRef.current = groupSnapshots;
                 setDragSnapshot(null); // Clear single snapshot for group drag
               } else {
