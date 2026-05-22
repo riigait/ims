@@ -44,6 +44,7 @@ export default function FloorPlanEditor() {
     setCurrentFloorPlan, setTool, setSelectedObject, setSelectedObjects, addToSelection, removeFromSelection, clearSelection, setZoomLevel,
     addObject, updateObject, updateMultipleObjects, deleteObject, deleteMultipleObjects, getSelectedObject,
     bringToFront, sendToBack, moveForward, moveBackward, getObjectLayer, groupObjects, ungroupObjects,
+    copyObjects, pasteObjects, undo, redo, pushHistory,
   } = useFloorPlanStore();
 
   const [loading, setLoading] = useState(true);
@@ -112,6 +113,33 @@ export default function FloorPlanEditor() {
         if (state.currentFloorPlan) {
           setSelectedObjects(state.currentFloorPlan.objects.map(o => o.id));
         }
+        return;
+      }
+
+      if (e.ctrlKey && e.key === 'c') {
+        e.preventDefault();
+        const state = useFloorPlanStore.getState();
+        if (state.selectedObjectIds.length > 0) {
+          copyObjects(state.selectedObjectIds);
+        }
+        return;
+      }
+
+      if (e.ctrlKey && e.key === 'v') {
+        e.preventDefault();
+        pasteObjects();
+        return;
+      }
+
+      if (e.ctrlKey && e.key === 'z') {
+        e.preventDefault();
+        undo();
+        return;
+      }
+
+      if ((e.ctrlKey && e.key === 'y') || (e.ctrlKey && e.shiftKey && e.key === 'z')) {
+        e.preventDefault();
+        redo();
         return;
       }
 
@@ -185,6 +213,7 @@ export default function FloorPlanEditor() {
           }
         });
       });
+      useFloorPlanStore.getState().pushHistory();
     };
 
     window.addEventListener('keydown', handleKeyDown);
@@ -1143,7 +1172,7 @@ export default function FloorPlanEditor() {
       }
     } else if (editorState.tool === 'delete') {
       const objId = getObjectAtPoint(pos.x, pos.y);
-      if (objId) { deleteObject(objId); setSelectedObject(null); }
+      if (objId) { deleteObject(objId); setSelectedObject(null); useFloorPlanStore.getState().pushHistory(); }
     } else if (['wall', 'room', 'rack', 'shelf', 'door', 'window', 'entrance'].includes(editorState.tool)) {
       (e.currentTarget as HTMLCanvasElement).setPointerCapture(e.pointerId);
       setStartPos(pos); setCurrentMousePos(pos);
@@ -1442,6 +1471,8 @@ export default function FloorPlanEditor() {
       }
     }
     setStartPos(null); setCurrentMousePos(null);
+    // Push to history after object operations complete
+    useFloorPlanStore.getState().pushHistory();
   };
 
   const handleSave = async () => {
@@ -1681,13 +1712,13 @@ export default function FloorPlanEditor() {
                             return (
                               <div className="flex gap-2">
                                 {!hasCommonGroup ? (
-                                  <button onClick={() => groupObjects(selectedObjectIds)}
+                                  <button onClick={() => { groupObjects(selectedObjectIds); useFloorPlanStore.getState().pushHistory(); }}
                                     className="flex-1 px-3 py-2 rounded text-xs font-medium bg-blue-50 text-blue-600 hover:bg-blue-100">
                                     <Package size={14} className="inline mr-1" /> Group
                                   </button>
                                 ) : null}
                                 {hasCommonGroup ? (
-                                  <button onClick={() => ungroupObjects(selectedObjectIds)}
+                                  <button onClick={() => { ungroupObjects(selectedObjectIds); useFloorPlanStore.getState().pushHistory(); }}
                                     className="flex-1 px-3 py-2 rounded text-xs font-medium bg-orange-50 text-orange-600 hover:bg-orange-100">
                                     <Package size={14} className="inline mr-1" /> Ungroup
                                   </button>
@@ -1698,7 +1729,7 @@ export default function FloorPlanEditor() {
                         </div>
 
                         {/* Delete - Universal */}
-                        <button onClick={() => deleteMultipleObjects(selectedObjectIds)}
+                        <button onClick={() => { deleteMultipleObjects(selectedObjectIds); useFloorPlanStore.getState().pushHistory(); }}
                           className="w-full px-3 py-2 rounded text-sm font-medium bg-red-50 text-red-600 hover:bg-red-100">
                           <Trash2 size={14} className="inline mr-2" /> Delete All
                         </button>
@@ -1998,7 +2029,7 @@ export default function FloorPlanEditor() {
                   );
                 })()}
 
-                <button onClick={() => { deleteObject(selectedObject.id); setSelectedObject(null); }}
+                <button onClick={() => { deleteObject(selectedObject.id); setSelectedObject(null); useFloorPlanStore.getState().pushHistory(); }}
                   className="w-full px-3 py-1.5 bg-red-600 text-white rounded hover:bg-red-700 text-sm flex items-center justify-center gap-1.5">
                   <Trash2 size={13} /> Delete Object
                 </button>

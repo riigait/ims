@@ -5,6 +5,9 @@ interface FloorPlanStore {
   currentFloorPlan: FloorPlan | null;
   editorState: FloorPlanEditorState;
   selectedObjectIds: string[];
+  clipboard: FloorPlanObject[] | null;
+  history: FloorPlan[];
+  historyIndex: number;
 
   setCurrentFloorPlan: (plan: FloorPlan | null) => void;
   setTool: (tool: FloorPlanEditorState['tool']) => void;
@@ -32,6 +35,12 @@ interface FloorPlanStore {
 
   groupObjects: (ids: string[]) => void;
   ungroupObjects: (ids: string[]) => void;
+
+  copyObjects: (ids: string[]) => void;
+  pasteObjects: () => void;
+  undo: () => void;
+  redo: () => void;
+  pushHistory: () => void;
 }
 
 export const useFloorPlanStore = create<FloorPlanStore>((set, get) => ({
@@ -44,6 +53,9 @@ export const useFloorPlanStore = create<FloorPlanStore>((set, get) => ({
     panY: 0,
   },
   selectedObjectIds: [],
+  clipboard: null,
+  history: [],
+  historyIndex: -1,
 
   setCurrentFloorPlan: (plan) => set({ currentFloorPlan: plan }),
 
@@ -250,6 +262,84 @@ export const useFloorPlanStore = create<FloorPlanStore>((set, get) => ({
             ids.includes(obj.id) ? { ...obj, groupId: undefined } : obj
           ),
         },
+      };
+    }),
+
+  copyObjects: (ids) =>
+    set((state) => {
+      if (!state.currentFloorPlan) return state;
+      const objectsToCopy = state.currentFloorPlan.objects.filter(o => ids.includes(o.id));
+      return { clipboard: objectsToCopy };
+    }),
+
+  pasteObjects: () =>
+    set((state) => {
+      if (!state.currentFloorPlan || !state.clipboard) return state;
+      const offset = 20;
+      const newObjects = state.clipboard.map(obj => ({
+        ...obj,
+        id: obj.type + '_' + Date.now() + Math.random(),
+        ...(obj.type === 'wall' && {
+          startX: (obj as any).startX + offset,
+          startY: (obj as any).startY + offset,
+          endX: (obj as any).endX + offset,
+          endY: (obj as any).endY + offset,
+        }),
+        ...(['room', 'rack', 'shelf', 'label', 'door', 'window', 'entrance', 'marker'].includes(obj.type) && {
+          x: (obj as any).x + offset,
+          y: (obj as any).y + offset,
+        }),
+      })) as FloorPlanObject[];
+
+      const newPlan = {
+        ...state.currentFloorPlan,
+        objects: [...state.currentFloorPlan.objects, ...newObjects],
+      };
+
+      const newHistory = state.history.slice(0, state.historyIndex + 1);
+      newHistory.push(newPlan);
+
+      return {
+        currentFloorPlan: newPlan,
+        history: newHistory,
+        historyIndex: newHistory.length - 1,
+        selectedObjectIds: newObjects.map(o => o.id),
+        editorState: { ...state.editorState, selectedObjectId: newObjects[0]?.id || null },
+      };
+    }),
+
+  undo: () =>
+    set((state) => {
+      if (state.historyIndex <= 0) return state;
+      const newIndex = state.historyIndex - 1;
+      return {
+        currentFloorPlan: state.history[newIndex],
+        historyIndex: newIndex,
+        selectedObjectIds: [],
+        editorState: { ...state.editorState, selectedObjectId: null },
+      };
+    }),
+
+  redo: () =>
+    set((state) => {
+      if (state.historyIndex >= state.history.length - 1) return state;
+      const newIndex = state.historyIndex + 1;
+      return {
+        currentFloorPlan: state.history[newIndex],
+        historyIndex: newIndex,
+        selectedObjectIds: [],
+        editorState: { ...state.editorState, selectedObjectId: null },
+      };
+    }),
+
+  pushHistory: () =>
+    set((state) => {
+      if (!state.currentFloorPlan) return state;
+      const newHistory = state.history.slice(0, state.historyIndex + 1);
+      newHistory.push(state.currentFloorPlan);
+      return {
+        history: newHistory,
+        historyIndex: newHistory.length - 1,
       };
     }),
 }));
