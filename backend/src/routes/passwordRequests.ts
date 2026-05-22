@@ -8,6 +8,10 @@ const prisma = new PrismaClient();
 // Create password change request — staff only
 router.post('/', authMiddleware, async (req: AuthRequest, res: Response) => {
   try {
+    if (!req.userId) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
     const requester = await prisma.user.findUnique({ where: { id: req.userId } });
     if (!requester || requester.role !== 'staff') {
       return res.status(403).json({ error: 'Only staff can request password changes' });
@@ -70,6 +74,10 @@ router.get('/', authMiddleware, async (req: AuthRequest, res: Response) => {
 // Approve password change request — admin/superadmin
 router.patch('/:id/approve', authMiddleware, async (req: AuthRequest, res: Response) => {
   try {
+    if (!req.userId) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
     const approver = await prisma.user.findUnique({ where: { id: req.userId } });
     if (!approver || !['admin', 'superadmin'].includes(approver.role)) {
       return res.status(403).json({ error: 'Only admin/superadmin can approve requests' });
@@ -125,6 +133,10 @@ router.patch('/:id/approve', authMiddleware, async (req: AuthRequest, res: Respo
 // Reject password change request
 router.patch('/:id/reject', authMiddleware, async (req: AuthRequest, res: Response) => {
   try {
+    if (!req.userId) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
     const approver = await prisma.user.findUnique({ where: { id: req.userId } });
     if (!approver || !['admin', 'superadmin'].includes(approver.role)) {
       return res.status(403).json({ error: 'Only admin/superadmin can reject requests' });
