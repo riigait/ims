@@ -38,6 +38,8 @@ export default function FloorPlanEditor() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const user = JSON.parse(localStorage.getItem('user') || '{}');
+  const isReadOnly = user.role === 'staff';
 
   const {
     currentFloorPlan, editorState, selectedObjectIds,
@@ -1538,7 +1540,7 @@ export default function FloorPlanEditor() {
             <ArrowLeft size={16} /> Back
           </button>
           <div className="h-5 w-px bg-gray-300" />
-          {editingTitle ? (
+          {editingTitle && !isReadOnly ? (
             <input
               autoFocus
               value={titleDraft}
@@ -1561,9 +1563,9 @@ export default function FloorPlanEditor() {
             />
           ) : (
             <h1
-              className="text-lg font-bold text-gray-900 cursor-pointer hover:text-blue-600 border-b-2 border-transparent hover:border-blue-300 transition"
-              title="Click to rename"
-              onClick={() => { setTitleDraft(currentFloorPlan.name); setEditingTitle(true); }}
+              className={`text-lg font-bold text-gray-900 border-b-2 border-transparent ${!isReadOnly ? 'cursor-pointer hover:text-blue-600 hover:border-blue-300' : ''} transition`}
+              title={isReadOnly ? '' : 'Click to rename'}
+              onClick={() => !isReadOnly && (setTitleDraft(currentFloorPlan.name), setEditingTitle(true))}
             >
               {currentFloorPlan.name}
             </h1>
@@ -1579,56 +1581,65 @@ export default function FloorPlanEditor() {
             </span>
           ))}
         </div>
-        <button onClick={handleSave} disabled={saving}
-          className="flex items-center gap-2 bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 disabled:opacity-50 text-sm font-medium">
-          <Save size={16} /> {saving ? 'Saving…' : 'Save'}
-        </button>
+        {!isReadOnly && (
+          <button onClick={handleSave} disabled={saving}
+            className="flex items-center gap-2 bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 disabled:opacity-50 text-sm font-medium">
+            <Save size={16} /> {saving ? 'Saving…' : 'Save'}
+          </button>
+        )}
+        {isReadOnly && (
+          <span className="text-xs font-medium text-gray-500 bg-gray-50 px-3 py-2 rounded-lg">
+            Read-only view
+          </span>
+        )}
       </div>
 
       <div className="flex flex-1 overflow-hidden">
-        {/* Toolbar */}
-        <div className="w-14 bg-white border-r flex flex-col items-center py-3 gap-1 shadow-sm">
-          {([
-            { tool: 'select', icon: <Move size={18} />, title: 'Select / Move' },
-          ] as const).map(({ tool, icon, title }) => (
-            <button key={tool} onClick={() => setTool(tool)} title={title}
-              className={`p-2.5 rounded-lg w-10 flex justify-center ${editorState.tool === tool ? 'bg-blue-600 text-white' : 'text-gray-500 hover:bg-gray-100'}`}>
-              {icon}
+        {/* Toolbar - hidden for read-only */}
+        {!isReadOnly && (
+          <div className="w-14 bg-white border-r flex flex-col items-center py-3 gap-1 shadow-sm">
+            {([
+              { tool: 'select', icon: <Move size={18} />, title: 'Select / Move' },
+            ] as const).map(({ tool, icon, title }) => (
+              <button key={tool} onClick={() => setTool(tool)} title={title}
+                className={`p-2.5 rounded-lg w-10 flex justify-center ${editorState.tool === tool ? 'bg-blue-600 text-white' : 'text-gray-500 hover:bg-gray-100'}`}>
+                {icon}
+              </button>
+            ))}
+            <div className="w-8 border-t border-gray-200 my-0.5" />
+            {([
+              { tool: 'wall',  icon: <Layers size={18} />,  title: 'Wall' },
+              { tool: 'room',  icon: <Square size={18} />,  title: 'Room/Area' },
+              { tool: 'rack',  icon: <Box size={18} />,     title: 'Rack' },
+              { tool: 'shelf', icon: <Package size={18} />, title: 'Shelf' },
+              { tool: 'label', icon: <Type size={18} />,    title: 'Label' },
+              { tool: 'door',  icon: <DoorOpen size={18} />, title: 'Door' },
+              { tool: 'window', icon: <Grid2x2 size={18} />, title: 'Window' },
+              { tool: 'entrance', icon: <LogIn size={18} />, title: 'Entrance Way' },
+              { tool: 'marker', icon: <MapPin size={18} />,  title: 'Inventory Marker' },
+            ] as const).map(({ tool, icon, title }) => (
+              <button key={tool} onClick={() => setTool(tool)} title={title}
+                className={`p-2.5 rounded-lg w-10 flex justify-center ${editorState.tool === tool ? 'bg-blue-600 text-white' : 'text-gray-500 hover:bg-gray-100'}`}>
+                {icon}
+              </button>
+            ))}
+            <div className="w-8 border-t border-gray-200 my-0.5" />
+            <button onClick={() => setTool('delete')} title="Delete"
+              className={`p-2.5 rounded-lg w-10 flex justify-center ${editorState.tool === 'delete' ? 'bg-red-600 text-white' : 'text-red-500 hover:bg-red-50'}`}>
+              <Trash2 size={18} />
             </button>
-          ))}
-          <div className="w-8 border-t border-gray-200 my-0.5" />
-          {([
-            { tool: 'wall',  icon: <Layers size={18} />,  title: 'Wall' },
-            { tool: 'room',  icon: <Square size={18} />,  title: 'Room/Area' },
-            { tool: 'rack',  icon: <Box size={18} />,     title: 'Rack' },
-            { tool: 'shelf', icon: <Package size={18} />, title: 'Shelf' },
-            { tool: 'label', icon: <Type size={18} />,    title: 'Label' },
-            { tool: 'door',  icon: <DoorOpen size={18} />, title: 'Door' },
-            { tool: 'window', icon: <Grid2x2 size={18} />, title: 'Window' },
-            { tool: 'entrance', icon: <LogIn size={18} />, title: 'Entrance Way' },
-            { tool: 'marker', icon: <MapPin size={18} />,  title: 'Inventory Marker' },
-          ] as const).map(({ tool, icon, title }) => (
-            <button key={tool} onClick={() => setTool(tool)} title={title}
-              className={`p-2.5 rounded-lg w-10 flex justify-center ${editorState.tool === tool ? 'bg-blue-600 text-white' : 'text-gray-500 hover:bg-gray-100'}`}>
-              {icon}
+            <div className="w-8 border-t border-gray-200 my-0.5" />
+            <button onClick={() => setZoomLevel(Math.min(editorState.zoomLevel + 0.2, 3))} title="Zoom In"
+              className="p-2.5 rounded-lg w-10 flex justify-center text-gray-500 hover:bg-gray-100">
+              <ZoomIn size={18} />
             </button>
-          ))}
-          <div className="w-8 border-t border-gray-200 my-0.5" />
-          <button onClick={() => setTool('delete')} title="Delete"
-            className={`p-2.5 rounded-lg w-10 flex justify-center ${editorState.tool === 'delete' ? 'bg-red-600 text-white' : 'text-red-500 hover:bg-red-50'}`}>
-            <Trash2 size={18} />
-          </button>
-          <div className="w-8 border-t border-gray-200 my-0.5" />
-          <button onClick={() => setZoomLevel(Math.min(editorState.zoomLevel + 0.2, 3))} title="Zoom In"
-            className="p-2.5 rounded-lg w-10 flex justify-center text-gray-500 hover:bg-gray-100">
-            <ZoomIn size={18} />
-          </button>
-          <button onClick={() => setZoomLevel(Math.max(editorState.zoomLevel - 0.2, 0.3))} title="Zoom Out"
-            className="p-2.5 rounded-lg w-10 flex justify-center text-gray-500 hover:bg-gray-100">
-            <ZoomOut size={18} />
-          </button>
-          <div className="text-xs text-gray-400 mt-1">{Math.round(editorState.zoomLevel * 100)}%</div>
-        </div>
+            <button onClick={() => setZoomLevel(Math.max(editorState.zoomLevel - 0.2, 0.3))} title="Zoom Out"
+              className="p-2.5 rounded-lg w-10 flex justify-center text-gray-500 hover:bg-gray-100">
+              <ZoomOut size={18} />
+            </button>
+            <div className="text-xs text-gray-400 mt-1">{Math.round(editorState.zoomLevel * 100)}%</div>
+          </div>
+        )}
 
         {/* Canvas area */}
         <div className="flex-1 overflow-auto bg-slate-200 p-4">
@@ -1636,20 +1647,21 @@ export default function FloorPlanEditor() {
             ref={canvasRef}
             width={currentFloorPlan.width}
             height={currentFloorPlan.height}
-            onPointerDown={handleCanvasPointerDown}
-            onPointerMove={handleCanvasPointerMove}
-            onPointerUp={handleCanvasPointerUp}
-            onDoubleClick={handleCanvasDoubleClick}
-            onPointerLeave={(e) => {
+            onPointerDown={isReadOnly ? undefined : handleCanvasPointerDown}
+            onPointerMove={isReadOnly ? undefined : handleCanvasPointerMove}
+            onPointerUp={isReadOnly ? undefined : handleCanvasPointerUp}
+            onDoubleClick={isReadOnly ? undefined : handleCanvasDoubleClick}
+            onPointerLeave={isReadOnly ? undefined : (e) => {
               (e.currentTarget as HTMLCanvasElement).releasePointerCapture(e.pointerId);
               if (!isDragging) { setStartPos(null); setCurrentMousePos(null); }
             }}
-            className={`bg-white border border-gray-300 shadow-lg block ${getCursor()}`}
+            className={`bg-white border border-gray-300 shadow-lg block ${isReadOnly ? 'cursor-default' : getCursor()}`}
             style={{ margin: '16px' }}
           />
         </div>
 
-        {/* Right panel */}
+        {/* Right panel - hidden for read-only */}
+        {!isReadOnly && (
         <div className="w-80 bg-white border-l flex flex-col overflow-hidden shadow-sm flex-shrink-0">
           {selectedObjectIds.length > 0 ? (
             <div className="flex flex-col h-full overflow-y-auto">
@@ -2164,6 +2176,7 @@ export default function FloorPlanEditor() {
             </div>
           )}
         </div>
+        )}
       </div>
     </div>
   );
