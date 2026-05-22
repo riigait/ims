@@ -25,7 +25,8 @@ function PrivateRoute({ children }: { children: React.ReactNode }) {
   const userObj = user ? JSON.parse(user) : null;
 
   if (!isLoggedIn) return <Navigate to="/login" />;
-  if (userObj?.initialSetupComplete === false) {
+  // Only superadmin can be redirected to initial setup
+  if (userObj?.role === 'superadmin' && userObj?.initialSetupComplete === false) {
     return <Navigate to="/initial-setup" />;
   }
   return children;

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Lock, Mail, User } from 'lucide-react';
 import { authApi } from '../services/api';
@@ -7,6 +7,20 @@ export default function InitialSetup() {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+
+  useEffect(() => {
+    const user = localStorage.getItem('user');
+    const userObj = user ? JSON.parse(user) : null;
+
+    // Redirect non-superadmin users to dashboard
+    if (userObj?.role !== 'superadmin') {
+      navigate('/dashboard');
+    }
+    // Redirect if setup already completed
+    if (userObj?.initialSetupComplete === true) {
+      navigate('/dashboard');
+    }
+  }, [navigate]);
   const [form, setForm] = useState({
     name: '',
     email: '',
