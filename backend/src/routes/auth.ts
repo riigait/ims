@@ -82,10 +82,22 @@ router.post('/login', async (req: Request, res: Response) => {
     const passwordMatch = await bcrypt.compare(password, user.passwordHash);
     if (!passwordMatch) return res.status(401).json({ error: 'Invalid credentials' });
 
+    const adminDepartments = user.role === 'admin' ? await prisma.adminDepartment.findMany({
+      where: { userId: user.id },
+      select: { departmentId: true, department: { select: { id: true, name: true, description: true } } },
+    }) : [];
+
     const token = signToken(user.id, user.role, user.departmentId ?? undefined);
     res.json({
       token,
-      user: { id: user.id, name: user.name, email: user.email, role: user.role, departmentId: user.departmentId }
+      user: {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        departmentId: user.departmentId,
+        adminDepartments,
+      }
     });
   } catch (error) {
     console.error(error);
@@ -99,7 +111,19 @@ router.get('/me', authMiddleware, async (req: AuthRequest, res: Response) => {
     const user = await prisma.user.findUnique({ where: { id: req.userId } });
     if (!user) return res.status(404).json({ error: 'User not found' });
 
-    res.json({ id: user.id, name: user.name, email: user.email, role: user.role, departmentId: user.departmentId });
+    const adminDepartments = user.role === 'admin' ? await prisma.adminDepartment.findMany({
+      where: { userId: user.id },
+      select: { departmentId: true, department: { select: { id: true, name: true, description: true } } },
+    }) : [];
+
+    res.json({
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      role: user.role,
+      departmentId: user.departmentId,
+      adminDepartments,
+    });
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: 'Internal server error' });

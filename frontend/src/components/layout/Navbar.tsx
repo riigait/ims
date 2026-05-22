@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Menu, X, LogOut, ScanLine, Users, ChevronDown } from 'lucide-react';
+import DepartmentSwitcher from '../DepartmentSwitcher';
 
 export default function Navbar() {
   const [isOpen, setIsOpen] = useState(false);
@@ -48,6 +49,8 @@ export default function Navbar() {
                 <Link to="/scanner" className="px-3 py-2 rounded hover:bg-blue-500 transition text-sm flex items-center gap-1">
                   <ScanLine size={16} />
                 </Link>
+
+                {user.role === 'admin' && <DepartmentSwitcher />}
 
                 {(user.role === 'admin' || user.role === 'superadmin') && (
                   <div className="relative">
