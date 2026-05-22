@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { authApi } from '@/services/api';
 import { validateEmail, validatePassword } from '@/utils/validation';
@@ -8,6 +8,24 @@ export default function Login() {
   const [formData, setFormData] = useState({ email: '', password: '' });
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [setupMessage, setSetupMessage] = useState('');
+
+  useEffect(() => {
+    // On login page load, ensure superadmin exists
+    const ensureSuperadmin = async () => {
+      try {
+        const response = await authApi.ensureSuperadmin();
+        if (!response.data.exists && response.data.created) {
+          setSetupMessage('Default superadmin created. Please login with admin@ims.local / changeme123');
+        }
+      } catch (err) {
+        // Silently fail - it's optional
+        console.log('Could not check superadmin status');
+      }
+    };
+
+    ensureSuperadmin();
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -46,6 +64,12 @@ export default function Login() {
         {error && (
           <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-4">
             {error}
+          </div>
+        )}
+
+        {setupMessage && (
+          <div className="bg-blue-100 border border-blue-400 text-blue-700 px-4 py-3 rounded mb-4">
+            {setupMessage}
           </div>
         )}
 

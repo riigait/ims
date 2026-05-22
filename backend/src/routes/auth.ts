@@ -11,6 +11,36 @@ function signToken(userId: string, role: string, departmentId?: string): string 
   return jwt.sign({ userId, role, departmentId }, getJwtSecret(), { expiresIn: '7d' });
 }
 
+// Check if superadmin exists; create default if not
+router.post('/ensure-superadmin', async (req: Request, res: Response) => {
+  try {
+    const existingSuperadmin = await prisma.user.findFirst({
+      where: { role: 'superadmin' },
+    });
+
+    if (existingSuperadmin) {
+      return res.json({ exists: true });
+    }
+
+    // Create default superadmin if none exists
+    const hashedPassword = await bcrypt.hash('changeme123', 10);
+    await prisma.user.create({
+      data: {
+        name: 'Superadmin',
+        email: 'admin@ims.local',
+        passwordHash: hashedPassword,
+        role: 'superadmin',
+        initialSetupComplete: false,
+      },
+    });
+
+    res.json({ exists: false, created: true, message: 'Default superadmin created. Please login with admin@ims.local / changeme123' });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 // Register — use invite code to get role; defaults to staff if no invite
 router.post('/register', async (req: Request, res: Response) => {
   try {

@@ -35,6 +35,8 @@ export const authApi = {
   getCurrentUser: () => api.get('/auth/me'),
   completeInitialSetup: (newEmail: string, newPassword: string, newName: string) =>
     api.post('/auth/complete-initial-setup', { newEmail, newPassword, newName }),
+  ensureSuperadmin: () =>
+    api.post('/auth/ensure-superadmin', {}),
 };
 
 // Products

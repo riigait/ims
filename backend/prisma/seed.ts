@@ -27,26 +27,8 @@ async function main() {
     }
   }
 
-  // Create default superadmin for initial setup
-  const existingDefault = await prisma.user.findUnique({
-    where: { email: 'admin@ims.local' },
-  });
-
-  if (!existingDefault) {
-    const hashedPassword = await bcrypt.hash('changeme123', 10);
-    await prisma.user.create({
-      data: {
-        name: 'Superadmin',
-        email: 'admin@ims.local',
-        passwordHash: hashedPassword,
-        role: 'superadmin',
-        initialSetupComplete: false,
-      },
-    });
-    console.log('Created default superadmin: admin@ims.local (changeme123) - REQUIRES INITIAL SETUP');
-  } else {
-    console.log('Default superadmin already exists: admin@ims.local');
-  }
+  // Note: Default superadmin is created automatically on first login via /api/auth/ensure-superadmin
+  console.log('Note: Default superadmin will be created on first login attempt if none exists');
 
   console.log('Seeding complete!');
 }
