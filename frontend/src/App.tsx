@@ -34,6 +34,18 @@ function PrivateRoute({ children }: { children: React.ReactNode }) {
   return children;
 }
 
+function AdminRoute({ children }: { children: React.ReactNode }) {
+  const isLoggedIn = !!localStorage.getItem('token');
+  const user = localStorage.getItem('user');
+  const userObj = user ? JSON.parse(user) : null;
+
+  if (!isLoggedIn) return <Navigate to="/login" />;
+  if (!['admin', 'superadmin'].includes(userObj?.role)) {
+    return <Navigate to="/dashboard" />;
+  }
+  return children;
+}
+
 function App() {
   return (
     <ErrorBoundary>
@@ -147,33 +159,41 @@ function App() {
         <Route
           path="/admin/users"
           element={
-            <PrivateRoute>
-              <AdminUsers />
-            </PrivateRoute>
+            <AdminRoute>
+              <Layout>
+                <AdminUsers />
+              </Layout>
+            </AdminRoute>
           }
         />
         <Route
           path="/admin/departments"
           element={
-            <PrivateRoute>
-              <AdminDepartments />
-            </PrivateRoute>
+            <AdminRoute>
+              <Layout>
+                <AdminDepartments />
+              </Layout>
+            </AdminRoute>
           }
         />
         <Route
           path="/delete-requests"
           element={
-            <PrivateRoute>
-              <DeleteRequests />
-            </PrivateRoute>
+            <AdminRoute>
+              <Layout>
+                <DeleteRequests />
+              </Layout>
+            </AdminRoute>
           }
         />
         <Route
           path="/admin/assignment"
           element={
-            <PrivateRoute>
-              <AdminAssignment />
-            </PrivateRoute>
+            <AdminRoute>
+              <Layout>
+                <AdminAssignment />
+              </Layout>
+            </AdminRoute>
           }
         />
         <Route
@@ -187,9 +207,11 @@ function App() {
         <Route
           path="/password-requests"
           element={
-            <PrivateRoute>
-              <PasswordRequests />
-            </PrivateRoute>
+            <AdminRoute>
+              <Layout>
+                <PasswordRequests />
+              </Layout>
+            </AdminRoute>
           }
         />
         <Route path="*" element={<NotFound />} />

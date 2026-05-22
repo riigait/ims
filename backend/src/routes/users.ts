@@ -6,7 +6,7 @@ import bcrypt from 'bcryptjs';
 const router = Router();
 const prisma = new PrismaClient();
 
-// List all users (admin/superadmin only)
+// List all users (admin/superadmin only) — superadmin sees all, admin sees admin+staff only
 router.get('/', authMiddleware, async (req: AuthRequest, res: Response) => {
   try {
     const user = await prisma.user.findUnique({ where: { id: req.userId } });
@@ -14,7 +14,13 @@ router.get('/', authMiddleware, async (req: AuthRequest, res: Response) => {
       return res.status(403).json({ error: 'Only admins can view users' });
     }
 
+    // Build where clause based on user role
+    const whereClause = user.role === 'superadmin'
+      ? {} // Superadmin sees all users
+      : { role: { in: ['admin', 'staff'] } }; // Admin sees only admin and staff
+
     const users = await prisma.user.findMany({
+      where: whereClause,
       select: {
         id: true,
         name: true,
