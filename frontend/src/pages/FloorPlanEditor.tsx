@@ -211,7 +211,7 @@ export default function FloorPlanEditor() {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [editorState.selectedObjectId, currentFloorPlan, updateObject]);
+  }, [editorState.selectedObjectId, currentFloorPlan, selectedObjectIds, updateMultipleObjects, updateObject]);
 
   useEffect(() => {
     if (currentFloorPlan && canvasRef.current) redrawCanvas();
