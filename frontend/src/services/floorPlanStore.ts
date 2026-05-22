@@ -4,22 +4,30 @@ import { FloorPlan, FloorPlanEditorState, FloorPlanObject } from '@/types/floorp
 interface FloorPlanStore {
   currentFloorPlan: FloorPlan | null;
   editorState: FloorPlanEditorState;
-  
+  selectedObjectIds: string[];
+
   setCurrentFloorPlan: (plan: FloorPlan | null) => void;
   setTool: (tool: FloorPlanEditorState['tool']) => void;
   setSelectedObject: (id: string | null) => void;
+  setSelectedObjects: (ids: string[]) => void;
+  addToSelection: (id: string) => void;
+  removeFromSelection: (id: string) => void;
+  clearSelection: () => void;
   setZoomLevel: (zoom: number) => void;
   setPan: (x: number, y: number) => void;
-  
+
   addObject: (object: FloorPlanObject) => void;
   updateObject: (id: string, object: Partial<FloorPlanObject>) => void;
+  updateMultipleObjects: (ids: string[], updates: Partial<FloorPlanObject>) => void;
   deleteObject: (id: string) => void;
+  deleteMultipleObjects: (ids: string[]) => void;
   bringToFront: (id: string) => void;
   sendToBack: (id: string) => void;
   moveForward: (id: string) => void;
   moveBackward: (id: string) => void;
 
   getSelectedObject: () => FloorPlanObject | undefined;
+  getSelectedObjects: () => FloorPlanObject[];
   getObjectLayer: (id: string) => { index: number; total: number };
 }
 
@@ -32,17 +40,49 @@ export const useFloorPlanStore = create<FloorPlanStore>((set, get) => ({
     panX: 0,
     panY: 0,
   },
-  
+  selectedObjectIds: [],
+
   setCurrentFloorPlan: (plan) => set({ currentFloorPlan: plan }),
-  
+
   setTool: (tool) =>
     set((state) => ({
       editorState: { ...state.editorState, tool },
     })),
-  
+
   setSelectedObject: (id) =>
     set((state) => ({
       editorState: { ...state.editorState, selectedObjectId: id },
+      selectedObjectIds: id ? [id] : [],
+    })),
+
+  setSelectedObjects: (ids) =>
+    set((state) => ({
+      editorState: { ...state.editorState, selectedObjectId: ids[0] || null },
+      selectedObjectIds: ids,
+    })),
+
+  addToSelection: (id) =>
+    set((state) => {
+      if (state.selectedObjectIds.includes(id)) return state;
+      return {
+        editorState: { ...state.editorState, selectedObjectId: state.selectedObjectIds[0] || id },
+        selectedObjectIds: [...state.selectedObjectIds, id],
+      };
+    }),
+
+  removeFromSelection: (id) =>
+    set((state) => {
+      const remaining = state.selectedObjectIds.filter(sid => sid !== id);
+      return {
+        editorState: { ...state.editorState, selectedObjectId: remaining[0] || null },
+        selectedObjectIds: remaining,
+      };
+    }),
+
+  clearSelection: () =>
+    set((state) => ({
+      editorState: { ...state.editorState, selectedObjectId: null },
+      selectedObjectIds: [],
     })),
   
   setZoomLevel: (zoom) =>
@@ -78,7 +118,20 @@ export const useFloorPlanStore = create<FloorPlanStore>((set, get) => ({
         },
       };
     }),
-  
+
+  updateMultipleObjects: (ids, updates) =>
+    set((state) => {
+      if (!state.currentFloorPlan) return state;
+      return {
+        currentFloorPlan: {
+          ...state.currentFloorPlan,
+          objects: state.currentFloorPlan.objects.map((obj) =>
+            ids.includes(obj.id) ? { ...obj, ...updates } as FloorPlanObject : obj
+          ),
+        },
+      };
+    }),
+
   deleteObject: (id) =>
     set((state) => {
       if (!state.currentFloorPlan) return state;
@@ -87,6 +140,20 @@ export const useFloorPlanStore = create<FloorPlanStore>((set, get) => ({
           ...state.currentFloorPlan,
           objects: state.currentFloorPlan.objects.filter((obj) => obj.id !== id),
         },
+      };
+    }),
+
+  deleteMultipleObjects: (ids) =>
+    set((state) => {
+      if (!state.currentFloorPlan) return state;
+      const idSet = new Set(ids);
+      return {
+        currentFloorPlan: {
+          ...state.currentFloorPlan,
+          objects: state.currentFloorPlan.objects.filter((obj) => !idSet.has(obj.id)),
+        },
+        selectedObjectIds: [],
+        editorState: { ...state.editorState, selectedObjectId: null },
       };
     }),
 
@@ -140,6 +207,12 @@ export const useFloorPlanStore = create<FloorPlanStore>((set, get) => ({
     return state.currentFloorPlan.objects.find(
       (obj) => obj.id === state.editorState.selectedObjectId
     );
+  },
+
+  getSelectedObjects: () => {
+    const state = get();
+    if (!state.currentFloorPlan) return [];
+    return state.currentFloorPlan.objects.filter((obj) => state.selectedObjectIds.includes(obj.id));
   },
 
   getObjectLayer: (id) => {

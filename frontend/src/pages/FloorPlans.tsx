@@ -95,21 +95,21 @@ export default function FloorPlans() {
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Floor Plan Name *</label>
-                <input type="text" value={formData.name} required
+                <label htmlFor="plan-name" className="block text-sm font-medium text-gray-700 mb-1">Floor Plan Name *</label>
+                <input id="plan-name" name="name" type="text" value={formData.name} required
                   onChange={e => setFormData({ ...formData, name: e.target.value })}
                   className="w-full px-4 py-2 border border-gray-300 rounded-lg"
                   placeholder="e.g., Main Warehouse Floor 1" />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Width (px) *</label>
-                <input type="number" value={formData.width} required min={100} max={10000}
+                <label htmlFor="plan-width" className="block text-sm font-medium text-gray-700 mb-1">Width (px) *</label>
+                <input id="plan-width" name="width" type="number" value={formData.width} required min={100} max={10000}
                   onChange={e => setFormData({ ...formData, width: parseInt(e.target.value) || 0 })}
                   className="w-full px-4 py-2 border border-gray-300 rounded-lg" />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Height (px) *</label>
-                <input type="number" value={formData.height} required min={100} max={10000}
+                <label htmlFor="plan-height" className="block text-sm font-medium text-gray-700 mb-1">Height (px) *</label>
+                <input id="plan-height" name="height" type="number" value={formData.height} required min={100} max={10000}
                   onChange={e => setFormData({ ...formData, height: parseInt(e.target.value) || 0 })}
                   className="w-full px-4 py-2 border border-gray-300 rounded-lg" />
               </div>

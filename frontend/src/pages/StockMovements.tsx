@@ -96,8 +96,8 @@ export default function StockMovements() {
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Product *</label>
-                <select value={formData.productId} required
+                <label htmlFor="movement-product" className="block text-sm font-medium text-gray-700 mb-1">Product *</label>
+                <select id="movement-product" name="product" value={formData.productId} required
                   onChange={e => setFormData({ ...formData, productId: e.target.value })}
                   className="w-full px-4 py-2 border border-gray-300 rounded-lg">
                   <option value="">Select Product</option>
@@ -108,8 +108,8 @@ export default function StockMovements() {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Type *</label>
-                <select value={formData.movementType}
+                <label htmlFor="movement-type" className="block text-sm font-medium text-gray-700 mb-1">Type *</label>
+                <select id="movement-type" name="type" value={formData.movementType}
                   onChange={e => setFormData({ ...formData, movementType: e.target.value as MovementType })}
                   className="w-full px-4 py-2 border border-gray-300 rounded-lg">
                   {MOVEMENT_OPTIONS.map(o => (
@@ -119,15 +119,15 @@ export default function StockMovements() {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Quantity *</label>
-                <input type="number" value={formData.quantity} required min={1}
+                <label htmlFor="movement-quantity" className="block text-sm font-medium text-gray-700 mb-1">Quantity *</label>
+                <input id="movement-quantity" name="quantity" type="number" value={formData.quantity} required min={1}
                   onChange={e => setFormData({ ...formData, quantity: parseInt(e.target.value) || 1 })}
                   className="w-full px-4 py-2 border border-gray-300 rounded-lg" />
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Location</label>
-                <select value={formData.locationId}
+                <label htmlFor="movement-location" className="block text-sm font-medium text-gray-700 mb-1">Location</label>
+                <select id="movement-location" name="location" value={formData.locationId}
                   onChange={e => setFormData({ ...formData, locationId: e.target.value })}
                   className="w-full px-4 py-2 border border-gray-300 rounded-lg">
                   <option value="">— No location —</option>
@@ -139,8 +139,8 @@ export default function StockMovements() {
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Reason</label>
-              <input type="text" value={formData.reason}
+              <label htmlFor="movement-reason" className="block text-sm font-medium text-gray-700 mb-1">Reason</label>
+              <input id="movement-reason" name="reason" type="text" value={formData.reason}
                 onChange={e => setFormData({ ...formData, reason: e.target.value })}
                 className="w-full px-4 py-2 border border-gray-300 rounded-lg"
                 placeholder="e.g., Purchase order, Customer return, Damaged on receiving…" />

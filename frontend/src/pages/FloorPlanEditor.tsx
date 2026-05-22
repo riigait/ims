@@ -3,11 +3,11 @@ import { useParams, useNavigate } from 'react-router-dom';
 import {
   ArrowLeft, Save, Trash2, Move, Box, Square, Package,
   Layers, Type, ZoomIn, ZoomOut, MapPin, AlertTriangle, CheckCircle, XCircle,
-  ChevronsUp, ChevronsDown, ChevronUp, ChevronDown,
+  ChevronsUp, ChevronsDown, ChevronUp, ChevronDown, DoorOpen, Grid2x2, LogIn,
 } from 'lucide-react';
 import { floorPlansApi, locationsApi, productsApi } from '@/services/api';
 import { useFloorPlanStore } from '@/services/floorPlanStore';
-import { FloorPlanObject, WallObject, RectangleObject, LabelObject } from '@/types/floorplan';
+import { FloorPlanObject, WallObject, RectangleObject, LabelObject, DoorObject, WindowObject, EntranceObject, InventoryMarkerObject } from '@/types/floorplan';
 import { Location, Product } from '@/types/inventory';
 
 // Stock status for a set of products at a location
@@ -40,9 +40,9 @@ export default function FloorPlanEditor() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   const {
-    currentFloorPlan, editorState,
-    setCurrentFloorPlan, setTool, setSelectedObject, setZoomLevel,
-    addObject, updateObject, deleteObject, getSelectedObject,
+    currentFloorPlan, editorState, selectedObjectIds,
+    setCurrentFloorPlan, setTool, setSelectedObject, setSelectedObjects, addToSelection, removeFromSelection, clearSelection, setZoomLevel,
+    addObject, updateObject, updateMultipleObjects, deleteObject, deleteMultipleObjects, getSelectedObject,
     bringToFront, sendToBack, moveForward, moveBackward, getObjectLayer,
   } = useFloorPlanStore();
 
@@ -61,6 +61,19 @@ export default function FloorPlanEditor() {
   const [isDragging, setIsDragging] = useState(false);
   const [dragStart, setDragStart] = useState<{ x: number; y: number } | null>(null);
   const [dragSnapshot, setDragSnapshot] = useState<FloorPlanObject | null>(null);
+  const [dragSnapshots, setDragSnapshots] = useState<FloorPlanObject[]>([]);
+
+  // Resize state
+  const [isResizing, setIsResizing] = useState(false);
+  const [resizeHandle, setResizeHandle] = useState<string | null>(null);
+
+  // Wall endpoint resize
+  const [wallEndpointDragging, setWallEndpointDragging] = useState<'start' | 'end' | null>(null);
+
+  // Drag-to-select
+  const [isSelectingRect, setIsSelectingRect] = useState(false);
+  const [selectRectStart, setSelectRectStart] = useState<{ x: number; y: number } | null>(null);
+  const [selectRectEnd, setSelectRectEnd] = useState<{ x: number; y: number } | null>(null);
 
   // Derived maps
   const productsByLocation = useMemo(() => {
@@ -84,6 +97,117 @@ export default function FloorPlanEditor() {
     loadFloorPlan();
     loadSideData();
   }, [id]);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        setTool('select');
+        return;
+      }
+
+      if (e.ctrlKey && e.key === 'a') {
+        e.preventDefault();
+        if (currentFloorPlan) {
+          setSelectedObjects(currentFloorPlan.objects.map(o => o.id));
+        }
+        return;
+      }
+
+      if (!editorState.selectedObjectId || !currentFloorPlan) return;
+      const obj = currentFloorPlan.objects.find(o => o.id === editorState.selectedObjectId);
+      if (!obj) return;
+
+      const step = e.shiftKey ? 10 : 5;
+      let updates: Partial<FloorPlanObject> = {};
+
+      if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        if (obj.type === 'wall') {
+          const w = obj as WallObject;
+          updates = { startY: w.startY - step, endY: w.endY - step };
+        } else if (obj.type === 'room' || obj.type === 'rack' || obj.type === 'shelf') {
+          const r = obj as RectangleObject;
+          updates = { y: r.y - step };
+        } else if (obj.type === 'label') {
+          const l = obj as LabelObject;
+          updates = { y: l.y - step };
+        } else if (obj.type === 'door' || obj.type === 'window' || obj.type === 'entrance') {
+          const o = obj as DoorObject | WindowObject | EntranceObject;
+          updates = { y: o.y - step };
+        } else if (obj.type === 'marker') {
+          const m = obj as InventoryMarkerObject;
+          updates = { y: m.y - step };
+        }
+      } else if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        if (obj.type === 'wall') {
+          const w = obj as WallObject;
+          updates = { startY: w.startY + step, endY: w.endY + step };
+        } else if (obj.type === 'room' || obj.type === 'rack' || obj.type === 'shelf') {
+          const r = obj as RectangleObject;
+          updates = { y: r.y + step };
+        } else if (obj.type === 'label') {
+          const l = obj as LabelObject;
+          updates = { y: l.y + step };
+        } else if (obj.type === 'door' || obj.type === 'window' || obj.type === 'entrance') {
+          const o = obj as DoorObject | WindowObject | EntranceObject;
+          updates = { y: o.y + step };
+        } else if (obj.type === 'marker') {
+          const m = obj as InventoryMarkerObject;
+          updates = { y: m.y + step };
+        }
+      } else if (e.key === 'ArrowLeft') {
+        e.preventDefault();
+        if (obj.type === 'wall') {
+          const w = obj as WallObject;
+          updates = { startX: w.startX - step, endX: w.endX - step };
+        } else if (obj.type === 'room' || obj.type === 'rack' || obj.type === 'shelf') {
+          const r = obj as RectangleObject;
+          updates = { x: r.x - step };
+        } else if (obj.type === 'label') {
+          const l = obj as LabelObject;
+          updates = { x: l.x - step };
+        } else if (obj.type === 'door' || obj.type === 'window' || obj.type === 'entrance') {
+          const o = obj as DoorObject | WindowObject | EntranceObject;
+          updates = { x: o.x - step };
+        } else if (obj.type === 'marker') {
+          const m = obj as InventoryMarkerObject;
+          updates = { x: m.x - step };
+        }
+      } else if (e.key === 'ArrowRight') {
+        e.preventDefault();
+        if (obj.type === 'wall') {
+          const w = obj as WallObject;
+          updates = { startX: w.startX + step, endX: w.endX + step };
+        } else if (obj.type === 'room' || obj.type === 'rack' || obj.type === 'shelf') {
+          const r = obj as RectangleObject;
+          updates = { x: r.x + step };
+        } else if (obj.type === 'label') {
+          const l = obj as LabelObject;
+          updates = { x: l.x + step };
+        } else if (obj.type === 'door' || obj.type === 'window' || obj.type === 'entrance') {
+          const o = obj as DoorObject | WindowObject | EntranceObject;
+          updates = { x: o.x + step };
+        } else if (obj.type === 'marker') {
+          const m = obj as InventoryMarkerObject;
+          updates = { x: m.x + step };
+        }
+      }
+
+      if (Object.keys(updates).length > 0) {
+        // If multiple objects selected, move all of them together
+        if (selectedObjectIds.length > 1) {
+          updateMultipleObjects(selectedObjectIds, updates);
+        } else {
+          updateObject(editorState.selectedObjectId, updates);
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [editorState.selectedObjectId, currentFloorPlan, updateObject]);
 
   useEffect(() => {
     if (currentFloorPlan && canvasRef.current) redrawCanvas();
@@ -132,11 +256,79 @@ export default function FloorPlanEditor() {
     ctx.scale(editorState.zoomLevel, editorState.zoomLevel);
 
     currentFloorPlan.objects.forEach(obj => {
-      drawObject(ctx, obj, obj.id === editorState.selectedObjectId);
+      const isSelected = selectedObjectIds.includes(obj.id);
+      if (obj.type === 'door') {
+        drawDoor(ctx, obj as DoorObject, isSelected);
+      } else if (obj.type === 'window') {
+        drawWindow(ctx, obj as WindowObject, isSelected);
+      } else if (obj.type === 'entrance') {
+        drawEntrance(ctx, obj as EntranceObject, isSelected);
+      } else if (obj.type === 'marker') {
+        drawMarker(ctx, obj as InventoryMarkerObject, isSelected, products);
+      } else {
+        drawObject(ctx, obj, isSelected);
+      }
     });
 
+    // Draw wall measurements for selected wall
+    if (editorState.selectedObjectId && currentFloorPlan) {
+      const selectedObj = currentFloorPlan.objects.find(o => o.id === editorState.selectedObjectId);
+      if (selectedObj && selectedObj.type === 'wall') {
+        const pixelsPerMeter = currentFloorPlan.scale?.pixelsPerMeter ?? 50;
+        drawWallMeasurement(ctx, selectedObj as WallObject, pixelsPerMeter);
+      }
+    }
+
+    // Draw group selection bounding box when multiple objects selected
+    if (selectedObjectIds.length > 1 && currentFloorPlan) {
+      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+      selectedObjectIds.forEach(id => {
+        const obj = currentFloorPlan.objects.find(o => o.id === id);
+        if (!obj) return;
+        if (obj.type === 'wall') {
+          const w = obj as WallObject;
+          minX = Math.min(minX, w.startX, w.endX);
+          minY = Math.min(minY, w.startY, w.endY);
+          maxX = Math.max(maxX, w.startX, w.endX);
+          maxY = Math.max(maxY, w.startY, w.endY);
+        } else if (obj.type === 'room' || obj.type === 'rack' || obj.type === 'shelf') {
+          const r = obj as RectangleObject;
+          minX = Math.min(minX, r.x);
+          minY = Math.min(minY, r.y);
+          maxX = Math.max(maxX, r.x + r.width);
+          maxY = Math.max(maxY, r.y + r.height);
+        } else if (obj.type === 'label') {
+          const l = obj as LabelObject;
+          minX = Math.min(minX, l.x);
+          minY = Math.min(minY, l.y);
+          maxX = Math.max(maxX, l.x + 50);
+          maxY = Math.max(maxY, l.y + 20);
+        } else if (obj.type === 'door' || obj.type === 'window' || obj.type === 'entrance') {
+          const o = obj as DoorObject | WindowObject | EntranceObject;
+          minX = Math.min(minX, o.x - o.width / 2);
+          minY = Math.min(minY, o.y - 10);
+          maxX = Math.max(maxX, o.x + o.width / 2);
+          maxY = Math.max(maxY, o.y + 10);
+        } else if (obj.type === 'marker') {
+          const m = obj as InventoryMarkerObject;
+          minX = Math.min(minX, m.x - 10);
+          minY = Math.min(minY, m.y - 10);
+          maxX = Math.max(maxX, m.x + 10);
+          maxY = Math.max(maxY, m.y + 10);
+        }
+      });
+      if (minX !== Infinity && maxX !== -Infinity) {
+        const padding = 8;
+        ctx.strokeStyle = '#10b981';
+        ctx.lineWidth = 2;
+        ctx.setLineDash([5, 5]);
+        ctx.strokeRect(minX - padding, minY - padding, maxX - minX + padding * 2, maxY - minY + padding * 2);
+        ctx.setLineDash([]);
+      }
+    }
+
     // Live drawing preview
-    const drawingTools = ['wall', 'room', 'rack', 'shelf'];
+    const drawingTools = ['wall', 'room', 'rack', 'shelf', 'door', 'window', 'entrance'];
     if (startPos && currentMousePos && drawingTools.includes(editorState.tool)) {
       ctx.save();
       ctx.setLineDash([6, 4]);
@@ -148,7 +340,7 @@ export default function FloorPlanEditor() {
         ctx.moveTo(startPos.x, startPos.y);
         ctx.lineTo(currentMousePos.x, currentMousePos.y);
         ctx.stroke();
-      } else {
+      } else if (['room', 'rack', 'shelf'].includes(editorState.tool)) {
         ctx.fillStyle = DEFAULT_RECT_FILL[editorState.tool] ?? 'rgba(200,200,200,0.4)';
         ctx.strokeStyle = '#475569';
         ctx.lineWidth = 1.5;
@@ -158,12 +350,153 @@ export default function FloorPlanEditor() {
         const h = Math.abs(currentMousePos.y - startPos.y);
         ctx.fillRect(x, y, w, h);
         ctx.strokeRect(x, y, w, h);
+      } else if (editorState.tool === 'door') {
+        const nearestWall = getWallAtPoint(startPos.x, startPos.y);
+        if (nearestWall) {
+          const proj1 = projectPointOntoWall(startPos.x, startPos.y, nearestWall);
+          const proj2 = projectPointOntoWall(currentMousePos.x, currentMousePos.y, nearestWall);
+          const wallLen = dist(nearestWall.startX, nearestWall.startY, nearestWall.endX, nearestWall.endY);
+          const width = Math.abs(proj2.t - proj1.t) * wallLen;
+          const midT = (proj1.t + proj2.t) / 2;
+          const dx = nearestWall.endX - nearestWall.startX;
+          const dy = nearestWall.endY - nearestWall.startY;
+          const midX = nearestWall.startX + midT * dx;
+          const midY = nearestWall.startY + midT * dy;
+          const angle = getWallAngle(nearestWall);
+
+          ctx.fillStyle = 'rgba(139, 69, 19, 0.3)';
+          ctx.fillRect(midX - width / 2, midY - 8, Math.max(10, width), 16);
+          drawDoor(ctx, {
+            id: 'preview', type: 'door', x: midX, y: midY,
+            width: Math.max(10, width), angle, swingDirection: 'right', color: '#8B4513'
+          } as DoorObject, false);
+        }
+      } else if (editorState.tool === 'window') {
+        const nearestWall = getWallAtPoint(startPos.x, startPos.y);
+        if (nearestWall) {
+          const proj1 = projectPointOntoWall(startPos.x, startPos.y, nearestWall);
+          const proj2 = projectPointOntoWall(currentMousePos.x, currentMousePos.y, nearestWall);
+          const wallLen = dist(nearestWall.startX, nearestWall.startY, nearestWall.endX, nearestWall.endY);
+          const width = Math.abs(proj2.t - proj1.t) * wallLen;
+          const midT = (proj1.t + proj2.t) / 2;
+          const dx = nearestWall.endX - nearestWall.startX;
+          const dy = nearestWall.endY - nearestWall.startY;
+          const midX = nearestWall.startX + midT * dx;
+          const midY = nearestWall.startY + midT * dy;
+          const angle = getWallAngle(nearestWall);
+
+          ctx.fillStyle = 'rgba(135, 206, 235, 0.3)';
+          ctx.fillRect(midX - width / 2, midY - 6, Math.max(10, width), 12);
+          drawWindow(ctx, {
+            id: 'preview', type: 'window', x: midX, y: midY, width: Math.max(10, width), angle, color: '#87CEEB'
+          } as WindowObject, false);
+        }
+      } else if (editorState.tool === 'entrance') {
+        const nearestWall = getWallAtPoint(startPos.x, startPos.y);
+        if (nearestWall) {
+          const proj1 = projectPointOntoWall(startPos.x, startPos.y, nearestWall);
+          const proj2 = projectPointOntoWall(currentMousePos.x, currentMousePos.y, nearestWall);
+          const wallLen = dist(nearestWall.startX, nearestWall.startY, nearestWall.endX, nearestWall.endY);
+          const width = Math.abs(proj2.t - proj1.t) * wallLen;
+          const midT = (proj1.t + proj2.t) / 2;
+          const dx = nearestWall.endX - nearestWall.startX;
+          const dy = nearestWall.endY - nearestWall.startY;
+          const midX = nearestWall.startX + midT * dx;
+          const midY = nearestWall.startY + midT * dy;
+          const angle = getWallAngle(nearestWall);
+
+          ctx.fillStyle = 'rgba(16, 185, 129, 0.2)';
+          ctx.fillRect(midX - width / 2, midY - 8, Math.max(10, width), 16);
+          drawEntrance(ctx, {
+            id: 'preview', type: 'entrance', x: midX, y: midY, width: Math.max(10, width), angle, style: 'single', color: '#10b981'
+          } as EntranceObject, false);
+        }
       }
       ctx.restore();
     }
 
     ctx.restore();
-  }, [currentFloorPlan, editorState, startPos, currentMousePos, productsByLocation, locationsMap]);
+
+    // Draw drag-to-select rectangle and rubberband line (outside transformed context)
+    if (isSelectingRect && selectRectStart && selectRectEnd) {
+      const canvasX = (selectRectStart.x) * editorState.zoomLevel + editorState.panX;
+      const canvasY = (selectRectStart.y) * editorState.zoomLevel + editorState.panY;
+      const endCanvasX = (selectRectEnd.x) * editorState.zoomLevel + editorState.panX;
+      const endCanvasY = (selectRectEnd.y) * editorState.zoomLevel + editorState.panY;
+
+      const x = Math.min(canvasX, endCanvasX);
+      const y = Math.min(canvasY, endCanvasY);
+      const w = Math.abs(endCanvasX - canvasX);
+      const h = Math.abs(endCanvasY - canvasY);
+
+      // Draw filled selection rectangle with strong visibility
+      ctx.fillStyle = 'rgba(66, 135, 245, 0.35)';
+      ctx.fillRect(x, y, w, h);
+
+      // Draw thick rectangle border - PRIMARY VISIBILITY
+      ctx.strokeStyle = '#2563eb';
+      ctx.lineWidth = 3;
+      ctx.setLineDash([]);
+      ctx.strokeRect(x, y, w, h);
+
+      // Draw secondary border outline for extra visibility
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 1;
+      ctx.setLineDash([]);
+      ctx.strokeRect(x - 1, y - 1, w + 2, h + 2);
+
+      // Draw corner indicators - larger and more visible
+      ctx.fillStyle = '#2563eb';
+      const cornerRadius = 6;
+      const corners = [
+        { cx: x, cy: y },
+        { cx: x + w, cy: y },
+        { cx: x, cy: y + h },
+        { cx: x + w, cy: y + h }
+      ];
+      corners.forEach(corner => {
+        ctx.beginPath();
+        ctx.arc(corner.cx, corner.cy, cornerRadius, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+      });
+
+      // Draw main rubberband line from start to cursor
+      ctx.strokeStyle = '#0ea5e9';
+      ctx.lineWidth = 2;
+      ctx.setLineDash([]);
+      ctx.lineJoin = 'round';
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.moveTo(canvasX, canvasY);
+      ctx.lineTo(endCanvasX, endCanvasY);
+      ctx.stroke();
+
+      // Draw cursor crosshair at end position - larger
+      ctx.strokeStyle = '#0ea5e9';
+      ctx.lineWidth = 2.5;
+      const crosshairSize = 20;
+      ctx.beginPath();
+      ctx.moveTo(endCanvasX - crosshairSize, endCanvasY);
+      ctx.lineTo(endCanvasX + crosshairSize, endCanvasY);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(endCanvasX, endCanvasY - crosshairSize);
+      ctx.lineTo(endCanvasX, endCanvasY + crosshairSize);
+      ctx.stroke();
+
+      // Draw outer ring for cursor
+      ctx.strokeStyle = '#0ea5e9';
+      ctx.lineWidth = 2;
+      ctx.setLineDash([4, 4]);
+      ctx.beginPath();
+      ctx.arc(endCanvasX, endCanvasY, cornerRadius + 8, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+  }, [currentFloorPlan, editorState, selectedObjectIds, startPos, currentMousePos, isSelectingRect, selectRectStart, selectRectEnd, productsByLocation, locationsMap]);
 
   const drawGrid = (ctx: CanvasRenderingContext2D, canvas: HTMLCanvasElement) => {
     ctx.strokeStyle = '#e2e8f0';
@@ -186,6 +519,26 @@ export default function FloorPlanEditor() {
       ctx.strokeStyle = isSelected ? '#2563eb' : (obj.color ?? '#1e293b');
       ctx.stroke();
       if (obj.label) drawSmallLabel(ctx, obj.label, (wall.startX + wall.endX) / 2, (wall.startY + wall.endY) / 2 - 10);
+
+      // Draw endpoint handles when selected
+      if (isSelected) {
+        ctx.save();
+        ctx.fillStyle = '#2563eb';
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineWidth = 1.5;
+        const handleRadius = RESIZE_HANDLE_SIZE / 2;
+        // Start endpoint
+        ctx.beginPath();
+        ctx.arc(wall.startX, wall.startY, handleRadius, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+        // End endpoint
+        ctx.beginPath();
+        ctx.arc(wall.endX, wall.endY, handleRadius, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+        ctx.restore();
+      }
       return;
     }
 
@@ -213,8 +566,9 @@ export default function FloorPlanEditor() {
     const colors = STATUS_COLORS[status];
 
     // Use custom color if user set one, otherwise use status color
-    const fillColor = obj.color ? obj.color + '44' : colors.fill;
-    const strokeColor = isSelected ? '#2563eb' : (obj.color ?? colors.stroke);
+    const objColor = (obj as any).color; // color is optional on RectangleObject
+    const fillColor = objColor ? objColor + '44' : colors.fill;
+    const strokeColor = isSelected ? '#2563eb' : (objColor ?? colors.stroke);
 
     ctx.fillStyle = fillColor;
     ctx.fillRect(rect.x, rect.y, rect.width, rect.height);
@@ -276,6 +630,29 @@ export default function FloorPlanEditor() {
       ctx.fillStyle = colors.badge;
       ctx.fill();
     }
+
+    // Resize handles (only when selected)
+    if (isSelected && (obj.type === 'room' || obj.type === 'rack' || obj.type === 'shelf')) {
+      ctx.save();
+      ctx.fillStyle = '#2563eb';
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 1.5;
+      const handles: [number, number][] = [
+        [rect.x, rect.y],                           // nw
+        [rect.x + rect.width, rect.y],              // ne
+        [rect.x, rect.y + rect.height],             // sw
+        [rect.x + rect.width, rect.y + rect.height], // se
+        [rect.x + rect.width / 2, rect.y],          // n
+        [rect.x + rect.width / 2, rect.y + rect.height], // s
+        [rect.x, rect.y + rect.height / 2],         // w
+        [rect.x + rect.width, rect.y + rect.height / 2], // e
+      ];
+      handles.forEach(([hx, hy]) => {
+        ctx.fillRect(hx - RESIZE_HANDLE_SIZE / 2, hy - RESIZE_HANDLE_SIZE / 2, RESIZE_HANDLE_SIZE, RESIZE_HANDLE_SIZE);
+        ctx.strokeRect(hx - RESIZE_HANDLE_SIZE / 2, hy - RESIZE_HANDLE_SIZE / 2, RESIZE_HANDLE_SIZE, RESIZE_HANDLE_SIZE);
+      });
+      ctx.restore();
+    }
   };
 
   const drawSmallLabel = (ctx: CanvasRenderingContext2D, text: string, x: number, y: number) => {
@@ -292,6 +669,277 @@ export default function FloorPlanEditor() {
     let t = text;
     while (t.length > 1 && ctx.measureText(t + '…').width > maxWidth) t = t.slice(0, -1);
     return t + '…';
+  };
+
+  const drawDoor = (ctx: CanvasRenderingContext2D, door: DoorObject, isSelected: boolean) => {
+    ctx.save();
+    ctx.translate(door.x, door.y);
+    ctx.rotate(door.angle);
+
+    // Background highlight to make it easier to click
+    if (!isSelected) {
+      ctx.fillStyle = 'rgba(139, 69, 19, 0.08)';
+      ctx.fillRect(-door.width / 2 - 3, -12, door.width + 6, 24);
+    }
+
+    // Door panel (perpendicular line)
+    ctx.strokeStyle = isSelected ? '#2563eb' : (door.color ?? '#8B4513');
+    ctx.lineWidth = isSelected ? 3.5 : 3;
+    ctx.beginPath();
+    ctx.moveTo(-door.width / 2, 0);
+    ctx.lineTo(door.width / 2, 0);
+    ctx.stroke();
+
+    // Swing arc
+    ctx.strokeStyle = isSelected ? '#2563eb' : (door.color ?? '#8B4513');
+    ctx.lineWidth = isSelected ? 2 : 1.5;
+    ctx.setLineDash([2, 2]);
+    ctx.beginPath();
+    const arcRadius = door.width / 2;
+    const swingAngle = Math.PI * 0.75;
+    const startAngle = door.swingDirection === 'right' ? 0 : Math.PI;
+    const endAngle = door.swingDirection === 'right' ? -swingAngle : Math.PI + swingAngle;
+    ctx.arc(0, 0, arcRadius, startAngle, endAngle, door.swingDirection === 'right');
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    // Border when selected
+    if (isSelected) {
+      ctx.strokeStyle = '#2563eb';
+      ctx.lineWidth = 1;
+      ctx.setLineDash([4, 4]);
+      ctx.strokeRect(-door.width / 2 - 4, -13, door.width + 8, 26);
+      ctx.setLineDash([]);
+
+      ctx.fillStyle = '#2563eb';
+      ctx.beginPath();
+      ctx.arc(0, 0, 4, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    ctx.restore();
+  };
+
+  const drawWindow = (ctx: CanvasRenderingContext2D, win: WindowObject, isSelected: boolean) => {
+    ctx.save();
+    ctx.translate(win.x, win.y);
+    ctx.rotate(win.angle);
+
+    // Background highlight to make it easier to click
+    if (!isSelected) {
+      ctx.fillStyle = 'rgba(135, 206, 235, 0.08)';
+      ctx.fillRect(-win.width / 2 - 3, -12, win.width + 6, 24);
+    }
+
+    // Window panes (parallel lines)
+    ctx.strokeStyle = isSelected ? '#2563eb' : (win.color ?? '#87CEEB');
+    ctx.lineWidth = isSelected ? 2.5 : 2;
+    const paneSpacing = win.width / 4;
+    for (let i = -1; i <= 1; i++) {
+      ctx.beginPath();
+      ctx.moveTo(i * paneSpacing, -win.width / 8);
+      ctx.lineTo(i * paneSpacing, win.width / 8);
+      ctx.stroke();
+    }
+
+    // Border when selected
+    if (isSelected) {
+      ctx.strokeStyle = '#2563eb';
+      ctx.lineWidth = 1;
+      ctx.setLineDash([4, 4]);
+      ctx.strokeRect(-win.width / 2 - 4, -13, win.width + 8, 26);
+      ctx.setLineDash([]);
+
+      ctx.fillStyle = '#2563eb';
+      ctx.beginPath();
+      ctx.arc(0, 0, 4, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    ctx.restore();
+  };
+
+  const drawEntrance = (ctx: CanvasRenderingContext2D, entrance: EntranceObject, isSelected: boolean) => {
+    ctx.save();
+    ctx.translate(entrance.x, entrance.y);
+    ctx.rotate(entrance.angle);
+
+    // Background highlight to make it easier to click
+    if (!isSelected) {
+      ctx.fillStyle = 'rgba(16, 185, 129, 0.08)';
+      ctx.fillRect(-entrance.width / 2 - 3, -12, entrance.width + 6, 24);
+    }
+
+    ctx.strokeStyle = isSelected ? '#2563eb' : (entrance.color ?? '#10b981');
+    ctx.lineWidth = isSelected ? 2.5 : 2;
+
+    if (entrance.style === 'single') {
+      // Single opening
+      ctx.beginPath();
+      ctx.moveTo(-entrance.width / 2, -8);
+      ctx.lineTo(-entrance.width / 2, 8);
+      ctx.stroke();
+
+      ctx.beginPath();
+      ctx.moveTo(entrance.width / 2, -8);
+      ctx.lineTo(entrance.width / 2, 8);
+      ctx.stroke();
+
+      // Center line
+      ctx.setLineDash([3, 3]);
+      ctx.lineWidth = isSelected ? 2 : 1.5;
+      ctx.beginPath();
+      ctx.moveTo(-entrance.width / 2, 0);
+      ctx.lineTo(entrance.width / 2, 0);
+      ctx.stroke();
+    } else if (entrance.style === 'double') {
+      // Double doors (two openings with center divider)
+      const halfWidth = entrance.width / 2;
+      const quarterWidth = entrance.width / 4;
+
+      // Left door frame
+      ctx.beginPath();
+      ctx.moveTo(-halfWidth, -8);
+      ctx.lineTo(-halfWidth, 8);
+      ctx.stroke();
+
+      // Center divider
+      ctx.lineWidth = 2.5;
+      ctx.beginPath();
+      ctx.moveTo(0, -8);
+      ctx.lineTo(0, 8);
+      ctx.stroke();
+
+      // Right door frame
+      ctx.lineWidth = isSelected ? 2.5 : 2;
+      ctx.beginPath();
+      ctx.moveTo(halfWidth, -8);
+      ctx.lineTo(halfWidth, 8);
+      ctx.stroke();
+
+      // Center dashes
+      ctx.setLineDash([3, 3]);
+      ctx.lineWidth = isSelected ? 2 : 1.5;
+      ctx.beginPath();
+      ctx.moveTo(-quarterWidth, 0);
+      ctx.lineTo(quarterWidth, 0);
+      ctx.stroke();
+    } else if (entrance.style === 'archway') {
+      // Arched opening
+      ctx.setLineDash([]);
+      const arcRadius = entrance.width / 2;
+
+      // Left vertical line
+      ctx.beginPath();
+      ctx.moveTo(-entrance.width / 2, -8);
+      ctx.lineTo(-entrance.width / 2, 6);
+      ctx.stroke();
+
+      // Right vertical line
+      ctx.beginPath();
+      ctx.moveTo(entrance.width / 2, -8);
+      ctx.lineTo(entrance.width / 2, 6);
+      ctx.stroke();
+
+      // Arch curve
+      ctx.lineWidth = isSelected ? 2.5 : 2;
+      ctx.beginPath();
+      ctx.arc(0, 6, arcRadius, Math.PI, 0, true);
+      ctx.stroke();
+
+      // Center dashed line
+      ctx.lineWidth = isSelected ? 2 : 1.5;
+      ctx.setLineDash([3, 3]);
+      ctx.beginPath();
+      ctx.moveTo(-entrance.width / 2 + 5, 0);
+      ctx.lineTo(entrance.width / 2 - 5, 0);
+      ctx.stroke();
+    }
+
+    ctx.setLineDash([]);
+
+    // Border when selected
+    if (isSelected) {
+      ctx.strokeStyle = '#2563eb';
+      ctx.lineWidth = 1;
+      ctx.setLineDash([4, 4]);
+      ctx.strokeRect(-entrance.width / 2 - 4, -13, entrance.width + 8, 26);
+      ctx.setLineDash([]);
+
+      ctx.fillStyle = '#2563eb';
+      ctx.beginPath();
+      ctx.arc(0, 0, 4, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    ctx.restore();
+  };
+
+  const drawMarker = (ctx: CanvasRenderingContext2D, marker: InventoryMarkerObject, isSelected: boolean, products: Product[]) => {
+    ctx.save();
+
+    // Pin circle
+    ctx.fillStyle = isSelected ? '#2563eb' : '#3b82f6';
+    ctx.beginPath();
+    ctx.arc(marker.x, marker.y, 6, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Pin triangle
+    ctx.fillStyle = isSelected ? '#1e40af' : '#1e3a8a';
+    ctx.beginPath();
+    ctx.moveTo(marker.x, marker.y + 6);
+    ctx.lineTo(marker.x - 4, marker.y + 12);
+    ctx.lineTo(marker.x + 4, marker.y + 12);
+    ctx.closePath();
+    ctx.fill();
+
+    // Product name label
+    if (marker.linkedProductId) {
+      const product = products.find(p => p.id === marker.linkedProductId);
+      if (product) {
+        ctx.font = '9px Inter, Arial, sans-serif';
+        ctx.fillStyle = '#1e293b';
+        ctx.textAlign = 'left';
+        ctx.fillText(product.name, marker.x + 12, marker.y + 4);
+      }
+    }
+
+    ctx.restore();
+  };
+
+  const drawWallMeasurement = (ctx: CanvasRenderingContext2D, wall: WallObject, pixelsPerMeter: number) => {
+    const length = dist(wall.startX, wall.startY, wall.endX, wall.endY);
+    const meters = (length / pixelsPerMeter).toFixed(2);
+    const text = `${meters}m`;
+
+    const midX = (wall.startX + wall.endX) / 2;
+    const midY = (wall.startY + wall.endY) / 2;
+
+    // Offset perpendicular to wall
+    const angle = getWallAngle(wall);
+    const offsetDist = 25;
+    const offsetX = midX - Math.sin(angle) * offsetDist;
+    const offsetY = midY + Math.cos(angle) * offsetDist;
+
+    ctx.save();
+    ctx.font = 'bold 12px Inter, Arial, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+
+    // White background for label
+    const textMetrics = ctx.measureText(text);
+    const textWidth = textMetrics.width;
+    const textHeight = 14;
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.95)';
+    ctx.strokeStyle = '#2563eb';
+    ctx.lineWidth = 1;
+    ctx.fillRect(offsetX - textWidth / 2 - 4, offsetY - textHeight / 2, textWidth + 8, textHeight);
+    ctx.strokeRect(offsetX - textWidth / 2 - 4, offsetY - textHeight / 2, textWidth + 8, textHeight);
+
+    // Blue text
+    ctx.fillStyle = '#2563eb';
+    ctx.fillText(text, offsetX, offsetY);
+    ctx.restore();
   };
 
   // ─── Interaction ────────────────────────────────────────────────────────────
@@ -319,6 +967,20 @@ export default function FloorPlanEditor() {
         const l = obj as LabelObject;
         const w = l.text.length * (l.fontSize * 0.6);
         if (x >= l.x - 5 && x <= l.x + w && y >= l.y - l.fontSize && y <= l.y + 5) return obj.id;
+      } else if (obj.type === 'door' || obj.type === 'window') {
+        const o = obj as DoorObject | WindowObject;
+        // Dynamic tolerance based on width for easier clicking
+        const tolerance = Math.max(15, o.width / 2 + 8);
+        if (Math.abs(x - o.x) <= tolerance && Math.abs(y - o.y) <= tolerance) return obj.id;
+      } else if (obj.type === 'entrance') {
+        const e = obj as EntranceObject;
+        // Entrance is wider, so increase click tolerance based on width
+        const tolerance = Math.max(20, e.width / 2 + 10);
+        if (Math.abs(x - e.x) <= tolerance && Math.abs(y - e.y) <= tolerance) return obj.id;
+      } else if (obj.type === 'marker') {
+        const m = obj as InventoryMarkerObject;
+        const tolerance = 10;
+        if (Math.abs(x - m.x) <= tolerance && Math.abs(y - m.y) <= tolerance) return obj.id;
       }
     }
     return null;
@@ -335,31 +997,250 @@ export default function FloorPlanEditor() {
     return Math.sqrt((px - xx) ** 2 + (py - yy) ** 2);
   };
 
-  const handleCanvasMouseDown = (e: React.MouseEvent) => {
+  const RESIZE_HANDLE_SIZE = 8;
+  const GRID_SIZE = 20;
+  const SNAP_TO_ENDPOINT_RADIUS = 15;
+  const SNAP_TO_WALL_RADIUS = 20;
+
+  const snapToGrid = (v: number) => Math.round(v / GRID_SIZE) * GRID_SIZE;
+
+  const dist = (x1: number, y1: number, x2: number, y2: number) =>
+    Math.sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2);
+
+  const getWallAtPoint = (x: number, y: number): WallObject | null => {
+    if (!currentFloorPlan) return null;
+    for (let i = currentFloorPlan.objects.length - 1; i >= 0; i--) {
+      const obj = currentFloorPlan.objects[i];
+      if (obj.type === 'wall') {
+        const wall = obj as WallObject;
+        const d = pointToLineDistance(x, y, wall.startX, wall.startY, wall.endX, wall.endY);
+        if (d < SNAP_TO_WALL_RADIUS) return wall;
+      }
+    }
+    return null;
+  };
+
+  const getSnappedWallEndpoint = (x: number, y: number): {x: number, y: number} | null => {
+    if (!currentFloorPlan) return null;
+    for (const obj of currentFloorPlan.objects) {
+      if (obj.type !== 'wall') continue;
+      const wall = obj as WallObject;
+      if (dist(x, y, wall.startX, wall.startY) < SNAP_TO_ENDPOINT_RADIUS)
+        return {x: wall.startX, y: wall.startY};
+      if (dist(x, y, wall.endX, wall.endY) < SNAP_TO_ENDPOINT_RADIUS)
+        return {x: wall.endX, y: wall.endY};
+    }
+    return null;
+  };
+
+  const getWallAngle = (wall: WallObject) =>
+    Math.atan2(wall.endY - wall.startY, wall.endX - wall.startX);
+
+  // Project point onto wall line
+  const projectPointOntoWall = (px: number, py: number, wall: WallObject): {x: number, y: number, t: number} => {
+    const dx = wall.endX - wall.startX;
+    const dy = wall.endY - wall.startY;
+    const len = Math.sqrt(dx * dx + dy * dy);
+    if (len === 0) return {x: wall.startX, y: wall.startY, t: 0};
+
+    const t = Math.max(0, Math.min(1, ((px - wall.startX) * dx + (py - wall.startY) * dy) / (len * len)));
+    return {
+      x: wall.startX + t * dx,
+      y: wall.startY + t * dy,
+      t
+    };
+  };
+
+  const getResizeHandleAtPoint = (x: number, y: number, obj: FloorPlanObject | null): string | null => {
+    if (!obj || (obj.type !== 'room' && obj.type !== 'rack' && obj.type !== 'shelf')) return null;
+    const rect = obj as RectangleObject;
+    const handles: Record<string, [number, number]> = {
+      'nw': [rect.x, rect.y],
+      'ne': [rect.x + rect.width, rect.y],
+      'sw': [rect.x, rect.y + rect.height],
+      'se': [rect.x + rect.width, rect.y + rect.height],
+      'n':  [rect.x + rect.width / 2, rect.y],
+      's':  [rect.x + rect.width / 2, rect.y + rect.height],
+      'w':  [rect.x, rect.y + rect.height / 2],
+      'e':  [rect.x + rect.width, rect.y + rect.height / 2],
+    };
+    const tolerance = RESIZE_HANDLE_SIZE + 2;
+    for (const [handle, [hx, hy]] of Object.entries(handles)) {
+      if (Math.abs(x - hx) <= tolerance && Math.abs(y - hy) <= tolerance) return handle;
+    }
+    return null;
+  };
+
+  const getResizeCursor = () => {
+    if (resizeHandle === 'nw' || resizeHandle === 'se') return 'cursor-nwse-resize';
+    if (resizeHandle === 'ne' || resizeHandle === 'sw') return 'cursor-nesw-resize';
+    if (resizeHandle === 'n' || resizeHandle === 's') return 'cursor-ns-resize';
+    if (resizeHandle === 'w' || resizeHandle === 'e') return 'cursor-ew-resize';
+    return 'cursor-default';
+  };
+
+  const getWallEndpointAtPoint = (x: number, y: number, obj: FloorPlanObject | null): 'start' | 'end' | null => {
+    if (!obj || obj.type !== 'wall') return null;
+    const wall = obj as WallObject;
+    const tolerance = 8;
+    if (Math.abs(x - wall.startX) <= tolerance && Math.abs(y - wall.startY) <= tolerance) return 'start';
+    if (Math.abs(x - wall.endX) <= tolerance && Math.abs(y - wall.endY) <= tolerance) return 'end';
+    return null;
+  };
+
+  const handleCanvasPointerDown = (e: React.PointerEvent) => {
     const pos = canvasToWorld(e.clientX, e.clientY);
     if (editorState.tool === 'select') {
-      const objId = getObjectAtPoint(pos.x, pos.y);
-      if (objId) {
-        setSelectedObject(objId);
-        const obj = currentFloorPlan?.objects.find(o => o.id === objId);
-        if (obj) { setIsDragging(true); setDragStart(pos); setDragSnapshot({ ...obj }); }
+      const currentSelectedObj = editorState.selectedObjectId ? currentFloorPlan?.objects.find(o => o.id === editorState.selectedObjectId) : null;
+
+      // Check for wall endpoint drag
+      const wallEndpoint = getWallEndpointAtPoint(pos.x, pos.y, currentSelectedObj ?? null);
+      if (wallEndpoint) {
+        (e.currentTarget as HTMLCanvasElement).setPointerCapture(e.pointerId);
+        setWallEndpointDragging(wallEndpoint);
+        setDragStart(pos);
+        setDragSnapshot(currentSelectedObj ? { ...currentSelectedObj } : null);
       } else {
-        setSelectedObject(null);
+        // Check for rectangle resize handles
+        const handle = getResizeHandleAtPoint(pos.x, pos.y, currentSelectedObj ?? null);
+        if (handle) {
+          (e.currentTarget as HTMLCanvasElement).setPointerCapture(e.pointerId);
+          setIsResizing(true);
+          setResizeHandle(handle);
+          setDragStart(pos);
+          setDragSnapshot(currentSelectedObj ? { ...currentSelectedObj } : null);
+        } else {
+          const objId = getObjectAtPoint(pos.x, pos.y);
+          if (objId) {
+            if (e.ctrlKey) {
+              // Ctrl+click: add to or remove from selection
+              if (selectedObjectIds.includes(objId)) {
+                removeFromSelection(objId);
+              } else {
+                addToSelection(objId);
+              }
+            } else {
+              // Regular click: select only this object
+              setSelectedObject(objId);
+            }
+            const obj = currentFloorPlan?.objects.find(o => o.id === objId);
+            if (obj) {
+              (e.currentTarget as HTMLCanvasElement).setPointerCapture(e.pointerId);
+              setIsDragging(true);
+              setDragStart(pos);
+              // If multiple objects selected, capture all; otherwise capture just this one
+              if (selectedObjectIds.length > 1 && selectedObjectIds.includes(objId)) {
+                const snapshots = currentFloorPlan?.objects.filter(o => selectedObjectIds.includes(o.id)).map(o => ({ ...o })) || [];
+                setDragSnapshots(snapshots);
+              } else {
+                setDragSnapshot({ ...obj });
+              }
+            }
+          } else {
+            // Empty space click: start drag-to-select rectangle
+            if (!e.ctrlKey && !e.shiftKey) {
+              clearSelection();
+            }
+            (e.currentTarget as HTMLCanvasElement).setPointerCapture(e.pointerId);
+            setIsSelectingRect(true);
+            setSelectRectStart(pos);
+            setSelectRectEnd(pos);
+          }
+        }
       }
     } else if (editorState.tool === 'delete') {
       const objId = getObjectAtPoint(pos.x, pos.y);
       if (objId) { deleteObject(objId); setSelectedObject(null); }
-    } else if (['wall', 'room', 'rack', 'shelf'].includes(editorState.tool)) {
+    } else if (['wall', 'room', 'rack', 'shelf', 'door', 'window', 'entrance'].includes(editorState.tool)) {
+      (e.currentTarget as HTMLCanvasElement).setPointerCapture(e.pointerId);
       setStartPos(pos); setCurrentMousePos(pos);
     } else if (editorState.tool === 'label') {
       const text = prompt('Enter label text:');
       if (text) addObject({ id: 'label_' + Date.now(), type: 'label', x: pos.x, y: pos.y, text, fontSize: 14, label: text } as LabelObject);
+    } else if (editorState.tool === 'marker') {
+      const snappedGrid = { x: snapToGrid(pos.x), y: snapToGrid(pos.y) };
+      const productId = prompt('Enter product ID or leave empty:') || undefined;
+      addObject({
+        id: 'marker_' + Date.now(),
+        type: 'marker',
+        x: snappedGrid.x,
+        y: snappedGrid.y,
+        linkedProductId: productId,
+      } as InventoryMarkerObject);
     }
   };
 
-  const handleCanvasMouseMove = (e: React.MouseEvent) => {
+  const handleCanvasPointerMove = (e: React.PointerEvent) => {
     const pos = canvasToWorld(e.clientX, e.clientY);
-    if (isDragging && dragStart && dragSnapshot && editorState.selectedObjectId) {
+
+    // Handle drag-to-select
+    if (isSelectingRect && selectRectStart) {
+      setSelectRectEnd(pos);
+    }
+
+    // Handle wall endpoint dragging
+    if (wallEndpointDragging && dragStart && dragSnapshot && editorState.selectedObjectId) {
+      const dx = pos.x - dragStart.x, dy = pos.y - dragStart.y;
+      const snap = dragSnapshot as WallObject;
+
+      if (wallEndpointDragging === 'start') {
+        updateObject(editorState.selectedObjectId, { startX: snap.startX + dx, startY: snap.startY + dy });
+      } else if (wallEndpointDragging === 'end') {
+        updateObject(editorState.selectedObjectId, { endX: snap.endX + dx, endY: snap.endY + dy });
+      }
+    }
+    // Handle resize
+    else if (isResizing && resizeHandle && dragStart && dragSnapshot && editorState.selectedObjectId) {
+      const dx = pos.x - dragStart.x, dy = pos.y - dragStart.y;
+      const snap = dragSnapshot as RectangleObject;
+      let updates: Partial<RectangleObject> = {};
+
+      if (resizeHandle === 'nw') {
+        updates = { x: snap.x + dx, y: snap.y + dy, width: snap.width - dx, height: snap.height - dy };
+      } else if (resizeHandle === 'ne') {
+        updates = { y: snap.y + dy, width: snap.width + dx, height: snap.height - dy };
+      } else if (resizeHandle === 'sw') {
+        updates = { x: snap.x + dx, width: snap.width - dx, height: snap.height + dy };
+      } else if (resizeHandle === 'se') {
+        updates = { width: snap.width + dx, height: snap.height + dy };
+      } else if (resizeHandle === 'n') {
+        updates = { y: snap.y + dy, height: snap.height - dy };
+      } else if (resizeHandle === 's') {
+        updates = { height: snap.height + dy };
+      } else if (resizeHandle === 'w') {
+        updates = { x: snap.x + dx, width: snap.width - dx };
+      } else if (resizeHandle === 'e') {
+        updates = { width: snap.width + dx };
+      }
+
+      if (updates.width && updates.width < 10) updates.width = 10;
+      if (updates.height && updates.height < 10) updates.height = 10;
+      updateObject(editorState.selectedObjectId, updates);
+    }
+    // Handle group drag (multiple selected objects)
+    else if (isDragging && dragStart && dragSnapshots.length > 0) {
+      const dx = pos.x - dragStart.x, dy = pos.y - dragStart.y;
+      dragSnapshots.forEach(snap => {
+        if (snap.type === 'wall') {
+          const w = snap as WallObject;
+          updateObject(snap.id, { startX: w.startX + dx, startY: w.startY + dy, endX: w.endX + dx, endY: w.endY + dy });
+        } else if (snap.type === 'room' || snap.type === 'rack' || snap.type === 'shelf') {
+          const r = snap as RectangleObject;
+          updateObject(snap.id, { x: r.x + dx, y: r.y + dy });
+        } else if (snap.type === 'label') {
+          const l = snap as LabelObject;
+          updateObject(snap.id, { x: l.x + dx, y: l.y + dy });
+        } else if (snap.type === 'door' || snap.type === 'window' || snap.type === 'entrance') {
+          const o = snap as DoorObject | WindowObject | EntranceObject;
+          updateObject(snap.id, { x: o.x + dx, y: o.y + dy });
+        } else if (snap.type === 'marker') {
+          const m = snap as InventoryMarkerObject;
+          updateObject(snap.id, { x: m.x + dx, y: m.y + dy });
+        }
+      });
+    }
+    // Handle single object drag
+    else if (isDragging && dragStart && dragSnapshot && editorState.selectedObjectId) {
       const dx = pos.x - dragStart.x, dy = pos.y - dragStart.y;
       const snap = dragSnapshot;
       if (snap.type === 'wall') {
@@ -371,21 +1252,173 @@ export default function FloorPlanEditor() {
       } else if (snap.type === 'label') {
         const l = snap as LabelObject;
         updateObject(editorState.selectedObjectId, { x: l.x + dx, y: l.y + dy });
+      } else if (snap.type === 'door' || snap.type === 'window' || snap.type === 'entrance') {
+        const o = snap as DoorObject | WindowObject | EntranceObject;
+        updateObject(editorState.selectedObjectId, { x: o.x + dx, y: o.y + dy });
+      } else if (snap.type === 'marker') {
+        const m = snap as InventoryMarkerObject;
+        updateObject(editorState.selectedObjectId, { x: m.x + dx, y: m.y + dy });
       }
     }
-    if (startPos) setCurrentMousePos(pos);
+
+    if (startPos) {
+      // Apply snap for wall/door/window drawing
+      let snappedPos = pos;
+      if (editorState.tool === 'wall') {
+        // Snap to grid first
+        snappedPos = { x: snapToGrid(pos.x), y: snapToGrid(pos.y) };
+        // Then check for endpoint snap (endpoint snap takes precedence)
+        const endpointSnap = getSnappedWallEndpoint(pos.x, pos.y);
+        if (endpointSnap) snappedPos = endpointSnap;
+      }
+      // Don't snap doors/windows to grid - they snap to walls only
+      setCurrentMousePos(snappedPos);
+    }
+
+    // Check if hovering over wall endpoint or resize handle
+    if (editorState.tool === 'select' && !isDragging && !isResizing && !wallEndpointDragging) {
+      const currentSelectedObj = editorState.selectedObjectId ? currentFloorPlan?.objects.find(o => o.id === editorState.selectedObjectId) : null;
+      const wallEndpoint = getWallEndpointAtPoint(pos.x, pos.y, currentSelectedObj ?? null);
+      if (wallEndpoint) {
+        setResizeHandle('e'); // Show resize cursor for wall endpoints
+      } else {
+        const handle = getResizeHandleAtPoint(pos.x, pos.y, currentSelectedObj ?? null);
+        setResizeHandle(handle);
+      }
+    }
   };
 
-  const handleCanvasMouseUp = (e: React.MouseEvent) => {
+  const handleCanvasPointerUp = (e: React.PointerEvent) => {
     const pos = canvasToWorld(e.clientX, e.clientY);
-    if (isDragging) {
-      setIsDragging(false); setDragStart(null); setDragSnapshot(null);
+    (e.currentTarget as HTMLCanvasElement).releasePointerCapture(e.pointerId);
+
+    // Handle drag-to-select completion
+    if (isSelectingRect && selectRectStart && selectRectEnd) {
+      const minX = Math.min(selectRectStart.x, selectRectEnd.x);
+      const maxX = Math.max(selectRectStart.x, selectRectEnd.x);
+      const minY = Math.min(selectRectStart.y, selectRectEnd.y);
+      const maxY = Math.max(selectRectStart.y, selectRectEnd.y);
+
+      const objectsInRect = currentFloorPlan?.objects
+        .filter(obj => {
+          if (obj.type === 'wall') {
+            const w = obj as WallObject;
+            return !(w.startX < minX && w.endX < minX) && !(w.startX > maxX && w.endX > maxX) &&
+                   !(w.startY < minY && w.endY < minY) && !(w.startY > maxY && w.endY > maxY);
+          } else if (obj.type === 'room' || obj.type === 'rack' || obj.type === 'shelf') {
+            const r = obj as RectangleObject;
+            return r.x >= minX && r.x + r.width <= maxX && r.y >= minY && r.y + r.height <= maxY;
+          } else if (obj.type === 'label') {
+            const l = obj as LabelObject;
+            return l.x >= minX && l.y >= minY;
+          } else if (obj.type === 'door' || obj.type === 'window') {
+            const o = obj as DoorObject | WindowObject;
+            return o.x >= minX && o.x <= maxX && o.y >= minY && o.y <= maxY;
+          } else if (obj.type === 'marker') {
+            const m = obj as InventoryMarkerObject;
+            return m.x >= minX && m.x <= maxX && m.y >= minY && m.y <= maxY;
+          }
+          return false;
+        })
+        .map(obj => obj.id) ?? [];
+
+      if (objectsInRect.length > 0) {
+        setSelectedObjects(objectsInRect);
+      }
+      setIsSelectingRect(false);
+      setSelectRectStart(null);
+      setSelectRectEnd(null);
+    } else if (wallEndpointDragging) {
+      setWallEndpointDragging(null); setDragStart(null); setDragSnapshot(null);
+    } else if (isResizing) {
+      setIsResizing(false); setResizeHandle(null); setDragStart(null); setDragSnapshot(null);
+    } else if (isDragging) {
+      setIsDragging(false); setDragStart(null); setDragSnapshot(null); setDragSnapshots([]);
     } else if (startPos) {
       const colorMap: Record<string, string> = { room: '#e0e0e0', rack: '#ffeb3b', shelf: '#90caf9' };
+      const snappedPos = pos;
+
       if (editorState.tool === 'wall' && Math.abs(pos.x - startPos.x) + Math.abs(pos.y - startPos.y) > 10) {
-        addObject({ id: 'wall_' + Date.now(), type: 'wall', startX: startPos.x, startY: startPos.y, endX: pos.x, endY: pos.y, thickness: 8, color: '#1e293b' } as WallObject);
+        addObject({ id: 'wall_' + Date.now(), type: 'wall', startX: startPos.x, startY: startPos.y, endX: snappedPos.x, endY: snappedPos.y, thickness: 8, color: '#1e293b' } as WallObject);
       } else if (['room', 'rack', 'shelf'].includes(editorState.tool) && Math.abs(pos.x - startPos.x) > 10 && Math.abs(pos.y - startPos.y) > 10) {
         addObject({ id: `${editorState.tool}_${Date.now()}`, type: editorState.tool as 'room' | 'rack' | 'shelf', x: Math.min(startPos.x, pos.x), y: Math.min(startPos.y, pos.y), width: Math.abs(pos.x - startPos.x), height: Math.abs(pos.y - startPos.y), rotation: 0, color: colorMap[editorState.tool] } as RectangleObject);
+      } else if (editorState.tool === 'door' && Math.abs(pos.x - startPos.x) + Math.abs(pos.y - startPos.y) > 10) {
+        const nearestWall = getWallAtPoint(startPos.x, startPos.y);
+        if (nearestWall) {
+          const proj1 = projectPointOntoWall(startPos.x, startPos.y, nearestWall);
+          const proj2 = projectPointOntoWall(pos.x, pos.y, nearestWall);
+          const wallLen = dist(nearestWall.startX, nearestWall.startY, nearestWall.endX, nearestWall.endY);
+          const width = Math.abs(proj2.t - proj1.t) * wallLen;
+          const midT = (proj1.t + proj2.t) / 2;
+          const dx = nearestWall.endX - nearestWall.startX;
+          const dy = nearestWall.endY - nearestWall.startY;
+          const midX = nearestWall.startX + midT * dx;
+          const midY = nearestWall.startY + midT * dy;
+          const angle = getWallAngle(nearestWall);
+          addObject({
+            id: 'door_' + Date.now(),
+            type: 'door',
+            x: midX,
+            y: midY,
+            width: Math.max(10, width),
+            angle,
+            swingDirection: 'right',
+            color: '#8B4513'
+          } as DoorObject);
+        } else {
+          alert('⚠️ Door must be placed on or near a wall');
+        }
+      } else if (editorState.tool === 'window' && Math.abs(pos.x - startPos.x) + Math.abs(pos.y - startPos.y) > 10) {
+        const nearestWall = getWallAtPoint(startPos.x, startPos.y);
+        if (nearestWall) {
+          const proj1 = projectPointOntoWall(startPos.x, startPos.y, nearestWall);
+          const proj2 = projectPointOntoWall(pos.x, pos.y, nearestWall);
+          const wallLen = dist(nearestWall.startX, nearestWall.startY, nearestWall.endX, nearestWall.endY);
+          const width = Math.abs(proj2.t - proj1.t) * wallLen;
+          const midT = (proj1.t + proj2.t) / 2;
+          const dx = nearestWall.endX - nearestWall.startX;
+          const dy = nearestWall.endY - nearestWall.startY;
+          const midX = nearestWall.startX + midT * dx;
+          const midY = nearestWall.startY + midT * dy;
+          const angle = getWallAngle(nearestWall);
+          addObject({
+            id: 'window_' + Date.now(),
+            type: 'window',
+            x: midX,
+            y: midY,
+            width: Math.max(10, width),
+            angle,
+            color: '#87CEEB'
+          } as WindowObject);
+        } else {
+          alert('⚠️ Window must be placed on or near a wall');
+        }
+      } else if (editorState.tool === 'entrance' && Math.abs(pos.x - startPos.x) + Math.abs(pos.y - startPos.y) > 10) {
+        const nearestWall = getWallAtPoint(startPos.x, startPos.y);
+        if (nearestWall) {
+          const proj1 = projectPointOntoWall(startPos.x, startPos.y, nearestWall);
+          const proj2 = projectPointOntoWall(pos.x, pos.y, nearestWall);
+          const wallLen = dist(nearestWall.startX, nearestWall.startY, nearestWall.endX, nearestWall.endY);
+          const width = Math.abs(proj2.t - proj1.t) * wallLen;
+          const midT = (proj1.t + proj2.t) / 2;
+          const dx = nearestWall.endX - nearestWall.startX;
+          const dy = nearestWall.endY - nearestWall.startY;
+          const midX = nearestWall.startX + midT * dx;
+          const midY = nearestWall.startY + midT * dy;
+          const angle = getWallAngle(nearestWall);
+          addObject({
+            id: 'entrance_' + Date.now(),
+            type: 'entrance',
+            x: midX,
+            y: midY,
+            width: Math.max(10, width),
+            angle,
+            style: 'single',
+            color: '#10b981'
+          } as EntranceObject);
+        } else {
+          alert('⚠️ Entrance must be placed on or near a wall');
+        }
       }
     }
     setStartPos(null); setCurrentMousePos(null);
@@ -401,7 +1434,10 @@ export default function FloorPlanEditor() {
   };
 
   const getCursor = () => {
+    if (wallEndpointDragging) return 'cursor-grabbing';
+    if (isResizing) return getResizeCursor();
     if (isDragging) return 'cursor-grabbing';
+    if (editorState.tool === 'select' && resizeHandle) return getResizeCursor();
     if (editorState.tool === 'select') return 'cursor-default';
     if (editorState.tool === 'delete') return 'cursor-pointer';
     return 'cursor-crosshair';
@@ -499,6 +1535,10 @@ export default function FloorPlanEditor() {
             { tool: 'rack',  icon: <Box size={18} />,     title: 'Rack' },
             { tool: 'shelf', icon: <Package size={18} />, title: 'Shelf' },
             { tool: 'label', icon: <Type size={18} />,    title: 'Label' },
+            { tool: 'door',  icon: <DoorOpen size={18} />, title: 'Door' },
+            { tool: 'window', icon: <Grid2x2 size={18} />, title: 'Window' },
+            { tool: 'entrance', icon: <LogIn size={18} />, title: 'Entrance Way' },
+            { tool: 'marker', icon: <MapPin size={18} />,  title: 'Inventory Marker' },
           ] as const).map(({ tool, icon, title }) => (
             <button key={tool} onClick={() => setTool(tool)} title={title}
               className={`p-2.5 rounded-lg w-10 flex justify-center ${editorState.tool === tool ? 'bg-blue-600 text-white' : 'text-gray-500 hover:bg-gray-100'}`}>
@@ -528,10 +1568,13 @@ export default function FloorPlanEditor() {
             ref={canvasRef}
             width={currentFloorPlan.width}
             height={currentFloorPlan.height}
-            onMouseDown={handleCanvasMouseDown}
-            onMouseMove={handleCanvasMouseMove}
-            onMouseUp={handleCanvasMouseUp}
-            onMouseLeave={() => { if (!isDragging) { setStartPos(null); setCurrentMousePos(null); } }}
+            onPointerDown={handleCanvasPointerDown}
+            onPointerMove={handleCanvasPointerMove}
+            onPointerUp={handleCanvasPointerUp}
+            onPointerLeave={(e) => {
+              (e.currentTarget as HTMLCanvasElement).releasePointerCapture(e.pointerId);
+              if (!isDragging) { setStartPos(null); setCurrentMousePos(null); }
+            }}
             className={`bg-white border border-gray-300 shadow-lg block ${getCursor()}`}
             style={{ margin: '16px' }}
           />
@@ -539,9 +1582,85 @@ export default function FloorPlanEditor() {
 
         {/* Right panel */}
         <div className="w-80 bg-white border-l flex flex-col overflow-hidden shadow-sm flex-shrink-0">
-          {selectedObject ? (
+          {selectedObjectIds.length > 0 ? (
             <div className="flex flex-col h-full overflow-y-auto">
-              {/* ── Object Properties ── */}
+              {/* ── Multiple Objects Selected ── */}
+              {selectedObjectIds.length > 1 ? (
+                <div className="p-4 border-b space-y-3">
+                  <div className="flex items-center justify-between mb-2">
+                    <h3 className="font-semibold text-gray-900">Group Edit</h3>
+                    <span className="text-xs font-medium uppercase tracking-wide text-white bg-purple-500 px-2 py-0.5 rounded">
+                      {selectedObjectIds.length} objects
+                    </span>
+                  </div>
+
+                  {/* Selected objects list */}
+                  <div className="max-h-32 overflow-y-auto bg-gray-50 rounded border border-gray-200 p-2">
+                    <div className="text-xs font-medium text-gray-600 mb-2">Selected:</div>
+                    <div className="space-y-1">
+                      {selectedObjectIds.map((objId, idx) => {
+                        const obj = currentFloorPlan?.objects.find(o => o.id === objId);
+                        const isActive = editorState.selectedObjectId === objId;
+                        return obj ? (
+                          <button
+                            key={objId}
+                            onClick={() => setSelectedObject(objId)}
+                            className={`w-full text-left px-2 py-1 rounded text-xs transition ${
+                              isActive
+                                ? 'bg-blue-500 text-white font-medium'
+                                : 'bg-white border border-gray-200 text-gray-700 hover:bg-gray-100'
+                            }`}
+                          >
+                            {idx + 1}. {obj.type} {obj.label ? `"${obj.label}"` : ''}
+                          </button>
+                        ) : null;
+                      })}
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">Color (All)</label>
+                    <div className="flex gap-2 items-center">
+                      <input type="color" value="#000000"
+                        onChange={e => updateMultipleObjects(selectedObjectIds, { color: e.target.value })}
+                        className="w-12 h-10 border border-gray-300 rounded cursor-pointer" />
+                      <span className="text-xs text-gray-500">Apply to all</span>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">Layer Order</label>
+                    <div className="flex gap-2">
+                      <button onClick={() => selectedObjectIds.forEach(id => bringToFront(id))}
+                        className="flex-1 px-2 py-1.5 rounded text-xs font-medium bg-gray-100 hover:bg-gray-200">
+                        <ChevronsUp size={14} className="inline mr-1" /> Front
+                      </button>
+                      <button onClick={() => selectedObjectIds.forEach(id => moveForward(id))}
+                        className="flex-1 px-2 py-1.5 rounded text-xs font-medium bg-gray-100 hover:bg-gray-200">
+                        <ChevronUp size={14} className="inline mr-1" /> Up
+                      </button>
+                    </div>
+                    <div className="flex gap-2 mt-2">
+                      <button onClick={() => selectedObjectIds.forEach(id => moveBackward(id))}
+                        className="flex-1 px-2 py-1.5 rounded text-xs font-medium bg-gray-100 hover:bg-gray-200">
+                        <ChevronDown size={14} className="inline mr-1" /> Down
+                      </button>
+                      <button onClick={() => selectedObjectIds.forEach(id => sendToBack(id))}
+                        className="flex-1 px-2 py-1.5 rounded text-xs font-medium bg-gray-100 hover:bg-gray-200">
+                        <ChevronsDown size={14} className="inline mr-1" /> Back
+                      </button>
+                    </div>
+                  </div>
+
+                  <button onClick={() => deleteMultipleObjects(selectedObjectIds)}
+                    className="w-full px-3 py-2 rounded text-sm font-medium bg-red-50 text-red-600 hover:bg-red-100">
+                    <Trash2 size={14} className="inline mr-2" /> Delete All
+                  </button>
+                </div>
+              ) : null}
+
+              {/* ── Object Properties (Single) ── */}
+              {selectedObject ? (
               <div className="p-4 border-b space-y-3">
                 <div className="flex items-center justify-between">
                   <h3 className="font-semibold text-gray-900">Properties</h3>
@@ -588,6 +1707,139 @@ export default function FloorPlanEditor() {
                   </div>;
                 })()}
 
+                {/* Door: width + swing direction + color + rotation */}
+                {selectedObject.type === 'door' && (() => {
+                  const door = selectedObject as DoorObject;
+                  const rotationDegrees = (door.angle * 180) / Math.PI;
+                  return <>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 mb-1">Width (px)</label>
+                      <input type="number" value={Math.round(door.width)} min={10}
+                        onChange={e => updateObject(selectedObject.id, { width: parseInt(e.target.value) || 30 })}
+                        className="w-full px-2.5 py-1.5 border border-gray-300 rounded text-sm" />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 mb-1">Swing Direction</label>
+                      <div className="flex gap-2">
+                        <button onClick={() => updateObject(selectedObject.id, { swingDirection: 'left' })}
+                          className={`flex-1 px-2 py-1.5 rounded text-sm font-medium ${door.swingDirection === 'left' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700'}`}>
+                          Left
+                        </button>
+                        <button onClick={() => updateObject(selectedObject.id, { swingDirection: 'right' })}
+                          className={`flex-1 px-2 py-1.5 rounded text-sm font-medium ${door.swingDirection === 'right' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700'}`}>
+                          Right
+                        </button>
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 mb-1">Color</label>
+                      <div className="flex gap-2 items-center">
+                        <input type="color" value={door.color || '#8B4513'}
+                          onChange={e => updateObject(selectedObject.id, { color: e.target.value })}
+                          className="w-12 h-10 border border-gray-300 rounded cursor-pointer" />
+                        <span className="text-xs text-gray-500">{door.color || '#8B4513'}</span>
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 mb-1">Rotation (°)</label>
+                      <input type="number" value={Math.round(rotationDegrees)} min={0} max={359}
+                        onChange={e => updateObject(selectedObject.id, { angle: (parseInt(e.target.value) || 0) * Math.PI / 180 })}
+                        className="w-full px-2.5 py-1.5 border border-gray-300 rounded text-sm" />
+                    </div>
+                  </>;
+                })()}
+
+                {/* Window: width + color + rotation */}
+                {selectedObject.type === 'window' && (() => {
+                  const win = selectedObject as WindowObject;
+                  const rotationDegrees = (win.angle * 180) / Math.PI;
+                  return <>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 mb-1">Width (px)</label>
+                      <input type="number" value={Math.round(win.width)} min={10}
+                        onChange={e => updateObject(selectedObject.id, { width: parseInt(e.target.value) || 40 })}
+                        className="w-full px-2.5 py-1.5 border border-gray-300 rounded text-sm" />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 mb-1">Color</label>
+                      <div className="flex gap-2 items-center">
+                        <input type="color" value={win.color || '#87CEEB'}
+                          onChange={e => updateObject(selectedObject.id, { color: e.target.value })}
+                          className="w-12 h-10 border border-gray-300 rounded cursor-pointer" />
+                        <span className="text-xs text-gray-500">{win.color || '#87CEEB'}</span>
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 mb-1">Rotation (°)</label>
+                      <input type="number" value={Math.round(rotationDegrees)} min={0} max={359}
+                        onChange={e => updateObject(selectedObject.id, { angle: (parseInt(e.target.value) || 0) * Math.PI / 180 })}
+                        className="w-full px-2.5 py-1.5 border border-gray-300 rounded text-sm" />
+                    </div>
+                  </>;
+                })()}
+
+                {/* Entrance: width + style + color + rotation */}
+                {selectedObject.type === 'entrance' && (() => {
+                  const entrance = selectedObject as EntranceObject;
+                  const rotationDegrees = (entrance.angle * 180) / Math.PI;
+                  return <>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 mb-1">Width (px)</label>
+                      <input type="number" value={Math.round(entrance.width)} min={10}
+                        onChange={e => updateObject(selectedObject.id, { width: parseInt(e.target.value) || 40 })}
+                        className="w-full px-2.5 py-1.5 border border-gray-300 rounded text-sm" />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 mb-1">Entrance Style</label>
+                      <div className="flex gap-2">
+                        <button onClick={() => updateObject(selectedObject.id, { style: 'single' })}
+                          className={`flex-1 px-2 py-1.5 rounded text-sm font-medium ${entrance.style === 'single' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700'}`}>
+                          Single
+                        </button>
+                        <button onClick={() => updateObject(selectedObject.id, { style: 'double' })}
+                          className={`flex-1 px-2 py-1.5 rounded text-sm font-medium ${entrance.style === 'double' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700'}`}>
+                          Double
+                        </button>
+                        <button onClick={() => updateObject(selectedObject.id, { style: 'archway' })}
+                          className={`flex-1 px-2 py-1.5 rounded text-sm font-medium ${entrance.style === 'archway' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700'}`}>
+                          Archway
+                        </button>
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 mb-1">Color</label>
+                      <div className="flex gap-2 items-center">
+                        <input type="color" value={entrance.color || '#10b981'}
+                          onChange={e => updateObject(selectedObject.id, { color: e.target.value })}
+                          className="w-12 h-10 border border-gray-300 rounded cursor-pointer" />
+                        <span className="text-xs text-gray-500">{entrance.color || '#10b981'}</span>
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 mb-1">Rotation (°)</label>
+                      <input type="number" value={Math.round(rotationDegrees)} min={0} max={359}
+                        onChange={e => updateObject(selectedObject.id, { angle: (parseInt(e.target.value) || 0) * Math.PI / 180 })}
+                        className="w-full px-2.5 py-1.5 border border-gray-300 rounded text-sm" />
+                    </div>
+                  </>;
+                })()}
+
+                {/* Marker: linked product */}
+                {selectedObject.type === 'marker' && (() => {
+                  const marker = selectedObject as InventoryMarkerObject;
+                  return <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">Linked Product</label>
+                    <select value={marker.linkedProductId || ''}
+                      onChange={e => updateObject(selectedObject.id, { linkedProductId: e.target.value || undefined })}
+                      className="w-full px-2.5 py-1.5 border border-gray-300 rounded text-sm bg-white">
+                      <option value="">— No product linked —</option>
+                      {products.map(prod => (
+                        <option key={prod.id} value={prod.id}>{prod.name} ({prod.sku})</option>
+                      ))}
+                    </select>
+                  </div>;
+                })()}
+
                 {/* Rect: width + height */}
                 {(selectedObject.type === 'room' || selectedObject.type === 'rack' || selectedObject.type === 'shelf') && (() => {
                   const rect = selectedObject as RectangleObject;
@@ -608,10 +1860,10 @@ export default function FloorPlanEditor() {
                 })()}
 
                 {/* Color */}
-                {selectedObject.type !== 'label' && (
+                {selectedObject.type !== 'label' && selectedObject.type !== 'marker' && (
                   <div>
                     <label className="block text-xs font-medium text-gray-600 mb-1">Color</label>
-                    <input type="color" value={selectedObject.color || '#000000'}
+                    <input type="color" value={(selectedObject as any).color || '#000000'}
                       onChange={e => updateObject(selectedObject.id, { color: e.target.value })}
                       className="w-full h-9 border border-gray-300 rounded cursor-pointer" />
                   </div>
@@ -688,6 +1940,7 @@ export default function FloorPlanEditor() {
                   <Trash2 size={13} /> Delete Object
                 </button>
               </div>
+              ) : null}
 
               {/* ── Location & Products section ── */}
               {linkedLoc && (
@@ -775,8 +2028,13 @@ export default function FloorPlanEditor() {
               <div className="space-y-1.5 text-xs text-gray-400">
                 <p className="font-medium text-gray-500 mb-1">How to use</p>
                 <p><span className="font-medium text-gray-600">Select:</span> click to pick, drag to move</p>
-                <p><span className="font-medium text-gray-600">Wall:</span> drag to draw a wall line</p>
-                <p><span className="font-medium text-gray-600">Room / Rack / Shelf:</span> drag to draw</p>
+                <p><span className="font-medium text-gray-600">Resize:</span> drag corner/edge handles or wall endpoints</p>
+                <p><span className="font-medium text-gray-600">Move:</span> arrow keys (Shift for larger steps)</p>
+                <p><span className="font-medium text-gray-600">Wall:</span> drag to draw line (snaps to grid/corners)</p>
+                <p><span className="font-medium text-gray-600">Room / Rack / Shelf:</span> drag to draw boxes</p>
+                <p><span className="font-medium text-gray-600">Door:</span> drag on a wall to place (shows swing arc)</p>
+                <p><span className="font-medium text-gray-600">Window:</span> drag on a wall to place</p>
+                <p><span className="font-medium text-gray-600">Marker:</span> click to place product location</p>
                 <p><span className="font-medium text-gray-600">Label:</span> click to place text</p>
                 <p><span className="font-medium text-gray-600">Delete:</span> click an object to remove</p>
               </div>

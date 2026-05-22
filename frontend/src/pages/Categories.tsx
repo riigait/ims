@@ -104,10 +104,12 @@ export default function Categories() {
           </h2>
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
+              <label htmlFor="category-name" className="block text-sm font-medium text-gray-700 mb-1">
                 Category Name *
               </label>
               <input
+                id="category-name"
+                name="name"
                 type="text"
                 value={formData.name}
                 onChange={(e) =>
@@ -119,10 +121,12 @@ export default function Categories() {
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
+              <label htmlFor="category-description" className="block text-sm font-medium text-gray-700 mb-1">
                 Description
               </label>
               <textarea
+                id="category-description"
+                name="description"
                 value={formData.description}
                 onChange={(e) =>
                   setFormData({ ...formData, description: e.target.value })

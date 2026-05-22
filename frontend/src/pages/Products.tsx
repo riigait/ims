@@ -143,9 +143,9 @@ export default function Products() {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {/* SKU */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">SKU</label>
+                <label htmlFor="sku" className="block text-sm font-medium text-gray-700 mb-1">SKU</label>
                 <div className="flex gap-2">
-                  <input type="text" value={formData.sku}
+                  <input id="sku" name="sku" type="text" value={formData.sku}
                     onChange={e => setFormData({ ...formData, sku: e.target.value })}
                     className="flex-1 px-4 py-2 border border-gray-300 rounded-lg" />
                   {!editingId && (
@@ -159,16 +159,16 @@ export default function Products() {
 
               {/* Name */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Product Name *</label>
-                <input type="text" value={formData.name} required
+                <label htmlFor="product-name" className="block text-sm font-medium text-gray-700 mb-1">Product Name *</label>
+                <input id="product-name" name="name" type="text" value={formData.name} required
                   onChange={e => setFormData({ ...formData, name: e.target.value })}
                   className="w-full px-4 py-2 border border-gray-300 rounded-lg" />
               </div>
 
               {/* Category */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Category *</label>
-                <select value={formData.categoryId} required
+                <label htmlFor="category" className="block text-sm font-medium text-gray-700 mb-1">Category *</label>
+                <select id="category" name="category" value={formData.categoryId} required
                   onChange={e => setFormData({ ...formData, categoryId: e.target.value })}
                   className="w-full px-4 py-2 border border-gray-300 rounded-lg">
                   <option value="">Select Category</option>
@@ -180,10 +180,10 @@ export default function Products() {
 
               {/* Location */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label htmlFor="location" className="block text-sm font-medium text-gray-700 mb-1">
                   Location <span className="text-gray-400 font-normal">(optional)</span>
                 </label>
-                <select value={formData.locationId}
+                <select id="location" name="location" value={formData.locationId}
                   onChange={e => setFormData({ ...formData, locationId: e.target.value })}
                   className="w-full px-4 py-2 border border-gray-300 rounded-lg">
                   <option value="">— No location —</option>
@@ -197,8 +197,8 @@ export default function Products() {
 
               {/* Unit */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Unit</label>
-                <input type="text" value={formData.unit}
+                <label htmlFor="unit" className="block text-sm font-medium text-gray-700 mb-1">Unit</label>
+                <input id="unit" name="unit" type="text" value={formData.unit}
                   onChange={e => setFormData({ ...formData, unit: e.target.value })}
                   className="w-full px-4 py-2 border border-gray-300 rounded-lg" />
               </div>
@@ -206,16 +206,16 @@ export default function Products() {
               {/* Current Stock — editable only when creating; use Stock Movements to change it */}
               {editingId ? (
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Current Stock</label>
-                  <div className="w-full px-4 py-2 border border-gray-200 rounded-lg bg-gray-50 text-gray-500 text-sm">
+                  <label htmlFor="current-stock" className="block text-sm font-medium text-gray-700 mb-1">Current Stock</label>
+                  <div id="current-stock" className="w-full px-4 py-2 border border-gray-200 rounded-lg bg-gray-50 text-gray-500 text-sm">
                     {formData.currentStock} {formData.unit}
                     <span className="ml-2 text-xs text-gray-400">(use Stock Movements to change)</span>
                   </div>
                 </div>
               ) : (
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Opening Stock *</label>
-                  <input type="number" value={formData.currentStock} required min={0}
+                  <label htmlFor="opening-stock" className="block text-sm font-medium text-gray-700 mb-1">Opening Stock *</label>
+                  <input id="opening-stock" name="opening-stock" type="number" value={formData.currentStock} required min={0}
                     onChange={e => setFormData({ ...formData, currentStock: parseInt(e.target.value) || 0 })}
                     className="w-full px-4 py-2 border border-gray-300 rounded-lg" />
                 </div>
@@ -223,8 +223,8 @@ export default function Products() {
 
               {/* Low Stock Threshold */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Low Stock Threshold</label>
-                <input type="number" value={formData.lowStockThreshold} min={0}
+                <label htmlFor="low-stock-threshold" className="block text-sm font-medium text-gray-700 mb-1">Low Stock Threshold</label>
+                <input id="low-stock-threshold" name="low-stock-threshold" type="number" value={formData.lowStockThreshold} min={0}
                   onChange={e => setFormData({ ...formData, lowStockThreshold: parseInt(e.target.value) || 0 })}
                   className="w-full px-4 py-2 border border-gray-300 rounded-lg" />
               </div>
@@ -232,8 +232,8 @@ export default function Products() {
 
             {/* Description */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Description</label>
-              <textarea value={formData.description}
+              <label htmlFor="description" className="block text-sm font-medium text-gray-700 mb-1">Description</label>
+              <textarea id="description" name="description" value={formData.description}
                 onChange={e => setFormData({ ...formData, description: e.target.value })}
                 className="w-full px-4 py-2 border border-gray-300 rounded-lg" rows={3} />
             </div>
@@ -255,18 +255,21 @@ export default function Products() {
       <div className="bg-white rounded-lg shadow p-4 space-y-4">
         {/* Filters */}
         <div className="flex flex-wrap gap-3">
-          <input type="text" placeholder="Search by name or SKU…" value={searchTerm}
+          <input id="search-products" name="search" type="text" placeholder="Search by name or SKU…" value={searchTerm}
             onChange={e => setSearchTerm(e.target.value)}
-            className="flex-1 min-w-48 px-4 py-2 border border-gray-300 rounded-lg" />
-          <select value={categoryFilter} onChange={e => setCategoryFilter(e.target.value)}
-            className="px-4 py-2 border border-gray-300 rounded-lg">
+            className="flex-1 min-w-48 px-4 py-2 border border-gray-300 rounded-lg"
+            aria-label="Search products by name or SKU" />
+          <select id="filter-category" name="category-filter" value={categoryFilter} onChange={e => setCategoryFilter(e.target.value)}
+            className="px-4 py-2 border border-gray-300 rounded-lg"
+            aria-label="Filter by category">
             <option value="">All Categories</option>
             {categories.map(cat => (
               <option key={cat.id} value={cat.id}>{cat.name}</option>
             ))}
           </select>
-          <select value={locationFilter} onChange={e => setLocationFilter(e.target.value)}
-            className="px-4 py-2 border border-gray-300 rounded-lg">
+          <select id="filter-location" name="location-filter" value={locationFilter} onChange={e => setLocationFilter(e.target.value)}
+            className="px-4 py-2 border border-gray-300 rounded-lg"
+            aria-label="Filter by location">
             <option value="">All Locations</option>
             {locations.map(loc => (
               <option key={loc.id} value={loc.id}>{loc.name} ({loc.type})</option>

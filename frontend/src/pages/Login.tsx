@@ -51,10 +51,12 @@ export default function Login() {
 
         <form onSubmit={handleSubmit} className="space-y-6">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
+            <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-2">
               Email
             </label>
             <input
+              id="email"
+              name="email"
               type="email"
               value={formData.email}
               onChange={(e) =>
@@ -66,10 +68,12 @@ export default function Login() {
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
+            <label htmlFor="password" className="block text-sm font-medium text-gray-700 mb-2">
               Password
             </label>
             <input
+              id="password"
+              name="password"
               type="password"
               value={formData.password}
               onChange={(e) =>

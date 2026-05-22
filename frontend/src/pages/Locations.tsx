@@ -181,10 +181,12 @@ export default function Locations() {
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label htmlFor="location-name" className="block text-sm font-medium text-gray-700 mb-1">
                   Location Name *
                 </label>
                 <input
+                  id="location-name"
+                  name="name"
                   type="text"
                   value={formData.name}
                   onChange={(e) =>
@@ -196,10 +198,12 @@ export default function Locations() {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label htmlFor="location-type" className="block text-sm font-medium text-gray-700 mb-1">
                   Type *
                 </label>
                 <select
+                  id="location-type"
+                  name="type"
                   value={formData.type}
                   onChange={(e) =>
                     setFormData({
@@ -219,10 +223,12 @@ export default function Locations() {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label htmlFor="parent-location" className="block text-sm font-medium text-gray-700 mb-1">
                   Parent Location
                 </label>
                 <select
+                  id="parent-location"
+                  name="parentId"
                   value={formData.parentId}
                   onChange={(e) =>
                     setFormData({ ...formData, parentId: e.target.value })
@@ -242,10 +248,12 @@ export default function Locations() {
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
+              <label htmlFor="location-notes" className="block text-sm font-medium text-gray-700 mb-1">
                 Notes
               </label>
               <textarea
+                id="location-notes"
+                name="notes"
                 value={formData.notes}
                 onChange={(e) =>
                   setFormData({ ...formData, notes: e.target.value })
