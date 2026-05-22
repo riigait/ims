@@ -1689,12 +1689,23 @@ export default function FloorPlanEditor() {
                 {/* Wall: thickness */}
                 {selectedObject.type === 'wall' && (() => {
                   const wall = selectedObject as WallObject;
-                  return <div>
-                    <label className="block text-xs font-medium text-gray-600 mb-1">Thickness (px)</label>
-                    <input type="number" value={wall.thickness} min={1} max={50}
-                      onChange={e => updateObject(selectedObject.id, { thickness: parseInt(e.target.value) || 8 })}
-                      className="w-full px-2.5 py-1.5 border border-gray-300 rounded text-sm" />
-                  </div>;
+                  const length = Math.sqrt((wall.endX - wall.startX) ** 2 + (wall.endY - wall.startY) ** 2);
+                  const pixelsPerMeter = currentFloorPlan?.scale?.pixelsPerMeter ?? 50;
+                  const meters = (length / pixelsPerMeter).toFixed(2);
+                  return <>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 mb-1">Length</label>
+                      <div className="w-full px-2.5 py-1.5 border border-gray-300 rounded text-sm bg-gray-50 text-gray-700">
+                        {meters}m
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 mb-1">Thickness (px)</label>
+                      <input type="number" value={wall.thickness} min={1} max={50}
+                        onChange={e => updateObject(selectedObject.id, { thickness: parseInt(e.target.value) || 8 })}
+                        className="w-full px-2.5 py-1.5 border border-gray-300 rounded text-sm" />
+                    </div>
+                  </>;
                 })()}
 
                 {/* Door: width + swing direction + color + rotation */}
