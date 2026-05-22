@@ -1,11 +1,12 @@
 import { useState, useEffect } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
-import { Menu, X, LogOut, ScanLine, Users, ChevronDown } from 'lucide-react';
+import { Menu, X, LogOut, ScanLine, Users, ChevronDown, Lock } from 'lucide-react';
 import DepartmentSwitcher from '../DepartmentSwitcher';
 
 export default function Navbar() {
   const [isOpen, setIsOpen] = useState(false);
   const [adminOpen, setAdminOpen] = useState(false);
+  const [userOpen, setUserOpen] = useState(false);
   const navigate = useNavigate();
   const location = useLocation();
   const user = JSON.parse(localStorage.getItem('user') || '{}');
@@ -14,6 +15,7 @@ export default function Navbar() {
   useEffect(() => {
     setAdminOpen(false);
     setIsOpen(false);
+    setUserOpen(false);
   }, [location]);
 
   const handleLogout = () => {
@@ -87,6 +89,14 @@ export default function Navbar() {
                         <Link to="/delete-requests" onClick={() => setAdminOpen(false)} className="block px-4 py-2 hover:bg-gray-100 text-sm">
                           Delete Requests
                         </Link>
+                        {(user.role === 'admin' || user.role === 'superadmin') && (
+                          <>
+                            <div className="border-t border-gray-200"></div>
+                            <Link to="/password-requests" onClick={() => setAdminOpen(false)} className="block px-4 py-2 hover:bg-gray-100 text-sm">
+                              Password Requests
+                            </Link>
+                          </>
+                        )}
                       </div>
                     )}
                   </div>
@@ -99,14 +109,29 @@ export default function Navbar() {
           <div className="hidden md:flex items-center space-x-4 flex-shrink-0">
             {isLoggedIn && (
               <>
-                <span className="text-sm font-medium">{user.name}</span>
-                <button
-                  onClick={handleLogout}
-                  className="p-2 rounded hover:bg-blue-500 transition"
-                  title="Logout"
-                >
-                  <LogOut size={18} />
-                </button>
+                <div className="relative">
+                  <button
+                    onClick={() => setUserOpen(!userOpen)}
+                    className="text-sm font-medium flex items-center gap-1 hover:opacity-80"
+                  >
+                    {user.name}
+                    <ChevronDown size={16} />
+                  </button>
+                  {userOpen && (
+                    <div className="absolute right-0 mt-0 w-40 bg-white text-gray-800 rounded-lg shadow-lg py-2 z-10">
+                      <Link to="/change-password" onClick={() => setUserOpen(false)} className="block px-4 py-2 hover:bg-gray-100 text-sm flex items-center gap-2">
+                        <Lock size={16} /> Change Password
+                      </Link>
+                      <div className="border-t border-gray-200"></div>
+                      <button
+                        onClick={handleLogout}
+                        className="block w-full text-left px-4 py-2 hover:bg-gray-100 text-sm flex items-center gap-2"
+                      >
+                        <LogOut size={16} /> Logout
+                      </button>
+                    </div>
+                  )}
+                </div>
               </>
             )}
           </div>

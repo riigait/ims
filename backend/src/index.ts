@@ -16,6 +16,7 @@ import departmentsRoutes from './routes/departments';
 import deleteRequestsRoutes from './routes/deleteRequests';
 import adminDepartmentsRoutes from './routes/adminDepartments';
 import staffDepartmentsRoutes from './routes/staffDepartments';
+import passwordRequestsRoutes from './routes/passwordRequests';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -41,6 +42,7 @@ app.use('/api/departments', departmentsRoutes);
 app.use('/api/delete-requests', deleteRequestsRoutes);
 app.use('/api/admin-departments', adminDepartmentsRoutes);
 app.use('/api/staff-departments', staffDepartmentsRoutes);
+app.use('/api/password-requests', passwordRequestsRoutes);
 
 // Health check
 app.get('/api/health', (req, res) => {

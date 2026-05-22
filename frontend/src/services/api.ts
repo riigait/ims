@@ -37,6 +37,10 @@ export const authApi = {
     api.post('/auth/complete-initial-setup', { newEmail, newPassword, newName }),
   ensureSuperadmin: () =>
     api.post('/auth/ensure-superadmin', {}),
+  changePassword: (currentPassword: string, newPassword: string) =>
+    api.post('/auth/change-password', { currentPassword, newPassword }),
+  resetPassword: (userId: string, newPassword: string) =>
+    api.post(`/auth/reset-password/${userId}`, { newPassword }),
 };
 
 // Products
@@ -103,6 +107,16 @@ export const deleteRequestsApi = {
   create: (data: any) => api.post('/delete-requests', data),
   approve: (id: string) => api.patch(`/delete-requests/${id}/approve`),
   reject: (id: string, reason?: string) => api.patch(`/delete-requests/${id}/reject`, { reason }),
+};
+
+// Password Requests
+export const passwordRequestsApi = {
+  getAll: () => api.get('/password-requests'),
+  create: (reason?: string) => api.post('/password-requests', { reason }),
+  approve: (id: string, temporaryPassword: string) =>
+    api.patch(`/password-requests/${id}/approve`, { temporaryPassword }),
+  reject: (id: string) =>
+    api.patch(`/password-requests/${id}/reject`),
 };
 
 export default api;

@@ -16,6 +16,8 @@ import AdminUsers from '@/pages/AdminUsers';
 import AdminDepartments from '@/pages/AdminDepartments';
 import DeleteRequests from '@/pages/DeleteRequests';
 import AdminAssignment from '@/pages/AdminAssignment';
+import ChangePassword from '@/pages/ChangePassword';
+import PasswordRequests from '@/pages/PasswordRequests';
 import NotFound from '@/pages/NotFound';
 import ErrorBoundary from '@/components/ErrorBoundary';
 
@@ -171,6 +173,22 @@ function App() {
           element={
             <PrivateRoute>
               <AdminAssignment />
+            </PrivateRoute>
+          }
+        />
+        <Route
+          path="/change-password"
+          element={
+            <PrivateRoute>
+              <ChangePassword />
+            </PrivateRoute>
+          }
+        />
+        <Route
+          path="/password-requests"
+          element={
+            <PrivateRoute>
+              <PasswordRequests />
             </PrivateRoute>
           }
         />
