@@ -1,16 +1,26 @@
 import { useState, useEffect } from 'react';
 import { Plus, Edit, Trash2, ChevronRight } from 'lucide-react';
-import { locationsApi, deleteRequestsApi } from '@/services/api';
+import { locationsApi, deleteRequestsApi, departmentsApi } from '@/services/api';
 import { Location } from '@/types/inventory';
+
+interface Department {
+  id: string;
+  name: string;
+}
 
 export default function Locations() {
   const user = JSON.parse(localStorage.getItem('user') || '{}');
   const [locations, setLocations] = useState<Location[]>([]);
+  const [departments, setDepartments] = useState<Department[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [expandedParent, setExpandedParent] = useState<string | null>(null);
   const [error, setError] = useState('');
+  const [searchTerm, setSearchTerm] = useState('');
+  const [typeFilter, setTypeFilter] = useState('');
+  const [departmentFilter, setDepartmentFilter] = useState('');
+  const [sortBy, setSortBy] = useState('recently-added');
 
   const [formData, setFormData] = useState({
     name: '',
@@ -25,8 +35,12 @@ export default function Locations() {
 
   const fetchLocations = async () => {
     try {
-      const response = await locationsApi.getAll();
-      setLocations(response.data);
+      const [locationsRes, deptRes] = await Promise.all([
+        locationsApi.getAll(),
+        user.role === 'superadmin' ? departmentsApi.getAll() : Promise.resolve({ data: [] }),
+      ]);
+      setLocations(locationsRes.data);
+      setDepartments(deptRes.data);
     } catch (error) {
       console.error('Failed to fetch locations:', error);
     } finally {
@@ -120,11 +134,34 @@ export default function Locations() {
   };
 
 
-  const rootLocations = locations.filter((loc) => !loc.parentId);
+  const filteredLocations = locations.filter(loc => {
+    const matchesSearch = loc.name.toLowerCase().includes(searchTerm.toLowerCase());
+    const matchesType = !typeFilter || loc.type === typeFilter;
+    const matchesDept = !departmentFilter || loc.departmentId === departmentFilter;
+    return matchesSearch && matchesType && matchesDept;
+  });
+
+  const sortedLocations = [...filteredLocations].sort((a, b) => {
+    if (sortBy === 'name') return a.name.localeCompare(b.name);
+    if (sortBy === 'recently-added') return new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime();
+    return 0;
+  });
+
+  const rootLocations = sortedLocations.filter((loc) => !loc.parentId);
+
+  const locationTypes = Array.from(new Set(locations.map(l => l.type))).sort();
+
+  const clearAllFilters = () => {
+    setSearchTerm('');
+    setTypeFilter('');
+    setDepartmentFilter('');
+    setSortBy('recently-added');
+  };
 
   const renderLocationTree = (location: Location, depth: number = 0) => {
     const children = getChildren(location.id);
     const isExpanded = expandedParent === location.id;
+    const dept = location.departmentId ? departments.find(d => d.id === location.departmentId) : null;
 
     return (
       <div key={location.id}>
@@ -149,30 +186,30 @@ export default function Locations() {
           )}
           <div className="flex-1">
             <div className="font-medium text-gray-900">{location.name}</div>
-            <div className="text-xs text-gray-500">{location.type}</div>
+            <div className="text-xs text-gray-500">{location.type}
+              {user.role === 'superadmin' && dept && (
+                <span className="ml-2 px-2 py-0.5 bg-blue-100 text-blue-700 rounded text-xs">
+                  {dept.name}
+                </span>
+              )}
+            </div>
           </div>
           <div className="space-x-2">
-            <button
-              onClick={() => handleEdit(location)}
-              className="text-blue-600 hover:text-blue-800"
-            >
-              <Edit size={16} />
-            </button>
-            {user.role === 'admin' ? (
-              <button
-                onClick={() => handleDelete(location.id)}
-                className="text-red-600 hover:text-red-800"
-              >
-                <Trash2 size={16} />
-              </button>
-            ) : (
-              <button
-                onClick={() => handleRequestDelete(location.id, location.name)}
-                className="text-orange-600 hover:text-orange-800"
-                title="Request deletion"
-              >
-                <Trash2 size={16} />
-              </button>
+            {(user.role === 'admin' || user.role === 'superadmin') && (
+              <>
+                <button
+                  onClick={() => handleEdit(location)}
+                  className="text-blue-600 hover:text-blue-800"
+                >
+                  <Edit size={16} />
+                </button>
+                <button
+                  onClick={() => handleDelete(location.id)}
+                  className="text-red-600 hover:text-red-800"
+                >
+                  <Trash2 size={16} />
+                </button>
+              </>
             )}
           </div>
         </div>
@@ -199,13 +236,15 @@ export default function Locations() {
       )}
       <div className="flex justify-between items-center">
         <h1 className="text-3xl font-bold text-gray-900">Locations</h1>
-        <button
-          onClick={() => setShowForm(true)}
-          className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700"
-        >
-          <Plus size={20} />
-          Add Location
-        </button>
+        {(user.role === 'admin' || user.role === 'superadmin') && (
+          <button
+            onClick={() => setShowForm(true)}
+            className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700"
+          >
+            <Plus size={20} />
+            Add Location
+          </button>
+        )}
       </div>
 
       {showForm && (
@@ -317,14 +356,71 @@ export default function Locations() {
         </div>
       )}
 
-      <div className="bg-white rounded-lg shadow overflow-hidden">
+      <div className="bg-white rounded-lg shadow p-4 space-y-4">
+        {/* Filters */}
+        <div className="space-y-3">
+          <div className="flex gap-2">
+            <input
+              type="text"
+              placeholder="Search by location name…"
+              value={searchTerm}
+              onChange={e => setSearchTerm(e.target.value)}
+              className="flex-1 px-4 py-2 border border-gray-300 rounded-lg text-sm"
+              aria-label="Search locations"
+            />
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            <select
+              value={typeFilter}
+              onChange={e => setTypeFilter(e.target.value)}
+              className="px-3 py-2 border border-gray-300 rounded text-sm"
+              aria-label="Filter by location type">
+              <option value="">All Types</option>
+              {locationTypes.map(type => (
+                <option key={type} value={type}>
+                  {type.charAt(0).toUpperCase() + type.slice(1)}
+                </option>
+              ))}
+            </select>
+
+            {user.role === 'superadmin' && (
+              <select
+                value={departmentFilter}
+                onChange={e => setDepartmentFilter(e.target.value)}
+                className="px-3 py-2 border border-gray-300 rounded text-sm"
+                aria-label="Filter by department">
+                <option value="">All Departments</option>
+                {departments.map(dept => (
+                  <option key={dept.id} value={dept.id}>{dept.name}</option>
+                ))}
+              </select>
+            )}
+
+            <select
+              value={sortBy}
+              onChange={e => setSortBy(e.target.value)}
+              className="px-3 py-2 border border-gray-300 rounded text-sm font-medium bg-blue-50"
+              aria-label="Sort by">
+              <option value="recently-added">Sort: Recently Added</option>
+              <option value="name">Sort: Name</option>
+            </select>
+          </div>
+
+          <button
+            onClick={clearAllFilters}
+            className="text-xs px-3 py-1 bg-gray-100 text-gray-700 rounded hover:bg-gray-200 font-medium">
+            Clear All Filters
+          </button>
+        </div>
+
         {rootLocations.length > 0 ? (
           <div>
             {rootLocations.map((loc) => renderLocationTree(loc))}
           </div>
         ) : (
           <div className="p-12 text-center text-gray-500">
-            No locations yet. Create your first location.
+            {searchTerm ? 'No locations match your search.' : 'No locations yet. Create your first location.'}
           </div>
         )}
       </div>

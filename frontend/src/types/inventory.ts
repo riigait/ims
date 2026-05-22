@@ -9,6 +9,7 @@ export interface Product {
   currentStock: number;
   lowStockThreshold: number;
   locationId?: string;
+  departmentId?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -17,6 +18,7 @@ export interface Category {
   id: string;
   name: string;
   description: string;
+  departmentId?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -27,6 +29,7 @@ export interface Location {
   type: 'branch' | 'building' | 'floor' | 'room' | 'rack' | 'shelf';
   parentId?: string;
   notes?: string;
+  departmentId?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -41,6 +44,7 @@ export interface StockMovement {
   reason: string;
   locationId?: string;
   userId: string;
+  departmentId?: string;
   createdAt: string;
 }
 

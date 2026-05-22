@@ -1,8 +1,13 @@
 import { useState, useEffect } from 'react';
 import { Plus } from 'lucide-react';
-import { stockMovementsApi, productsApi, locationsApi } from '@/services/api';
+import { stockMovementsApi, productsApi, locationsApi, departmentsApi } from '@/services/api';
 import { StockMovement, MovementType, Product, Location } from '@/types/inventory';
 import { formatDate } from '@/utils/ids';
+
+interface Department {
+  id: string;
+  name: string;
+}
 
 const MOVEMENT_OPTIONS: { value: MovementType; label: string; color: string }[] = [
   { value: 'stock_in',   label: 'Stock In',    color: 'bg-green-100 text-green-800' },
@@ -27,25 +32,32 @@ const emptyForm = {
 };
 
 export default function StockMovements() {
+  const user = JSON.parse(localStorage.getItem('user') || '{}');
   const [movements, setMovements] = useState<StockMovement[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [locations, setLocations] = useState<Location[]>([]);
+  const [departments, setDepartments] = useState<Department[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [formData, setFormData] = useState(emptyForm);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [movementTypeFilter, setMovementTypeFilter] = useState('');
+  const [sortBy, setSortBy] = useState('recently-added');
 
   useEffect(() => { fetchData(); }, []);
 
   const fetchData = async () => {
     try {
-      const [movementsRes, productsRes, locationsRes] = await Promise.all([
+      const [movementsRes, productsRes, locationsRes, deptRes] = await Promise.all([
         stockMovementsApi.getAll(),
         productsApi.getAll(),
         locationsApi.getAll(),
+        user.role === 'superadmin' ? departmentsApi.getAll() : Promise.resolve({ data: [] }),
       ]);
       setMovements(movementsRes.data);
       setProducts(productsRes.data);
       setLocations(locationsRes.data);
+      setDepartments(deptRes.data);
     } catch (error) {
       console.error('Failed to fetch data:', error);
     } finally {
@@ -78,16 +90,40 @@ export default function StockMovements() {
     return locations.find(l => l.id === locationId)?.name ?? 'Unknown';
   };
 
+  const filteredAndSortedMovements = movements
+    .filter(movement => {
+      const productName = getProductName(movement.productId).toLowerCase();
+      const matchesSearch = productName.includes(searchTerm.toLowerCase());
+      const matchesType = !movementTypeFilter || movement.movementType === movementTypeFilter;
+      return matchesSearch && matchesType;
+    })
+    .sort((a, b) => {
+      if (sortBy === 'recently-added') return new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime();
+      if (sortBy === 'oldest') return new Date(a.createdAt || 0).getTime() - new Date(b.createdAt || 0).getTime();
+      if (sortBy === 'product-name') return getProductName(a.productId).localeCompare(getProductName(b.productId));
+      if (sortBy === 'quantity-high') return b.quantity - a.quantity;
+      if (sortBy === 'quantity-low') return a.quantity - b.quantity;
+      return 0;
+    });
+
+  const clearAllFilters = () => {
+    setSearchTerm('');
+    setMovementTypeFilter('');
+    setSortBy('recently-added');
+  };
+
   if (loading) return <div className="text-center py-12">Loading...</div>;
 
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-center">
         <h1 className="text-3xl font-bold text-gray-900">Stock Movements</h1>
-        <button onClick={() => setShowForm(true)}
-          className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700">
-          <Plus size={20} /> New Movement
-        </button>
+        {(user.role === 'admin' || user.role === 'superadmin') && (
+          <button onClick={() => setShowForm(true)}
+            className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700">
+            <Plus size={20} /> New Movement
+          </button>
+        )}
       </div>
 
       {showForm && (
@@ -159,7 +195,52 @@ export default function StockMovements() {
         </div>
       )}
 
-      <div className="bg-white rounded-lg shadow overflow-hidden">
+      <div className="bg-white rounded-lg shadow p-4 space-y-4">
+        {/* Filters */}
+        <div className="space-y-3">
+          <div className="flex gap-2">
+            <input
+              type="text"
+              placeholder="Search by product name…"
+              value={searchTerm}
+              onChange={e => setSearchTerm(e.target.value)}
+              className="flex-1 px-4 py-2 border border-gray-300 rounded-lg text-sm"
+              aria-label="Search stock movements"
+            />
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            <select
+              value={movementTypeFilter}
+              onChange={e => setMovementTypeFilter(e.target.value)}
+              className="px-3 py-2 border border-gray-300 rounded text-sm"
+              aria-label="Filter by movement type">
+              <option value="">All Movement Types</option>
+              {MOVEMENT_OPTIONS.map(o => (
+                <option key={o.value} value={o.value}>{o.label}</option>
+              ))}
+            </select>
+
+            <select
+              value={sortBy}
+              onChange={e => setSortBy(e.target.value)}
+              className="px-3 py-2 border border-gray-300 rounded text-sm font-medium bg-blue-50"
+              aria-label="Sort by">
+              <option value="recently-added">Sort: Recently Added</option>
+              <option value="oldest">Sort: Oldest</option>
+              <option value="product-name">Sort: Product Name</option>
+              <option value="quantity-high">Sort: Quantity (High to Low)</option>
+              <option value="quantity-low">Sort: Quantity (Low to High)</option>
+            </select>
+          </div>
+
+          <button
+            onClick={clearAllFilters}
+            className="text-xs px-3 py-1 bg-gray-100 text-gray-700 rounded hover:bg-gray-200 font-medium">
+            Clear All Filters
+          </button>
+        </div>
+
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead className="bg-gray-50">
@@ -169,15 +250,20 @@ export default function StockMovements() {
                 <th className="px-6 py-3 text-right font-medium text-gray-700">Quantity</th>
                 <th className="px-6 py-3 text-left font-medium text-gray-700">Reason</th>
                 <th className="px-6 py-3 text-left font-medium text-gray-700">Location</th>
+                {user.role === 'superadmin' && <th className="px-6 py-3 text-left font-medium text-gray-700">Department</th>}
                 <th className="px-6 py-3 text-left font-medium text-gray-700">Date</th>
               </tr>
             </thead>
             <tbody className="divide-y">
-              {movements.length === 0 ? (
+              {filteredAndSortedMovements.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="px-6 py-8 text-center text-gray-400">No movements recorded yet.</td>
+                  <td colSpan={user.role === 'superadmin' ? 7 : 6} className="px-6 py-8 text-center text-gray-400">
+                    {movements.length === 0 ? 'No movements recorded yet.' : 'No movements match your filters.'}
+                  </td>
                 </tr>
-              ) : movements.map(movement => (
+              ) : filteredAndSortedMovements.map(movement => {
+                const dept = movement.departmentId ? departments.find(d => d.id === movement.departmentId) : null;
+                return (
                 <tr key={movement.id}>
                   <td className="px-6 py-3">{getProductName(movement.productId)}</td>
                   <td className="px-6 py-3">
@@ -188,9 +274,15 @@ export default function StockMovements() {
                   <td className="px-6 py-3 text-right">{movement.quantity}</td>
                   <td className="px-6 py-3 text-gray-600">{movement.reason || '-'}</td>
                   <td className="px-6 py-3">{getLocationName(movement.locationId)}</td>
+                  {user.role === 'superadmin' && (
+                    <td className="px-6 py-3 text-sm text-gray-700">
+                      {dept?.name ?? '—'}
+                    </td>
+                  )}
                   <td className="px-6 py-3 text-gray-500">{formatDate(movement.createdAt)}</td>
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
           </table>
         </div>

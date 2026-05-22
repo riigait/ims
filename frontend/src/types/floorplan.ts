@@ -81,6 +81,7 @@ export interface FloorPlan {
   id: string;
   name: string;
   locationId?: string;
+  departmentId?: string;
   width: number;
   height: number;
   scale: {

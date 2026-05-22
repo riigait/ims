@@ -56,13 +56,23 @@ export default function Dashboard() {
         setStats(statsRes.data);
         setRecentMovements(movementsRes.data);
 
-        // Fetch department name for staff users
-        if (user.role !== 'admin' && user.departmentId) {
+        // Fetch department name for staff and unassigned admin users
+        if (user.departmentId) {
           try {
             const deptRes = await departmentsApi.getById(user.departmentId);
             setDepartmentName(deptRes.data.name);
           } catch {
             console.error('Failed to fetch department');
+          }
+        }
+        // For admin users with multiple departments, get the currently selected one
+        else if (user.role === 'admin' && user.adminDepartments?.length) {
+          const currentDeptId = localStorage.getItem('currentDepartmentId');
+          const currentDept = user.adminDepartments.find(ad => ad.departmentId === currentDeptId);
+          if (currentDept) {
+            setDepartmentName(currentDept.department.name);
+          } else if (user.adminDepartments.length > 0) {
+            setDepartmentName(user.adminDepartments[0].department.name);
           }
         }
       } catch (error) {
@@ -117,9 +127,17 @@ export default function Dashboard() {
   return (
     <div className="space-y-8">
       <div>
-        <h1 className="text-3xl font-bold text-gray-900">Dashboard</h1>
-        {user.role !== 'admin' && departmentName && (
+        <h1 className="text-3xl font-bold text-gray-900">
+          {user.role === 'superadmin' ? 'Superadmin Dashboard - All Departments' : 'Dashboard'}
+        </h1>
+        {user.role === 'admin' && (
+          <p className="text-gray-600 mt-2">Department: <span className="font-semibold">{departmentName || 'Loading...'}</span></p>
+        )}
+        {user.role === 'staff' && departmentName && (
           <p className="text-gray-600 mt-2">Department: <span className="font-semibold">{departmentName}</span></p>
+        )}
+        {user.role === 'superadmin' && (
+          <p className="text-gray-600 mt-2">Viewing all inventory data across all departments</p>
         )}
       </div>
 

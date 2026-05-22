@@ -1,5 +1,6 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import Layout from '@/components/layout/Layout';
+import DepartmentGuard from '@/components/DepartmentGuard';
 import Login from '@/pages/Login';
 import Register from '@/pages/Register';
 import Dashboard from '@/pages/Dashboard';
@@ -41,9 +42,11 @@ function App() {
           path="/dashboard"
           element={
             <PrivateRoute>
-              <Layout>
-                <Dashboard />
-              </Layout>
+              <DepartmentGuard>
+                <Layout>
+                  <Dashboard />
+                </Layout>
+              </DepartmentGuard>
             </PrivateRoute>
           }
         />
@@ -51,9 +54,11 @@ function App() {
           path="/products"
           element={
             <PrivateRoute>
-              <Layout>
-                <Products />
-              </Layout>
+              <DepartmentGuard>
+                <Layout>
+                  <Products />
+                </Layout>
+              </DepartmentGuard>
             </PrivateRoute>
           }
         />
@@ -61,9 +66,11 @@ function App() {
           path="/categories"
           element={
             <PrivateRoute>
-              <Layout>
-                <Categories />
-              </Layout>
+              <DepartmentGuard>
+                <Layout>
+                  <Categories />
+                </Layout>
+              </DepartmentGuard>
             </PrivateRoute>
           }
         />
@@ -71,9 +78,11 @@ function App() {
           path="/locations"
           element={
             <PrivateRoute>
-              <Layout>
-                <Locations />
-              </Layout>
+              <DepartmentGuard>
+                <Layout>
+                  <Locations />
+                </Layout>
+              </DepartmentGuard>
             </PrivateRoute>
           }
         />
@@ -81,9 +90,11 @@ function App() {
           path="/stock-movements"
           element={
             <PrivateRoute>
-              <Layout>
-                <StockMovements />
-              </Layout>
+              <DepartmentGuard>
+                <Layout>
+                  <StockMovements />
+                </Layout>
+              </DepartmentGuard>
             </PrivateRoute>
           }
         />
@@ -91,9 +102,11 @@ function App() {
           path="/floor-plans"
           element={
             <PrivateRoute>
-              <Layout>
-                <FloorPlans />
-              </Layout>
+              <DepartmentGuard>
+                <Layout>
+                  <FloorPlans />
+                </Layout>
+              </DepartmentGuard>
             </PrivateRoute>
           }
         />
@@ -101,7 +114,9 @@ function App() {
           path="/floor-plans/:id/edit"
           element={
             <PrivateRoute>
-              <FloorPlanEditor />
+              <DepartmentGuard>
+                <FloorPlanEditor />
+              </DepartmentGuard>
             </PrivateRoute>
           }
         />
@@ -109,9 +124,11 @@ function App() {
           path="/scanner"
           element={
             <PrivateRoute>
-              <Layout>
-                <Scanner />
-              </Layout>
+              <DepartmentGuard>
+                <Layout>
+                  <Scanner />
+                </Layout>
+              </DepartmentGuard>
             </PrivateRoute>
           }
         />

@@ -22,6 +22,7 @@ export default function AdminAssignment() {
   const user = JSON.parse(localStorage.getItem('user') || '{}');
   const [departments, setDepartments] = useState<Department[]>([]);
   const [admins, setAdmins] = useState<User[]>([]);
+  const [staff, setStaff] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
@@ -51,9 +52,11 @@ export default function AdminAssignment() {
 
       const deptList = deptData.data || deptData;
       const adminsList = (userData || []).filter((u: User) => u.role === 'admin');
+      const staffList = (userData || []).filter((u: User) => u.role === 'staff');
 
       setDepartments(deptList);
       setAdmins(adminsList);
+      setStaff(staffList);
     } catch (err) {
       setError('Unable to load data. Please try again.');
       console.error(err);
@@ -134,6 +137,63 @@ export default function AdminAssignment() {
     return departments.filter(d => !assignedIds.has(d.id));
   };
 
+  const assignStaffDepartment = async (staffId: string, deptId: string) => {
+    try {
+      setError('');
+      const response = await fetch(`/api/users/${staffId}`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${localStorage.getItem('token')}`,
+        },
+        body: JSON.stringify({ departmentId: deptId }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Unable to assign department');
+      }
+
+      setStaff(
+        staff.map(s => {
+          if (s.id === staffId) {
+            return { ...s, departmentId: deptId };
+          }
+          return s;
+        })
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Unable to complete request');
+      console.error(err);
+    }
+  };
+
+  const unassignStaffDepartment = async (staffId: string) => {
+    try {
+      const response = await fetch(`/api/users/${staffId}`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${localStorage.getItem('token')}`,
+        },
+        body: JSON.stringify({ departmentId: null }),
+      });
+
+      if (!response.ok) throw new Error('Unable to unassign department');
+
+      setStaff(
+        staff.map(s => {
+          if (s.id === staffId) {
+            return { ...s, departmentId: undefined };
+          }
+          return s;
+        })
+      );
+    } catch (err) {
+      setError('Unable to complete request');
+      console.error(err);
+    }
+  };
+
   if (loading) {
     return <div className="text-center py-12">Loading...</div>;
   }
@@ -150,8 +210,8 @@ export default function AdminAssignment() {
             <ArrowLeft size={24} className="text-gray-700" />
           </button>
           <div>
-            <h1 className="text-4xl font-bold text-gray-900">Admin Department Assignment</h1>
-            <p className="text-gray-600 mt-2">Assign multiple departments to admins</p>
+            <h1 className="text-4xl font-bold text-gray-900">Role Assignments</h1>
+            <p className="text-gray-600 mt-2">Assign departments to admins and staff members</p>
           </div>
         </div>
 
@@ -162,13 +222,18 @@ export default function AdminAssignment() {
           </div>
         )}
 
-        <div className="space-y-4">
-          {admins.length === 0 ? (
-            <div className="text-center py-12 bg-white rounded-lg shadow">
-              <p className="text-gray-500">No admins found. Create admin accounts first.</p>
-            </div>
-          ) : (
-            admins.map(admin => (
+        <div className="space-y-8">
+          {/* Admin Assignments Section */}
+          <div>
+            <h2 className="text-2xl font-bold text-gray-900 mb-4">Admin Assignments</h2>
+            <p className="text-gray-600 mb-4">Assign multiple departments to admins</p>
+            <div className="space-y-4">
+              {admins.length === 0 ? (
+                <div className="text-center py-12 bg-white rounded-lg shadow">
+                  <p className="text-gray-500">No admins found. Create admin accounts first.</p>
+                </div>
+              ) : (
+                admins.map(admin => (
               <div key={admin.id} className="bg-white rounded-lg shadow p-6">
                 <div className="flex items-start justify-between mb-4">
                   <div>
@@ -240,6 +305,86 @@ export default function AdminAssignment() {
               </div>
             ))
           )}
+            </div>
+          </div>
+
+          {/* Staff Assignments Section */}
+          <div>
+            <h2 className="text-2xl font-bold text-gray-900 mb-4">Staff Assignments</h2>
+            <p className="text-gray-600 mb-4">Assign departments to staff members</p>
+            <div className="space-y-4">
+              {staff.length === 0 ? (
+                <div className="text-center py-12 bg-white rounded-lg shadow">
+                  <p className="text-gray-500">No staff found. Create staff accounts first.</p>
+                </div>
+              ) : (
+                staff.map(s => (
+                  <div key={s.id} className="bg-white rounded-lg shadow p-6">
+                    <div className="flex items-start justify-between mb-4">
+                      <div>
+                        <h3 className="text-lg font-semibold text-gray-900">{s.name}</h3>
+                        <p className="text-sm text-gray-500">{s.email}</p>
+                      </div>
+                      <span className={`px-3 py-1 rounded-full text-xs font-medium ${s.departmentId ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'}`}>
+                        {s.departmentId ? 'Assigned' : 'Unassigned'}
+                      </span>
+                    </div>
+
+                    {/* Current Department */}
+                    <div className="mb-4">
+                      <p className="text-sm font-medium text-gray-700 mb-2">Current Department</p>
+                      {s.departmentId ? (
+                        <div className="flex items-center gap-2 bg-green-50 border border-green-200 rounded-lg px-3 py-2 w-fit">
+                          <span className="text-sm font-medium text-green-800">
+                            {departments.find(d => d.id === s.departmentId)?.name || 'Unknown'}
+                          </span>
+                          <button
+                            onClick={() => unassignStaffDepartment(s.id)}
+                            className="text-green-600 hover:text-red-600 transition"
+                            title="Remove"
+                          >
+                            <X size={16} />
+                          </button>
+                        </div>
+                      ) : (
+                        <p className="text-sm text-gray-500">No department assigned</p>
+                      )}
+                    </div>
+
+                    {/* Assign Department */}
+                    {!s.departmentId && departments.length > 0 && (
+                      <div className="flex gap-2">
+                        <select
+                          id={`staff-select-${s.id}`}
+                          className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-600 text-sm"
+                        >
+                          <option value="">Select a department to assign...</option>
+                          {departments.map(dept => (
+                            <option key={dept.id} value={dept.id}>
+                              {dept.name}
+                            </option>
+                          ))}
+                        </select>
+                        <button
+                          onClick={() => {
+                            const select = document.getElementById(`staff-select-${s.id}`) as HTMLSelectElement;
+                            if (select.value) {
+                              assignStaffDepartment(s.id, select.value);
+                              select.value = '';
+                            }
+                          }}
+                          className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium text-sm flex items-center gap-2 transition"
+                        >
+                          <Plus size={16} />
+                          Assign
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
         </div>
 
         {departments.length === 0 && (

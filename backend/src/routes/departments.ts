@@ -18,9 +18,19 @@ router.get('/', authMiddleware, adminMiddleware, async (req: AuthRequest, res: R
   }
 });
 
-// Get single department (admin only)
-router.get('/:id', authMiddleware, adminMiddleware, async (req: AuthRequest, res: Response) => {
+// Get single department (authenticated users can view departments they have access to)
+router.get('/:id', authMiddleware, async (req: AuthRequest, res: Response) => {
   try {
+    const user = await prisma.user.findUnique({ where: { id: req.userId } });
+    if (!user) return res.status(404).json({ error: 'User not found' });
+
+    // Superadmins can view any department
+    // Admins can view any department
+    // Staff can only view their assigned department
+    if (user.role === 'staff' && user.departmentId !== req.params.id) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
     const department = await prisma.department.findUnique({
       where: { id: req.params.id },
     });

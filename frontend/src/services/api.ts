@@ -15,6 +15,13 @@ api.interceptors.request.use((config) => {
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
   }
+
+  // Add current department header for admins
+  const currentDeptId = localStorage.getItem('currentDepartmentId');
+  if (currentDeptId) {
+    config.headers['X-Department-Id'] = currentDeptId;
+  }
+
   return config;
 });
 

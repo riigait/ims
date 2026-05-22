@@ -39,14 +39,14 @@ router.get('/', authMiddleware, async (req: AuthRequest, res: Response) => {
   }
 });
 
-// Get single user (admin only or self)
+// Get single user (admin/superadmin or self)
 router.get('/:id', authMiddleware, async (req: AuthRequest, res: Response) => {
   try {
     const requester = await prisma.user.findUnique({ where: { id: req.userId } });
     if (!requester) return res.status(404).json({ error: 'User not found' });
 
-    // Allow users to view themselves or admins to view anyone
-    if (req.userId !== req.params.id && requester.role !== 'admin') {
+    // Allow users to view themselves or admins/superadmins to view anyone
+    if (req.userId !== req.params.id && !['admin', 'superadmin'].includes(requester.role)) {
       return res.status(403).json({ error: 'Unauthorized' });
     }
 
@@ -63,12 +63,12 @@ router.get('/:id', authMiddleware, async (req: AuthRequest, res: Response) => {
   }
 });
 
-// Update user (admin only, cannot change own role)
+// Update user (admin/superadmin only, cannot change own role)
 router.patch('/:id', authMiddleware, async (req: AuthRequest, res: Response) => {
   try {
     const requester = await prisma.user.findUnique({ where: { id: req.userId } });
-    if (!requester || requester.role !== 'admin') {
-      return res.status(403).json({ error: 'Only admins can update users' });
+    if (!requester || !['admin', 'superadmin'].includes(requester.role)) {
+      return res.status(403).json({ error: 'Access denied' });
     }
 
     const { name, email, role, departmentId } = req.body;
@@ -101,12 +101,12 @@ router.patch('/:id', authMiddleware, async (req: AuthRequest, res: Response) => 
   }
 });
 
-// Delete user (admin only, cannot delete self)
+// Delete user (admin/superadmin only, cannot delete self)
 router.delete('/:id', authMiddleware, async (req: AuthRequest, res: Response) => {
   try {
     const requester = await prisma.user.findUnique({ where: { id: req.userId } });
-    if (!requester || requester.role !== 'admin') {
-      return res.status(403).json({ error: 'Only admins can delete users' });
+    if (!requester || !['admin', 'superadmin'].includes(requester.role)) {
+      return res.status(403).json({ error: 'Access denied' });
     }
 
     if (req.params.id === req.userId) {

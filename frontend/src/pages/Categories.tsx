@@ -1,15 +1,24 @@
 import { useState, useEffect } from 'react';
 import { Plus, Edit, Trash2 } from 'lucide-react';
-import { categoriesApi, deleteRequestsApi } from '@/services/api';
+import { categoriesApi, deleteRequestsApi, departmentsApi } from '@/services/api';
 import { Category } from '@/types/inventory';
+
+interface Department {
+  id: string;
+  name: string;
+}
 
 export default function Categories() {
   const user = JSON.parse(localStorage.getItem('user') || '{}');
   const [categories, setCategories] = useState<Category[]>([]);
+  const [departments, setDepartments] = useState<Department[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [error, setError] = useState('');
+  const [searchTerm, setSearchTerm] = useState('');
+  const [departmentFilter, setDepartmentFilter] = useState('');
+  const [sortBy, setSortBy] = useState('recently-added');
 
   const [formData, setFormData] = useState({
     name: '',
@@ -22,8 +31,12 @@ export default function Categories() {
 
   const fetchCategories = async () => {
     try {
-      const response = await categoriesApi.getAll();
-      setCategories(response.data);
+      const [categoriesRes, deptRes] = await Promise.all([
+        categoriesApi.getAll(),
+        user.role === 'superadmin' ? departmentsApi.getAll() : Promise.resolve({ data: [] }),
+      ]);
+      setCategories(categoriesRes.data);
+      setDepartments(deptRes.data);
     } catch (error) {
       console.error('Failed to fetch categories:', error);
     } finally {
@@ -100,6 +113,24 @@ export default function Categories() {
     setFormData({ name: '', description: '' });
   };
 
+  const filteredAndSortedCategories = categories
+    .filter(cat => {
+      const matchesSearch = cat.name.toLowerCase().includes(searchTerm.toLowerCase());
+      const matchesDept = !departmentFilter || cat.departmentId === departmentFilter;
+      return matchesSearch && matchesDept;
+    })
+    .sort((a, b) => {
+      if (sortBy === 'name') return a.name.localeCompare(b.name);
+      if (sortBy === 'recently-added') return new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime();
+      return 0;
+    });
+
+  const clearAllFilters = () => {
+    setSearchTerm('');
+    setDepartmentFilter('');
+    setSortBy('recently-added');
+  };
+
   if (loading) {
     return <div className="text-center py-12">Loading...</div>;
   }
@@ -113,13 +144,15 @@ export default function Categories() {
       )}
       <div className="flex justify-between items-center">
         <h1 className="text-3xl font-bold text-gray-900">Categories</h1>
-        <button
-          onClick={() => setShowForm(true)}
-          className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700"
-        >
-          <Plus size={20} />
-          Add Category
-        </button>
+        {(user.role === 'admin' || user.role === 'superadmin') && (
+          <button
+            onClick={() => setShowForm(true)}
+            className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700"
+          >
+            <Plus size={20} />
+            Add Category
+          </button>
+        )}
       </div>
 
       {showForm && (
@@ -180,8 +213,53 @@ export default function Categories() {
         </div>
       )}
 
-      <div className="bg-white rounded-lg shadow overflow-hidden">
-        <table className="w-full">
+      <div className="bg-white rounded-lg shadow p-4 space-y-4">
+        {/* Filters */}
+        <div className="space-y-3">
+          <div className="flex gap-2">
+            <input
+              type="text"
+              placeholder="Search by category name…"
+              value={searchTerm}
+              onChange={e => setSearchTerm(e.target.value)}
+              className="flex-1 px-4 py-2 border border-gray-300 rounded-lg text-sm"
+              aria-label="Search categories"
+            />
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            {user.role === 'superadmin' && (
+              <select
+                value={departmentFilter}
+                onChange={e => setDepartmentFilter(e.target.value)}
+                className="px-3 py-2 border border-gray-300 rounded text-sm"
+                aria-label="Filter by department">
+                <option value="">All Departments</option>
+                {departments.map(dept => (
+                  <option key={dept.id} value={dept.id}>{dept.name}</option>
+                ))}
+              </select>
+            )}
+
+            <select
+              value={sortBy}
+              onChange={e => setSortBy(e.target.value)}
+              className="px-3 py-2 border border-gray-300 rounded text-sm font-medium bg-blue-50"
+              aria-label="Sort by">
+              <option value="recently-added">Sort: Recently Added</option>
+              <option value="name">Sort: Name</option>
+            </select>
+          </div>
+
+          <button
+            onClick={clearAllFilters}
+            className="text-xs px-3 py-1 bg-gray-100 text-gray-700 rounded hover:bg-gray-200 font-medium">
+            Clear All Filters
+          </button>
+        </div>
+
+        <div className="overflow-x-auto">
+          <table className="w-full">
           <thead className="bg-gray-50">
             <tr>
               <th className="px-6 py-3 text-left text-sm font-medium text-gray-700">
@@ -190,13 +268,26 @@ export default function Categories() {
               <th className="px-6 py-3 text-left text-sm font-medium text-gray-700">
                 Description
               </th>
+              {user.role === 'superadmin' && (
+                <th className="px-6 py-3 text-left text-sm font-medium text-gray-700">
+                  Department
+                </th>
+              )}
               <th className="px-6 py-3 text-left text-sm font-medium text-gray-700">
                 Actions
               </th>
             </tr>
           </thead>
           <tbody className="divide-y">
-            {categories.map((category) => (
+            {filteredAndSortedCategories.length === 0 ? (
+              <tr>
+                <td colSpan={user.role === 'superadmin' ? 4 : 3} className="px-6 py-8 text-center text-gray-400">
+                  No categories found.
+                </td>
+              </tr>
+            ) : filteredAndSortedCategories.map((category) => {
+              const dept = category.departmentId ? departments.find(d => d.id === category.departmentId) : null;
+              return (
               <tr key={category.id}>
                 <td className="px-6 py-4 text-sm text-gray-900">
                   {category.name}
@@ -204,34 +295,35 @@ export default function Categories() {
                 <td className="px-6 py-4 text-sm text-gray-500">
                   {category.description}
                 </td>
+                {user.role === 'superadmin' && (
+                  <td className="px-6 py-4 text-sm text-gray-700">
+                    {dept?.name ?? '—'}
+                  </td>
+                )}
                 <td className="px-6 py-4 text-sm space-x-2">
-                  <button
-                    onClick={() => handleEdit(category)}
-                    className="text-blue-600 hover:text-blue-800"
-                  >
-                    <Edit size={18} />
-                  </button>
-                  {user.role === 'admin' ? (
-                    <button
-                      onClick={() => handleDelete(category.id)}
-                      className="text-red-600 hover:text-red-800"
-                    >
-                      <Trash2 size={18} />
-                    </button>
-                  ) : (
-                    <button
-                      onClick={() => handleRequestDelete(category.id, category.name)}
-                      className="text-orange-600 hover:text-orange-800"
-                      title="Request deletion"
-                    >
-                      <Trash2 size={18} />
-                    </button>
+                  {(user.role === 'admin' || user.role === 'superadmin') && (
+                    <>
+                      <button
+                        onClick={() => handleEdit(category)}
+                        className="text-blue-600 hover:text-blue-800"
+                      >
+                        <Edit size={18} />
+                      </button>
+                      <button
+                        onClick={() => handleDelete(category.id)}
+                        className="text-red-600 hover:text-red-800"
+                      >
+                        <Trash2 size={18} />
+                      </button>
+                    </>
                   )}
                 </td>
               </tr>
-            ))}
+            );
+            })}
           </tbody>
         </table>
+        </div>
       </div>
     </div>
   );

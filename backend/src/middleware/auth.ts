@@ -23,7 +23,18 @@ export const authMiddleware = (req: AuthRequest, res: Response, next: NextFuncti
     const decoded = jwt.verify(token, getJwtSecret()) as { userId: string; role: string; departmentId?: string };
     req.userId = decoded.userId;
     req.userRole = decoded.role ?? 'staff';
-    req.departmentId = decoded.departmentId;
+
+    // Superadmin sees all data across all departments (no department filter)
+    if (req.userRole === 'superadmin') {
+      req.departmentId = undefined;
+    } else if (req.userRole === 'admin') {
+      // For admins, check if X-Department-Id header is provided (from department switcher)
+      const headerDeptId = req.headers['x-department-id'] as string;
+      req.departmentId = headerDeptId;
+    } else {
+      // For staff, use departmentId from JWT
+      req.departmentId = decoded.departmentId;
+    }
 
     next();
   } catch (error) {
