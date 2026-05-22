@@ -29,7 +29,7 @@ model User {
   name          String
   email         String     @unique
   passwordHash  String
-  role          String     @default("staff") // admin, staff
+  role          String     @default("staff") // superadmin, admin, staff
   departmentId  String?
   department    Department? @relation(fields: [departmentId], references: [id], onDelete: SetNull)
   createdAt     DateTime   @default(now())

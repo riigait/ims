@@ -13,6 +13,7 @@ import Scanner from '@/pages/Scanner';
 import AdminUsers from '@/pages/AdminUsers';
 import AdminDepartments from '@/pages/AdminDepartments';
 import DeleteRequests from '@/pages/DeleteRequests';
+import AdminAssignment from '@/pages/AdminAssignment';
 import NotFound from '@/pages/NotFound';
 import ErrorBoundary from '@/components/ErrorBoundary';
 
@@ -135,6 +136,14 @@ function App() {
           element={
             <PrivateRoute>
               <DeleteRequests />
+            </PrivateRoute>
+          }
+        />
+        <Route
+          path="/admin/assignment"
+          element={
+            <PrivateRoute>
+              <AdminAssignment />
             </PrivateRoute>
           }
         />

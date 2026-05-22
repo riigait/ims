@@ -49,7 +49,7 @@ export default function Navbar() {
                   <ScanLine size={16} />
                 </Link>
 
-                {user.role === 'admin' && (
+                {(user.role === 'admin' || user.role === 'superadmin') && (
                   <div className="relative">
                     <button
                       onClick={() => setAdminOpen(!adminOpen)}
@@ -61,6 +61,14 @@ export default function Navbar() {
                     </button>
                     {adminOpen && (
                       <div className="absolute right-0 mt-0 w-48 bg-white text-gray-800 rounded-lg shadow-lg py-2 z-10">
+                        {user.role === 'superadmin' && (
+                          <>
+                            <Link to="/admin/assignment" className="block px-4 py-2 hover:bg-gray-100 text-sm font-medium text-blue-600">
+                              Admin Assignment
+                            </Link>
+                            <div className="border-t border-gray-200"></div>
+                          </>
+                        )}
                         <Link to="/admin/users" className="block px-4 py-2 hover:bg-gray-100 text-sm">
                           Users
                         </Link>
@@ -130,10 +138,15 @@ export default function Navbar() {
                   Scanner
                 </Link>
 
-                {user.role === 'admin' && (
+                {(user.role === 'admin' || user.role === 'superadmin') && (
                   <>
                     <div className="border-t border-blue-500 pt-2 mt-2">
                       <p className="px-4 py-2 text-xs font-semibold text-blue-200">ADMIN</p>
+                      {user.role === 'superadmin' && (
+                        <Link to="/admin/assignment" className="block px-4 py-2 hover:bg-blue-500 rounded text-sm font-medium">
+                          Admin Assignment
+                        </Link>
+                      )}
                       <Link to="/admin/users" className="block px-4 py-2 hover:bg-blue-500 rounded text-sm">
                         Users
                       </Link>

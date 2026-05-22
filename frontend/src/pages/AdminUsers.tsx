@@ -14,7 +14,7 @@ interface User {
   id: string;
   name: string;
   email: string;
-  role: 'admin' | 'staff';
+  role: 'superadmin' | 'admin' | 'staff';
   departmentId?: string;
   createdAt: string;
 }
@@ -36,7 +36,7 @@ export default function AdminUsers() {
   const [departments, setDepartments] = useState<Department[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [generateRole, setGenerateRole] = useState<'admin' | 'staff'>('staff');
+  const [generateRole, setGenerateRole] = useState<'superadmin' | 'admin' | 'staff'>('staff');
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'invites' | 'users'>('invites');
@@ -50,7 +50,7 @@ export default function AdminUsers() {
     try {
       const response = await authApi.getCurrentUser();
       setCurrentUser(response.data);
-      if (response.data.role !== 'admin') {
+      if (!['admin', 'superadmin'].includes(response.data.role)) {
         navigate('/dashboard');
       }
     } catch {
@@ -208,11 +208,14 @@ export default function AdminUsers() {
             <div className="flex gap-3">
               <select
                 value={generateRole}
-                onChange={(e) => setGenerateRole(e.target.value as 'admin' | 'staff')}
+                onChange={(e) => setGenerateRole(e.target.value as 'superadmin' | 'admin' | 'staff')}
                 className="px-4 py-2 border border-gray-300 rounded-lg font-medium text-sm"
               >
                 <option value="staff">Staff User</option>
                 <option value="admin">Admin User</option>
+                {currentUser?.role === 'superadmin' && (
+                  <option value="superadmin">Super Admin User</option>
+                )}
               </select>
               <button
                 onClick={generateInvite}

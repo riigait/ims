@@ -11,12 +11,16 @@ const prisma = new PrismaClient();
 router.post('/generate', authMiddleware, async (req: AuthRequest, res: Response) => {
   try {
     const user = await prisma.user.findUnique({ where: { id: req.userId } });
-    if (!user || user.role !== 'admin') {
+    if (!user || !['superadmin', 'admin'].includes(user.role)) {
       return res.status(403).json({ error: 'Only admins can generate invites' });
     }
 
     const { role = 'staff' } = req.body;
-    if (!['admin', 'staff'].includes(role)) {
+    // Superadmin can create any role, regular admin can only create staff
+    if (user.role === 'admin' && !['staff'].includes(role)) {
+      return res.status(403).json({ error: 'Admins can only create staff invites' });
+    }
+    if (!['superadmin', 'admin', 'staff'].includes(role)) {
       return res.status(400).json({ error: 'Invalid role' });
     }
 
@@ -44,7 +48,7 @@ router.post('/generate', authMiddleware, async (req: AuthRequest, res: Response)
 router.get('/', authMiddleware, async (req: AuthRequest, res: Response) => {
   try {
     const user = await prisma.user.findUnique({ where: { id: req.userId } });
-    if (!user || user.role !== 'admin') {
+    if (!user || !['superadmin', 'admin'].includes(user.role)) {
       return res.status(403).json({ error: 'Only admins can view invites' });
     }
 
@@ -64,7 +68,7 @@ router.get('/', authMiddleware, async (req: AuthRequest, res: Response) => {
 router.delete('/:id', authMiddleware, async (req: AuthRequest, res: Response) => {
   try {
     const user = await prisma.user.findUnique({ where: { id: req.userId } });
-    if (!user || user.role !== 'admin') {
+    if (!user || !['superadmin', 'admin'].includes(user.role)) {
       return res.status(403).json({ error: 'Only admins can revoke invites' });
     }
 
