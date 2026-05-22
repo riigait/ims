@@ -36,3 +36,23 @@ coverage/
 
 # Deployment
 .vercel/
+
+node_modules/
+venv/
+.venv/
+dist/
+build/
+.next/
+.nuxt/
+coverage/
+__pycache__/
+*.log
+*.zip
+*.tar
+*.7z
+*.mp4
+*.mov
+*.png
+*.jpg
+*.jpeg
+*.pdf

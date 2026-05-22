@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(curl -s http://localhost:5173)",
+      "Bash(npx tsc *)",
+      "Bash(npm run *)",
+      "PowerShell(Get-NetTCPConnection -LocalPort 3001 -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess | ForEach-Object { Stop-Process -Id $_ -Force -ErrorAction SilentlyContinue })",
+      "Bash(Start-Sleep -Seconds 8)"
+    ]
+  }
+}

@@ -1,3 +1,124 @@
+# Claude Code Instructions
+
+## Main Goal
+
+Build and improve this project while minimizing Claude Code token and credit usage.
+
+Do not explore the whole project unless required. Work only on the files related to the current task.
+
+---
+
+## Claude Code Credit Saver Rules
+
+Before doing anything, minimize token and credit usage.
+
+### Main Rules
+
+1. Do not scan the whole repository unless I explicitly say so.
+2. Do not read large folders such as:
+   - node_modules
+   - venv
+   - .venv
+   - dist
+   - build
+   - .next
+   - .nuxt
+   - coverage
+   - logs
+   - media files
+   - zip files
+   - generated files
+3. Do not inspect unrelated files.
+4. Do not make broad refactors unless I request them.
+5. Do not rewrite working code just to improve style.
+6. Do not generate long explanations unless I ask.
+7. Do not create extra documentation, diagrams, tests, or files unless needed for the requested task.
+8. Do not run full test suites repeatedly. Run the smallest relevant test first.
+9. Do not install packages unless you first explain why they are needed.
+10. Do not use Opus unless the task is complex and you explain why Sonnet is not enough.
+
+---
+
+## Required Workflow
+
+For every task:
+
+1. First, identify the smallest set of files needed.
+2. Tell me the exact files you plan to inspect.
+3. Ask before expanding to more files.
+4. Give a short plan before editing.
+5. Make the smallest working change.
+6. After editing, summarize only:
+   - files changed
+   - what changed
+   - how to run or test it
+   - next recommended step
+
+---
+
+## Search Rules
+
+When searching the codebase:
+
+1. Prefer targeted search terms.
+2. Search only likely folders.
+3. Do not open every result.
+4. Stop once the relevant file is found.
+5. Do not inspect dependency folders or generated folders.
+
+---
+
+## Editing Rules
+
+When editing code:
+
+1. Make small, focused changes.
+2. Do not change formatting across unrelated files.
+3. Do not rename files unless required.
+4. Do not change architecture unless I ask.
+5. Do not add unnecessary libraries.
+6. Do not remove working features.
+7. Preserve existing logic unless the task requires changing it.
+
+---
+
+## Testing Rules
+
+When testing:
+
+1. Run the smallest relevant test first.
+2. Do not repeatedly run full builds unless needed.
+3. If a test fails, inspect only the related error and related files.
+4. Explain the test result briefly.
+
+---
+
+## Output Style
+
+Keep responses short and direct.
+
+Avoid:
+- long theory
+- repeated explanations
+- unnecessary code blocks
+- unnecessary summaries
+- unrelated suggestions
+
+Use this format after every task:
+
+```text
+Files changed:
+- file/path
+
+What changed:
+- short explanation
+
+How to test:
+- command or step
+
+Next recommended step:
+- short recommendation
+
 # Claude Code Build Guide: Inventory Management System Phase 1
 
 ## Project Name

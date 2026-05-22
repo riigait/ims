@@ -283,53 +283,6 @@ export default function FloorPlanEditor() {
       }
     }
 
-    // Draw group selection bounding box when multiple objects selected
-    if (selectedObjectIds.length > 1 && currentFloorPlan) {
-      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-      selectedObjectIds.forEach(id => {
-        const obj = currentFloorPlan.objects.find(o => o.id === id);
-        if (!obj) return;
-        if (obj.type === 'wall') {
-          const w = obj as WallObject;
-          minX = Math.min(minX, w.startX, w.endX);
-          minY = Math.min(minY, w.startY, w.endY);
-          maxX = Math.max(maxX, w.startX, w.endX);
-          maxY = Math.max(maxY, w.startY, w.endY);
-        } else if (obj.type === 'room' || obj.type === 'rack' || obj.type === 'shelf') {
-          const r = obj as RectangleObject;
-          minX = Math.min(minX, r.x);
-          minY = Math.min(minY, r.y);
-          maxX = Math.max(maxX, r.x + r.width);
-          maxY = Math.max(maxY, r.y + r.height);
-        } else if (obj.type === 'label') {
-          const l = obj as LabelObject;
-          minX = Math.min(minX, l.x);
-          minY = Math.min(minY, l.y);
-          maxX = Math.max(maxX, l.x + 50);
-          maxY = Math.max(maxY, l.y + 20);
-        } else if (obj.type === 'door' || obj.type === 'window' || obj.type === 'entrance') {
-          const o = obj as DoorObject | WindowObject | EntranceObject;
-          minX = Math.min(minX, o.x - o.width / 2);
-          minY = Math.min(minY, o.y - 10);
-          maxX = Math.max(maxX, o.x + o.width / 2);
-          maxY = Math.max(maxY, o.y + 10);
-        } else if (obj.type === 'marker') {
-          const m = obj as InventoryMarkerObject;
-          minX = Math.min(minX, m.x - 10);
-          minY = Math.min(minY, m.y - 10);
-          maxX = Math.max(maxX, m.x + 10);
-          maxY = Math.max(maxY, m.y + 10);
-        }
-      });
-      if (minX !== Infinity && maxX !== -Infinity) {
-        const padding = 8;
-        ctx.strokeStyle = '#10b981';
-        ctx.lineWidth = 2;
-        ctx.setLineDash([5, 5]);
-        ctx.strokeRect(minX - padding, minY - padding, maxX - minX + padding * 2, maxY - minY + padding * 2);
-        ctx.setLineDash([]);
-      }
-    }
 
     // Live drawing preview
     const drawingTools = ['wall', 'room', 'rack', 'shelf', 'door', 'window', 'entrance'];
