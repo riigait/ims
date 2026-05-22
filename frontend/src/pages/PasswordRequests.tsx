@@ -192,6 +192,5 @@ export default function PasswordRequests() {
           </div>
         )}
       </div>
-    </div>
   );
 }
