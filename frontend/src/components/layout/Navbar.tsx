@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Menu, X, LogOut, ScanLine } from 'lucide-react';
+import { Menu, X, LogOut, ScanLine, Users } from 'lucide-react';
 
 export default function Navbar() {
   const [isOpen, setIsOpen] = useState(false);
@@ -46,6 +46,11 @@ export default function Navbar() {
                 <Link to="/scanner" className="flex items-center gap-1 hover:text-blue-200">
                   <ScanLine size={16} /> Scanner
                 </Link>
+                {user.role === 'admin' && (
+                  <Link to="/admin/users" className="flex items-center gap-1 hover:text-blue-200 bg-blue-700 px-3 py-1 rounded">
+                    <Users size={16} /> Admin
+                  </Link>
+                )}
               </>
             )}
           </div>
@@ -97,6 +102,11 @@ export default function Navbar() {
                 <Link to="/scanner" className="block hover:text-blue-200 py-2">
                   Scanner
                 </Link>
+                {user.role === 'admin' && (
+                  <Link to="/admin/users" className="block hover:text-blue-200 py-2 bg-blue-700 px-3 rounded">
+                    Admin Users
+                  </Link>
+                )}
                 <button
                   onClick={handleLogout}
                   className="block w-full text-left hover:text-blue-200 py-2"

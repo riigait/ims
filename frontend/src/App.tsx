@@ -9,6 +9,7 @@ import StockMovements from '@/pages/StockMovements';
 import FloorPlans from '@/pages/FloorPlans';
 import FloorPlanEditor from '@/pages/FloorPlanEditor';
 import Scanner from '@/pages/Scanner';
+import AdminUsers from '@/pages/AdminUsers';
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
   const isLoggedIn = !!localStorage.getItem('token');
@@ -103,6 +104,14 @@ function App() {
               <Layout>
                 <Scanner />
               </Layout>
+            </PrivateRoute>
+          }
+        />
+        <Route
+          path="/admin/users"
+          element={
+            <PrivateRoute>
+              <AdminUsers />
             </PrivateRoute>
           }
         />
