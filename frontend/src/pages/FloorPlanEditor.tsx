@@ -1960,7 +1960,7 @@ export default function FloorPlanEditor() {
                   <Trash2 size={13} /> Delete Object
                 </button>
               </div>
-              ) : null);
+              ) : null;
               })()}
 
               {/* ── Location & Products section ── */}
