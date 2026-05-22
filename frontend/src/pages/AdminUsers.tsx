@@ -16,6 +16,7 @@ interface User {
   email: string;
   role: 'superadmin' | 'admin' | 'staff';
   departmentId?: string;
+  adminDepartments?: Array<{ departmentId: string; department: { id: string; name: string; description?: string } }>;
   createdAt: string;
 }
 
@@ -121,22 +122,6 @@ export default function AdminUsers() {
       setUsers(users.filter(u => u.id !== id));
     } catch (err) {
       setError('Failed to delete user');
-    }
-  };
-
-  const updateUserDepartment = async (userId: string, departmentId: string | null) => {
-    try {
-      await fetch(`/api/users/${userId}`, {
-        method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${localStorage.getItem('token')}`,
-        },
-        body: JSON.stringify({ departmentId: departmentId || null }),
-      });
-      setUsers(users.map(u => u.id === userId ? { ...u, departmentId: departmentId || undefined } : u));
-    } catch (err) {
-      setError('Failed to update user department');
     }
   };
 
@@ -359,16 +344,27 @@ export default function AdminUsers() {
                         </span>
                       </td>
                       <td className="px-4 py-3">
-                        <select
-                          value={user.departmentId || ''}
-                          onChange={(e) => updateUserDepartment(user.id, e.target.value || null)}
-                          className="px-2 py-1 border border-gray-300 rounded text-xs bg-white"
-                        >
-                          <option value="">Unassigned</option>
-                          {departments.map(dept => (
-                            <option key={dept.id} value={dept.id}>{dept.name}</option>
-                          ))}
-                        </select>
+                        {user.role === 'admin' ? (
+                          // Admin: show assigned departments from adminDepartments
+                          user.adminDepartments && user.adminDepartments.length > 0 ? (
+                            <div className="flex flex-wrap gap-1">
+                              {user.adminDepartments.map(ad => (
+                                <span key={ad.departmentId} className="px-2 py-1 bg-blue-50 text-blue-700 text-xs rounded border border-blue-200">
+                                  {ad.department.name}
+                                </span>
+                              ))}
+                            </div>
+                          ) : (
+                            <span className="text-gray-400 text-xs">Unassigned</span>
+                          )
+                        ) : (
+                          // Staff: show single department
+                          user.departmentId ? (
+                            <span className="text-gray-700 text-xs">{departments.find(d => d.id === user.departmentId)?.name || '-'}</span>
+                          ) : (
+                            <span className="text-gray-400 text-xs">Unassigned</span>
+                          )
+                        )}
                       </td>
                       <td className="px-4 py-3 text-gray-600 text-xs">{new Date(user.createdAt).toLocaleDateString()}</td>
                       <td className="px-4 py-3">
