@@ -256,7 +256,7 @@ export default function AdminUsers() {
                             {invite.role}
                           </span>
                         </td>
-                        <td className="px-4 py-3 text-gray-600">{invite.creator.name}</td>
+                        <td className="px-4 py-3 text-gray-600">{invite.creator?.name || 'Unknown'}</td>
                         <td className="px-4 py-3 text-gray-600">{new Date(invite.expiresAt).toLocaleDateString()}</td>
                         <td className="px-4 py-3">
                           <div className="flex gap-2">
