@@ -147,7 +147,13 @@ export default function AdminUsers() {
   if (!currentUser) return null;
 
   const pendingInvites = invites.filter(i => !i.usedAt);
-  const usedInvites = invites.filter(i => i.usedAt);
+  const getFilteredUsedInvites = () => {
+    const allUsed = invites.filter(i => i.usedAt);
+    if (currentUser?.role === 'superadmin') return allUsed;
+    if (currentUser?.role === 'admin') return allUsed.filter(i => ['admin', 'staff'].includes(i.role));
+    return [];
+  };
+  const usedInvites = getFilteredUsedInvites();
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -287,7 +293,7 @@ export default function AdminUsers() {
         )}
 
         {/* Used Invites */}
-        {activeTab === 'invites' && usedInvites.length > 0 && (
+        {activeTab === 'invites' && usedInvites.length > 0 && ['admin', 'superadmin'].includes(currentUser?.role || '') && (
           <div className="bg-white rounded-lg shadow p-6">
             <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
               <CheckCircle size={20} className="text-green-600" />
