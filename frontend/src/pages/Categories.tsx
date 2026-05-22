@@ -17,8 +17,9 @@ export default function Categories() {
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [filters, setFilters] = useState<CategoryFilter>({
+  const [filters, setFilters] = useState<CategoryFilter & { departmentId?: string }>({
     search: '',
+    departmentId: undefined,
   });
   const [sortBy, setSortBy] = useState('recently-added');
 
@@ -98,6 +99,7 @@ export default function Categories() {
   };
 
   const filteredAndSortedCategories = filterCategories(categories, filters.search)
+    .filter(cat => !filters.departmentId || cat.departmentId === filters.departmentId)
     .sort((a, b) => {
       if (sortBy === 'name') return a.name.localeCompare(b.name);
       if (sortBy === 'recently-added') return new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime();
@@ -105,7 +107,7 @@ export default function Categories() {
     });
 
   const clearAllFilters = () => {
-    setFilters({ search: '' });
+    setFilters({ search: '', departmentId: undefined });
     setSortBy('recently-added');
   };
 
@@ -203,8 +205,8 @@ export default function Categories() {
           <div className="flex flex-wrap gap-2">
             {user.role === 'superadmin' && (
               <select
-                value={departmentFilter}
-                onChange={e => setDepartmentFilter(e.target.value)}
+                value={filters.departmentId || ''}
+                onChange={e => setFilters({ ...filters, departmentId: e.target.value || undefined })}
                 className="px-3 py-2 border border-gray-300 rounded text-sm"
                 aria-label="Filter by department">
                 <option value="">All Departments</option>
