@@ -42,9 +42,9 @@ export default function FloorPlanEditor() {
   const {
     currentFloorPlan, editorState, selectedObjectIds,
     setCurrentFloorPlan, setTool, setSelectedObject, setSelectedObjects, addToSelection, removeFromSelection, clearSelection, setZoomLevel,
-    addObject, updateObject, updateMultipleObjects, deleteObject, deleteMultipleObjects, getSelectedObject,
+    addObject, updateObject, deleteObject, deleteMultipleObjects, getSelectedObject,
     bringToFront, sendToBack, moveForward, moveBackward, getObjectLayer, groupObjects, ungroupObjects,
-    copyObjects, pasteObjects, undo, redo, pushHistory,
+    copyObjects, pasteObjects, undo, redo,
   } = useFloorPlanStore();
 
   const [loading, setLoading] = useState(true);
@@ -185,7 +185,7 @@ export default function FloorPlanEditor() {
           const member = state.currentFloorPlan!.objects.find(o => o.id === memberId);
           if (!member) return;
 
-          const updates: Partial<FloorPlanObject> = {};
+          const updates: any = {};
           if (member.type === 'wall') {
             const w = member as WallObject;
             if (deltaX !== 0) { updates.startX = w.startX + deltaX; updates.endX = w.endX + deltaX; }
@@ -1657,8 +1657,6 @@ export default function FloorPlanEditor() {
                 // Check if all selected objects are the same type
                 const selectedObjs = selectedObjectIds.map(id => currentFloorPlan?.objects.find(o => o.id === id)).filter(Boolean);
                 const allSameType = selectedObjs.length > 0 && selectedObjs.every(o => o?.type === selectedObjs[0]?.type);
-                const isSingleSelect = selectedObjectIds.length === 1;
-                const isMultiSelectSameType = selectedObjectIds.length > 1 && allSameType;
 
                 return (
                   <>

@@ -1,13 +1,15 @@
 import express, { Router, Request, Response } from 'express';
 import { PrismaClient } from '@prisma/client';
+import { AuthRequest } from '../middleware/auth';
 
 const router = Router();
 const prisma = new PrismaClient();
 
 // Get all categories
-router.get('/', async (req: Request, res: Response) => {
+router.get('/', async (req: AuthRequest, res: Response) => {
   try {
-    const categories = await prisma.category.findMany();
+    const departmentFilter = req.userRole === 'admin' ? {} : { departmentId: req.departmentId };
+    const categories = await prisma.category.findMany({ where: departmentFilter });
     res.json(categories);
   } catch (error) {
     console.error(error);
@@ -16,7 +18,7 @@ router.get('/', async (req: Request, res: Response) => {
 });
 
 // Get category by ID
-router.get('/:id', async (req: Request, res: Response) => {
+router.get('/:id', async (req: AuthRequest, res: Response) => {
   try {
     const category = await prisma.category.findUnique({
       where: { id: req.params.id },
@@ -24,6 +26,10 @@ router.get('/:id', async (req: Request, res: Response) => {
 
     if (!category) {
       return res.status(404).json({ error: 'Category not found' });
+    }
+
+    if (req.userRole !== 'admin' && category.departmentId !== req.departmentId) {
+      return res.status(403).json({ error: 'Access denied' });
     }
 
     res.json(category);
@@ -34,7 +40,7 @@ router.get('/:id', async (req: Request, res: Response) => {
 });
 
 // Create category
-router.post('/', async (req: Request, res: Response) => {
+router.post('/', async (req: AuthRequest, res: Response) => {
   try {
     const { name, description } = req.body;
 
@@ -43,7 +49,11 @@ router.post('/', async (req: Request, res: Response) => {
     }
 
     const category = await prisma.category.create({
-      data: { name, description },
+      data: {
+        name,
+        description,
+        departmentId: req.userRole === 'admin' ? undefined : req.departmentId,
+      },
     });
 
     res.status(201).json(category);
@@ -54,8 +64,14 @@ router.post('/', async (req: Request, res: Response) => {
 });
 
 // Update category
-router.put('/:id', async (req: Request, res: Response) => {
+router.put('/:id', async (req: AuthRequest, res: Response) => {
   try {
+    const existing = await prisma.category.findUnique({ where: { id: req.params.id } });
+    if (!existing) return res.status(404).json({ error: 'Category not found' });
+    if (req.userRole !== 'admin' && existing.departmentId !== req.departmentId) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
     const { name, description } = req.body;
 
     const category = await prisma.category.update({
@@ -70,9 +86,13 @@ router.put('/:id', async (req: Request, res: Response) => {
   }
 });
 
-// Delete category
-router.delete('/:id', async (req: Request, res: Response) => {
+// Delete category (admin only)
+router.delete('/:id', async (req: AuthRequest, res: Response) => {
   try {
+    if (req.userRole !== 'admin') {
+      return res.status(403).json({ error: 'Staff must submit a delete request instead' });
+    }
+
     await prisma.category.delete({
       where: { id: req.params.id },
     });

@@ -9,7 +9,10 @@ const prisma = new PrismaClient();
 // Get all products
 router.get('/', async (req: AuthRequest, res: Response) => {
   try {
+    const departmentFilter = req.userRole === 'admin' ? {} : { departmentId: req.departmentId };
+
     const products = await prisma.product.findMany({
+      where: departmentFilter,
       include: { category: true, location: true },
     });
     res.json(products);
@@ -27,6 +30,12 @@ router.get('/:id', async (req: AuthRequest, res: Response) => {
       include: { category: true, location: true },
     });
     if (!product) return res.status(404).json({ error: 'Product not found' });
+
+    // Staff can only access their department's products
+    if (req.userRole !== 'admin' && product.departmentId !== req.departmentId) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
     res.json(product);
   } catch (error) {
     console.error(error);
@@ -50,6 +59,7 @@ router.post('/', async (req: AuthRequest, res: Response) => {
         description,
         categoryId,
         locationId: locationId || null,
+        departmentId: req.userRole === 'admin' ? undefined : req.departmentId,
         unit: unit || 'pcs',
         currentStock: currentStock || 0,
         lowStockThreshold: lowStockThreshold || 10,
@@ -68,6 +78,13 @@ router.post('/', async (req: AuthRequest, res: Response) => {
 // Update product — currentStock excluded; use stock movements to change stock levels
 router.put('/:id', async (req: AuthRequest, res: Response) => {
   try {
+    // Check department access for staff
+    const existing = await prisma.product.findUnique({ where: { id: req.params.id } });
+    if (!existing) return res.status(404).json({ error: 'Product not found' });
+    if (req.userRole !== 'admin' && existing.departmentId !== req.departmentId) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
     const { sku, name, description, categoryId, locationId, unit, lowStockThreshold } = req.body;
 
     const product = await prisma.product.update({
@@ -84,9 +101,13 @@ router.put('/:id', async (req: AuthRequest, res: Response) => {
   }
 });
 
-// Delete product
+// Delete product (admin only)
 router.delete('/:id', async (req: AuthRequest, res: Response) => {
   try {
+    if (req.userRole !== 'admin') {
+      return res.status(403).json({ error: 'Staff must submit a delete request instead' });
+    }
+
     await prisma.product.delete({ where: { id: req.params.id } });
     await logAudit({ userId: req.userId, action: 'DELETE', entityType: 'product', entityId: req.params.id });
     res.json({ message: 'Product deleted' });

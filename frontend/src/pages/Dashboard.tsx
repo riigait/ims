@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { dashboardApi } from '@/services/api';
+import { dashboardApi, departmentsApi } from '@/services/api';
 import { formatNumber } from '@/utils/ids';
 interface Stats {
   totalProducts: number;
@@ -34,6 +34,7 @@ const MOVEMENT_LABELS: Record<string, string> = {
 
 export default function Dashboard() {
   const navigate = useNavigate();
+  const user = JSON.parse(localStorage.getItem('user') || '{}');
   const [stats, setStats] = useState<Stats>({
     totalProducts: 0,
     totalStock: 0,
@@ -42,6 +43,7 @@ export default function Dashboard() {
     totalFloorPlans: 0,
   });
   const [recentMovements, setRecentMovements] = useState<RecentMovement[]>([]);
+  const [departmentName, setDepartmentName] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -53,6 +55,16 @@ export default function Dashboard() {
         ]);
         setStats(statsRes.data);
         setRecentMovements(movementsRes.data);
+
+        // Fetch department name for staff users
+        if (user.role !== 'admin' && user.departmentId) {
+          try {
+            const deptRes = await departmentsApi.getById(user.departmentId);
+            setDepartmentName(deptRes.data.name);
+          } catch {
+            console.error('Failed to fetch department');
+          }
+        }
       } catch (error) {
         console.error('Failed to fetch dashboard data:', error);
       } finally {
@@ -104,7 +116,12 @@ export default function Dashboard() {
 
   return (
     <div className="space-y-8">
-      <h1 className="text-3xl font-bold text-gray-900">Dashboard</h1>
+      <div>
+        <h1 className="text-3xl font-bold text-gray-900">Dashboard</h1>
+        {user.role !== 'admin' && departmentName && (
+          <p className="text-gray-600 mt-2">Department: <span className="font-semibold">{departmentName}</span></p>
+        )}
+      </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
         {cards.map(card => (

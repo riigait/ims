@@ -1,13 +1,16 @@
 import express, { Router, Request, Response } from 'express';
 import { PrismaClient } from '@prisma/client';
+import { AuthRequest } from '../middleware/auth';
 
 const router = Router();
 const prisma = new PrismaClient();
 
 // Get all floor plans
-router.get('/', async (req: Request, res: Response) => {
+router.get('/', async (req: AuthRequest, res: Response) => {
   try {
+    const departmentFilter = req.userRole === 'admin' ? {} : { departmentId: req.departmentId };
     const floorPlans = await prisma.floorPlan.findMany({
+      where: departmentFilter,
       include: { location: true },
     });
 
@@ -25,7 +28,7 @@ router.get('/', async (req: Request, res: Response) => {
 });
 
 // Get floor plan by ID
-router.get('/:id', async (req: Request, res: Response) => {
+router.get('/:id', async (req: AuthRequest, res: Response) => {
   try {
     const floorPlan = await prisma.floorPlan.findUnique({
       where: { id: req.params.id },
@@ -34,6 +37,10 @@ router.get('/:id', async (req: Request, res: Response) => {
 
     if (!floorPlan) {
       return res.status(404).json({ error: 'Floor plan not found' });
+    }
+
+    if (req.userRole !== 'admin' && floorPlan.departmentId !== req.departmentId) {
+      return res.status(403).json({ error: 'Access denied' });
     }
 
     res.json({
@@ -47,7 +54,7 @@ router.get('/:id', async (req: Request, res: Response) => {
 });
 
 // Create floor plan
-router.post('/', async (req: Request, res: Response) => {
+router.post('/', async (req: AuthRequest, res: Response) => {
   try {
     const { name, width, height, scale, objects, locationId } = req.body;
 
@@ -61,6 +68,7 @@ router.post('/', async (req: Request, res: Response) => {
         width,
         height,
         locationId: locationId || null,
+        departmentId: req.userRole === 'admin' ? undefined : req.departmentId,
         planJson: JSON.stringify(objects || []),
       },
     });
@@ -77,8 +85,14 @@ router.post('/', async (req: Request, res: Response) => {
 });
 
 // Update floor plan
-router.put('/:id', async (req: Request, res: Response) => {
+router.put('/:id', async (req: AuthRequest, res: Response) => {
   try {
+    const existing = await prisma.floorPlan.findUnique({ where: { id: req.params.id } });
+    if (!existing) return res.status(404).json({ error: 'Floor plan not found' });
+    if (req.userRole !== 'admin' && existing.departmentId !== req.departmentId) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
     const { name, width, height, scale, objects, locationId } = req.body;
 
     const floorPlan = await prisma.floorPlan.update({
@@ -103,9 +117,13 @@ router.put('/:id', async (req: Request, res: Response) => {
   }
 });
 
-// Delete floor plan
-router.delete('/:id', async (req: Request, res: Response) => {
+// Delete floor plan (admin only)
+router.delete('/:id', async (req: AuthRequest, res: Response) => {
   try {
+    if (req.userRole !== 'admin') {
+      return res.status(403).json({ error: 'Staff must submit a delete request instead' });
+    }
+
     await prisma.floorPlan.delete({
       where: { id: req.params.id },
     });

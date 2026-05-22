@@ -1,13 +1,15 @@
 import { useState, useEffect } from 'react';
 import { Plus, Edit, Trash2 } from 'lucide-react';
-import { categoriesApi } from '@/services/api';
+import { categoriesApi, deleteRequestsApi } from '@/services/api';
 import { Category } from '@/types/inventory';
 
 export default function Categories() {
+  const user = JSON.parse(localStorage.getItem('user') || '{}');
   const [categories, setCategories] = useState<Category[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [error, setError] = useState('');
 
   const [formData, setFormData] = useState({
     name: '',
@@ -74,6 +76,24 @@ export default function Categories() {
     }
   };
 
+  const handleRequestDelete = async (id: string, name: string) => {
+    const reason = prompt('Reason for deletion (optional):');
+    if (reason === null) return;
+    try {
+      await deleteRequestsApi.create({
+        entityType: 'category',
+        entityId: id,
+        entityName: name,
+        reason: reason || '',
+      });
+      setError('');
+      alert('Delete request submitted. Awaiting admin approval.');
+    } catch (err) {
+      setError('Failed to submit delete request');
+      console.error(err);
+    }
+  };
+
   const handleCancel = () => {
     setShowForm(false);
     setEditingId(null);
@@ -86,6 +106,11 @@ export default function Categories() {
 
   return (
     <div className="space-y-6">
+      {error && (
+        <div className="bg-red-50 border border-red-200 rounded-lg p-4 text-red-700">
+          {error}
+        </div>
+      )}
       <div className="flex justify-between items-center">
         <h1 className="text-3xl font-bold text-gray-900">Categories</h1>
         <button
@@ -186,12 +211,22 @@ export default function Categories() {
                   >
                     <Edit size={18} />
                   </button>
-                  <button
-                    onClick={() => handleDelete(category.id)}
-                    className="text-red-600 hover:text-red-800"
-                  >
-                    <Trash2 size={18} />
-                  </button>
+                  {user.role === 'admin' ? (
+                    <button
+                      onClick={() => handleDelete(category.id)}
+                      className="text-red-600 hover:text-red-800"
+                    >
+                      <Trash2 size={18} />
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => handleRequestDelete(category.id, category.name)}
+                      className="text-orange-600 hover:text-orange-800"
+                      title="Request deletion"
+                    >
+                      <Trash2 size={18} />
+                    </button>
+                  )}
                 </td>
               </tr>
             ))}

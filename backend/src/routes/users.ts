@@ -58,7 +58,7 @@ router.patch('/:id', authMiddleware, async (req: AuthRequest, res: Response) => 
       return res.status(403).json({ error: 'Only admins can update users' });
     }
 
-    const { name, email, role } = req.body;
+    const { name, email, role, departmentId } = req.body;
     const updates: any = {};
 
     if (name) updates.name = name;
@@ -70,6 +70,7 @@ router.patch('/:id', authMiddleware, async (req: AuthRequest, res: Response) => 
       }
       updates.role = role;
     }
+    if (departmentId !== undefined) updates.departmentId = departmentId;
 
     const user = await prisma.user.update({
       where: { id: req.params.id },

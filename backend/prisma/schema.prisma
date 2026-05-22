@@ -10,16 +10,34 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+model Department {
+  id          String     @id @default(cuid())
+  name        String     @unique
+  description String?
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+  users       User[]
+  products    Product[]
+  categories  Category[]
+  locations   Location[]
+  movements   StockMovement[]
+  floorPlans  FloorPlan[]
+}
+
 model User {
-  id        String     @id @default(cuid())
-  name      String
-  email     String     @unique
-  passwordHash String
-  role      String     @default("staff") // admin, staff
-  createdAt DateTime   @default(now())
-  updatedAt DateTime   @updatedAt
-  movements StockMovement[]
-  inviteCodes InviteCode[]
+  id            String     @id @default(cuid())
+  name          String
+  email         String     @unique
+  passwordHash  String
+  role          String     @default("staff") // admin, staff
+  departmentId  String?
+  department    Department? @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+  movements     StockMovement[]
+  inviteCodes   InviteCode[]
+  deleteRequests DeleteRequest[] @relation("requestedBy")
+  reviewedRequests DeleteRequest[] @relation("reviewedBy")
 }
 
 model Product {
@@ -29,6 +47,8 @@ model Product {
   description         String?
   categoryId          String
   category            Category   @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  departmentId        String?
+  department          Department? @relation(fields: [departmentId], references: [id], onDelete: SetNull)
   unit                String     @default("pcs")
   currentStock        Int        @default(0)
   lowStockThreshold   Int        @default(10)
@@ -43,6 +63,8 @@ model Category {
   id          String     @id @default(cuid())
   name        String     @unique
   description String?
+  departmentId String?
+  department  Department? @relation(fields: [departmentId], references: [id], onDelete: SetNull)
   createdAt   DateTime   @default(now())
   updatedAt   DateTime   @updatedAt
   products    Product[]
@@ -55,6 +77,8 @@ model Location {
   parentId    String?
   parent      Location?  @relation("LocationParent", fields: [parentId], references: [id], onDelete: Cascade)
   children    Location[] @relation("LocationParent")
+  departmentId String?
+  department  Department? @relation(fields: [departmentId], references: [id], onDelete: SetNull)
   notes       String?
   createdAt   DateTime   @default(now())
   updatedAt   DateTime   @updatedAt
@@ -72,6 +96,8 @@ model StockMovement {
   reason        String?
   locationId    String?
   location      Location?  @relation(fields: [locationId], references: [id], onDelete: SetNull)
+  departmentId  String?
+  department    Department? @relation(fields: [departmentId], references: [id], onDelete: SetNull)
   userId        String
   user          User       @relation(fields: [userId], references: [id], onDelete: Cascade)
   createdAt     DateTime   @default(now())
@@ -93,11 +119,28 @@ model FloorPlan {
   name        String
   locationId  String?
   location    Location?  @relation(fields: [locationId], references: [id], onDelete: SetNull)
+  departmentId String?
+  department  Department? @relation(fields: [departmentId], references: [id], onDelete: SetNull)
   width       Int
   height      Int
   planJson    String     // JSON serialized floor plan data
   createdAt   DateTime   @default(now())
   updatedAt   DateTime   @updatedAt
+}
+
+model DeleteRequest {
+  id          String     @id @default(cuid())
+  requestedBy String
+  requester   User       @relation("requestedBy", fields: [requestedBy], references: [id], onDelete: Cascade)
+  entityType  String     // product, category, location, floor_plan
+  entityId    String
+  entityName  String
+  reason      String?
+  status      String     @default("pending") // pending, approved, rejected
+  reviewedBy  String?
+  reviewer    User?      @relation("reviewedBy", fields: [reviewedBy], references: [id], onDelete: SetNull)
+  reviewedAt  DateTime?
+  createdAt   DateTime   @default(now())
 }
 
 model InviteCode {

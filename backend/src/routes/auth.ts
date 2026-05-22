@@ -7,8 +7,8 @@ import { authMiddleware, AuthRequest, getJwtSecret } from '../middleware/auth';
 const router = Router();
 const prisma = new PrismaClient();
 
-function signToken(userId: string, role: string): string {
-  return jwt.sign({ userId, role }, getJwtSecret(), { expiresIn: '7d' });
+function signToken(userId: string, role: string, departmentId?: string): string {
+  return jwt.sign({ userId, role, departmentId }, getJwtSecret(), { expiresIn: '7d' });
 }
 
 // Register — use invite code to get role; defaults to staff if no invite
@@ -56,8 +56,11 @@ router.post('/register', async (req: Request, res: Response) => {
       }
     }
 
-    const token = signToken(user.id, user.role);
-    res.json({ token, user: { id: user.id, name: user.name, email: user.email, role: user.role } });
+    const token = signToken(user.id, user.role, user.departmentId ?? undefined);
+    res.json({
+      token,
+      user: { id: user.id, name: user.name, email: user.email, role: user.role, departmentId: user.departmentId }
+    });
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: 'Internal server error' });
@@ -79,8 +82,11 @@ router.post('/login', async (req: Request, res: Response) => {
     const passwordMatch = await bcrypt.compare(password, user.passwordHash);
     if (!passwordMatch) return res.status(401).json({ error: 'Invalid credentials' });
 
-    const token = signToken(user.id, user.role);
-    res.json({ token, user: { id: user.id, name: user.name, email: user.email, role: user.role } });
+    const token = signToken(user.id, user.role, user.departmentId ?? undefined);
+    res.json({
+      token,
+      user: { id: user.id, name: user.name, email: user.email, role: user.role, departmentId: user.departmentId }
+    });
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: 'Internal server error' });
@@ -93,7 +99,7 @@ router.get('/me', authMiddleware, async (req: AuthRequest, res: Response) => {
     const user = await prisma.user.findUnique({ where: { id: req.userId } });
     if (!user) return res.status(404).json({ error: 'User not found' });
 
-    res.json({ id: user.id, name: user.name, email: user.email, role: user.role });
+    res.json({ id: user.id, name: user.name, email: user.email, role: user.role, departmentId: user.departmentId });
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: 'Internal server error' });

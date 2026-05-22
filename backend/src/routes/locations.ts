@@ -1,13 +1,16 @@
 import express, { Router, Request, Response } from 'express';
 import { PrismaClient } from '@prisma/client';
+import { AuthRequest } from '../middleware/auth';
 
 const router = Router();
 const prisma = new PrismaClient();
 
 // Get all locations
-router.get('/', async (req: Request, res: Response) => {
+router.get('/', async (req: AuthRequest, res: Response) => {
   try {
+    const departmentFilter = req.userRole === 'admin' ? {} : { departmentId: req.departmentId };
     const locations = await prisma.location.findMany({
+      where: departmentFilter,
       include: { parent: true, children: true },
     });
     res.json(locations);
@@ -18,7 +21,7 @@ router.get('/', async (req: Request, res: Response) => {
 });
 
 // Get location by ID
-router.get('/:id', async (req: Request, res: Response) => {
+router.get('/:id', async (req: AuthRequest, res: Response) => {
   try {
     const location = await prisma.location.findUnique({
       where: { id: req.params.id },
@@ -29,6 +32,10 @@ router.get('/:id', async (req: Request, res: Response) => {
       return res.status(404).json({ error: 'Location not found' });
     }
 
+    if (req.userRole !== 'admin' && location.departmentId !== req.departmentId) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
     res.json(location);
   } catch (error) {
     console.error(error);
@@ -37,7 +44,7 @@ router.get('/:id', async (req: Request, res: Response) => {
 });
 
 // Create location
-router.post('/', async (req: Request, res: Response) => {
+router.post('/', async (req: AuthRequest, res: Response) => {
   try {
     const { name, type, parentId, notes } = req.body;
 
@@ -50,6 +57,7 @@ router.post('/', async (req: Request, res: Response) => {
         name,
         type,
         parentId: parentId || null,
+        departmentId: req.userRole === 'admin' ? undefined : req.departmentId,
         notes,
       },
     });
@@ -62,8 +70,14 @@ router.post('/', async (req: Request, res: Response) => {
 });
 
 // Update location
-router.put('/:id', async (req: Request, res: Response) => {
+router.put('/:id', async (req: AuthRequest, res: Response) => {
   try {
+    const existing = await prisma.location.findUnique({ where: { id: req.params.id } });
+    if (!existing) return res.status(404).json({ error: 'Location not found' });
+    if (req.userRole !== 'admin' && existing.departmentId !== req.departmentId) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
     const { name, type, parentId, notes } = req.body;
 
     const location = await prisma.location.update({
@@ -83,9 +97,13 @@ router.put('/:id', async (req: Request, res: Response) => {
   }
 });
 
-// Delete location
-router.delete('/:id', async (req: Request, res: Response) => {
+// Delete location (admin only)
+router.delete('/:id', async (req: AuthRequest, res: Response) => {
   try {
+    if (req.userRole !== 'admin') {
+      return res.status(403).json({ error: 'Staff must submit a delete request instead' });
+    }
+
     await prisma.location.delete({
       where: { id: req.params.id },
     });

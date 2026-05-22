@@ -10,6 +10,8 @@ import FloorPlans from '@/pages/FloorPlans';
 import FloorPlanEditor from '@/pages/FloorPlanEditor';
 import Scanner from '@/pages/Scanner';
 import AdminUsers from '@/pages/AdminUsers';
+import AdminDepartments from '@/pages/AdminDepartments';
+import DeleteRequests from '@/pages/DeleteRequests';
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
   const isLoggedIn = !!localStorage.getItem('token');
@@ -112,6 +114,22 @@ function App() {
           element={
             <PrivateRoute>
               <AdminUsers />
+            </PrivateRoute>
+          }
+        />
+        <Route
+          path="/admin/departments"
+          element={
+            <PrivateRoute>
+              <AdminDepartments />
+            </PrivateRoute>
+          }
+        />
+        <Route
+          path="/delete-requests"
+          element={
+            <PrivateRoute>
+              <DeleteRequests />
             </PrivateRoute>
           }
         />

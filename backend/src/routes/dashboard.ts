@@ -1,32 +1,33 @@
 import express, { Router, Request, Response } from 'express';
 import { PrismaClient } from '@prisma/client';
+import { authMiddleware, AuthRequest } from '../middleware/auth';
 
 const router = Router();
 const prisma = new PrismaClient();
 
 // Get dashboard stats
-router.get('/stats', async (req: Request, res: Response) => {
+router.get('/stats', authMiddleware, async (req: AuthRequest, res: Response) => {
   try {
+    // Determine department filter based on user role
+    const departmentFilter = req.userRole === 'admin' ? {} : { departmentId: req.departmentId };
+
     const [totalProducts, totalStock, lowStockCount, totalLocations, totalFloorPlans] =
       await Promise.all([
-        prisma.product.count(),
+        prisma.product.count({ where: departmentFilter }),
         prisma.product.aggregate({
           _sum: { currentStock: true },
+          where: departmentFilter,
         }),
         prisma.product.count({
-          where: {
-            currentStock: {
-              lte: prisma.product.fields.lowStockThreshold,
-            },
-          },
+          where: departmentFilter,
         }),
-        prisma.location.count(),
-        prisma.floorPlan.count(),
+        prisma.location.count({ where: departmentFilter }),
+        prisma.floorPlan.count({ where: departmentFilter }),
       ]);
 
     // Count low stock items manually
     const lowStockProducts = await prisma.product.findMany({
-      where: {},
+      where: departmentFilter,
     });
     const lowStockItems = lowStockProducts.filter(
       (p) => p.currentStock <= p.lowStockThreshold
@@ -46,10 +47,13 @@ router.get('/stats', async (req: Request, res: Response) => {
 });
 
 // Get recent movements
-router.get('/recent-movements', async (req: Request, res: Response) => {
+router.get('/recent-movements', authMiddleware, async (req: AuthRequest, res: Response) => {
   try {
+    const departmentFilter = req.userRole === 'admin' ? {} : { departmentId: req.departmentId };
+
     const movements = await prisma.stockMovement.findMany({
       include: { product: true },
+      where: departmentFilter,
       orderBy: { createdAt: 'desc' },
       take: 10,
     });

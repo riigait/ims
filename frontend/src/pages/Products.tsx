@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Plus, Edit, Trash2, MapPin } from 'lucide-react';
-import { productsApi, categoriesApi, locationsApi } from '@/services/api';
+import { productsApi, categoriesApi, locationsApi, deleteRequestsApi } from '@/services/api';
 import { Product, Category, Location } from '@/types/inventory';
 import { validateProductName, validateSKU, validateStock } from '@/utils/validation';
 import { generateSKU } from '@/utils/ids';
@@ -19,6 +19,7 @@ const emptyForm = {
 
 export default function Products() {
   const navigate = useNavigate();
+  const user = JSON.parse(localStorage.getItem('user') || '{}');
   const [products, setProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [locations, setLocations] = useState<Location[]>([]);
@@ -29,6 +30,7 @@ export default function Products() {
   const [categoryFilter, setCategoryFilter] = useState('');
   const [locationFilter, setLocationFilter] = useState('');
   const [formData, setFormData] = useState(emptyForm);
+  const [error, setError] = useState('');
 
   useEffect(() => { fetchData(); }, []);
 
@@ -102,6 +104,24 @@ export default function Products() {
     }
   };
 
+  const handleRequestDelete = async (id: string, name: string) => {
+    const reason = prompt('Reason for deletion (optional):');
+    if (reason === null) return;
+    try {
+      await deleteRequestsApi.create({
+        entityType: 'product',
+        entityId: id,
+        entityName: name,
+        reason: reason || '',
+      });
+      setError('');
+      alert('Delete request submitted. Awaiting admin approval.');
+    } catch (err) {
+      setError('Failed to submit delete request');
+      console.error(err);
+    }
+  };
+
   const handleCancel = () => {
     setShowForm(false);
     setEditingId(null);
@@ -124,6 +144,11 @@ export default function Products() {
 
   return (
     <div className="space-y-6">
+      {error && (
+        <div className="bg-red-50 border border-red-200 rounded-lg p-4 text-red-700">
+          {error}
+        </div>
+      )}
       <div className="flex justify-between items-center">
         <h1 className="text-3xl font-bold text-gray-900">Products</h1>
         <button
@@ -334,9 +359,15 @@ export default function Products() {
                       <button onClick={() => handleEdit(product)} className="text-blue-600 hover:text-blue-800">
                         <Edit size={18} />
                       </button>
-                      <button onClick={() => handleDelete(product.id)} className="text-red-600 hover:text-red-800">
-                        <Trash2 size={18} />
-                      </button>
+                      {user.role === 'admin' ? (
+                        <button onClick={() => handleDelete(product.id)} className="text-red-600 hover:text-red-800">
+                          <Trash2 size={18} />
+                        </button>
+                      ) : (
+                        <button onClick={() => handleRequestDelete(product.id, product.name)} className="text-orange-600 hover:text-orange-800" title="Request deletion">
+                          <Trash2 size={18} />
+                        </button>
+                      )}
                     </td>
                   </tr>
                 );

@@ -1,28 +1,39 @@
-import { PrismaClient } from '@prisma/client';
-import bcrypt from 'bcryptjs';
+﻿import { PrismaClient } from '@prisma/client';
 
 const prisma = new PrismaClient();
 
 async function main() {
-  const email = process.env.ADMIN_EMAIL || 'admin@ims.local';
-  const password = process.env.ADMIN_PASSWORD || 'changeme123';
-  const name = process.env.ADMIN_NAME || 'System Admin';
+  const departments = [
+    { name: 'Boss House', description: 'Boss House location' },
+    { name: 'Office Accounting', description: 'Office Accounting location' },
+    { name: 'SCADA Dorm', description: 'SCADA Dorm location' },
+    { name: 'SCADA Office', description: 'SCADA Office location' },
+    { name: 'Tenant House', description: 'Tenant House location' },
+  ];
 
-  const existing = await prisma.user.findUnique({ where: { email } });
-  if (existing) {
-    console.log(`Admin user already exists: ${email}`);
-    return;
+  for (const dept of departments) {
+    const existing = await prisma.department.findUnique({
+      where: { name: dept.name },
+    });
+
+    if (!existing) {
+      await prisma.department.create({
+        data: dept,
+      });
+      console.log(`Created department: ${dept.name}`);
+    } else {
+      console.log(`Department already exists: ${dept.name}`);
+    }
   }
 
-  const passwordHash = await bcrypt.hash(password, 10);
-  const user = await prisma.user.create({
-    data: { name, email, passwordHash, role: 'admin' },
-  });
-
-  console.log(`Admin user created: ${user.email} (id: ${user.id})`);
-  console.log('IMPORTANT: Change the password after first login.');
+  console.log('Seeding complete!');
 }
 
 main()
-  .catch(e => { console.error(e); process.exit(1); })
-  .finally(() => prisma.$disconnect());
+  .catch((e) => {
+    console.error(e);
+    process.exit(1);
+  })
+  .finally(async () => {
+    await prisma.$disconnect();
+  });

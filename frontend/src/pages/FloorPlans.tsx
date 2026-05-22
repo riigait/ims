@@ -1,12 +1,13 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Plus, Trash2, MapPin } from 'lucide-react';
-import { floorPlansApi } from '@/services/api';
+import { floorPlansApi, deleteRequestsApi } from '@/services/api';
 import { FloorPlan } from '@/types/floorplan';
 import FloorPlanThumbnail from '@/components/floorplan/FloorPlanThumbnail';
 
 export default function FloorPlans() {
   const navigate = useNavigate();
+  const user = JSON.parse(localStorage.getItem('user') || '{}');
   const [searchParams] = useSearchParams();
   const locationId = searchParams.get('locationId');
 
@@ -14,6 +15,7 @@ export default function FloorPlans() {
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [formData, setFormData] = useState({ name: '', width: 1200, height: 800 });
+  const [error, setError] = useState('');
 
   useEffect(() => {
     fetchFloorPlans();
@@ -70,10 +72,34 @@ export default function FloorPlans() {
     }
   };
 
+  const handleRequestDelete = async (id: string, name: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    const reason = prompt('Reason for deletion (optional):');
+    if (reason === null) return;
+    try {
+      await deleteRequestsApi.create({
+        entityType: 'floor_plan',
+        entityId: id,
+        entityName: name,
+        reason: reason || '',
+      });
+      setError('');
+      alert('Delete request submitted. Awaiting admin approval.');
+    } catch (err) {
+      setError('Failed to submit delete request');
+      console.error(err);
+    }
+  };
+
   if (loading) return <div className="text-center py-12 text-gray-500">Loading...</div>;
 
   return (
     <div className="space-y-6">
+      {error && (
+        <div className="bg-red-50 border border-red-200 rounded-lg p-4 text-red-700">
+          {error}
+        </div>
+      )}
       <div className="flex justify-between items-center">
         <div>
           <h1 className="text-3xl font-bold text-gray-900">Floor Plans</h1>
@@ -163,10 +189,18 @@ export default function FloorPlans() {
                     className="flex-1 px-3 py-1.5 bg-blue-600 text-white text-sm rounded hover:bg-blue-700">
                     Edit
                   </button>
-                  <button onClick={e => handleDelete(plan.id, e)}
-                    className="px-3 py-1.5 bg-red-50 text-red-600 text-sm rounded hover:bg-red-100">
-                    <Trash2 size={15} />
-                  </button>
+                  {user.role === 'admin' ? (
+                    <button onClick={e => handleDelete(plan.id, e)}
+                      className="px-3 py-1.5 bg-red-50 text-red-600 text-sm rounded hover:bg-red-100">
+                      <Trash2 size={15} />
+                    </button>
+                  ) : (
+                    <button onClick={e => handleRequestDelete(plan.id, plan.name, e)}
+                      className="px-3 py-1.5 bg-orange-50 text-orange-600 text-sm rounded hover:bg-orange-100"
+                      title="Request deletion">
+                      <Trash2 size={15} />
+                    </button>
+                  )}
                 </div>
               </div>
             </div>

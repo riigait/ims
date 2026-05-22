@@ -12,6 +12,8 @@ import dashboardRoutes from './routes/dashboard';
 import auditLogsRoutes from './routes/auditLogs';
 import invitesRoutes from './routes/invites';
 import usersRoutes from './routes/users';
+import departmentsRoutes from './routes/departments';
+import deleteRequestsRoutes from './routes/deleteRequests';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -30,9 +32,11 @@ app.use('/api/categories', authMiddleware, categoriesRoutes);
 app.use('/api/locations', authMiddleware, locationsRoutes);
 app.use('/api/stock-movements', authMiddleware, stockMovementsRoutes);
 app.use('/api/floor-plans', authMiddleware, floorPlansRoutes);
-app.use('/api/dashboard', authMiddleware, dashboardRoutes);
+app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/audit-logs', authMiddleware, auditLogsRoutes);
 app.use('/api/users', authMiddleware, usersRoutes);
+app.use('/api/departments', departmentsRoutes);
+app.use('/api/delete-requests', deleteRequestsRoutes);
 
 // Health check
 app.get('/api/health', (req, res) => {

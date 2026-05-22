@@ -1,14 +1,16 @@
 import { useState, useEffect } from 'react';
 import { Plus, Edit, Trash2, ChevronRight } from 'lucide-react';
-import { locationsApi } from '@/services/api';
+import { locationsApi, deleteRequestsApi } from '@/services/api';
 import { Location } from '@/types/inventory';
 
 export default function Locations() {
+  const user = JSON.parse(localStorage.getItem('user') || '{}');
   const [locations, setLocations] = useState<Location[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [expandedParent, setExpandedParent] = useState<string | null>(null);
+  const [error, setError] = useState('');
 
   const [formData, setFormData] = useState({
     name: '',
@@ -84,6 +86,24 @@ export default function Locations() {
     }
   };
 
+  const handleRequestDelete = async (id: string, name: string) => {
+    const reason = prompt('Reason for deletion (optional):');
+    if (reason === null) return;
+    try {
+      await deleteRequestsApi.create({
+        entityType: 'location',
+        entityId: id,
+        entityName: name,
+        reason: reason || '',
+      });
+      setError('');
+      alert('Delete request submitted. Awaiting admin approval.');
+    } catch (err) {
+      setError('Failed to submit delete request');
+      console.error(err);
+    }
+  };
+
   const handleCancel = () => {
     setShowForm(false);
     setEditingId(null);
@@ -138,12 +158,22 @@ export default function Locations() {
             >
               <Edit size={16} />
             </button>
-            <button
-              onClick={() => handleDelete(location.id)}
-              className="text-red-600 hover:text-red-800"
-            >
-              <Trash2 size={16} />
-            </button>
+            {user.role === 'admin' ? (
+              <button
+                onClick={() => handleDelete(location.id)}
+                className="text-red-600 hover:text-red-800"
+              >
+                <Trash2 size={16} />
+              </button>
+            ) : (
+              <button
+                onClick={() => handleRequestDelete(location.id, location.name)}
+                className="text-orange-600 hover:text-orange-800"
+                title="Request deletion"
+              >
+                <Trash2 size={16} />
+              </button>
+            )}
           </div>
         </div>
 
@@ -162,6 +192,11 @@ export default function Locations() {
 
   return (
     <div className="space-y-6">
+      {error && (
+        <div className="bg-red-50 border border-red-200 rounded-lg p-4 text-red-700">
+          {error}
+        </div>
+      )}
       <div className="flex justify-between items-center">
         <h1 className="text-3xl font-bold text-gray-900">Locations</h1>
         <button

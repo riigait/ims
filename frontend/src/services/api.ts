@@ -77,4 +77,21 @@ export const dashboardApi = {
   getRecentMovements: () => api.get('/dashboard/recent-movements'),
 };
 
+// Departments
+export const departmentsApi = {
+  getAll: () => api.get('/departments'),
+  getById: (id: string) => api.get(`/departments/${id}`),
+  create: (data: any) => api.post('/departments', data),
+  update: (id: string, data: any) => api.patch(`/departments/${id}`, data),
+  delete: (id: string) => api.delete(`/departments/${id}`),
+};
+
+// Delete Requests
+export const deleteRequestsApi = {
+  getAll: (status?: string) => api.get('/delete-requests', { params: { status } }),
+  create: (data: any) => api.post('/delete-requests', data),
+  approve: (id: string) => api.patch(`/delete-requests/${id}/approve`),
+  reject: (id: string, reason?: string) => api.patch(`/delete-requests/${id}/reject`, { reason }),
+};
+
 export default api;

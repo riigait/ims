@@ -1,13 +1,21 @@
-import { useState, useEffect } from 'react';
+﻿import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Copy, Trash2, Shield, Users, Plus, Calendar, CheckCircle } from 'lucide-react';
-import { authApi } from '@/services/api';
+import { Copy, Trash2, Shield, Users, CheckCircle, Mail } from 'lucide-react';
+import { authApi, departmentsApi } from '@/services/api';
+
+interface Department {
+  id: string;
+  name: string;
+  description?: string;
+  createdAt: string;
+}
 
 interface User {
   id: string;
   name: string;
   email: string;
   role: 'admin' | 'staff';
+  departmentId?: string;
   createdAt: string;
 }
 
@@ -25,11 +33,13 @@ export default function AdminUsers() {
   const navigate = useNavigate();
   const [users, setUsers] = useState<User[]>([]);
   const [invites, setInvites] = useState<InviteCode[]>([]);
+  const [departments, setDepartments] = useState<Department[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [generateRole, setGenerateRole] = useState<'admin' | 'staff'>('staff');
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<'invites' | 'users'>('invites');
 
   useEffect(() => {
     loadData();
@@ -51,16 +61,18 @@ export default function AdminUsers() {
   const loadData = async () => {
     try {
       setLoading(true);
-      const [usersRes, invitesRes] = await Promise.all([
+      const [usersRes, invitesRes, deptsRes] = await Promise.all([
         fetch('/api/users', {
           headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
         }).then(r => r.json()),
         fetch('/api/invites', {
           headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
         }).then(r => r.json()),
+        departmentsApi.getAll(),
       ]);
       setUsers(usersRes);
       setInvites(invitesRes);
+      setDepartments(deptsRes.data);
     } catch (err) {
       setError('Failed to load data');
     } finally {
@@ -81,6 +93,7 @@ export default function AdminUsers() {
       if (!response.ok) throw new Error('Failed to generate invite');
       const newInvite = await response.json();
       setInvites([newInvite, ...invites]);
+      setError('');
     } catch (err) {
       setError('Failed to generate invite');
     }
@@ -111,142 +124,181 @@ export default function AdminUsers() {
     }
   };
 
+  const updateUserDepartment = async (userId: string, departmentId: string | null) => {
+    try {
+      await fetch(`/api/users/${userId}`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${localStorage.getItem('token')}`,
+        },
+        body: JSON.stringify({ departmentId: departmentId || null }),
+      });
+      setUsers(users.map(u => u.id === userId ? { ...u, departmentId: departmentId || undefined } : u));
+    } catch (err) {
+      setError('Failed to update user department');
+    }
+  };
+
   const copyToClipboard = (code: string) => {
     navigator.clipboard.writeText(code);
     setCopied(code);
     setTimeout(() => setCopied(null), 2000);
   };
 
-  if (loading) return <div className="flex items-center justify-center h-screen">Loading...</div>;
+  if (loading) return <div className="flex items-center justify-center h-screen"><div className="text-gray-500">Loading...</div></div>;
   if (!currentUser) return null;
+
+  const pendingInvites = invites.filter(i => !i.usedAt);
+  const usedInvites = invites.filter(i => i.usedAt);
 
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* Header */}
-      <div className="bg-white border-b">
-        <div className="max-w-6xl mx-auto px-4 py-6">
-          <h1 className="text-3xl font-bold text-gray-900 flex items-center gap-2">
-            <Users size={32} /> User Management
-          </h1>
+      {error && (
+        <div className="bg-red-50 border-l-4 border-red-500 p-4 mb-6">
+          <p className="text-red-700">{error}</p>
+        </div>
+      )}
+
+      <div className="max-w-6xl mx-auto p-6 space-y-6">
+        <div>
+          <h1 className="text-4xl font-bold text-gray-900">User Management</h1>
           <p className="text-gray-600 mt-2">Manage users and generate invite codes</p>
         </div>
-      </div>
 
-      <div className="max-w-6xl mx-auto px-4 py-8">
-        {error && (
-          <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-6 text-red-700">
-            {error}
+        {/* Tabs */}
+        <div className="flex gap-2 border-b border-gray-200">
+          <button
+            onClick={() => setActiveTab('invites')}
+            className={`px-6 py-3 font-medium text-sm border-b-2 transition ${
+              activeTab === 'invites'
+                ? 'border-blue-600 text-blue-600'
+                : 'border-transparent text-gray-600 hover:text-gray-900'
+            }`}
+          >
+            <Mail className="inline mr-2" size={18} />
+            Invite Codes ({pendingInvites.length} pending)
+          </button>
+          <button
+            onClick={() => setActiveTab('users')}
+            className={`px-6 py-3 font-medium text-sm border-b-2 transition ${
+              activeTab === 'users'
+                ? 'border-blue-600 text-blue-600'
+                : 'border-transparent text-gray-600 hover:text-gray-900'
+            }`}
+          >
+            <Users className="inline mr-2" size={18} />
+            Users ({users.length})
+          </button>
+        </div>
+
+        {/* Generate Invite Section */}
+        {activeTab === 'invites' && (
+          <div className="bg-white rounded-lg shadow p-6">
+            <h2 className="text-lg font-semibold mb-4">Generate New Invite Code</h2>
+            <div className="flex gap-3">
+              <select
+                value={generateRole}
+                onChange={(e) => setGenerateRole(e.target.value as 'admin' | 'staff')}
+                className="px-4 py-2 border border-gray-300 rounded-lg font-medium text-sm"
+              >
+                <option value="staff">Staff User</option>
+                <option value="admin">Admin User</option>
+              </select>
+              <button
+                onClick={generateInvite}
+                className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium text-sm"
+              >
+                Generate Code
+              </button>
+            </div>
+            <p className="text-xs text-gray-500 mt-3">Invite codes expire in 7 days</p>
           </div>
         )}
 
-        {/* Generate Invite Section */}
-        <div className="bg-white rounded-lg shadow p-6 mb-8">
-          <h2 className="text-xl font-semibold mb-4 flex items-center gap-2">
-            <Plus size={20} /> Generate Invite Code
-          </h2>
-          <div className="flex gap-4">
-            <select
-              value={generateRole}
-              onChange={(e) => setGenerateRole(e.target.value as 'admin' | 'staff')}
-              className="px-4 py-2 border border-gray-300 rounded-lg"
-            >
-              <option value="staff">Staff</option>
-              <option value="admin">Admin</option>
-            </select>
-            <button
-              onClick={generateInvite}
-              className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium"
-            >
-              Generate
-            </button>
-          </div>
-          <p className="text-sm text-gray-600 mt-2">Invites expire in 7 days</p>
-        </div>
-
         {/* Pending Invites */}
-        <div className="bg-white rounded-lg shadow p-6 mb-8">
-          <h2 className="text-xl font-semibold mb-4">Pending Invites ({invites.filter(i => !i.usedAt).length})</h2>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th className="px-4 py-2 text-left">Invite Code</th>
-                  <th className="px-4 py-2 text-left">Role</th>
-                  <th className="px-4 py-2 text-left">Created By</th>
-                  <th className="px-4 py-2 text-left">Expires</th>
-                  <th className="px-4 py-2 text-left">Status</th>
-                  <th className="px-4 py-2 text-left">Action</th>
-                </tr>
-              </thead>
-              <tbody>
-                {invites.filter(i => !i.usedAt).map(invite => (
-                  <tr key={invite.id} className="border-t hover:bg-gray-50">
-                    <td className="px-4 py-3">
-                      <code className="bg-gray-100 px-2 py-1 rounded text-xs">{invite.code}</code>
-                    </td>
-                    <td className="px-4 py-3">
-                      <span className={`px-2 py-1 rounded text-xs font-medium ${
-                        invite.role === 'admin' ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'
-                      }`}>
-                        {invite.role}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-gray-600">{invite.creator.name}</td>
-                    <td className="px-4 py-3 text-gray-600">
-                      {new Date(invite.expiresAt).toLocaleDateString()}
-                    </td>
-                    <td className="px-4 py-3 text-green-600">Unused</td>
-                    <td className="px-4 py-3">
-                      <div className="flex gap-2">
-                        <button
-                          onClick={() => copyToClipboard(invite.code)}
-                          className="p-2 text-blue-600 hover:bg-blue-50 rounded"
-                          title="Copy code"
-                        >
-                          <Copy size={16} />
-                        </button>
-                        <button
-                          onClick={() => revokeInvite(invite.id)}
-                          className="p-2 text-red-600 hover:bg-red-50 rounded"
-                          title="Revoke"
-                        >
-                          <Trash2 size={16} />
-                        </button>
-                      </div>
-                      {copied === invite.code && <span className="text-xs text-green-600">Copied!</span>}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-            {invites.filter(i => !i.usedAt).length === 0 && (
-              <div className="text-center py-8 text-gray-500">No pending invites</div>
+        {activeTab === 'invites' && (
+          <div className="bg-white rounded-lg shadow p-6">
+            <h3 className="text-lg font-semibold mb-4">Pending Invites</h3>
+            {pendingInvites.length === 0 ? (
+              <p className="text-gray-500 py-8 text-center">No pending invites</p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-gray-50 border-b">
+                    <tr>
+                      <th className="px-4 py-3 text-left font-semibold text-gray-700">Code</th>
+                      <th className="px-4 py-3 text-left font-semibold text-gray-700">Role</th>
+                      <th className="px-4 py-3 text-left font-semibold text-gray-700">Created By</th>
+                      <th className="px-4 py-3 text-left font-semibold text-gray-700">Expires</th>
+                      <th className="px-4 py-3 text-left font-semibold text-gray-700">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y">
+                    {pendingInvites.map(invite => (
+                      <tr key={invite.id} className="hover:bg-gray-50">
+                        <td className="px-4 py-3">
+                          <code className="bg-gray-100 px-3 py-1 rounded font-mono text-xs">{invite.code}</code>
+                        </td>
+                        <td className="px-4 py-3">
+                          <span className={`px-2 py-1 rounded text-xs font-medium ${
+                            invite.role === 'admin' ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'
+                          }`}>
+                            {invite.role}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 text-gray-600">{invite.creator.name}</td>
+                        <td className="px-4 py-3 text-gray-600">{new Date(invite.expiresAt).toLocaleDateString()}</td>
+                        <td className="px-4 py-3">
+                          <div className="flex gap-2">
+                            <button
+                              onClick={() => copyToClipboard(invite.code)}
+                              className="p-2 text-blue-600 hover:bg-blue-50 rounded transition"
+                              title="Copy code"
+                            >
+                              <Copy size={16} />
+                            </button>
+                            <button
+                              onClick={() => revokeInvite(invite.id)}
+                              className="p-2 text-red-600 hover:bg-red-50 rounded transition"
+                              title="Revoke"
+                            >
+                              <Trash2 size={16} />
+                            </button>
+                          </div>
+                          {copied === invite.code && <span className="text-xs text-green-600">✓ Copied</span>}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             )}
           </div>
-        </div>
+        )}
 
         {/* Used Invites */}
-        {invites.filter(i => i.usedAt).length > 0 && (
-          <div className="bg-white rounded-lg shadow p-6 mb-8">
-            <h2 className="text-xl font-semibold mb-4 flex items-center gap-2">
-              <CheckCircle size={20} className="text-green-600" /> Used Invites
-            </h2>
+        {activeTab === 'invites' && usedInvites.length > 0 && (
+          <div className="bg-white rounded-lg shadow p-6">
+            <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
+              <CheckCircle size={20} className="text-green-600" />
+              Used Invites ({usedInvites.length})
+            </h3>
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
-                <thead className="bg-gray-50">
+                <thead className="bg-gray-50 border-b">
                   <tr>
-                    <th className="px-4 py-2 text-left">Invite Code</th>
-                    <th className="px-4 py-2 text-left">Role</th>
-                    <th className="px-4 py-2 text-left">Created By</th>
-                    <th className="px-4 py-2 text-left">Used By</th>
-                    <th className="px-4 py-2 text-left">Used Date</th>
+                    <th className="px-4 py-3 text-left font-semibold text-gray-700">Code</th>
+                    <th className="px-4 py-3 text-left font-semibold text-gray-700">Role</th>
+                    <th className="px-4 py-3 text-left font-semibold text-gray-700">Used By</th>
+                    <th className="px-4 py-3 text-left font-semibold text-gray-700">Date</th>
                   </tr>
                 </thead>
-                <tbody>
-                  {invites.filter(i => i.usedAt).map(invite => (
-                    <tr key={invite.id} className="border-t hover:bg-gray-50">
+                <tbody className="divide-y">
+                  {usedInvites.map(invite => (
+                    <tr key={invite.id} className="hover:bg-gray-50">
                       <td className="px-4 py-3">
-                        <code className="bg-gray-100 px-2 py-1 rounded text-xs">{invite.code}</code>
+                        <code className="bg-gray-100 px-3 py-1 rounded font-mono text-xs">{invite.code}</code>
                       </td>
                       <td className="px-4 py-3">
                         <span className={`px-2 py-1 rounded text-xs font-medium ${
@@ -255,11 +307,8 @@ export default function AdminUsers() {
                           {invite.role}
                         </span>
                       </td>
-                      <td className="px-4 py-3 text-gray-600">{invite.creator.name}</td>
                       <td className="px-4 py-3 text-gray-600">{invite.usedBy || '-'}</td>
-                      <td className="px-4 py-3 text-gray-600">
-                        {new Date(invite.usedAt!).toLocaleDateString()}
-                      </td>
+                      <td className="px-4 py-3 text-gray-600">{new Date(invite.usedAt!).toLocaleDateString()}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -269,52 +318,65 @@ export default function AdminUsers() {
         )}
 
         {/* Users List */}
-        <div className="bg-white rounded-lg shadow p-6">
-          <h2 className="text-xl font-semibold mb-4">All Users ({users.length})</h2>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th className="px-4 py-2 text-left">Name</th>
-                  <th className="px-4 py-2 text-left">Email</th>
-                  <th className="px-4 py-2 text-left">Role</th>
-                  <th className="px-4 py-2 text-left">Created</th>
-                  <th className="px-4 py-2 text-left">Action</th>
-                </tr>
-              </thead>
-              <tbody>
-                {users.map(user => (
-                  <tr key={user.id} className="border-t hover:bg-gray-50">
-                    <td className="px-4 py-3 font-medium">{user.name}</td>
-                    <td className="px-4 py-3 text-gray-600">{user.email}</td>
-                    <td className="px-4 py-3">
-                      <span className={`px-2 py-1 rounded text-xs font-medium flex w-fit gap-1 ${
-                        user.role === 'admin' ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'
-                      }`}>
-                        {user.role === 'admin' && <Shield size={12} />}
-                        {user.role}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-gray-600">
-                      {new Date(user.createdAt).toLocaleDateString()}
-                    </td>
-                    <td className="px-4 py-3">
-                      {user.id !== currentUser.id && (
-                        <button
-                          onClick={() => deleteUser(user.id)}
-                          className="p-2 text-red-600 hover:bg-red-50 rounded"
-                          title="Delete user"
-                        >
-                          <Trash2 size={16} />
-                        </button>
-                      )}
-                    </td>
+        {activeTab === 'users' && (
+          <div className="bg-white rounded-lg shadow p-6">
+            <h3 className="text-lg font-semibold mb-4">All Users</h3>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="bg-gray-50 border-b">
+                  <tr>
+                    <th className="px-4 py-3 text-left font-semibold text-gray-700">Name</th>
+                    <th className="px-4 py-3 text-left font-semibold text-gray-700">Email</th>
+                    <th className="px-4 py-3 text-left font-semibold text-gray-700">Role</th>
+                    <th className="px-4 py-3 text-left font-semibold text-gray-700">Department</th>
+                    <th className="px-4 py-3 text-left font-semibold text-gray-700">Created</th>
+                    <th className="px-4 py-3 text-left font-semibold text-gray-700">Action</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody className="divide-y">
+                  {users.map(user => (
+                    <tr key={user.id} className="hover:bg-gray-50">
+                      <td className="px-4 py-3 font-medium text-gray-900">{user.name}</td>
+                      <td className="px-4 py-3 text-gray-600">{user.email}</td>
+                      <td className="px-4 py-3">
+                        <span className={`px-2 py-1 rounded text-xs font-medium flex w-fit gap-1 ${
+                          user.role === 'admin' ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'
+                        }`}>
+                          {user.role === 'admin' && <Shield size={12} />}
+                          {user.role}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3">
+                        <select
+                          value={user.departmentId || ''}
+                          onChange={(e) => updateUserDepartment(user.id, e.target.value || null)}
+                          className="px-2 py-1 border border-gray-300 rounded text-xs bg-white"
+                        >
+                          <option value="">Unassigned</option>
+                          {departments.map(dept => (
+                            <option key={dept.id} value={dept.id}>{dept.name}</option>
+                          ))}
+                        </select>
+                      </td>
+                      <td className="px-4 py-3 text-gray-600 text-xs">{new Date(user.createdAt).toLocaleDateString()}</td>
+                      <td className="px-4 py-3">
+                        {user.id !== currentUser.id && (
+                          <button
+                            onClick={() => deleteUser(user.id)}
+                            className="p-2 text-red-600 hover:bg-red-50 rounded transition"
+                            title="Delete user"
+                          >
+                            <Trash2 size={16} />
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
-        </div>
+        )}
       </div>
     </div>
   );
