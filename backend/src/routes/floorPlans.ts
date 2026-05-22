@@ -8,7 +8,10 @@ const prisma = new PrismaClient();
 // Get all floor plans
 router.get('/', async (req: AuthRequest, res: Response) => {
   try {
-    const departmentFilter = req.userRole === 'admin' ? {} : { departmentId: req.departmentId };
+    let departmentFilter: any = {};
+    if ((req.userRole === 'staff' || req.userRole === 'admin') && req.departmentId) {
+      departmentFilter = { departmentId: req.departmentId };
+    }
     const floorPlans = await prisma.floorPlan.findMany({
       where: departmentFilter,
       include: { location: true },
@@ -39,7 +42,7 @@ router.get('/:id', async (req: AuthRequest, res: Response) => {
       return res.status(404).json({ error: 'Floor plan not found' });
     }
 
-    if (req.userRole !== 'admin' && floorPlan.departmentId !== req.departmentId) {
+    if (req.departmentId && floorPlan.departmentId !== req.departmentId) {
       return res.status(403).json({ error: 'Access denied' });
     }
 
@@ -68,7 +71,7 @@ router.post('/', async (req: AuthRequest, res: Response) => {
         width,
         height,
         locationId: locationId || null,
-        departmentId: req.userRole === 'admin' ? undefined : req.departmentId,
+        departmentId: req.departmentId,
         planJson: JSON.stringify(objects || []),
       },
     });

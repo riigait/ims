@@ -22,9 +22,12 @@ function stockDelta(type: MovementType, quantity: number): number {
 // Get all stock movements
 router.get('/', async (req: AuthRequest, res: Response) => {
   try {
-    const departmentFilter = req.userRole === 'admin' ? {} : { departmentId: req.departmentId };
+    let whereFilter: any = {};
+    if ((req.userRole === 'staff' || req.userRole === 'admin') && req.departmentId) {
+      whereFilter = { departmentId: req.departmentId };
+    }
     const movements = await prisma.stockMovement.findMany({
-      where: departmentFilter,
+      where: whereFilter,
       include: { product: true, location: true, user: true },
       orderBy: { createdAt: 'desc' },
     });
@@ -44,7 +47,7 @@ router.get('/:id', async (req: AuthRequest, res: Response) => {
     });
     if (!movement) return res.status(404).json({ error: 'Stock movement not found' });
 
-    if (req.userRole !== 'admin' && movement.departmentId !== req.departmentId) {
+    if (req.departmentId && movement.departmentId !== req.departmentId) {
       return res.status(403).json({ error: 'Access denied' });
     }
 
@@ -110,7 +113,7 @@ router.post('/', async (req: AuthRequest, res: Response) => {
           quantity: qty,
           reason: reason ?? null,
           locationId: locationId || null,
-          departmentId: req.userRole === 'admin' ? undefined : req.departmentId,
+          departmentId: req.departmentId,
           userId,
         },
         include: { product: true },

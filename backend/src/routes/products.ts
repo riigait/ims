@@ -9,10 +9,20 @@ const prisma = new PrismaClient();
 // Get all products
 router.get('/', async (req: AuthRequest, res: Response) => {
   try {
-    const departmentFilter = req.userRole === 'admin' ? {} : { departmentId: req.departmentId };
+    // For admins without a selected department, fetch all products they have access to
+    // For staff, only fetch products from their department
+    // For superadmins, fetch all products
+    let whereFilter: any = {};
+
+    if (req.userRole === 'staff' && req.departmentId) {
+      whereFilter = { departmentId: req.departmentId };
+    } else if (req.userRole === 'admin' && req.departmentId) {
+      whereFilter = { departmentId: req.departmentId };
+    }
+    // For superadmin or admin without selected department: no filter (show all)
 
     const products = await prisma.product.findMany({
-      where: departmentFilter,
+      where: whereFilter,
       include: { category: true, location: true },
     });
     res.json(products);
@@ -31,8 +41,8 @@ router.get('/:id', async (req: AuthRequest, res: Response) => {
     });
     if (!product) return res.status(404).json({ error: 'Product not found' });
 
-    // Staff can only access their department's products
-    if (req.userRole !== 'admin' && product.departmentId !== req.departmentId) {
+    // Check department access if departmentId is set
+    if (req.departmentId && product.departmentId !== req.departmentId) {
       return res.status(403).json({ error: 'Access denied' });
     }
 
@@ -59,7 +69,7 @@ router.post('/', async (req: AuthRequest, res: Response) => {
         description,
         categoryId,
         locationId: locationId || null,
-        departmentId: req.userRole === 'admin' ? undefined : req.departmentId,
+        departmentId: req.departmentId,
         unit: unit || 'pcs',
         currentStock: currentStock || 0,
         lowStockThreshold: lowStockThreshold || 10,

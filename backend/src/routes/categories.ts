@@ -8,8 +8,11 @@ const prisma = new PrismaClient();
 // Get all categories
 router.get('/', async (req: AuthRequest, res: Response) => {
   try {
-    const departmentFilter = req.userRole === 'admin' ? {} : { departmentId: req.departmentId };
-    const categories = await prisma.category.findMany({ where: departmentFilter });
+    let whereFilter: any = {};
+    if ((req.userRole === 'staff' || req.userRole === 'admin') && req.departmentId) {
+      whereFilter = { departmentId: req.departmentId };
+    }
+    const categories = await prisma.category.findMany({ where: whereFilter });
     res.json(categories);
   } catch (error) {
     console.error(error);
@@ -28,7 +31,7 @@ router.get('/:id', async (req: AuthRequest, res: Response) => {
       return res.status(404).json({ error: 'Category not found' });
     }
 
-    if (req.userRole !== 'admin' && category.departmentId !== req.departmentId) {
+    if (req.departmentId && category.departmentId !== req.departmentId) {
       return res.status(403).json({ error: 'Access denied' });
     }
 
@@ -52,13 +55,16 @@ router.post('/', async (req: AuthRequest, res: Response) => {
       data: {
         name,
         description,
-        departmentId: req.userRole === 'admin' ? undefined : req.departmentId,
+        departmentId: req.departmentId,
       },
     });
 
     res.status(201).json(category);
-  } catch (error) {
+  } catch (error: any) {
     console.error(error);
+    if (error.code === 'P2002') {
+      return res.status(400).json({ error: 'Category with this name already exists in this department' });
+    }
     res.status(500).json({ error: 'Internal server error' });
   }
 });

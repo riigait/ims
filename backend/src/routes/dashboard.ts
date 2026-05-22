@@ -8,8 +8,11 @@ const prisma = new PrismaClient();
 // Get dashboard stats
 router.get('/stats', authMiddleware, async (req: AuthRequest, res: Response) => {
   try {
-    // Determine department filter based on user role
-    const departmentFilter = req.userRole === 'admin' ? {} : { departmentId: req.departmentId };
+    // Filter by department for staff/admin with selected department, show all for superadmin
+    let departmentFilter: any = {};
+    if ((req.userRole === 'staff' || req.userRole === 'admin') && req.departmentId) {
+      departmentFilter = { departmentId: req.departmentId };
+    }
 
     const [totalProducts, totalStock, lowStockCount, totalLocations, totalFloorPlans] =
       await Promise.all([
@@ -49,7 +52,7 @@ router.get('/stats', authMiddleware, async (req: AuthRequest, res: Response) => 
 // Get recent movements
 router.get('/recent-movements', authMiddleware, async (req: AuthRequest, res: Response) => {
   try {
-    const departmentFilter = req.userRole === 'admin' ? {} : { departmentId: req.departmentId };
+    const departmentFilter = req.departmentId ? { departmentId: req.departmentId } : {};
 
     const movements = await prisma.stockMovement.findMany({
       include: { product: true },
