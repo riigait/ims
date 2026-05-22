@@ -1096,6 +1096,7 @@ export default function FloorPlanEditor() {
               // If we captured group snapshots, use them; otherwise capture just this one
               if (groupSnapshots.length > 0) {
                 dragSnapshotsRef.current = groupSnapshots;
+                setDragSnapshot(null); // Clear single snapshot for group drag
               } else {
                 dragSnapshotsRef.current = [];
                 setDragSnapshot({ ...obj });
@@ -1186,28 +1187,18 @@ export default function FloorPlanEditor() {
     else if (isDragging && dragStart && dragSnapshotsRef.current.length > 0) {
       const dx = pos.x - dragStart.x, dy = pos.y - dragStart.y;
 
-      if (dx === 0 && dy === 0) {
-        // No movement yet
-      } else {
-        console.log('Group drag - snapshots:', dragSnapshotsRef.current.length, 'types:', dragSnapshotsRef.current.map(s => s.type).join(','), 'delta:', dx, dy);
-      }
-
       dragSnapshotsRef.current.forEach(snap => {
         if (snap.type === 'wall') {
           const w = snap as WallObject;
-          const updates = { startX: w.startX + dx, startY: w.startY + dy, endX: w.endX + dx, endY: w.endY + dy };
-          console.log('Moving wall', snap.id, 'from', w.startX, w.startY, 'to', w.startX + dx, w.startY + dy);
-          updateObject(snap.id, updates);
+          updateObject(snap.id, { startX: w.startX + dx, startY: w.startY + dy, endX: w.endX + dx, endY: w.endY + dy });
         } else if (snap.type === 'room' || snap.type === 'rack' || snap.type === 'shelf') {
           const r = snap as RectangleObject;
-          console.log('Moving', snap.type, snap.id, 'from', r.x, r.y, 'to', r.x + dx, r.y + dy);
           updateObject(snap.id, { x: r.x + dx, y: r.y + dy });
         } else if (snap.type === 'label') {
           const l = snap as LabelObject;
           updateObject(snap.id, { x: l.x + dx, y: l.y + dy });
         } else if (snap.type === 'door' || snap.type === 'window' || snap.type === 'entrance') {
           const o = snap as DoorObject | WindowObject | EntranceObject;
-          console.log('Moving', snap.type, snap.id, 'from', o.x, o.y, 'to', o.x + dx, o.y + dy);
           updateObject(snap.id, { x: o.x + dx, y: o.y + dy });
         } else if (snap.type === 'marker') {
           const m = snap as InventoryMarkerObject;
