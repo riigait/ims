@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import { PrismaClient } from '@prisma/client';
 import { authMiddleware, AuthRequest } from '../middleware/auth';
 import crypto from 'crypto';
+import bcrypt from 'bcryptjs';
 
 const router = Router();
 const prisma = new PrismaClient();
@@ -91,6 +92,63 @@ router.post('/validate', async (req: Request, res: Response) => {
     if (new Date() > invite.expiresAt) return res.status(400).json({ error: 'Invite expired' });
 
     res.json({ valid: true, role: invite.role });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Redeem invite code to create account
+router.post('/redeem', async (req: Request, res: Response) => {
+  try {
+    const { code, name, email, password } = req.body;
+
+    if (!code || !name || !email || !password) {
+      return res.status(400).json({ error: 'Missing required fields' });
+    }
+
+    if (password.length < 6) {
+      return res.status(400).json({ error: 'Password must be at least 6 characters' });
+    }
+
+    // Validate and check invite
+    const invite = await prisma.inviteCode.findUnique({ where: { code } });
+    if (!invite) return res.status(404).json({ error: 'Invalid invite code' });
+    if (invite.usedAt) return res.status(400).json({ error: 'Invite already used' });
+    if (new Date() > invite.expiresAt) return res.status(400).json({ error: 'Invite expired' });
+
+    // Check if email already exists
+    const existingUser = await prisma.user.findUnique({ where: { email } });
+    if (existingUser) {
+      return res.status(400).json({ error: 'Email already registered' });
+    }
+
+    // Hash password
+    const hashedPassword = await bcrypt.hash(password, 10);
+
+    // Create user with invite role
+    const user = await prisma.user.create({
+      data: {
+        name,
+        email,
+        passwordHash: hashedPassword,
+        role: invite.role as 'admin' | 'staff',
+      },
+    });
+
+    // Mark invite as used
+    await prisma.inviteCode.update({
+      where: { id: invite.id },
+      data: {
+        usedAt: new Date(),
+        usedBy: user.id,
+      },
+    });
+
+    res.status(201).json({
+      message: 'Account created successfully',
+      user: { id: user.id, name: user.name, email: user.email, role: user.role },
+    });
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: 'Internal server error' });
