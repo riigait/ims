@@ -61,7 +61,7 @@ export default function FloorPlanEditor() {
   const [isDragging, setIsDragging] = useState(false);
   const [dragStart, setDragStart] = useState<{ x: number; y: number } | null>(null);
   const [dragSnapshot, setDragSnapshot] = useState<FloorPlanObject | null>(null);
-  const [dragSnapshots, setDragSnapshots] = useState<FloorPlanObject[]>([]);
+  const dragSnapshotsRef = useRef<FloorPlanObject[]>([]);
 
   // Resize state
   const [isResizing, setIsResizing] = useState(false);
@@ -1142,8 +1142,9 @@ export default function FloorPlanEditor() {
               setDragStart(pos);
               // If we captured group snapshots, use them; otherwise capture just this one
               if (groupSnapshots.length > 0) {
-                setDragSnapshots(groupSnapshots);
+                dragSnapshotsRef.current = groupSnapshots;
               } else {
+                dragSnapshotsRef.current = [];
                 setDragSnapshot({ ...obj });
               }
             }
@@ -1229,12 +1230,14 @@ export default function FloorPlanEditor() {
       updateObject(editorState.selectedObjectId, updates);
     }
     // Handle group drag (multiple selected objects)
-    else if (isDragging && dragStart && dragSnapshots.length > 0) {
+    else if (isDragging && dragStart && dragSnapshotsRef.current.length > 0) {
       const dx = pos.x - dragStart.x, dy = pos.y - dragStart.y;
-      dragSnapshots.forEach(snap => {
+
+      dragSnapshotsRef.current.forEach(snap => {
         if (snap.type === 'wall') {
           const w = snap as WallObject;
-          updateObject(snap.id, { startX: w.startX + dx, startY: w.startY + dy, endX: w.endX + dx, endY: w.endY + dy });
+          const updates = { startX: w.startX + dx, startY: w.startY + dy, endX: w.endX + dx, endY: w.endY + dy };
+          updateObject(snap.id, updates);
         } else if (snap.type === 'room' || snap.type === 'rack' || snap.type === 'shelf') {
           const r = snap as RectangleObject;
           updateObject(snap.id, { x: r.x + dx, y: r.y + dy });
@@ -1259,7 +1262,7 @@ export default function FloorPlanEditor() {
       if (snap.groupId && currentFloorPlan) {
         const groupMembers = currentFloorPlan.objects.filter(o => o.groupId === snap.groupId);
         groupMembers.forEach(member => {
-          const memberSnap = dragSnapshots.find(s => s.id === member.id) || member;
+          const memberSnap = dragSnapshotsRef.current.find(s => s.id === member.id) || member;
           if (memberSnap.type === 'wall') {
             const w = memberSnap as WallObject;
             updateObject(member.id, { startX: w.startX + dx, startY: w.startY + dy, endX: w.endX + dx, endY: w.endY + dy });
@@ -1370,7 +1373,7 @@ export default function FloorPlanEditor() {
     } else if (isResizing) {
       setIsResizing(false); setResizeHandle(null); setDragStart(null); setDragSnapshot(null);
     } else if (isDragging) {
-      setIsDragging(false); setDragStart(null); setDragSnapshot(null); setDragSnapshots([]);
+      setIsDragging(false); setDragStart(null); setDragSnapshot(null); dragSnapshotsRef.current = [];
     } else if (startPos) {
       const colorMap: Record<string, string> = { room: '#e0e0e0', rack: '#ffeb3b', shelf: '#90caf9' };
       const snappedPos = pos;
