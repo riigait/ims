@@ -497,6 +497,18 @@ export default function FloorPlanEditor() {
         ctx.arc(wall.endX, wall.endY, handleRadius, 0, Math.PI * 2);
         ctx.fill();
         ctx.stroke();
+
+        // Draw selection glow/halo for multi-select visibility
+        if (selectedObjectIds.length > 1) {
+          ctx.strokeStyle = 'rgba(37, 99, 235, 0.4)';
+          ctx.lineWidth = 8;
+          ctx.setLineDash([3, 3]);
+          ctx.beginPath();
+          ctx.moveTo(wall.startX, wall.startY);
+          ctx.lineTo(wall.endX, wall.endY);
+          ctx.stroke();
+          ctx.setLineDash([]);
+        }
         ctx.restore();
       }
       return;
