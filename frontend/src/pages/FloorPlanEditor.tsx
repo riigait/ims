@@ -117,104 +117,79 @@ export default function FloorPlanEditor() {
 
       // Get current state directly from store to avoid stale closure
       const state = useFloorPlanStore.getState();
-      if (!state.editorState.selectedObjectId || !state.currentFloorPlan) return;
-      const obj = state.currentFloorPlan.objects.find(o => o.id === state.editorState.selectedObjectId);
-      if (!obj) return;
+      if (!state.currentFloorPlan) return;
 
+      // Determine which objects to move (selected or primary)
+      const selectedIds = state.selectedObjectIds.length > 0 ? state.selectedObjectIds : (state.editorState.selectedObjectId ? [state.editorState.selectedObjectId] : []);
+      if (selectedIds.length === 0) return;
+
+      let deltaX = 0, deltaY = 0;
       const step = e.shiftKey ? 10 : 5;
-      let updates: Partial<FloorPlanObject> = {};
 
       if (e.key === 'ArrowUp') {
         e.preventDefault();
-        if (obj.type === 'wall') {
-          const w = obj as WallObject;
-          updates = { startY: w.startY - step, endY: w.endY - step };
-        } else if (obj.type === 'room' || obj.type === 'rack' || obj.type === 'shelf') {
-          const r = obj as RectangleObject;
-          updates = { y: r.y - step };
-        } else if (obj.type === 'label') {
-          const l = obj as LabelObject;
-          updates = { y: l.y - step };
-        } else if (obj.type === 'door' || obj.type === 'window' || obj.type === 'entrance') {
-          const o = obj as DoorObject | WindowObject | EntranceObject;
-          updates = { y: o.y - step };
-        } else if (obj.type === 'marker') {
-          const m = obj as InventoryMarkerObject;
-          updates = { y: m.y - step };
-        }
+        deltaY = -step;
       } else if (e.key === 'ArrowDown') {
         e.preventDefault();
-        if (obj.type === 'wall') {
-          const w = obj as WallObject;
-          updates = { startY: w.startY + step, endY: w.endY + step };
-        } else if (obj.type === 'room' || obj.type === 'rack' || obj.type === 'shelf') {
-          const r = obj as RectangleObject;
-          updates = { y: r.y + step };
-        } else if (obj.type === 'label') {
-          const l = obj as LabelObject;
-          updates = { y: l.y + step };
-        } else if (obj.type === 'door' || obj.type === 'window' || obj.type === 'entrance') {
-          const o = obj as DoorObject | WindowObject | EntranceObject;
-          updates = { y: o.y + step };
-        } else if (obj.type === 'marker') {
-          const m = obj as InventoryMarkerObject;
-          updates = { y: m.y + step };
-        }
+        deltaY = step;
       } else if (e.key === 'ArrowLeft') {
         e.preventDefault();
-        if (obj.type === 'wall') {
-          const w = obj as WallObject;
-          updates = { startX: w.startX - step, endX: w.endX - step };
-        } else if (obj.type === 'room' || obj.type === 'rack' || obj.type === 'shelf') {
-          const r = obj as RectangleObject;
-          updates = { x: r.x - step };
-        } else if (obj.type === 'label') {
-          const l = obj as LabelObject;
-          updates = { x: l.x - step };
-        } else if (obj.type === 'door' || obj.type === 'window' || obj.type === 'entrance') {
-          const o = obj as DoorObject | WindowObject | EntranceObject;
-          updates = { x: o.x - step };
-        } else if (obj.type === 'marker') {
-          const m = obj as InventoryMarkerObject;
-          updates = { x: m.x - step };
-        }
+        deltaX = -step;
       } else if (e.key === 'ArrowRight') {
         e.preventDefault();
-        if (obj.type === 'wall') {
-          const w = obj as WallObject;
-          updates = { startX: w.startX + step, endX: w.endX + step };
-        } else if (obj.type === 'room' || obj.type === 'rack' || obj.type === 'shelf') {
-          const r = obj as RectangleObject;
-          updates = { x: r.x + step };
-        } else if (obj.type === 'label') {
-          const l = obj as LabelObject;
-          updates = { x: l.x + step };
-        } else if (obj.type === 'door' || obj.type === 'window' || obj.type === 'entrance') {
-          const o = obj as DoorObject | WindowObject | EntranceObject;
-          updates = { x: o.x + step };
-        } else if (obj.type === 'marker') {
-          const m = obj as InventoryMarkerObject;
-          updates = { x: m.x + step };
-        }
+        deltaX = step;
+      } else {
+        return;
       }
 
-      if (Object.keys(updates).length > 0) {
-        // If multiple objects selected, move all of them together
-        if (state.selectedObjectIds.length > 1) {
-          updateMultipleObjects(state.selectedObjectIds, updates);
-        } else if (obj.groupId) {
-          // If single object is part of a group, move all objects in the group
-          const groupMembers = state.currentFloorPlan!.objects.filter(o => o.groupId === obj.groupId);
-          updateMultipleObjects(groupMembers.map(m => m.id), updates);
-        } else {
-          updateObject(state.editorState.selectedObjectId!, updates);
+      // Update each selected object individually with the same delta
+      selectedIds.forEach(id => {
+        const obj = state.currentFloorPlan!.objects.find(o => o.id === id);
+        if (!obj) return;
+
+        let memberIds = [id];
+        // If single object is part of a group, also move all group members
+        if (obj.groupId && selectedIds.length === 1) {
+          memberIds = state.currentFloorPlan!.objects.filter(o => o.groupId === obj.groupId).map(o => o.id);
         }
-      }
+
+        memberIds.forEach(memberId => {
+          const member = state.currentFloorPlan!.objects.find(o => o.id === memberId);
+          if (!member) return;
+
+          const updates: Partial<FloorPlanObject> = {};
+          if (member.type === 'wall') {
+            const w = member as WallObject;
+            if (deltaX !== 0) { updates.startX = w.startX + deltaX; updates.endX = w.endX + deltaX; }
+            if (deltaY !== 0) { updates.startY = w.startY + deltaY; updates.endY = w.endY + deltaY; }
+          } else if (member.type === 'room' || member.type === 'rack' || member.type === 'shelf') {
+            const r = member as RectangleObject;
+            if (deltaX !== 0) updates.x = r.x + deltaX;
+            if (deltaY !== 0) updates.y = r.y + deltaY;
+          } else if (member.type === 'label') {
+            const l = member as LabelObject;
+            if (deltaX !== 0) updates.x = l.x + deltaX;
+            if (deltaY !== 0) updates.y = l.y + deltaY;
+          } else if (member.type === 'door' || member.type === 'window' || member.type === 'entrance') {
+            const o = member as DoorObject | WindowObject | EntranceObject;
+            if (deltaX !== 0) updates.x = o.x + deltaX;
+            if (deltaY !== 0) updates.y = o.y + deltaY;
+          } else if (member.type === 'marker') {
+            const m = member as InventoryMarkerObject;
+            if (deltaX !== 0) updates.x = m.x + deltaX;
+            if (deltaY !== 0) updates.y = m.y + deltaY;
+          }
+
+          if (Object.keys(updates).length > 0) {
+            updateObject(memberId, updates);
+          }
+        });
+      });
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [updateMultipleObjects, updateObject]);
+  }, [updateObject]);
 
   useEffect(() => {
     if (currentFloorPlan && canvasRef.current) redrawCanvas();
@@ -274,6 +249,29 @@ export default function FloorPlanEditor() {
         drawMarker(ctx, obj as InventoryMarkerObject, isSelected, products);
       } else {
         drawObject(ctx, obj, isSelected);
+      }
+    });
+
+    // Draw group bounding boxes for selected grouped objects
+    const groupsToShow = new Set<string>();
+    selectedObjectIds.forEach(id => {
+      const obj = currentFloorPlan.objects.find(o => o.id === id);
+      if (obj?.groupId) groupsToShow.add(obj.groupId);
+    });
+
+    groupsToShow.forEach(groupId => {
+      const groupMembers = currentFloorPlan.objects.filter(o => o.groupId === groupId);
+      if (groupMembers.length === 0) return;
+
+      const bounds = getGroupBounds(groupMembers);
+      if (bounds) {
+        ctx.save();
+        ctx.strokeStyle = '#8b5cf6';
+        ctx.lineWidth = 2;
+        ctx.setLineDash([6, 4]);
+        ctx.strokeRect(bounds.minX - 6, bounds.minY - 6, bounds.maxX - bounds.minX + 12, bounds.maxY - bounds.minY + 12);
+        ctx.setLineDash([]);
+        ctx.restore();
       }
     });
 
@@ -449,6 +447,55 @@ export default function FloorPlanEditor() {
       ctx.setLineDash([]);
     }
   }, [currentFloorPlan, editorState, selectedObjectIds, startPos, currentMousePos, isSelectingRect, selectRectStart, selectRectEnd, productsByLocation, locationsMap]);
+
+  const getGroupBounds = (objects: FloorPlanObject[]): { minX: number; minY: number; maxX: number; maxY: number } | null => {
+    if (objects.length === 0) return null;
+
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+
+    objects.forEach(obj => {
+      if (obj.type === 'wall') {
+        const w = obj as WallObject;
+        minX = Math.min(minX, w.startX, w.endX);
+        minY = Math.min(minY, w.startY, w.endY);
+        maxX = Math.max(maxX, w.startX, w.endX);
+        maxY = Math.max(maxY, w.startY, w.endY);
+      } else if (obj.type === 'room' || obj.type === 'rack' || obj.type === 'shelf') {
+        const r = obj as RectangleObject;
+        minX = Math.min(minX, r.x);
+        minY = Math.min(minY, r.y);
+        maxX = Math.max(maxX, r.x + r.width);
+        maxY = Math.max(maxY, r.y + r.height);
+      } else if (obj.type === 'label') {
+        const l = obj as LabelObject;
+        const w = l.text.length * (l.fontSize * 0.6);
+        minX = Math.min(minX, l.x - 5);
+        minY = Math.min(minY, l.y - l.fontSize);
+        maxX = Math.max(maxX, l.x + w);
+        maxY = Math.max(maxY, l.y + 5);
+      } else if (obj.type === 'door' || obj.type === 'window') {
+        const o = obj as DoorObject | WindowObject;
+        minX = Math.min(minX, o.x - o.width / 2 - 5);
+        minY = Math.min(minY, o.y - 15);
+        maxX = Math.max(maxX, o.x + o.width / 2 + 5);
+        maxY = Math.max(maxY, o.y + 15);
+      } else if (obj.type === 'entrance') {
+        const e = obj as EntranceObject;
+        minX = Math.min(minX, e.x - e.width / 2 - 5);
+        minY = Math.min(minY, e.y - 15);
+        maxX = Math.max(maxX, e.x + e.width / 2 + 5);
+        maxY = Math.max(maxY, e.y + 15);
+      } else if (obj.type === 'marker') {
+        const m = obj as InventoryMarkerObject;
+        minX = Math.min(minX, m.x - 10);
+        minY = Math.min(minY, m.y - 10);
+        maxX = Math.max(maxX, m.x + 10);
+        maxY = Math.max(maxY, m.y + 15);
+      }
+    });
+
+    return minX < Infinity ? { minX, minY, maxX, maxY } : null;
+  };
 
   const drawGrid = (ctx: CanvasRenderingContext2D, canvas: HTMLCanvasElement) => {
     ctx.strokeStyle = '#e2e8f0';
