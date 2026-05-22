@@ -17,6 +17,7 @@ model Department {
   createdAt   DateTime   @default(now())
   updatedAt   DateTime   @updatedAt
   users       User[]
+  adminUsers  AdminDepartment[]
   products    Product[]
   categories  Category[]
   locations   Location[]
@@ -32,6 +33,7 @@ model User {
   role          String     @default("staff") // superadmin, admin, staff
   departmentId  String?
   department    Department? @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+  adminDepartments AdminDepartment[]
   createdAt     DateTime   @default(now())
   updatedAt     DateTime   @updatedAt
   movements     StockMovement[]
@@ -153,4 +155,15 @@ model InviteCode {
   usedAt      DateTime?
   expiresAt   DateTime
   createdAt   DateTime   @default(now())
+}
+
+model AdminDepartment {
+  id            String     @id @default(cuid())
+  userId        String
+  user          User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  departmentId  String
+  department    Department @relation(fields: [departmentId], references: [id], onDelete: Cascade)
+  createdAt     DateTime   @default(now())
+
+  @@unique([userId, departmentId])
 }

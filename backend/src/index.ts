@@ -14,6 +14,7 @@ import invitesRoutes from './routes/invites';
 import usersRoutes from './routes/users';
 import departmentsRoutes from './routes/departments';
 import deleteRequestsRoutes from './routes/deleteRequests';
+import adminDepartmentsRoutes from './routes/adminDepartments';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -37,6 +38,7 @@ app.use('/api/audit-logs', authMiddleware, auditLogsRoutes);
 app.use('/api/users', authMiddleware, usersRoutes);
 app.use('/api/departments', departmentsRoutes);
 app.use('/api/delete-requests', deleteRequestsRoutes);
+app.use('/api/admin-departments', adminDepartmentsRoutes);
 
 // Health check
 app.get('/api/health', (req, res) => {

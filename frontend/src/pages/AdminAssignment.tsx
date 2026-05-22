@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, AlertCircle } from 'lucide-react';
+import { ArrowLeft, AlertCircle, Plus, X } from 'lucide-react';
 
 interface Department {
   id: string;
@@ -14,6 +14,7 @@ interface User {
   email: string;
   role: string;
   departmentId?: string;
+  adminDepartments?: Array<{ departmentId: string; department: Department }>;
 }
 
 export default function AdminAssignment() {
@@ -23,7 +24,6 @@ export default function AdminAssignment() {
   const [admins, setAdmins] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [assignments, setAssignments] = useState<Record<string, string>>({});
 
   useEffect(() => {
     if (user.role !== 'superadmin') {
@@ -49,15 +49,6 @@ export default function AdminAssignment() {
 
       setDepartments(deptList);
       setAdmins(adminsList);
-
-      // Build current assignments
-      const curr: Record<string, string> = {};
-      adminsList.forEach((admin: User) => {
-        if (admin.departmentId) {
-          curr[admin.departmentId] = admin.id;
-        }
-      });
-      setAssignments(curr);
     } catch (err) {
       setError('Failed to load data');
       console.error(err);
@@ -66,48 +57,70 @@ export default function AdminAssignment() {
     }
   };
 
-  const handleAssign = async (deptId: string, adminId: string) => {
+  const assignDepartment = async (adminId: string, deptId: string) => {
     try {
       setError('');
-      const response = await fetch(`/api/users/${adminId}`, {
-        method: 'PATCH',
+      const response = await fetch(`/api/admin-departments`, {
+        method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${localStorage.getItem('token')}`,
         },
-        body: JSON.stringify({ departmentId: adminId === '' ? null : deptId }),
+        body: JSON.stringify({ adminId, departmentId: deptId }),
       });
 
-      if (!response.ok) throw new Error('Failed to update assignment');
+      if (!response.ok) throw new Error('Failed to assign department');
 
-      setAssignments({ ...assignments, [deptId]: adminId });
+      setAdmins(
+        admins.map(a => {
+          if (a.id === adminId) {
+            return {
+              ...a,
+              adminDepartments: [
+                ...(a.adminDepartments || []),
+                { departmentId: deptId, department: departments.find(d => d.id === deptId)! },
+              ],
+            };
+          }
+          return a;
+        })
+      );
     } catch (err) {
-      setError('Failed to assign admin to department');
+      setError('Failed to assign department');
       console.error(err);
     }
   };
 
-  const handleUnassign = async (deptId: string) => {
+  const unassignDepartment = async (adminId: string, deptId: string) => {
     try {
-      const currentAdminId = assignments[deptId];
-      if (!currentAdminId) return;
-
-      await fetch(`/api/users/${currentAdminId}`, {
-        method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${localStorage.getItem('token')}`,
-        },
-        body: JSON.stringify({ departmentId: null }),
+      const response = await fetch(`/api/admin-departments/${adminId}/${deptId}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
       });
 
-      const newAssignments = { ...assignments };
-      delete newAssignments[deptId];
-      setAssignments(newAssignments);
+      if (!response.ok) throw new Error('Failed to unassign department');
+
+      setAdmins(
+        admins.map(a => {
+          if (a.id === adminId) {
+            return {
+              ...a,
+              adminDepartments: (a.adminDepartments || []).filter(ad => ad.departmentId !== deptId),
+            };
+          }
+          return a;
+        })
+      );
     } catch (err) {
-      setError('Failed to unassign admin');
+      setError('Failed to unassign department');
       console.error(err);
     }
+  };
+
+  const getAvailableDepartments = (adminId: string) => {
+    const admin = admins.find(a => a.id === adminId);
+    const assignedIds = new Set((admin?.adminDepartments || []).map(ad => ad.departmentId));
+    return departments.filter(d => !assignedIds.has(d.id));
   };
 
   if (loading) {
@@ -116,7 +129,7 @@ export default function AdminAssignment() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <div className="max-w-4xl mx-auto p-6 space-y-6">
+      <div className="max-w-5xl mx-auto p-6 space-y-6">
         <div className="flex items-center gap-4">
           <button
             onClick={() => navigate('/scanner')}
@@ -126,8 +139,8 @@ export default function AdminAssignment() {
             <ArrowLeft size={24} className="text-gray-700" />
           </button>
           <div>
-            <h1 className="text-4xl font-bold text-gray-900">Department Admin Assignment</h1>
-            <p className="text-gray-600 mt-2">Assign department admins (superadmin only)</p>
+            <h1 className="text-4xl font-bold text-gray-900">Admin Department Assignment</h1>
+            <p className="text-gray-600 mt-2">Assign multiple departments to admins</p>
           </div>
         </div>
 
@@ -138,64 +151,90 @@ export default function AdminAssignment() {
           </div>
         )}
 
-        <div className="bg-white rounded-lg shadow overflow-hidden">
-          <table className="w-full">
-            <thead className="bg-gray-50 border-b">
-              <tr>
-                <th className="px-6 py-3 text-left font-semibold text-gray-700">Department</th>
-                <th className="px-6 py-3 text-left font-semibold text-gray-700">Current Admin</th>
-                <th className="px-6 py-3 text-left font-semibold text-gray-700">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y">
-              {departments.map(dept => (
-                <tr key={dept.id} className="hover:bg-gray-50">
-                  <td className="px-6 py-4">
-                    <div>
-                      <p className="font-medium text-gray-900">{dept.name}</p>
-                      <p className="text-sm text-gray-500">{dept.description || '-'}</p>
+        <div className="space-y-4">
+          {admins.length === 0 ? (
+            <div className="text-center py-12 bg-white rounded-lg shadow">
+              <p className="text-gray-500">No admins found. Create admin accounts first.</p>
+            </div>
+          ) : (
+            admins.map(admin => (
+              <div key={admin.id} className="bg-white rounded-lg shadow p-6">
+                <div className="flex items-start justify-between mb-4">
+                  <div>
+                    <h3 className="text-lg font-semibold text-gray-900">{admin.name}</h3>
+                    <p className="text-sm text-gray-500">{admin.email}</p>
+                  </div>
+                  <span className="px-3 py-1 bg-blue-100 text-blue-800 rounded-full text-xs font-medium">
+                    Admin
+                  </span>
+                </div>
+
+                {/* Assigned Departments */}
+                <div className="mb-4">
+                  <p className="text-sm font-medium text-gray-700 mb-2">
+                    Assigned Departments ({admin.adminDepartments?.length || 0})
+                  </p>
+                  {(admin.adminDepartments?.length || 0) === 0 ? (
+                    <p className="text-sm text-gray-500">No departments assigned</p>
+                  ) : (
+                    <div className="flex flex-wrap gap-2">
+                      {admin.adminDepartments?.map(ad => (
+                        <div
+                          key={ad.departmentId}
+                          className="flex items-center gap-2 bg-green-50 border border-green-200 rounded-lg px-3 py-2"
+                        >
+                          <span className="text-sm font-medium text-green-800">{ad.department.name}</span>
+                          <button
+                            onClick={() => unassignDepartment(admin.id, ad.departmentId)}
+                            className="text-green-600 hover:text-red-600 transition"
+                            title="Remove"
+                          >
+                            <X size={16} />
+                          </button>
+                        </div>
+                      ))}
                     </div>
-                  </td>
-                  <td className="px-6 py-4">
+                  )}
+                </div>
+
+                {/* Assign More Departments */}
+                {getAvailableDepartments(admin.id).length > 0 && (
+                  <div className="flex gap-2">
                     <select
-                      value={assignments[dept.id] || ''}
-                      onChange={(e) => handleAssign(dept.id, e.target.value)}
-                      className="px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-600"
+                      id={`select-${admin.id}`}
+                      className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-600 text-sm"
                     >
-                      <option value="">Unassigned</option>
-                      {admins.map(admin => (
-                        <option key={admin.id} value={admin.id}>
-                          {admin.name} ({admin.email})
+                      <option value="">Select a department to assign...</option>
+                      {getAvailableDepartments(admin.id).map(dept => (
+                        <option key={dept.id} value={dept.id}>
+                          {dept.name}
                         </option>
                       ))}
                     </select>
-                  </td>
-                  <td className="px-6 py-4">
-                    {assignments[dept.id] && (
-                      <button
-                        onClick={() => handleUnassign(dept.id)}
-                        className="px-3 py-1 text-red-600 hover:bg-red-50 rounded transition text-sm"
-                      >
-                        Unassign
-                      </button>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+                    <button
+                      onClick={() => {
+                        const select = document.getElementById(`select-${admin.id}`) as HTMLSelectElement;
+                        if (select.value) {
+                          assignDepartment(admin.id, select.value);
+                          select.value = '';
+                        }
+                      }}
+                      className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium text-sm flex items-center gap-2 transition"
+                    >
+                      <Plus size={16} />
+                      Assign
+                    </button>
+                  </div>
+                )}
+              </div>
+            ))
+          )}
         </div>
 
         {departments.length === 0 && (
-          <div className="text-center py-12 bg-white rounded-lg shadow">
-            <p className="text-gray-500">No departments found</p>
-          </div>
-        )}
-
-        {admins.length === 0 && (
           <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
             <p className="text-yellow-700 text-sm">
-              No admins found. Create admin accounts in User Management first.
+              No departments found. Create departments first.
             </p>
           </div>
         )}
