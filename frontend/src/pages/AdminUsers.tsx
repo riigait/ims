@@ -146,7 +146,14 @@ export default function AdminUsers() {
   if (loading) return <div className="flex items-center justify-center h-screen"><div className="text-gray-500">Loading...</div></div>;
   if (!currentUser) return null;
 
-  const pendingInvites = invites.filter(i => !i.usedAt);
+  const getFilteredPendingInvites = () => {
+    const allPending = invites.filter(i => !i.usedAt);
+    if (currentUser?.role === 'superadmin') return allPending;
+    if (currentUser?.role === 'admin') return allPending.filter(i => ['admin', 'staff'].includes(i.role));
+    return [];
+  };
+  const pendingInvites = getFilteredPendingInvites();
+
   const getFilteredUsedInvites = () => {
     const allUsed = invites.filter(i => i.usedAt);
     if (currentUser?.role === 'superadmin') return allUsed;
@@ -205,7 +212,7 @@ export default function AdminUsers() {
         </div>
 
         {/* Generate Invite Section */}
-        {activeTab === 'invites' && (
+        {activeTab === 'invites' && ['admin', 'superadmin'].includes(currentUser?.role || '') && (
           <div className="bg-white rounded-lg shadow p-6">
             <h2 className="text-lg font-semibold mb-4">Generate New Invite Code</h2>
             <div className="flex gap-3">
@@ -232,7 +239,7 @@ export default function AdminUsers() {
         )}
 
         {/* Pending Invites */}
-        {activeTab === 'invites' && (
+        {activeTab === 'invites' && ['admin', 'superadmin'].includes(currentUser?.role || '') && (
           <div className="bg-white rounded-lg shadow p-6">
             <h3 className="text-lg font-semibold mb-4">Pending Invites</h3>
             {pendingInvites.length === 0 ? (
