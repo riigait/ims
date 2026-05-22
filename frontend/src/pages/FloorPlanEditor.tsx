@@ -1549,108 +1549,127 @@ export default function FloorPlanEditor() {
         <div className="w-80 bg-white border-l flex flex-col overflow-hidden shadow-sm flex-shrink-0">
           {selectedObjectIds.length > 0 ? (
             <div className="flex flex-col h-full overflow-y-auto">
-              {/* ── Multiple Objects Selected ── */}
-              {selectedObjectIds.length > 1 ? (
-                <div className="p-4 border-b space-y-3">
-                  <div className="flex items-center justify-between mb-2">
-                    <h3 className="font-semibold text-gray-900">Group Edit</h3>
-                    <span className="text-xs font-medium uppercase tracking-wide text-white bg-purple-500 px-2 py-0.5 rounded">
-                      {selectedObjectIds.length} objects
-                    </span>
-                  </div>
+              {(() => {
+                // Check if all selected objects are the same type
+                const selectedObjs = selectedObjectIds.map(id => currentFloorPlan?.objects.find(o => o.id === id)).filter(Boolean);
+                const allSameType = selectedObjs.length > 0 && selectedObjs.every(o => o?.type === selectedObjs[0]?.type);
+                const isSingleSelect = selectedObjectIds.length === 1;
+                const isMultiSelectSameType = selectedObjectIds.length > 1 && allSameType;
 
-                  {/* Selected objects list */}
-                  <div className="max-h-32 overflow-y-auto bg-gray-50 rounded border border-gray-200 p-2">
-                    <div className="text-xs font-medium text-gray-600 mb-2">Selected:</div>
-                    <div className="space-y-1">
-                      {selectedObjectIds.map((objId, idx) => {
-                        const obj = currentFloorPlan?.objects.find(o => o.id === objId);
-                        const isActive = editorState.selectedObjectId === objId;
-                        return obj ? (
-                          <button
-                            key={objId}
-                            onClick={() => setSelectedObject(objId)}
-                            className={`w-full text-left px-2 py-1 rounded text-xs transition ${
-                              isActive
-                                ? 'bg-blue-500 text-white font-medium'
-                                : 'bg-white border border-gray-200 text-gray-700 hover:bg-gray-100'
-                            }`}
-                          >
-                            {idx + 1}. {obj.type} {obj.label ? `"${obj.label}"` : ''}
-                          </button>
-                        ) : null;
-                      })}
-                    </div>
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-medium text-gray-600 mb-1">Color (All)</label>
-                    <div className="flex gap-2 items-center">
-                      <input type="color" value="#000000"
-                        onChange={e => updateMultipleObjects(selectedObjectIds, { color: e.target.value })}
-                        className="w-12 h-10 border border-gray-300 rounded cursor-pointer" />
-                      <span className="text-xs text-gray-500">Apply to all</span>
-                    </div>
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-medium text-gray-600 mb-1">Layer Order</label>
-                    <div className="flex gap-2">
-                      <button onClick={() => selectedObjectIds.forEach(id => bringToFront(id))}
-                        className="flex-1 px-2 py-1.5 rounded text-xs font-medium bg-gray-100 hover:bg-gray-200">
-                        <ChevronsUp size={14} className="inline mr-1" /> Front
-                      </button>
-                      <button onClick={() => selectedObjectIds.forEach(id => moveForward(id))}
-                        className="flex-1 px-2 py-1.5 rounded text-xs font-medium bg-gray-100 hover:bg-gray-200">
-                        <ChevronUp size={14} className="inline mr-1" /> Up
-                      </button>
-                    </div>
-                    <div className="flex gap-2 mt-2">
-                      <button onClick={() => selectedObjectIds.forEach(id => moveBackward(id))}
-                        className="flex-1 px-2 py-1.5 rounded text-xs font-medium bg-gray-100 hover:bg-gray-200">
-                        <ChevronDown size={14} className="inline mr-1" /> Down
-                      </button>
-                      <button onClick={() => selectedObjectIds.forEach(id => sendToBack(id))}
-                        className="flex-1 px-2 py-1.5 rounded text-xs font-medium bg-gray-100 hover:bg-gray-200">
-                        <ChevronsDown size={14} className="inline mr-1" /> Back
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* Grouping controls */}
-                  <div>
-                    {(() => {
-                      const selectedObjs = selectedObjectIds.map(id => currentFloorPlan?.objects.find(o => o.id === id)).filter(Boolean);
-                      const hasCommonGroup = selectedObjs.length > 0 && selectedObjs.every(o => o?.groupId && o.groupId === selectedObjs[0]?.groupId);
-
-                      return (
-                        <div className="flex gap-2">
-                          {!hasCommonGroup ? (
-                            <button onClick={() => groupObjects(selectedObjectIds)}
-                              className="flex-1 px-3 py-2 rounded text-xs font-medium bg-blue-50 text-blue-600 hover:bg-blue-100">
-                              <Package size={14} className="inline mr-1" /> Group
-                            </button>
-                          ) : null}
-                          {hasCommonGroup ? (
-                            <button onClick={() => ungroupObjects(selectedObjectIds)}
-                              className="flex-1 px-3 py-2 rounded text-xs font-medium bg-orange-50 text-orange-600 hover:bg-orange-100">
-                              <Package size={14} className="inline mr-1" /> Ungroup
-                            </button>
-                          ) : null}
+                return (
+                  <>
+                    {/* ── Multiple Objects Selected (Mixed or Same Type) ── */}
+                    {selectedObjectIds.length > 1 ? (
+                      <div className="p-4 border-b space-y-3">
+                        <div className="flex items-center justify-between mb-2">
+                          <h3 className="font-semibold text-gray-900">
+                            {allSameType ? `${selectedObjs[0]?.type} (Multiple)` : 'Multi-Select'}
+                          </h3>
+                          <span className="text-xs font-medium uppercase tracking-wide text-white bg-purple-500 px-2 py-0.5 rounded">
+                            {selectedObjectIds.length} objects
+                          </span>
                         </div>
-                      );
-                    })()}
-                  </div>
 
-                  <button onClick={() => deleteMultipleObjects(selectedObjectIds)}
-                    className="w-full px-3 py-2 rounded text-sm font-medium bg-red-50 text-red-600 hover:bg-red-100">
-                    <Trash2 size={14} className="inline mr-2" /> Delete All
-                  </button>
-                </div>
-              ) : null}
+                        {/* Selected objects list */}
+                        <div className="max-h-32 overflow-y-auto bg-gray-50 rounded border border-gray-200 p-2">
+                          <div className="text-xs font-medium text-gray-600 mb-2">Selected:</div>
+                          <div className="space-y-1">
+                            {selectedObjectIds.map((objId, idx) => {
+                              const obj = currentFloorPlan?.objects.find(o => o.id === objId);
+                              const isActive = editorState.selectedObjectId === objId;
+                              return obj ? (
+                                <button
+                                  key={objId}
+                                  onClick={() => setSelectedObject(objId)}
+                                  className={`w-full text-left px-2 py-1 rounded text-xs transition ${
+                                    isActive
+                                      ? 'bg-blue-500 text-white font-medium'
+                                      : 'bg-white border border-gray-200 text-gray-700 hover:bg-gray-100'
+                                  }`}
+                                >
+                                  {idx + 1}. {obj.type} {obj.label ? `"${obj.label}"` : ''}
+                                </button>
+                              ) : null;
+                            })}
+                          </div>
+                        </div>
 
-              {/* ── Object Properties (Single) ── */}
-              {selectedObject ? (
+                        {/* Title/Label - Universal for all */}
+                        {isMultiSelectSameType && (
+                          <div>
+                            <label className="block text-xs font-medium text-gray-600 mb-1">Label</label>
+                            <input type="text" placeholder="Common label…"
+                              onChange={e => updateMultipleObjects(selectedObjectIds, { label: e.target.value })}
+                              className="w-full px-2.5 py-1.5 border border-gray-300 rounded text-sm" />
+                          </div>
+                        )}
+
+                        {/* Layer Order - Universal */}
+                        <div>
+                          <label className="block text-xs font-medium text-gray-600 mb-1">Layer Order</label>
+                          <div className="flex gap-2">
+                            <button onClick={() => selectedObjectIds.forEach(id => bringToFront(id))}
+                              className="flex-1 px-2 py-1.5 rounded text-xs font-medium bg-gray-100 hover:bg-gray-200">
+                              <ChevronsUp size={14} className="inline mr-1" /> Front
+                            </button>
+                            <button onClick={() => selectedObjectIds.forEach(id => moveForward(id))}
+                              className="flex-1 px-2 py-1.5 rounded text-xs font-medium bg-gray-100 hover:bg-gray-200">
+                              <ChevronUp size={14} className="inline mr-1" /> Up
+                            </button>
+                          </div>
+                          <div className="flex gap-2 mt-2">
+                            <button onClick={() => selectedObjectIds.forEach(id => moveBackward(id))}
+                              className="flex-1 px-2 py-1.5 rounded text-xs font-medium bg-gray-100 hover:bg-gray-200">
+                              <ChevronDown size={14} className="inline mr-1" /> Down
+                            </button>
+                            <button onClick={() => selectedObjectIds.forEach(id => sendToBack(id))}
+                              className="flex-1 px-2 py-1.5 rounded text-xs font-medium bg-gray-100 hover:bg-gray-200">
+                              <ChevronsDown size={14} className="inline mr-1" /> Back
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* Grouping controls - Universal */}
+                        <div>
+                          {(() => {
+                            const hasCommonGroup = selectedObjs.length > 0 && selectedObjs.every(o => o?.groupId && o.groupId === selectedObjs[0]?.groupId);
+                            return (
+                              <div className="flex gap-2">
+                                {!hasCommonGroup ? (
+                                  <button onClick={() => groupObjects(selectedObjectIds)}
+                                    className="flex-1 px-3 py-2 rounded text-xs font-medium bg-blue-50 text-blue-600 hover:bg-blue-100">
+                                    <Package size={14} className="inline mr-1" /> Group
+                                  </button>
+                                ) : null}
+                                {hasCommonGroup ? (
+                                  <button onClick={() => ungroupObjects(selectedObjectIds)}
+                                    className="flex-1 px-3 py-2 rounded text-xs font-medium bg-orange-50 text-orange-600 hover:bg-orange-100">
+                                    <Package size={14} className="inline mr-1" /> Ungroup
+                                  </button>
+                                ) : null}
+                              </div>
+                            );
+                          })()}
+                        </div>
+
+                        {/* Delete - Universal */}
+                        <button onClick={() => deleteMultipleObjects(selectedObjectIds)}
+                          className="w-full px-3 py-2 rounded text-sm font-medium bg-red-50 text-red-600 hover:bg-red-100">
+                          <Trash2 size={14} className="inline mr-2" /> Delete All
+                        </button>
+                      </div>
+                    ) : null}
+                  </>
+                );
+              })()}
+
+              {(() => {
+                // Check if all selected objects are the same type
+                const selectedObjs = selectedObjectIds.map(id => currentFloorPlan?.objects.find(o => o.id === id)).filter(Boolean);
+                const allSameType = selectedObjs.length > 0 && selectedObjs.every(o => o?.type === selectedObjs[0]?.type);
+                const showTypeSpecificProps = selectedObjectIds.length === 1 || (selectedObjectIds.length > 1 && allSameType);
+
+                return showTypeSpecificProps && selectedObject ? (
               <div className="p-4 border-b space-y-3">
                 <div className="flex items-center justify-between">
                   <h3 className="font-semibold text-gray-900">Properties</h3>
@@ -1941,7 +1960,8 @@ export default function FloorPlanEditor() {
                   <Trash2 size={13} /> Delete Object
                 </button>
               </div>
-              ) : null}
+              ) : null);
+              })()}
 
               {/* ── Location & Products section ── */}
               {linkedLoc && (
