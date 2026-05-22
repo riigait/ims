@@ -26,22 +26,6 @@ export default function FloorPlans() {
   const [sortBy, setSortBy] = useState('recently-added');
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
 
-  useEffect(() => {
-    fetchFloorPlans();
-    if (user.role === 'superadmin') {
-      departmentsApi.getAll().then(res => setDepartments(res.data)).catch(err => console.error('Failed to fetch departments:', err));
-    }
-  }, []);
-
-  // Auto-navigate to the floor plan that contains the locationId
-  useEffect(() => {
-    if (!locationId || floorPlans.length === 0) return;
-    const match = floorPlans.find(plan =>
-      plan.objects?.some(obj => obj.linkedLocationId === locationId)
-    );
-    if (match) navigate(`/floor-plans/${match.id}/edit`);
-  }, [locationId, floorPlans]);
-
   const fetchFloorPlans = async () => {
     try {
       const response = await floorPlansApi.getAll();
@@ -52,6 +36,30 @@ export default function FloorPlans() {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    const handleStorageChange = () => {
+      setLoading(true);
+      fetchFloorPlans();
+    };
+
+    setLoading(true);
+    fetchFloorPlans();
+    if (user.role === 'superadmin') {
+      departmentsApi.getAll().then(res => setDepartments(res.data)).catch(err => console.error('Failed to fetch departments:', err));
+    }
+    window.addEventListener('storage', handleStorageChange);
+    return () => window.removeEventListener('storage', handleStorageChange);
+  }, []);
+
+  // Auto-navigate to the floor plan that contains the locationId
+  useEffect(() => {
+    if (!locationId || floorPlans.length === 0) return;
+    const match = floorPlans.find(plan =>
+      plan.objects?.some(obj => obj.linkedLocationId === locationId)
+    );
+    if (match) navigate(`/floor-plans/${match.id}/edit`);
+  }, [locationId, floorPlans]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

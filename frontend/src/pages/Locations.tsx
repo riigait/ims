@@ -28,10 +28,6 @@ export default function Locations() {
     notes: '',
   });
 
-  useEffect(() => {
-    fetchLocations();
-  }, []);
-
   const fetchLocations = async () => {
     try {
       const [locationsRes, deptRes] = await Promise.all([
@@ -46,6 +42,18 @@ export default function Locations() {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    const handleStorageChange = () => {
+      setLoading(true);
+      fetchLocations();
+    };
+
+    setLoading(true);
+    fetchLocations();
+    window.addEventListener('storage', handleStorageChange);
+    return () => window.removeEventListener('storage', handleStorageChange);
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

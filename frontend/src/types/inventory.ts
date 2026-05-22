@@ -1,11 +1,18 @@
-// Inventory Types
+export type Unit =
+  | 'pcs' | 'dozen' | 'box' | 'pack'
+  | 'g' | 'kg' | 'mg' | 'oz' | 'lb' | 'ton'
+  | 'ml' | 'liter' | 'gallon' | 'cup'
+  | 'mm' | 'cm' | 'm' | 'km' | 'inch' | 'ft' | 'yard'
+  | 'cm2' | 'm2'
+  | 'roll' | 'sheet' | 'can' | 'bottle' | 'bag' | 'carton';
+
 export interface Product {
   id: string;
   sku: string;
   name: string;
   description: string;
   categoryId: string;
-  unit: string;
+  unit: Unit;
   currentStock: number;
   lowStockThreshold: number;
   locationId?: string;

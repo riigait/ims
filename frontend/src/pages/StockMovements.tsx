@@ -49,8 +49,6 @@ export default function StockMovements() {
   });
   const [sortBy, setSortBy] = useState('recently-added');
 
-  useEffect(() => { fetchData(); }, []);
-
   const fetchData = async () => {
     try {
       const [movementsRes, productsRes, locationsRes, deptRes] = await Promise.all([
@@ -69,6 +67,18 @@ export default function StockMovements() {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    const handleStorageChange = () => {
+      setLoading(true);
+      fetchData();
+    };
+
+    setLoading(true);
+    fetchData();
+    window.addEventListener('storage', handleStorageChange);
+    return () => window.removeEventListener('storage', handleStorageChange);
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

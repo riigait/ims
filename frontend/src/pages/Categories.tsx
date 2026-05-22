@@ -28,10 +28,6 @@ export default function Categories() {
     description: '',
   });
 
-  useEffect(() => {
-    fetchCategories();
-  }, []);
-
   const fetchCategories = async () => {
     try {
       const [categoriesRes, deptRes] = await Promise.all([
@@ -46,6 +42,18 @@ export default function Categories() {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    const handleStorageChange = () => {
+      setLoading(true);
+      fetchCategories();
+    };
+
+    setLoading(true);
+    fetchCategories();
+    window.addEventListener('storage', handleStorageChange);
+    return () => window.removeEventListener('storage', handleStorageChange);
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

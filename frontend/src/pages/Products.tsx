@@ -50,26 +50,36 @@ export default function Products() {
   const [formData, setFormData] = useState(emptyForm);
   const [error, setError] = useState('');
 
-  useEffect(() => { fetchData(); }, []);
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        const [productsRes, categoriesRes, locationsRes, deptRes] = await Promise.all([
+          productsApi.getAll(),
+          categoriesApi.getAll(),
+          locationsApi.getAll(),
+          user.role === 'superadmin' ? departmentsApi.getAll() : Promise.resolve({ data: [] }),
+        ]);
+        setProducts(productsRes.data);
+        setCategories(categoriesRes.data);
+        setLocations(locationsRes.data);
+        setDepartments(deptRes.data);
+      } catch (error) {
+        console.error('Failed to fetch data:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
 
-  const fetchData = async () => {
-    try {
-      const [productsRes, categoriesRes, locationsRes, deptRes] = await Promise.all([
-        productsApi.getAll(),
-        categoriesApi.getAll(),
-        locationsApi.getAll(),
-        user.role === 'superadmin' ? departmentsApi.getAll() : Promise.resolve({ data: [] }),
-      ]);
-      setProducts(productsRes.data);
-      setCategories(categoriesRes.data);
-      setLocations(locationsRes.data);
-      setDepartments(deptRes.data);
-    } catch (error) {
-      console.error('Failed to fetch data:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
+    const handleStorageChange = () => {
+      setLoading(true);
+      fetchData();
+    };
+
+    setLoading(true);
+    fetchData();
+    window.addEventListener('storage', handleStorageChange);
+    return () => window.removeEventListener('storage', handleStorageChange);
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -243,9 +253,51 @@ export default function Products() {
               {/* Unit */}
               <div>
                 <label htmlFor="unit" className="block text-sm font-medium text-gray-700 mb-1">Unit</label>
-                <input id="unit" name="unit" type="text" value={formData.unit}
+                <select id="unit" name="unit" value={formData.unit}
                   onChange={e => setFormData({ ...formData, unit: e.target.value })}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg" />
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg">
+                  <optgroup label="Pieces/Count">
+                    <option value="pcs">Pieces (pcs)</option>
+                    <option value="dozen">Dozen</option>
+                    <option value="box">Box</option>
+                    <option value="pack">Pack</option>
+                  </optgroup>
+                  <optgroup label="Weight">
+                    <option value="mg">Milligram (mg)</option>
+                    <option value="g">Gram (g)</option>
+                    <option value="kg">Kilogram (kg)</option>
+                    <option value="oz">Ounce (oz)</option>
+                    <option value="lb">Pound (lb)</option>
+                    <option value="ton">Ton</option>
+                  </optgroup>
+                  <optgroup label="Volume/Liquid">
+                    <option value="ml">Milliliter (ml)</option>
+                    <option value="liter">Liter (L)</option>
+                    <option value="gallon">Gallon</option>
+                    <option value="cup">Cup</option>
+                  </optgroup>
+                  <optgroup label="Length/Distance">
+                    <option value="mm">Millimeter (mm)</option>
+                    <option value="cm">Centimeter (cm)</option>
+                    <option value="m">Meter (m)</option>
+                    <option value="km">Kilometer (km)</option>
+                    <option value="inch">Inch</option>
+                    <option value="ft">Foot (ft)</option>
+                    <option value="yard">Yard</option>
+                  </optgroup>
+                  <optgroup label="Area">
+                    <option value="cm2">Square Centimeter (cm²)</option>
+                    <option value="m2">Square Meter (m²)</option>
+                  </optgroup>
+                  <optgroup label="Other">
+                    <option value="roll">Roll</option>
+                    <option value="sheet">Sheet</option>
+                    <option value="can">Can</option>
+                    <option value="bottle">Bottle</option>
+                    <option value="bag">Bag</option>
+                    <option value="carton">Carton</option>
+                  </optgroup>
+                </select>
               </div>
 
               {/* Current Stock — editable only when creating; use Stock Movements to change it */}

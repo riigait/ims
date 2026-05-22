@@ -84,7 +84,7 @@ export default function Navbar() {
                   <ScanLine size={16} />
                 </Link>
 
-                {user.role === 'admin' && <DepartmentSwitcher isOpen={deptOpen} onOpenChange={handleDeptOpenChange} />}
+                {(user.role === 'admin' || user.role === 'staff') && <DepartmentSwitcher isOpen={deptOpen} onOpenChange={handleDeptOpenChange} />}
 
                 {(user.role === 'admin' || user.role === 'superadmin') && (
                   <div className="relative">

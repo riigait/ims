@@ -56,27 +56,29 @@ export default function Dashboard() {
         setStats(statsRes.data);
         setRecentMovements(movementsRes.data);
 
-        // Fetch department name for staff and unassigned admin users
-        if (user.departmentId) {
+        // Fetch department name for users with department switching
+        const userDepts = user.role === 'admin' ? user.adminDepartments : user.staffDepartments;
+
+        if (userDepts && userDepts.length > 0) {
+          // User has multiple departments - get currently selected one
+          const currentDeptId = localStorage.getItem('currentDepartmentId');
+          if (currentDeptId === 'all-departments') {
+            setDepartmentName('All Departments');
+          } else {
+            const currentDept = userDepts.find((ad: any) => ad.departmentId === currentDeptId);
+            if (currentDept) {
+              setDepartmentName(currentDept.department.name);
+            } else if (userDepts.length > 0) {
+              setDepartmentName(userDepts[0].department.name);
+            }
+          }
+        } else if (user.departmentId) {
+          // User has single department assigned
           try {
             const deptRes = await departmentsApi.getById(user.departmentId);
             setDepartmentName(deptRes.data.name);
           } catch {
             console.error('Failed to fetch department');
-          }
-        }
-        // For admin users with multiple departments, get the currently selected one
-        else if (user.role === 'admin' && user.adminDepartments?.length) {
-          const currentDeptId = localStorage.getItem('currentDepartmentId');
-          if (currentDeptId === 'all-departments') {
-            setDepartmentName('All Departments');
-          } else {
-            const currentDept = user.adminDepartments.find((ad: any) => ad.departmentId === currentDeptId);
-            if (currentDept) {
-              setDepartmentName(currentDept.department.name);
-            } else if (user.adminDepartments.length > 0) {
-              setDepartmentName(user.adminDepartments[0].department.name);
-            }
           }
         }
       } catch (error) {
@@ -85,9 +87,16 @@ export default function Dashboard() {
         setLoading(false);
       }
     };
+
+    const handleStorageChange = () => {
+      fetchData();
+    };
+
     setLoading(true);
     fetchData();
-  }, [localStorage.getItem('currentDepartmentId')]);
+    window.addEventListener('storage', handleStorageChange);
+    return () => window.removeEventListener('storage', handleStorageChange);
+  }, []);
 
   if (loading) return <div className="text-center py-12">Loading...</div>;
 
