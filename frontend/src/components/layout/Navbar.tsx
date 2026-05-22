@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { useState, useEffect } from 'react';
+import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { Menu, X, LogOut, ScanLine, Users, ChevronDown } from 'lucide-react';
 import DepartmentSwitcher from '../DepartmentSwitcher';
 
@@ -7,8 +7,14 @@ export default function Navbar() {
   const [isOpen, setIsOpen] = useState(false);
   const [adminOpen, setAdminOpen] = useState(false);
   const navigate = useNavigate();
+  const location = useLocation();
   const user = JSON.parse(localStorage.getItem('user') || '{}');
   const isLoggedIn = !!localStorage.getItem('token');
+
+  useEffect(() => {
+    setAdminOpen(false);
+    setIsOpen(false);
+  }, [location]);
 
   const handleLogout = () => {
     localStorage.removeItem('token');
@@ -66,19 +72,19 @@ export default function Navbar() {
                       <div className="absolute right-0 mt-0 w-48 bg-white text-gray-800 rounded-lg shadow-lg py-2 z-10">
                         {user.role === 'superadmin' && (
                           <>
-                            <Link to="/admin/assignment" className="block px-4 py-2 hover:bg-gray-100 text-sm font-medium text-blue-600">
+                            <Link to="/admin/assignment" onClick={() => setAdminOpen(false)} className="block px-4 py-2 hover:bg-gray-100 text-sm font-medium text-blue-600">
                               Role Assignment
                             </Link>
                             <div className="border-t border-gray-200"></div>
                           </>
                         )}
-                        <Link to="/admin/users" className="block px-4 py-2 hover:bg-gray-100 text-sm">
+                        <Link to="/admin/users" onClick={() => setAdminOpen(false)} className="block px-4 py-2 hover:bg-gray-100 text-sm">
                           Users
                         </Link>
-                        <Link to="/admin/departments" className="block px-4 py-2 hover:bg-gray-100 text-sm">
+                        <Link to="/admin/departments" onClick={() => setAdminOpen(false)} className="block px-4 py-2 hover:bg-gray-100 text-sm">
                           Departments
                         </Link>
-                        <Link to="/delete-requests" className="block px-4 py-2 hover:bg-gray-100 text-sm">
+                        <Link to="/delete-requests" onClick={() => setAdminOpen(false)} className="block px-4 py-2 hover:bg-gray-100 text-sm">
                           Delete Requests
                         </Link>
                       </div>

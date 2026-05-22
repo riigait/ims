@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useLocation } from 'react-router-dom';
 import { Building2, ChevronDown } from 'lucide-react';
 
 interface Department {
@@ -13,6 +14,7 @@ interface AdminDepartment {
 
 export default function DepartmentSwitcher() {
   const user = JSON.parse(localStorage.getItem('user') || '{}');
+  const location = useLocation();
   const [departments, setDepartments] = useState<AdminDepartment[]>(user.adminDepartments || []);
   const [currentDeptId, setCurrentDeptId] = useState<string>(
     localStorage.getItem('currentDepartmentId') || (user.adminDepartments?.[0]?.departmentId || '')
@@ -31,6 +33,10 @@ export default function DepartmentSwitcher() {
       }
     }
   }, []);
+
+  useEffect(() => {
+    setIsOpen(false);
+  }, [location]);
 
   const handleSwitchDepartment = (deptId: string) => {
     setCurrentDeptId(deptId);
