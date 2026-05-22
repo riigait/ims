@@ -7,6 +7,7 @@ export interface BaseFloorPlanObject {
   label?: string;
   notes?: string;
   linkedLocationId?: string;
+  groupId?: string;
 }
 
 export interface WallObject extends BaseFloorPlanObject {

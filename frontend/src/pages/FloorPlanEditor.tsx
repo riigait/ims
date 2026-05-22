@@ -43,7 +43,7 @@ export default function FloorPlanEditor() {
     currentFloorPlan, editorState, selectedObjectIds,
     setCurrentFloorPlan, setTool, setSelectedObject, setSelectedObjects, addToSelection, removeFromSelection, clearSelection, setZoomLevel,
     addObject, updateObject, updateMultipleObjects, deleteObject, deleteMultipleObjects, getSelectedObject,
-    bringToFront, sendToBack, moveForward, moveBackward, getObjectLayer,
+    bringToFront, sendToBack, moveForward, moveBackward, getObjectLayer, groupObjects, ungroupObjects,
   } = useFloorPlanStore();
 
   const [loading, setLoading] = useState(true);
@@ -199,6 +199,10 @@ export default function FloorPlanEditor() {
         // If multiple objects selected, move all of them together
         if (selectedObjectIds.length > 1) {
           updateMultipleObjects(selectedObjectIds, updates);
+        } else if (obj.groupId) {
+          // If single object is part of a group, move all objects in the group
+          const groupMembers = currentFloorPlan.objects.filter(o => o.groupId === obj.groupId);
+          updateMultipleObjects(groupMembers.map(m => m.id), updates);
         } else {
           updateObject(editorState.selectedObjectId, updates);
         }
@@ -969,14 +973,16 @@ export default function FloorPlanEditor() {
         if (x >= l.x - 5 && x <= l.x + w && y >= l.y - l.fontSize && y <= l.y + 5) return obj.id;
       } else if (obj.type === 'door' || obj.type === 'window') {
         const o = obj as DoorObject | WindowObject;
-        // Dynamic tolerance based on width for easier clicking
-        const tolerance = Math.max(15, o.width / 2 + 8);
-        if (Math.abs(x - o.x) <= tolerance && Math.abs(y - o.y) <= tolerance) return obj.id;
+        // Use circular collision detection for rotated objects
+        const tolerance = Math.max(20, o.width / 2 + 10);
+        const distance = Math.sqrt((x - o.x) ** 2 + (y - o.y) ** 2);
+        if (distance <= tolerance) return obj.id;
       } else if (obj.type === 'entrance') {
         const e = obj as EntranceObject;
-        // Entrance is wider, so increase click tolerance based on width
-        const tolerance = Math.max(20, e.width / 2 + 10);
-        if (Math.abs(x - e.x) <= tolerance && Math.abs(y - e.y) <= tolerance) return obj.id;
+        // Use circular collision detection for rotated entrance objects
+        const tolerance = Math.max(25, e.width / 2 + 15);
+        const distance = Math.sqrt((x - e.x) ** 2 + (y - e.y) ** 2);
+        if (distance <= tolerance) return obj.id;
       } else if (obj.type === 'marker') {
         const m = obj as InventoryMarkerObject;
         const tolerance = 10;
@@ -1243,21 +1249,47 @@ export default function FloorPlanEditor() {
     else if (isDragging && dragStart && dragSnapshot && editorState.selectedObjectId) {
       const dx = pos.x - dragStart.x, dy = pos.y - dragStart.y;
       const snap = dragSnapshot;
-      if (snap.type === 'wall') {
-        const w = snap as WallObject;
-        updateObject(editorState.selectedObjectId, { startX: w.startX + dx, startY: w.startY + dy, endX: w.endX + dx, endY: w.endY + dy });
-      } else if (snap.type === 'room' || snap.type === 'rack' || snap.type === 'shelf') {
-        const r = snap as RectangleObject;
-        updateObject(editorState.selectedObjectId, { x: r.x + dx, y: r.y + dy });
-      } else if (snap.type === 'label') {
-        const l = snap as LabelObject;
-        updateObject(editorState.selectedObjectId, { x: l.x + dx, y: l.y + dy });
-      } else if (snap.type === 'door' || snap.type === 'window' || snap.type === 'entrance') {
-        const o = snap as DoorObject | WindowObject | EntranceObject;
-        updateObject(editorState.selectedObjectId, { x: o.x + dx, y: o.y + dy });
-      } else if (snap.type === 'marker') {
-        const m = snap as InventoryMarkerObject;
-        updateObject(editorState.selectedObjectId, { x: m.x + dx, y: m.y + dy });
+
+      // If object is part of a group, move all objects in the group
+      if (snap.groupId && currentFloorPlan) {
+        const groupMembers = currentFloorPlan.objects.filter(o => o.groupId === snap.groupId);
+        groupMembers.forEach(member => {
+          const memberSnap = dragSnapshots.find(s => s.id === member.id) || member;
+          if (memberSnap.type === 'wall') {
+            const w = memberSnap as WallObject;
+            updateObject(member.id, { startX: w.startX + dx, startY: w.startY + dy, endX: w.endX + dx, endY: w.endY + dy });
+          } else if (memberSnap.type === 'room' || memberSnap.type === 'rack' || memberSnap.type === 'shelf') {
+            const r = memberSnap as RectangleObject;
+            updateObject(member.id, { x: r.x + dx, y: r.y + dy });
+          } else if (memberSnap.type === 'label') {
+            const l = memberSnap as LabelObject;
+            updateObject(member.id, { x: l.x + dx, y: l.y + dy });
+          } else if (memberSnap.type === 'door' || memberSnap.type === 'window' || memberSnap.type === 'entrance') {
+            const o = memberSnap as DoorObject | WindowObject | EntranceObject;
+            updateObject(member.id, { x: o.x + dx, y: o.y + dy });
+          } else if (memberSnap.type === 'marker') {
+            const m = memberSnap as InventoryMarkerObject;
+            updateObject(member.id, { x: m.x + dx, y: m.y + dy });
+          }
+        });
+      } else {
+        // Move single object
+        if (snap.type === 'wall') {
+          const w = snap as WallObject;
+          updateObject(editorState.selectedObjectId, { startX: w.startX + dx, startY: w.startY + dy, endX: w.endX + dx, endY: w.endY + dy });
+        } else if (snap.type === 'room' || snap.type === 'rack' || snap.type === 'shelf') {
+          const r = snap as RectangleObject;
+          updateObject(editorState.selectedObjectId, { x: r.x + dx, y: r.y + dy });
+        } else if (snap.type === 'label') {
+          const l = snap as LabelObject;
+          updateObject(editorState.selectedObjectId, { x: l.x + dx, y: l.y + dy });
+        } else if (snap.type === 'door' || snap.type === 'window' || snap.type === 'entrance') {
+          const o = snap as DoorObject | WindowObject | EntranceObject;
+          updateObject(editorState.selectedObjectId, { x: o.x + dx, y: o.y + dy });
+        } else if (snap.type === 'marker') {
+          const m = snap as InventoryMarkerObject;
+          updateObject(editorState.selectedObjectId, { x: m.x + dx, y: m.y + dy });
+        }
       }
     }
 
@@ -1650,6 +1682,31 @@ export default function FloorPlanEditor() {
                         <ChevronsDown size={14} className="inline mr-1" /> Back
                       </button>
                     </div>
+                  </div>
+
+                  {/* Grouping controls */}
+                  <div>
+                    {(() => {
+                      const selectedObjs = selectedObjectIds.map(id => currentFloorPlan?.objects.find(o => o.id === id)).filter(Boolean);
+                      const hasCommonGroup = selectedObjs.length > 0 && selectedObjs.every(o => o?.groupId && o.groupId === selectedObjs[0]?.groupId);
+
+                      return (
+                        <div className="flex gap-2">
+                          {!hasCommonGroup ? (
+                            <button onClick={() => groupObjects(selectedObjectIds)}
+                              className="flex-1 px-3 py-2 rounded text-xs font-medium bg-blue-50 text-blue-600 hover:bg-blue-100">
+                              <Package size={14} className="inline mr-1" /> Group
+                            </button>
+                          ) : null}
+                          {hasCommonGroup ? (
+                            <button onClick={() => ungroupObjects(selectedObjectIds)}
+                              className="flex-1 px-3 py-2 rounded text-xs font-medium bg-orange-50 text-orange-600 hover:bg-orange-100">
+                              <Package size={14} className="inline mr-1" /> Ungroup
+                            </button>
+                          ) : null}
+                        </div>
+                      );
+                    })()}
                   </div>
 
                   <button onClick={() => deleteMultipleObjects(selectedObjectIds)}

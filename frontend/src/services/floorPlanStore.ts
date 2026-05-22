@@ -29,6 +29,9 @@ interface FloorPlanStore {
   getSelectedObject: () => FloorPlanObject | undefined;
   getSelectedObjects: () => FloorPlanObject[];
   getObjectLayer: (id: string) => { index: number; total: number };
+
+  groupObjects: (ids: string[]) => void;
+  ungroupObjects: (ids: string[]) => void;
 }
 
 export const useFloorPlanStore = create<FloorPlanStore>((set, get) => ({
@@ -222,4 +225,31 @@ export const useFloorPlanStore = create<FloorPlanStore>((set, get) => ({
     const index = state.currentFloorPlan.objects.findIndex(o => o.id === id);
     return { index, total };
   },
+
+  groupObjects: (ids) =>
+    set((state) => {
+      if (!state.currentFloorPlan || ids.length < 2) return state;
+      const groupId = 'group_' + Date.now();
+      return {
+        currentFloorPlan: {
+          ...state.currentFloorPlan,
+          objects: state.currentFloorPlan.objects.map((obj) =>
+            ids.includes(obj.id) ? { ...obj, groupId } : obj
+          ),
+        },
+      };
+    }),
+
+  ungroupObjects: (ids) =>
+    set((state) => {
+      if (!state.currentFloorPlan) return state;
+      return {
+        currentFloorPlan: {
+          ...state.currentFloorPlan,
+          objects: state.currentFloorPlan.objects.map((obj) =>
+            ids.includes(obj.id) ? { ...obj, groupId: undefined } : obj
+          ),
+        },
+      };
+    }),
 }));
