@@ -1118,6 +1118,12 @@ export default function FloorPlanEditor() {
         } else {
           const objId = getObjectAtPoint(pos.x, pos.y);
           if (objId) {
+            // Capture snapshots BEFORE changing selection (for group drag)
+            const shouldGroupDrag = selectedObjectIds.length > 1 && selectedObjectIds.includes(objId);
+            const groupSnapshots = shouldGroupDrag
+              ? currentFloorPlan?.objects.filter(o => selectedObjectIds.includes(o.id)).map(o => ({ ...o })) || []
+              : [];
+
             if (e.ctrlKey) {
               // Ctrl+click: add to or remove from selection
               if (selectedObjectIds.includes(objId)) {
@@ -1134,10 +1140,9 @@ export default function FloorPlanEditor() {
               (e.currentTarget as HTMLCanvasElement).setPointerCapture(e.pointerId);
               setIsDragging(true);
               setDragStart(pos);
-              // If multiple objects selected, capture all; otherwise capture just this one
-              if (selectedObjectIds.length > 1 && selectedObjectIds.includes(objId)) {
-                const snapshots = currentFloorPlan?.objects.filter(o => selectedObjectIds.includes(o.id)).map(o => ({ ...o })) || [];
-                setDragSnapshots(snapshots);
+              // If we captured group snapshots, use them; otherwise capture just this one
+              if (groupSnapshots.length > 0) {
+                setDragSnapshots(groupSnapshots);
               } else {
                 setDragSnapshot({ ...obj });
               }
