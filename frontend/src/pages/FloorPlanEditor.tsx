@@ -1594,16 +1594,6 @@ export default function FloorPlanEditor() {
                           </div>
                         </div>
 
-                        {/* Title/Label - Universal for all */}
-                        {isMultiSelectSameType && (
-                          <div>
-                            <label className="block text-xs font-medium text-gray-600 mb-1">Label</label>
-                            <input type="text" placeholder="Common label…"
-                              onChange={e => updateMultipleObjects(selectedObjectIds, { label: e.target.value })}
-                              className="w-full px-2.5 py-1.5 border border-gray-300 rounded text-sm" />
-                          </div>
-                        )}
-
                         {/* Layer Order - Universal */}
                         <div>
                           <label className="block text-xs font-medium text-gray-600 mb-1">Layer Order</label>
