@@ -2,6 +2,8 @@ import { useState, useEffect } from 'react';
 import { Plus, Edit, Trash2 } from 'lucide-react';
 import { categoriesApi, departmentsApi } from '@/services/api';
 import { Category } from '@/types/inventory';
+import { CategoryFilter } from '@/types/filters';
+import { filterCategories } from '@/utils/filterHelpers';
 
 interface Department {
   id: string;
@@ -15,8 +17,9 @@ export default function Categories() {
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [searchTerm, setSearchTerm] = useState('');
-  const [departmentFilter, setDepartmentFilter] = useState('');
+  const [filters, setFilters] = useState<CategoryFilter>({
+    search: '',
+  });
   const [sortBy, setSortBy] = useState('recently-added');
 
   const [formData, setFormData] = useState({
@@ -94,12 +97,7 @@ export default function Categories() {
     setFormData({ name: '', description: '' });
   };
 
-  const filteredAndSortedCategories = categories
-    .filter(cat => {
-      const matchesSearch = cat.name.toLowerCase().includes(searchTerm.toLowerCase());
-      const matchesDept = !departmentFilter || cat.departmentId === departmentFilter;
-      return matchesSearch && matchesDept;
-    })
+  const filteredAndSortedCategories = filterCategories(categories, filters.search)
     .sort((a, b) => {
       if (sortBy === 'name') return a.name.localeCompare(b.name);
       if (sortBy === 'recently-added') return new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime();
@@ -107,8 +105,7 @@ export default function Categories() {
     });
 
   const clearAllFilters = () => {
-    setSearchTerm('');
-    setDepartmentFilter('');
+    setFilters({ search: '' });
     setSortBy('recently-added');
   };
 
@@ -196,8 +193,8 @@ export default function Categories() {
             <input
               type="text"
               placeholder="Search by category name…"
-              value={searchTerm}
-              onChange={e => setSearchTerm(e.target.value)}
+              value={filters.search}
+              onChange={e => setFilters({ ...filters, search: e.target.value })}
               className="flex-1 px-4 py-2 border border-gray-300 rounded-lg text-sm"
               aria-label="Search categories"
             />
