@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Lock } from 'lucide-react';
-import Layout from '@/components/layout/Layout';
 import { authApi } from '@/services/api';
 
 export default function ChangePassword() {
@@ -58,8 +57,7 @@ export default function ChangePassword() {
   };
 
   return (
-    <Layout>
-      <div className="max-w-2xl mx-auto">
+    <div className="max-w-2xl mx-auto">
         <div className="bg-white rounded-lg shadow p-6">
           <h1 className="text-2xl font-bold text-gray-900 mb-6">Change Password</h1>
 
@@ -146,6 +144,6 @@ export default function ChangePassword() {
           </form>
         </div>
       </div>
-    </Layout>
+    </div>
   );
 }

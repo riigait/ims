@@ -1,6 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Shield, Check, X } from 'lucide-react';
-import Layout from '@/components/layout/Layout';
+import { Check, X } from 'lucide-react';
 import { passwordRequestsApi } from '@/services/api';
 
 interface PasswordRequest {
@@ -71,12 +70,11 @@ export default function PasswordRequests() {
   };
 
   if (loading) {
-    return <Layout><div className="text-center py-8">Loading...</div></Layout>;
+    return <div className="text-center py-8">Loading...</div>;
   }
 
   return (
-    <Layout>
-      <div className="max-w-6xl mx-auto">
+    <div className="max-w-6xl mx-auto">
         <div className="flex justify-between items-center mb-6">
           <h1 className="text-3xl font-bold text-gray-900">Password Change Requests</h1>
         </div>
@@ -194,6 +192,6 @@ export default function PasswordRequests() {
           </div>
         )}
       </div>
-    </Layout>
+    </div>
   );
 }
