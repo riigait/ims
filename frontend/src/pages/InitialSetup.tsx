@@ -79,102 +79,94 @@ export default function InitialSetup() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-600 to-blue-800 flex items-center justify-center px-4">
-      <div className="w-full max-w-md">
-        <div className="bg-white rounded-lg shadow-2xl p-8">
-          <div className="flex justify-center mb-4">
-            <img src={theme === 'dark' ? '/icons/logo-img-white.svg' : '/icons/logo-img.svg'} alt="IMS" className="h-16 w-16" />
-          </div>
-          <div className="text-center mb-8">
-            <h1 className="text-3xl font-bold text-gray-800 mb-2">IMS Setup</h1>
-            <p className="text-gray-600">Complete your initial setup</p>
-          </div>
-
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div>
-              <label htmlFor="setup-name" className="block text-sm font-medium text-gray-700 mb-2">Name</label>
-              <div className="relative">
-                <User size={18} className="absolute left-3 top-3 text-gray-400" />
-                <input
-                  id="setup-name"
-                  type="text"
-                  name="name"
-                  value={form.name}
-                  onChange={handleChange}
-                  className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  placeholder="Your name"
-                />
-              </div>
-            </div>
-
-            <div>
-              <label htmlFor="setup-email" className="block text-sm font-medium text-gray-700 mb-2">Email</label>
-              <div className="relative">
-                <Mail size={18} className="absolute left-3 top-3 text-gray-400" />
-                <input
-                  id="setup-email"
-                  type="email"
-                  name="email"
-                  value={form.email}
-                  onChange={handleChange}
-                  className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  placeholder="your@email.com"
-                />
-              </div>
-            </div>
-
-            <div>
-              <label htmlFor="setup-password" className="block text-sm font-medium text-gray-700 mb-2">Password</label>
-              <div className="relative">
-                <Lock size={18} className="absolute left-3 top-3 text-gray-400" />
-                <input
-                  id="setup-password"
-                  type="password"
-                  name="password"
-                  value={form.password}
-                  onChange={handleChange}
-                  className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  placeholder="New password (min 8 characters)"
-                />
-              </div>
-            </div>
-
-            <div>
-              <label htmlFor="setup-confirm-password" className="block text-sm font-medium text-gray-700 mb-2">Confirm Password</label>
-              <div className="relative">
-                <Lock size={18} className="absolute left-3 top-3 text-gray-400" />
-                <input
-                  id="setup-confirm-password"
-                  type="password"
-                  name="confirmPassword"
-                  value={form.confirmPassword}
-                  onChange={handleChange}
-                  className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  placeholder="Confirm password"
-                />
-              </div>
-            </div>
-
-            {error && (
-              <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg">
-                {error}
-              </div>
-            )}
-
-            <button
-              type="submit"
-              disabled={loading}
-              className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white font-medium py-2 rounded-lg transition"
-            >
-              {loading ? 'Setting up...' : 'Complete Setup'}
-            </button>
-
-            <div className="text-center text-sm text-gray-600 mt-4">
-              <p>This account is the system superadmin.</p>
-              <p>Keep your credentials secure.</p>
-            </div>
-          </form>
+    <div className="min-h-screen bg-[var(--bg)] flex items-center justify-center py-12 px-4">
+      <div className="max-w-md w-full bg-[var(--surface)] rounded-lg shadow-lg p-8 border border-[var(--border)]">
+        <div className="flex justify-center mb-6">
+          <img src={theme === 'dark' ? '/icons/logo-img-white.svg' : '/icons/logo-img.svg'} alt="IMS" className="h-16 w-16" />
         </div>
+        <h1 className="text-3xl font-bold text-center text-[var(--text)] mb-2">IMS Setup</h1>
+        <p className="text-center text-[var(--text-muted)] mb-8">Complete your initial setup</p>
+
+        <form onSubmit={handleSubmit} className="space-y-6">
+          <div>
+            <label htmlFor="setup-name" className="block text-sm font-medium text-[var(--text)] mb-2">
+              Name
+            </label>
+            <input
+              id="setup-name"
+              type="text"
+              name="name"
+              value={form.name}
+              onChange={handleChange}
+              className="w-full px-4 py-2 border border-[var(--border)] rounded-lg bg-[var(--surface)] text-[var(--text)] focus:ring-2 focus:ring-[var(--primary)] focus:border-transparent"
+              placeholder="Your name"
+            />
+          </div>
+
+          <div>
+            <label htmlFor="setup-email" className="block text-sm font-medium text-[var(--text)] mb-2">
+              Email
+            </label>
+            <input
+              id="setup-email"
+              type="email"
+              name="email"
+              value={form.email}
+              onChange={handleChange}
+              className="w-full px-4 py-2 border border-[var(--border)] rounded-lg bg-[var(--surface)] text-[var(--text)] focus:ring-2 focus:ring-[var(--primary)] focus:border-transparent"
+              placeholder="your@email.com"
+            />
+          </div>
+
+          <div>
+            <label htmlFor="setup-password" className="block text-sm font-medium text-[var(--text)] mb-2">
+              Password
+            </label>
+            <input
+              id="setup-password"
+              type="password"
+              name="password"
+              value={form.password}
+              onChange={handleChange}
+              className="w-full px-4 py-2 border border-[var(--border)] rounded-lg bg-[var(--surface)] text-[var(--text)] focus:ring-2 focus:ring-[var(--primary)] focus:border-transparent"
+              placeholder="New password (min 8 characters)"
+            />
+          </div>
+
+          <div>
+            <label htmlFor="setup-confirm-password" className="block text-sm font-medium text-[var(--text)] mb-2">
+              Confirm Password
+            </label>
+            <input
+              id="setup-confirm-password"
+              type="password"
+              name="confirmPassword"
+              value={form.confirmPassword}
+              onChange={handleChange}
+              className="w-full px-4 py-2 border border-[var(--border)] rounded-lg bg-[var(--surface)] text-[var(--text)] focus:ring-2 focus:ring-[var(--primary)] focus:border-transparent"
+              placeholder="Confirm password"
+            />
+          </div>
+
+          {error && (
+            <div className="bg-red-100 dark:bg-red-950 border border-red-400 dark:border-red-700 text-red-700 dark:text-red-200 px-4 py-3 rounded">
+              {error}
+            </div>
+          )}
+
+          <button
+            type="submit"
+            disabled={loading}
+            className="w-full bg-[var(--primary)] text-white py-2 rounded-lg font-semibold hover:bg-[var(--primary-hover)] disabled:opacity-50"
+          >
+            {loading ? 'Setting up...' : 'Complete Setup'}
+          </button>
+
+          <div className="text-center text-sm text-[var(--text-muted)] mt-4">
+            <p>This account is the system superadmin.</p>
+            <p>Keep your credentials secure.</p>
+          </div>
+        </form>
       </div>
     </div>
   );
