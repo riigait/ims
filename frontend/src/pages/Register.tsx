@@ -35,11 +35,12 @@ export default function Register() {
         body: JSON.stringify({ code: inviteCode }),
       });
 
+      const data = await response.json();
+
       if (!response.ok) {
-        throw new Error('Invalid or expired invite code');
+        throw new Error(data.error || 'Invalid or expired invite code');
       }
 
-      const data = await response.json();
       setInviteRole(data.role);
       setStep('signup');
     } catch (err) {
