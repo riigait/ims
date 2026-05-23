@@ -88,8 +88,10 @@ export default function Register() {
         }),
       });
 
+      const data = await response.json();
+
       if (!response.ok) {
-        throw new Error('Failed to register. Code may be invalid or already used.');
+        throw new Error(data.error || 'Failed to register. Code may be invalid or already used.');
       }
 
       navigate('/login', { state: { message: 'Account created successfully! Please log in.' } });
