@@ -318,57 +318,57 @@ export default function AdminUsers() {
             {pendingInvites.length === 0 ? (
               <p className="text-[var(--text-muted)] py-8 text-center">No pending invites</p>
             ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead className="bg-[var(--surface-2)] border-b border-[var(--border)]">
-                    <tr>
-                      <th className="px-4 py-3 text-left font-semibold text-[var(--text)]">Code</th>
-                      <th className="px-4 py-3 text-left font-semibold text-[var(--text)]">Role</th>
-                      <th className="px-4 py-3 text-left font-semibold text-[var(--text)]">Created By</th>
-                      <th className="px-4 py-3 text-left font-semibold text-[var(--text)]">Expires</th>
-                      <th className="px-4 py-3 text-left font-semibold text-[var(--text)]">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-[var(--border)]">
-                    {paginatedPendingInvites.map(invite => (
-                      <tr key={invite.id} className="hover:bg-[var(--surface-2)] transition-colors">
-                        <td className="px-4 py-3">
-                          <code className="bg-[var(--surface-2)] px-3 py-1 rounded font-mono text-xs text-[var(--text)]">{invite.code}</code>
-                        </td>
-                        <td className="px-4 py-3">
-                          <span className={`px-2 py-1 rounded text-xs font-medium ${
-                            invite.role === 'superadmin' ? 'bg-blue-100 text-blue-700' : invite.role === 'admin' ? 'bg-green-100 text-green-700' : 'bg-purple-100 text-purple-700'
-                          }`}>
-                            {invite.role}
-                          </span>
-                        </td>
-                        <td className="px-4 py-3 text-[var(--text-muted)]">{invite.creator?.name || 'Unknown'}</td>
-                        <td className="px-4 py-3 text-[var(--text-muted)]">{new Date(invite.expiresAt).toLocaleDateString()}</td>
-                        <td className="px-4 py-3">
-                          <div className="flex gap-2">
-                            <button
-                              onClick={() => copyToClipboard(invite.code)}
-                              className="p-2 text-[var(--primary)] hover:bg-[var(--surface-2)] rounded transition"
-                              title="Copy code"
-                            >
-                              <Copy size={16} />
-                            </button>
-                            <button
-                              onClick={() => revokeInvite(invite.id)}
-                              className="p-2 text-red-600 hover:bg-red-50 rounded transition"
-                              title="Revoke"
-                            >
-                              <Trash2 size={16} />
-                            </button>
-                          </div>
-                          {copied === invite.code && <span className="text-xs text-green-600">✓ Copied</span>}
-                        </td>
+              <>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead className="bg-[var(--surface-2)] border-b border-[var(--border)]">
+                      <tr>
+                        <th className="px-4 py-3 text-left font-semibold text-[var(--text)]">Code</th>
+                        <th className="px-4 py-3 text-left font-semibold text-[var(--text)]">Role</th>
+                        <th className="px-4 py-3 text-left font-semibold text-[var(--text)]">Created By</th>
+                        <th className="px-4 py-3 text-left font-semibold text-[var(--text)]">Expires</th>
+                        <th className="px-4 py-3 text-left font-semibold text-[var(--text)]">Actions</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-              {pendingInvites.length > 0 && (
+                    </thead>
+                    <tbody className="divide-y divide-[var(--border)]">
+                      {paginatedPendingInvites.map(invite => (
+                        <tr key={invite.id} className="hover:bg-[var(--surface-2)] transition-colors">
+                          <td className="px-4 py-3">
+                            <code className="bg-[var(--surface-2)] px-3 py-1 rounded font-mono text-xs text-[var(--text)]">{invite.code}</code>
+                          </td>
+                          <td className="px-4 py-3">
+                            <span className={`px-2 py-1 rounded text-xs font-medium ${
+                              invite.role === 'superadmin' ? 'bg-blue-100 text-blue-700' : invite.role === 'admin' ? 'bg-green-100 text-green-700' : 'bg-purple-100 text-purple-700'
+                            }`}>
+                              {invite.role}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3 text-[var(--text-muted)]">{invite.creator?.name || 'Unknown'}</td>
+                          <td className="px-4 py-3 text-[var(--text-muted)]">{new Date(invite.expiresAt).toLocaleDateString()}</td>
+                          <td className="px-4 py-3">
+                            <div className="flex gap-2">
+                              <button
+                                onClick={() => copyToClipboard(invite.code)}
+                                className="p-2 text-[var(--primary)] hover:bg-[var(--surface-2)] rounded transition"
+                                title="Copy code"
+                              >
+                                <Copy size={16} />
+                              </button>
+                              <button
+                                onClick={() => revokeInvite(invite.id)}
+                                className="p-2 text-red-600 hover:bg-red-50 rounded transition"
+                                title="Revoke"
+                              >
+                                <Trash2 size={16} />
+                              </button>
+                            </div>
+                            {copied === invite.code && <span className="text-xs text-green-600">✓ Copied</span>}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
                 <Pagination
                   currentPage={currentPage}
                   totalItems={pendingInvites.length}
@@ -376,7 +376,7 @@ export default function AdminUsers() {
                   onPageChange={setCurrentPage}
                   onPageSizeChange={(size) => { setPageSize(size); setCurrentPage(1); }}
                 />
-              )}
+              </>
             )}
           </div>
         )}

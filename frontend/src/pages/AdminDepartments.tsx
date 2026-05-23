@@ -184,32 +184,32 @@ export default function AdminDepartments() {
             </button>
           </div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {paginatedDepartments.map(dept => (
-              <div
-                key={dept.id}
-                className="bg-[var(--surface)] rounded-lg shadow p-6 border-l-4 border-[var(--primary)] hover:shadow-lg transition"
-              >
-                <div className="flex items-start justify-between mb-3">
-                  <h3 className="text-lg font-semibold text-[var(--text)]">{dept.name}</h3>
-                  <button
-                    onClick={() => handleDelete(dept.id)}
-                    className="p-2 text-red-600 hover:bg-red-50 rounded transition"
-                    title="Delete department"
-                  >
-                    <Trash2 size={18} />
-                  </button>
+          <>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {paginatedDepartments.map(dept => (
+                <div
+                  key={dept.id}
+                  className="bg-[var(--surface)] rounded-lg shadow p-6 border-l-4 border-[var(--primary)] hover:shadow-lg transition"
+                >
+                  <div className="flex items-start justify-between mb-3">
+                    <h3 className="text-lg font-semibold text-[var(--text)]">{dept.name}</h3>
+                    <button
+                      onClick={() => handleDelete(dept.id)}
+                      className="p-2 text-red-600 hover:bg-red-50 rounded transition"
+                      title="Delete department"
+                    >
+                      <Trash2 size={18} />
+                    </button>
+                  </div>
+                  {dept.description && (
+                    <p className="text-[var(--text-muted)] text-sm mb-3">{dept.description}</p>
+                  )}
+                  <p className="text-xs text-[var(--text-muted)]">
+                    Created {new Date(dept.createdAt).toLocaleDateString()}
+                  </p>
                 </div>
-                {dept.description && (
-                  <p className="text-[var(--text-muted)] text-sm mb-3">{dept.description}</p>
-                )}
-                <p className="text-xs text-[var(--text-muted)]">
-                  Created {new Date(dept.createdAt).toLocaleDateString()}
-                </p>
-              </div>
-            ))}
-          </div>
-          {departments.length > 0 && (
+              ))}
+            </div>
             <Pagination
               currentPage={currentPage}
               totalItems={departments.length}
@@ -217,7 +217,7 @@ export default function AdminDepartments() {
               onPageChange={setCurrentPage}
               onPageSizeChange={(size) => { setPageSize(size); setCurrentPage(1); }}
             />
-          )}
+          </>
         )}
       </div>
       </div>
