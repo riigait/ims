@@ -2,6 +2,7 @@
 import { useNavigate } from 'react-router-dom';
 import { Plus, Trash2, Building2, ArrowLeft } from 'lucide-react';
 import { departmentsApi } from '@/services/api';
+import ConfirmDialog from '@/components/ConfirmDialog';
 
 interface Department {
   id: string;
@@ -17,6 +18,7 @@ export default function AdminDepartments() {
   const [error, setError] = useState('');
   const [showForm, setShowForm] = useState(false);
   const [newDept, setNewDept] = useState({ name: '', description: '' });
+  const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
 
   useEffect(() => {
     loadDepartments();
@@ -49,20 +51,38 @@ export default function AdminDepartments() {
     }
   };
 
-  const handleDelete = async (id: string) => {
-    if (!confirm('Are you sure you want to delete this department?')) return;
+  const handleDelete = (id: string) => {
+    setDeleteConfirm(id);
+  };
+
+  const confirmDelete = async () => {
+    if (!deleteConfirm) return;
     try {
-      await departmentsApi.delete(id);
+      await departmentsApi.delete(deleteConfirm);
       await loadDepartments();
+      setDeleteConfirm(null);
     } catch (err) {
       setError('Failed to delete department');
+      setDeleteConfirm(null);
     }
   };
 
   if (loading) return <div className="flex items-center justify-center h-screen"><div className="text-[var(--text-muted)]">Loading...</div></div>;
 
   return (
-    <div className="min-h-screen bg-[var(--bg)]">
+    <>
+      {deleteConfirm && (
+        <ConfirmDialog
+          title="Delete Department"
+          message="Are you sure you want to delete this department?"
+          confirmText="Delete"
+          cancelText="Cancel"
+          isDangerous
+          onConfirm={confirmDelete}
+          onCancel={() => setDeleteConfirm(null)}
+        />
+      )}
+      <div className="min-h-screen bg-[var(--bg)]">
       <div className="max-w-4xl mx-auto p-6 space-y-6">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-4">
@@ -186,6 +206,7 @@ export default function AdminDepartments() {
           </div>
         )}
       </div>
-    </div>
+      </div>
+    </>
   );
 }

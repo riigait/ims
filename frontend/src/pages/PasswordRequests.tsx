@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Check, X } from 'lucide-react';
 import { passwordRequestsApi } from '@/services/api';
+import ConfirmDialog from '@/components/ConfirmDialog';
 
 interface PasswordRequest {
   id: string;
@@ -21,6 +22,7 @@ export default function PasswordRequests() {
   const [approvingId, setApprovingId] = useState('');
   const [tempPassword, setTempPassword] = useState('');
   const [showPasswordForm, setShowPasswordForm] = useState<string | null>(null);
+  const [rejectConfirm, setRejectConfirm] = useState<string | null>(null);
 
   useEffect(() => {
     loadRequests();
@@ -58,14 +60,20 @@ export default function PasswordRequests() {
     }
   };
 
-  const handleReject = async (id: string) => {
-    if (!confirm('Are you sure you want to reject this password change request?')) return;
+  const handleReject = (id: string) => {
+    setRejectConfirm(id);
+  };
+
+  const confirmReject = async () => {
+    if (!rejectConfirm) return;
 
     try {
-      await passwordRequestsApi.reject(id);
+      await passwordRequestsApi.reject(rejectConfirm);
       loadRequests();
+      setRejectConfirm(null);
     } catch (err: any) {
       alert(err.response?.data?.error || 'Failed to reject request');
+      setRejectConfirm(null);
     }
   };
 
@@ -74,7 +82,19 @@ export default function PasswordRequests() {
   }
 
   return (
-    <div className="max-w-6xl mx-auto">
+    <>
+      {rejectConfirm && (
+        <ConfirmDialog
+          title="Reject Password Request"
+          message="Are you sure you want to reject this password change request?"
+          confirmText="Reject"
+          cancelText="Cancel"
+          isDangerous
+          onConfirm={confirmReject}
+          onCancel={() => setRejectConfirm(null)}
+        />
+      )}
+      <div className="max-w-6xl mx-auto">
         <div className="flex justify-between items-center mb-6">
           <h1 className="text-3xl font-bold text-gray-900">Password Change Requests</h1>
         </div>
@@ -194,5 +214,6 @@ export default function PasswordRequests() {
           </div>
         )}
       </div>
+    </>
   );
 }

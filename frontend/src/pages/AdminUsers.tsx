@@ -2,6 +2,7 @@
 import { useNavigate } from 'react-router-dom';
 import { Copy, Trash2, Shield, Users, CheckCircle, Mail, ArrowLeft, Edit } from 'lucide-react';
 import { authApi, departmentsApi } from '@/services/api';
+import ConfirmDialog from '@/components/ConfirmDialog';
 
 interface Department {
   id: string;
@@ -44,6 +45,7 @@ export default function AdminUsers() {
   const [editingUser, setEditingUser] = useState<User | null>(null);
   const [editFormData, setEditFormData] = useState({ name: '', email: '' });
   const [editError, setEditError] = useState('');
+  const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
 
   useEffect(() => {
     loadData();
@@ -156,16 +158,22 @@ export default function AdminUsers() {
     setEditError('');
   };
 
-  const deleteUser = async (id: string) => {
-    if (!confirm('Are you sure? This cannot be undone.')) return;
+  const deleteUser = (id: string) => {
+    setDeleteConfirm(id);
+  };
+
+  const confirmDeleteUser = async () => {
+    if (!deleteConfirm) return;
     try {
-      await fetch(`/api/users/${id}`, {
+      await fetch(`/api/users/${deleteConfirm}`, {
         method: 'DELETE',
         headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
       });
-      setUsers(users.filter(u => u.id !== id));
+      setUsers(users.filter(u => u.id !== deleteConfirm));
+      setDeleteConfirm(null);
     } catch (err) {
       setError('Failed to delete user');
+      setDeleteConfirm(null);
     }
   };
 
@@ -207,7 +215,19 @@ export default function AdminUsers() {
   const usedInvites = getFilteredUsedInvites();
 
   return (
-    <div className="min-h-screen bg-[var(--bg)]">
+    <>
+      {deleteConfirm && (
+        <ConfirmDialog
+          title="Delete User"
+          message="Are you sure? This cannot be undone."
+          confirmText="Delete"
+          cancelText="Cancel"
+          isDangerous
+          onConfirm={confirmDeleteUser}
+          onCancel={() => setDeleteConfirm(null)}
+        />
+      )}
+      <div className="min-h-screen bg-[var(--bg)]">
       {error && (
         <div className="bg-red-50 border-l-4 border-red-500 p-4 mb-6">
           <p className="text-red-700">{error}</p>
@@ -518,6 +538,7 @@ export default function AdminUsers() {
           </div>
         )}
       </div>
-    </div>
+      </div>
+    </>
   );
 }

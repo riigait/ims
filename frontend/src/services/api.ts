@@ -88,6 +88,8 @@ export const stockMovementsApi = {
   getAll: (params?: any) => api.get('/stock-movements', { params }),
   getById: (id: string) => api.get(`/stock-movements/${id}`),
   create: (data: any) => api.post('/stock-movements', data),
+  update: (id: string, data: any) => api.put(`/stock-movements/${id}`, data),
+  delete: (id: string) => api.delete(`/stock-movements/${id}`),
 };
 
 // Floor Plans

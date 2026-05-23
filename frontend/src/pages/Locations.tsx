@@ -3,6 +3,7 @@ import { Edit, Trash2 } from 'lucide-react';
 import { locationsApi, departmentsApi } from '@/services/api';
 import { Location } from '@/types/inventory';
 import DataPageLayout from '@/components/layout/DataPageLayout';
+import ConfirmDialog from '@/components/ConfirmDialog';
 import { ALL_DEPARTMENTS_ID } from '@/constants/app';
 
 interface Department {
@@ -26,6 +27,7 @@ export default function Locations() {
   });
   const [wasInAllDepartmentsMode, setWasInAllDepartmentsMode] = useState(false);
   const [error, setError] = useState('');
+  const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
 
   const fetchLocations = async () => {
     try {
@@ -93,14 +95,20 @@ export default function Locations() {
     setShowForm(true);
   };
 
-  const handleDelete = async (id: string) => {
-    if (!confirm('Are you sure? This will delete all sub-locations.')) return;
+  const handleDelete = (id: string) => {
+    setDeleteConfirm(id);
+  };
+
+  const confirmDelete = async () => {
+    if (!deleteConfirm) return;
     try {
-      await locationsApi.delete(id);
+      await locationsApi.delete(deleteConfirm);
       await fetchLocations();
+      setDeleteConfirm(null);
     } catch (error) {
       console.error('Failed to delete location:', error);
       setError('Failed to delete location');
+      setDeleteConfirm(null);
     }
   };
 
@@ -301,14 +309,26 @@ export default function Locations() {
   );
 
   return (
-    <DataPageLayout
-      title="Locations"
-      error={error}
-      showForm={showForm}
-      onAddClick={() => setShowForm(true)}
-      showAddButton={user.role === 'admin' && localStorage.getItem('currentDepartmentId') !== ALL_DEPARTMENTS_ID}
-      formContent={formContent}
-      filterContent={filterContent}>
+    <>
+      {deleteConfirm && (
+        <ConfirmDialog
+          title="Delete Location"
+          message="Are you sure? This will delete all sub-locations."
+          confirmText="Delete"
+          cancelText="Cancel"
+          isDangerous
+          onConfirm={confirmDelete}
+          onCancel={() => setDeleteConfirm(null)}
+        />
+      )}
+      <DataPageLayout
+        title="Locations"
+        error={error}
+        showForm={showForm}
+        onAddClick={() => setShowForm(true)}
+        showAddButton={user.role === 'admin' && localStorage.getItem('currentDepartmentId') !== ALL_DEPARTMENTS_ID}
+        formContent={formContent}
+        filterContent={filterContent}>
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead className="bg-[var(--surface-2)] border-b border-[var(--border)]">
@@ -363,6 +383,7 @@ export default function Locations() {
           </tbody>
         </table>
       </div>
-    </DataPageLayout>
+      </DataPageLayout>
+    </>
   );
 }

@@ -108,23 +108,45 @@ export default function Sidebar() {
       {(user.role === 'admin' || user.role === 'staff') && (
         <div className="p-4 border-t border-[var(--border)]">
           <div className="relative">
-            <button
-              onClick={() => setDeptDropdownOpen(!deptDropdownOpen)}
-              className="w-full flex items-center justify-between px-3 py-2 rounded-lg bg-[var(--surface-2)] text-[var(--text)] text-sm hover:bg-[var(--border)] transition-colors"
-            >
-              <span className="font-medium text-xs">DEPARTMENT</span>
-              <ChevronDown size={16} className={`transition-transform ${deptDropdownOpen ? 'rotate-180' : ''}`} />
-            </button>
-            {deptDropdownOpen && (
-              <div className="absolute bottom-full left-0 right-0 mb-2 bg-[var(--surface)] border border-[var(--border)] rounded-lg shadow-lg z-50">
-                <button
-                  onClick={() => handleDepartmentChange(ALL_DEPARTMENTS_ID)}
-                  className={`w-full text-left px-3 py-2 text-sm ${currentDeptId === ALL_DEPARTMENTS_ID ? 'bg-[var(--primary)] text-white' : 'text-[var(--text)] hover:bg-[var(--surface-2)]'}`}
-                >
-                  All Departments
-                </button>
-              </div>
-            )}
+            {(() => {
+              const userDepts = user.role === 'admin' ? user.adminDepartments : user.staffDepartments;
+              const hasDepts = userDepts && userDepts.length > 0;
+              const currentDeptName = currentDeptId === ALL_DEPARTMENTS_ID
+                ? 'All Departments'
+                : userDepts?.find((d: any) => d.departmentId === currentDeptId)?.department.name || 'Select';
+
+              return (
+                <>
+                  <button
+                    onClick={() => setDeptDropdownOpen(!deptDropdownOpen)}
+                    className="w-full flex items-center justify-between px-3 py-2 rounded-lg bg-[var(--surface-2)] text-[var(--text)] text-sm hover:bg-[var(--border)] transition-colors"
+                  >
+                    <span className="font-medium text-xs truncate">{hasDepts ? currentDeptName : 'DEPARTMENT'}</span>
+                    {hasDepts && <ChevronDown size={16} className={`transition-transform flex-shrink-0 ${deptDropdownOpen ? 'rotate-180' : ''}`} />}
+                  </button>
+                  {deptDropdownOpen && hasDepts && (
+                    <div className="absolute bottom-full left-0 right-0 mb-2 bg-[var(--surface)] border border-[var(--border)] rounded-lg shadow-lg z-50 max-h-64 overflow-y-auto">
+                      <button
+                        onClick={() => handleDepartmentChange(ALL_DEPARTMENTS_ID)}
+                        className={`w-full text-left px-3 py-2 text-sm ${currentDeptId === ALL_DEPARTMENTS_ID ? 'bg-[var(--primary)] text-white' : 'text-[var(--text)] hover:bg-[var(--surface-2)]'}`}
+                      >
+                        All Departments
+                      </button>
+                      {userDepts && userDepts.length > 1 && <div className="border-t border-[var(--border)]" />}
+                      {userDepts && userDepts.map((ad: any) => (
+                        <button
+                          key={ad.departmentId}
+                          onClick={() => handleDepartmentChange(ad.departmentId)}
+                          className={`w-full text-left px-3 py-2 text-sm ${ad.departmentId === currentDeptId ? 'bg-[var(--primary)] text-white' : 'text-[var(--text)] hover:bg-[var(--surface-2)]'}`}
+                        >
+                          {ad.department.name}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </>
+              );
+            })()}
           </div>
         </div>
       )}

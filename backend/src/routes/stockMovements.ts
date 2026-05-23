@@ -153,4 +153,145 @@ router.post('/', async (req: AuthRequest, res: Response) => {
   }
 });
 
+// Update stock movement
+router.put('/:id', async (req: AuthRequest, res: Response) => {
+  try {
+    const { productId, movementType, quantity, reason, locationId } = req.body;
+    const movementId = req.params.id;
+
+    if (!productId || !movementType || quantity === undefined || quantity === null) {
+      return res.status(400).json({ error: 'productId, movementType, and quantity are required' });
+    }
+
+    if (!VALID_MOVEMENT_TYPES.includes(movementType as MovementType)) {
+      return res.status(400).json({
+        error: `movementType must be one of: ${VALID_MOVEMENT_TYPES.join(', ')}`,
+      });
+    }
+
+    const qty = Number(quantity);
+    if (!Number.isInteger(qty) || qty <= 0) {
+      return res.status(400).json({ error: 'quantity must be a positive integer' });
+    }
+
+    const oldMovement = await prisma.stockMovement.findUnique({
+      where: { id: movementId },
+      include: { product: true },
+    });
+
+    if (!oldMovement) return res.status(404).json({ error: 'Stock movement not found' });
+
+    if (req.departmentId && oldMovement.departmentId !== req.departmentId && oldMovement.departmentId !== null) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    const type = movementType as MovementType;
+    const userRole = req.userRole ?? 'staff';
+
+    const result = await prisma.$transaction(async (tx) => {
+      const product = await tx.product.findUnique({ where: { id: productId } });
+      if (!product) throw Object.assign(new Error('Product not found'), { status: 404 });
+
+      const oldDelta = stockDelta(oldMovement.movementType as MovementType, oldMovement.quantity);
+      const newDelta = stockDelta(type, qty);
+      const stockAdjustment = newDelta - oldDelta;
+
+      if (DEDUCTING_TYPES.includes(type) && product.currentStock + stockAdjustment < 0) {
+        if (userRole !== 'admin') {
+          throw Object.assign(
+            new Error(`Insufficient stock. Available: ${product.currentStock + stockAdjustment}`),
+            { status: 400 }
+          );
+        }
+      }
+
+      const newStock = product.currentStock + stockAdjustment;
+      const finalStock = userRole === 'admin' && DEDUCTING_TYPES.includes(type)
+        ? newStock
+        : Math.max(0, newStock);
+
+      const updated = await tx.stockMovement.update({
+        where: { id: movementId },
+        data: {
+          productId,
+          movementType: type,
+          quantity: qty,
+          reason: reason ?? null,
+          locationId: locationId || null,
+        },
+        include: { product: true },
+      });
+
+      await tx.product.update({
+        where: { id: productId },
+        data: { currentStock: finalStock },
+      });
+
+      return updated;
+    });
+
+    await logAudit({
+      userId: req.userId!,
+      action: 'UPDATE',
+      entityType: 'stock_movement',
+      entityId: movementId,
+      changes: { productId, movementType: type, quantity: qty, reason },
+    });
+
+    res.json(result);
+  } catch (error: any) {
+    if (error?.status) {
+      return res.status(error.status).json({ error: error.message });
+    }
+    console.error(error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Delete stock movement
+router.delete('/:id', async (req: AuthRequest, res: Response) => {
+  try {
+    const movement = await prisma.stockMovement.findUnique({
+      where: { id: req.params.id },
+      include: { product: true },
+    });
+
+    if (!movement) return res.status(404).json({ error: 'Stock movement not found' });
+
+    if (req.departmentId && movement.departmentId !== req.departmentId && movement.departmentId !== null) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    await prisma.$transaction(async (tx) => {
+      const delta = stockDelta(movement.movementType as MovementType, movement.quantity);
+      const newStock = Math.max(0, movement.product.currentStock - delta);
+
+      await tx.product.update({
+        where: { id: movement.productId },
+        data: { currentStock: newStock },
+      });
+
+      await tx.stockMovement.delete({
+        where: { id: req.params.id },
+      });
+    });
+
+    await logAudit({
+      userId: req.userId!,
+      action: 'DELETE',
+      entityType: 'stock_movement',
+      entityId: req.params.id,
+      changes: { reason: 'Stock movement deleted' },
+    });
+
+    res.json({ message: 'Stock movement deleted successfully' });
+  } catch (error: any) {
+    if (error?.status) {
+      return res.status(error.status).json({ error: error.message });
+    }
+    console.error(error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 export default router;

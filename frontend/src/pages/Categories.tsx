@@ -5,6 +5,7 @@ import { Category } from '@/types/inventory';
 import { CategoryFilter } from '@/types/filters';
 import { filterCategories } from '@/utils/filterHelpers';
 import DataPageLayout from '@/components/layout/DataPageLayout';
+import ConfirmDialog from '@/components/ConfirmDialog';
 import { ALL_DEPARTMENTS_ID } from '@/constants/app';
 
 interface Department {
@@ -27,6 +28,7 @@ export default function Categories() {
   const [formData, setFormData] = useState({ name: '', description: '' });
   const [wasInAllDepartmentsMode, setWasInAllDepartmentsMode] = useState(false);
   const [error, setError] = useState('');
+  const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
 
   const fetchCategories = async () => {
     try {
@@ -95,14 +97,20 @@ export default function Categories() {
     setShowForm(true);
   };
 
-  const handleDelete = async (id: string) => {
-    if (!confirm('Are you sure you want to delete this category?')) return;
+  const handleDelete = (id: string) => {
+    setDeleteConfirm(id);
+  };
+
+  const confirmDelete = async () => {
+    if (!deleteConfirm) return;
     try {
-      await categoriesApi.delete(id);
+      await categoriesApi.delete(deleteConfirm);
       await fetchCategories();
+      setDeleteConfirm(null);
     } catch (error) {
       console.error('Failed to delete category:', error);
-      alert('Failed to delete category');
+      setError('Failed to delete category');
+      setDeleteConfirm(null);
     }
   };
 
@@ -219,14 +227,26 @@ export default function Categories() {
   );
 
   return (
-    <DataPageLayout
-      title="Categories"
-      error={error}
-      showForm={showForm}
-      onAddClick={() => setShowForm(true)}
-      showAddButton={user.role === 'admin' && localStorage.getItem('currentDepartmentId') !== ALL_DEPARTMENTS_ID}
-      formContent={formContent}
-      filterContent={filterContent}>
+    <>
+      {deleteConfirm && (
+        <ConfirmDialog
+          title="Delete Category"
+          message="Are you sure you want to delete this category?"
+          confirmText="Delete"
+          cancelText="Cancel"
+          isDangerous
+          onConfirm={confirmDelete}
+          onCancel={() => setDeleteConfirm(null)}
+        />
+      )}
+      <DataPageLayout
+        title="Categories"
+        error={error}
+        showForm={showForm}
+        onAddClick={() => setShowForm(true)}
+        showAddButton={user.role === 'admin' && localStorage.getItem('currentDepartmentId') !== ALL_DEPARTMENTS_ID}
+        formContent={formContent}
+        filterContent={filterContent}>
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead className="bg-[var(--surface-2)] border-b border-[var(--border)]">
@@ -279,6 +299,7 @@ export default function Categories() {
           </tbody>
         </table>
       </div>
-    </DataPageLayout>
+      </DataPageLayout>
+    </>
   );
 }

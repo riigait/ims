@@ -5,7 +5,9 @@ import { StockMovementFilter } from '@/types/filters';
 import { formatDate } from '@/utils/ids';
 import { filterStockMovements, sortStockMovements } from '@/utils/filterHelpers';
 import DataPageLayout from '@/components/layout/DataPageLayout';
+import ConfirmDialog from '@/components/ConfirmDialog';
 import { ALL_DEPARTMENTS_ID } from '@/constants/app';
+import { Edit, Trash2 } from 'lucide-react';
 
 interface Department {
   id: string;
@@ -43,11 +45,13 @@ export default function StockMovements() {
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [formData, setFormData] = useState(emptyForm);
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [filters, setFilters] = useState<StockMovementFilter & { departmentId?: string }>({
     search: '', movementType: undefined, dateRange: 'all', departmentId: undefined,
   });
   const [sortBy, setSortBy] = useState('recently-added');
   const [error, setError] = useState('');
+  const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
 
   const fetchData = async () => {
     try {
@@ -81,15 +85,57 @@ export default function StockMovements() {
       return;
     }
     try {
-      await stockMovementsApi.create(formData);
+      if (editingId) {
+        await stockMovementsApi.update(editingId, formData);
+      } else {
+        await stockMovementsApi.create(formData);
+      }
       await fetchData();
       setShowForm(false);
       setFormData(emptyForm);
+      setEditingId(null);
       setError('');
     } catch (error: any) {
-      const msg = error?.response?.data?.error ?? 'Failed to create stock movement';
+      const msg = error?.response?.data?.error ?? (editingId ? 'Failed to update stock movement' : 'Failed to create stock movement');
       setError(msg);
     }
+  };
+
+  const handleEdit = (movement: StockMovement) => {
+    setFormData({
+      productId: movement.productId,
+      movementType: movement.movementType,
+      quantity: movement.quantity,
+      reason: movement.reason || '',
+      locationId: movement.locationId || '',
+    });
+    setEditingId(movement.id);
+    setShowForm(true);
+    setError('');
+  };
+
+  const handleDelete = async (id: string) => {
+    setDeleteConfirm(id);
+  };
+
+  const confirmDelete = async () => {
+    if (!deleteConfirm) return;
+    try {
+      await stockMovementsApi.delete(deleteConfirm);
+      await fetchData();
+      setDeleteConfirm(null);
+      setError('');
+    } catch (error: any) {
+      const msg = error?.response?.data?.error ?? 'Failed to delete stock movement';
+      setError(msg);
+      setDeleteConfirm(null);
+    }
+  };
+
+  const handleCloseForm = () => {
+    setShowForm(false);
+    setFormData(emptyForm);
+    setEditingId(null);
   };
 
   const getProductName = (productId: string) => products.find(p => p.id === productId)?.name ?? 'Unknown';
@@ -113,7 +159,7 @@ export default function StockMovements() {
 
   const formContent = (
     <>
-      <h2 className="text-xl font-semibold mb-4 text-[var(--text)]">Record Stock Movement</h2>
+      <h2 className="text-xl font-semibold mb-4 text-[var(--text)]">{editingId ? 'Edit Stock Movement' : 'Record Stock Movement'}</h2>
       <form onSubmit={handleSubmit} className="space-y-4">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
@@ -164,9 +210,9 @@ export default function StockMovements() {
         </div>
         <div className="flex gap-2">
           <button type="submit" className="px-4 py-2 bg-[var(--primary)] text-white rounded-lg hover:bg-[var(--primary-hover)]">
-            Record Movement
+            {editingId ? 'Update Movement' : 'Record Movement'}
           </button>
-          <button type="button" onClick={() => setShowForm(false)}
+          <button type="button" onClick={handleCloseForm}
             className="px-4 py-2 bg-[var(--surface-2)] text-[var(--text)] rounded-lg hover:bg-[var(--border)]">
             Cancel
           </button>
@@ -217,14 +263,27 @@ export default function StockMovements() {
   );
 
   return (
-    <DataPageLayout
-      title="Stock Movements"
-      error={error}
-      showForm={showForm}
-      onAddClick={() => setShowForm(true)}
-      showAddButton={user.role === 'admin' && localStorage.getItem('currentDepartmentId') !== ALL_DEPARTMENTS_ID}
-      formContent={formContent}
-      filterContent={filterContent}>
+    <>
+      {deleteConfirm && (
+        <ConfirmDialog
+          title="Delete Stock Movement"
+          message="Are you sure you want to delete this stock movement? This will adjust the product stock accordingly."
+          confirmText="Delete"
+          cancelText="Cancel"
+          isDangerous
+          onConfirm={confirmDelete}
+          onCancel={() => setDeleteConfirm(null)}
+        />
+      )}
+      <DataPageLayout
+        title="Stock Movements"
+        error={error}
+        showForm={showForm}
+        onAddClick={() => { setFormData(emptyForm); setEditingId(null); setShowForm(true); }}
+        onCloseForm={handleCloseForm}
+        showAddButton={user.role === 'admin' && localStorage.getItem('currentDepartmentId') !== ALL_DEPARTMENTS_ID}
+        formContent={formContent}
+        filterContent={filterContent}>
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead className="bg-[var(--surface-2)] border-b border-[var(--border)]">
@@ -236,12 +295,13 @@ export default function StockMovements() {
               <th className="px-4 py-2 text-left text-[var(--text)] font-semibold">Location</th>
               {user.role === 'superadmin' && <th className="px-4 py-2 text-left text-[var(--text)] font-semibold">Department</th>}
               <th className="px-4 py-2 text-left text-[var(--text)] font-semibold">Date</th>
+              {(user.role === 'superadmin' || user.role === 'admin') && <th className="px-4 py-2 text-center text-[var(--text)] font-semibold">Actions</th>}
             </tr>
           </thead>
           <tbody className="divide-y divide-[var(--border)]">
             {filteredAndSortedMovements.length === 0 ? (
               <tr>
-                <td colSpan={user.role === 'superadmin' ? 7 : 6} className="px-4 py-8 text-center text-[var(--text-muted)]">
+                <td colSpan={user.role === 'superadmin' ? 8 : user.role === 'admin' ? 7 : 6} className="px-4 py-8 text-center text-[var(--text-muted)]">
                   {movements.length === 0 ? 'No movements recorded yet.' : 'No movements match your filters.'}
                 </td>
               </tr>
@@ -262,11 +322,34 @@ export default function StockMovements() {
                   </td>
                 )}
                 <td className="px-4 py-2 text-[var(--text-muted)]">{formatDate(movement.createdAt)}</td>
+                {(user.role === 'superadmin' || user.role === 'admin') && (
+                  <td className="px-4 py-2 text-center">
+                    <div className="flex gap-2 justify-center">
+                      <button
+                        onClick={() => handleEdit(movement)}
+                        className="p-1 text-blue-600 hover:bg-blue-50 rounded transition"
+                        title="Edit movement"
+                        aria-label="Edit movement"
+                      >
+                        <Edit size={16} />
+                      </button>
+                      <button
+                        onClick={() => handleDelete(movement.id)}
+                        className="p-1 text-red-600 hover:bg-red-50 rounded transition"
+                        title="Delete movement"
+                        aria-label="Delete movement"
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    </div>
+                  </td>
+                )}
               </tr>
             ))}
           </tbody>
         </table>
       </div>
-    </DataPageLayout>
+      </DataPageLayout>
+    </>
   );
 }

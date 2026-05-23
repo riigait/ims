@@ -4,6 +4,7 @@ import { Plus, Trash2, MapPin, LayoutGrid, List, Edit } from 'lucide-react';
 import { floorPlansApi, departmentsApi } from '@/services/api';
 import { FloorPlan } from '@/types/floorplan';
 import FloorPlanThumbnail from '@/components/floorplan/FloorPlanThumbnail';
+import ConfirmDialog from '@/components/ConfirmDialog';
 
 interface Department {
   id: string;
@@ -25,6 +26,7 @@ export default function FloorPlans() {
   const [departmentFilter, setDepartmentFilter] = useState('');
   const [sortBy, setSortBy] = useState('recently-added');
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
+  const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
 
   const fetchFloorPlans = async () => {
     try {
@@ -80,15 +82,20 @@ export default function FloorPlans() {
     }
   };
 
-  const handleDelete = async (id: string, e: React.MouseEvent) => {
+  const handleDelete = (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    if (!confirm('Delete this floor plan?')) return;
+    setDeleteConfirm(id);
+  };
+
+  const confirmDelete = async () => {
+    if (!deleteConfirm) return;
     try {
-      await floorPlansApi.delete(id);
+      await floorPlansApi.delete(deleteConfirm);
       await fetchFloorPlans();
+      setDeleteConfirm(null);
     } catch (error) {
       console.error('Failed to delete floor plan:', error);
-      alert('Failed to delete floor plan');
+      setDeleteConfirm(null);
     }
   };
 
@@ -114,7 +121,19 @@ export default function FloorPlans() {
   if (loading) return <div className="text-center py-12 text-[var(--text-muted)]">Loading...</div>;
 
   return (
-    <div className="space-y-6">
+    <>
+      {deleteConfirm && (
+        <ConfirmDialog
+          title="Delete Floor Plan"
+          message="Delete this floor plan?"
+          confirmText="Delete"
+          cancelText="Cancel"
+          isDangerous
+          onConfirm={confirmDelete}
+          onCancel={() => setDeleteConfirm(null)}
+        />
+      )}
+      <div className="space-y-6">
       <div className="flex justify-between items-center">
         <div>
           <h1 className="text-3xl font-bold text-[var(--text)]">Floor Plans</h1>
@@ -373,6 +392,7 @@ export default function FloorPlans() {
           )}
         </div>
       )}
-    </div>
+      </div>
+    </>
   );
 }

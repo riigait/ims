@@ -2,6 +2,7 @@
 import { useNavigate } from 'react-router-dom';
 import { Check, X, Clock, CheckCircle, AlertCircle, Trash2, ArrowLeft } from 'lucide-react';
 import { deleteRequestsApi } from '@/services/api';
+import ConfirmDialog from '@/components/ConfirmDialog';
 
 interface DeleteRequest {
   id: string;
@@ -23,6 +24,7 @@ export default function DeleteRequests() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [filter, setFilter] = useState<'pending' | 'all'>('pending');
+  const [approveConfirm, setApproveConfirm] = useState<string | null>(null);
 
   useEffect(() => {
     loadRequests();
@@ -40,13 +42,19 @@ export default function DeleteRequests() {
     }
   };
 
-  const handleApprove = async (id: string) => {
-    if (!confirm('Approve this deletion?')) return;
+  const handleApprove = (id: string) => {
+    setApproveConfirm(id);
+  };
+
+  const confirmApprove = async () => {
+    if (!approveConfirm) return;
     try {
-      await deleteRequestsApi.approve(id);
+      await deleteRequestsApi.approve(approveConfirm);
       await loadRequests();
+      setApproveConfirm(null);
     } catch (err) {
       setError('Failed to approve request');
+      setApproveConfirm(null);
     }
   };
 
@@ -72,7 +80,19 @@ export default function DeleteRequests() {
   const rejectedCount = requests.filter(r => r.status === 'rejected').length;
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <>
+      {approveConfirm && (
+        <ConfirmDialog
+          title="Approve Delete Request"
+          message="Are you sure you want to approve this deletion request?"
+          confirmText="Approve"
+          cancelText="Cancel"
+          isDangerous
+          onConfirm={confirmApprove}
+          onCancel={() => setApproveConfirm(null)}
+        />
+      )}
+      <div className="min-h-screen bg-gray-50">
       <div className="max-w-5xl mx-auto p-6 space-y-6">
         <div className="flex items-center gap-4">
           <button
@@ -248,6 +268,7 @@ export default function DeleteRequests() {
           </div>
         )}
       </div>
-    </div>
+      </div>
+    </>
   );
 }

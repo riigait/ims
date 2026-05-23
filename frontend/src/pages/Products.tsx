@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Edit, Trash2 } from 'lucide-react';
 import { productsApi, categoriesApi, locationsApi, deleteRequestsApi, departmentsApi } from '@/services/api';
+import ConfirmDialog from '@/components/ConfirmDialog';
 import { Product, Category, Location } from '@/types/inventory';
 import { ProductFilter, ProductSort } from '@/types/filters';
 import { validateProductName, validateSKU, validateStock } from '@/utils/validation';
@@ -31,6 +32,7 @@ export default function Products() {
   const [formData, setFormData] = useState(emptyForm);
   const [error, setError] = useState('');
   const [wasInAllDepartmentsMode, setWasInAllDepartmentsMode] = useState(false);
+  const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
 
   const fetchData = async () => {
     try {
@@ -103,14 +105,20 @@ export default function Products() {
     setShowForm(true);
   };
 
-  const handleDelete = async (id: string) => {
-    if (!confirm('Are you sure you want to delete this product?')) return;
+  const handleDelete = (id: string) => {
+    setDeleteConfirm(id);
+  };
+
+  const confirmDelete = async () => {
+    if (!deleteConfirm) return;
     try {
-      await productsApi.delete(id);
+      await productsApi.delete(deleteConfirm);
       await fetchData();
+      setDeleteConfirm(null);
     } catch (error) {
       console.error('Failed to delete product:', error);
       setError('Failed to delete product');
+      setDeleteConfirm(null);
     }
   };
 
@@ -347,14 +355,26 @@ export default function Products() {
   );
 
   return (
-    <DataPageLayout
-      title="Products"
-      error={error}
-      showForm={showForm}
-      onAddClick={() => setShowForm(true)}
-      showAddButton={user.role !== 'superadmin' && localStorage.getItem('currentDepartmentId') !== ALL_DEPARTMENTS_ID}
-      formContent={formContent}
-      filterContent={filterContent}>
+    <>
+      {deleteConfirm && (
+        <ConfirmDialog
+          title="Delete Product"
+          message="Are you sure you want to delete this product?"
+          confirmText="Delete"
+          cancelText="Cancel"
+          isDangerous
+          onConfirm={confirmDelete}
+          onCancel={() => setDeleteConfirm(null)}
+        />
+      )}
+      <DataPageLayout
+        title="Products"
+        error={error}
+        showForm={showForm}
+        onAddClick={() => setShowForm(true)}
+        showAddButton={user.role !== 'superadmin' && localStorage.getItem('currentDepartmentId') !== ALL_DEPARTMENTS_ID}
+        formContent={formContent}
+        filterContent={filterContent}>
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead className="bg-[var(--surface-2)] border-b border-[var(--border)]">
@@ -424,6 +444,7 @@ export default function Products() {
           </tbody>
         </table>
       </div>
-    </DataPageLayout>
+      </DataPageLayout>
+    </>
   );
 }
