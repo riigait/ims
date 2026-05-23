@@ -50,6 +50,14 @@ router.post('/register', async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Missing required fields' });
     }
 
+    // Validate password: 8+ chars with uppercase, lowercase, and number
+    const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)[a-zA-Z\d@$!%*?&]{8,}$/;
+    if (!passwordRegex.test(password)) {
+      return res.status(400).json({
+        error: 'Password must be at least 8 characters with uppercase, lowercase, and number'
+      });
+    }
+
     const existing = await prisma.user.findUnique({ where: { email } });
     if (existing) return res.status(400).json({ error: 'User already exists' });
 
@@ -183,8 +191,12 @@ router.post('/change-password', authMiddleware, async (req: AuthRequest, res: Re
       return res.status(400).json({ error: 'Missing required fields' });
     }
 
-    if (newPassword.length < 8) {
-      return res.status(400).json({ error: 'New password must be at least 8 characters' });
+    // Validate password: 8+ chars with uppercase, lowercase, and number
+    const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)[a-zA-Z\d@$!%*?&]{8,}$/;
+    if (!passwordRegex.test(newPassword)) {
+      return res.status(400).json({
+        error: 'Password must be at least 8 characters with uppercase, lowercase, and number'
+      });
     }
 
     const user = await prisma.user.findUnique({ where: { id: req.userId } });

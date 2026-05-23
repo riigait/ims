@@ -27,7 +27,7 @@ app.use(express.json());
 
 // Routes
 app.use('/api/auth', authRoutes);
-app.use('/api/invites', invitesRoutes);
+app.use('/api/invites', authMiddleware, invitesRoutes);
 
 // Protected routes
 app.use('/api/products', authMiddleware, productsRoutes);
@@ -35,14 +35,14 @@ app.use('/api/categories', authMiddleware, categoriesRoutes);
 app.use('/api/locations', authMiddleware, locationsRoutes);
 app.use('/api/stock-movements', authMiddleware, stockMovementsRoutes);
 app.use('/api/floor-plans', authMiddleware, floorPlansRoutes);
-app.use('/api/dashboard', dashboardRoutes);
+app.use('/api/dashboard', authMiddleware, dashboardRoutes);
 app.use('/api/audit-logs', authMiddleware, auditLogsRoutes);
 app.use('/api/users', authMiddleware, usersRoutes);
-app.use('/api/departments', departmentsRoutes);
-app.use('/api/delete-requests', deleteRequestsRoutes);
-app.use('/api/admin-departments', adminDepartmentsRoutes);
-app.use('/api/staff-departments', staffDepartmentsRoutes);
-app.use('/api/password-requests', passwordRequestsRoutes);
+app.use('/api/departments', authMiddleware, departmentsRoutes);
+app.use('/api/delete-requests', authMiddleware, deleteRequestsRoutes);
+app.use('/api/admin-departments', authMiddleware, adminDepartmentsRoutes);
+app.use('/api/staff-departments', authMiddleware, staffDepartmentsRoutes);
+app.use('/api/password-requests', authMiddleware, passwordRequestsRoutes);
 
 // Health check
 app.get('/api/health', (req, res) => {

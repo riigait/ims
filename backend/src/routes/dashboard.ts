@@ -30,24 +30,21 @@ router.get('/stats', authMiddleware, async (req: AuthRequest, res: Response) => 
     }
     // For superadmin or admin/staff with "all-departments": no filter, show all
 
-    const [totalProducts, totalStock, lowStockCount, totalLocations, totalFloorPlans] =
+    const [totalProducts, totalStock, totalLocations, totalFloorPlans, lowStockProducts] =
       await Promise.all([
         prisma.product.count({ where: departmentFilter }),
         prisma.product.aggregate({
           _sum: { currentStock: true },
           where: departmentFilter,
         }),
-        prisma.product.count({
-          where: departmentFilter,
-        }),
         prisma.location.count({ where: departmentFilter }),
         prisma.floorPlan.count({ where: departmentFilter }),
+        prisma.product.findMany({
+          where: departmentFilter,
+          select: { currentStock: true, lowStockThreshold: true },
+        }),
       ]);
 
-    // Count low stock items manually
-    const lowStockProducts = await prisma.product.findMany({
-      where: departmentFilter,
-    });
     const lowStockItems = lowStockProducts.filter(
       (p) => p.currentStock <= p.lowStockThreshold
     ).length;

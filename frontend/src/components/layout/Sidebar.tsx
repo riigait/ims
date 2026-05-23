@@ -14,10 +14,12 @@ export default function Sidebar() {
   const isActive = (path: string) => location.pathname === path;
 
   const handleDepartmentChange = (deptId: string) => {
-    localStorage.setItem('currentDepartmentId', deptId);
-    setCurrentDeptId(deptId);
-    setDeptDropdownOpen(false);
-    window.location.reload();
+    if (window.confirm('Are you sure? Any unsaved changes will be lost.')) {
+      localStorage.setItem('currentDepartmentId', deptId);
+      setCurrentDeptId(deptId);
+      setDeptDropdownOpen(false);
+      window.location.reload();
+    }
   };
 
   const handleLogout = () => {

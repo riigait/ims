@@ -111,8 +111,12 @@ router.post('/redeem', async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Missing required fields' });
     }
 
-    if (password.length < 6) {
-      return res.status(400).json({ error: 'Password must be at least 6 characters' });
+    // Validate password: 8+ chars with uppercase, lowercase, and number
+    const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)[a-zA-Z\d@$!%*?&]{8,}$/;
+    if (!passwordRegex.test(password)) {
+      return res.status(400).json({
+        error: 'Password must be at least 8 characters with uppercase, lowercase, and number'
+      });
     }
 
     // Validate and check invite
