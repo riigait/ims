@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useLocation } from 'react-router-dom';
 import { Building2, ChevronDown } from 'lucide-react';
+import { ALL_DEPARTMENTS_ID } from '@/constants/app';
 
 interface Department {
   id: string;
@@ -11,8 +12,6 @@ interface AdminDepartment {
   departmentId: string;
   department: Department;
 }
-
-const ALL_DEPARTMENTS_ID = 'all-departments';
 
 interface DepartmentSwitcherProps {
   isOpen: boolean;

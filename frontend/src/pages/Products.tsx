@@ -8,6 +8,7 @@ import { validateProductName, validateSKU, validateStock } from '@/utils/validat
 import { generateSKU } from '@/utils/ids';
 import { filterAndSortProducts, clearProductFilters } from '@/utils/filterHelpers';
 import DataPageLayout from '@/components/layout/DataPageLayout';
+import { ALL_DEPARTMENTS_ID } from '@/constants/app';
 
 const emptyForm = {
   sku: '', name: '', description: '', categoryId: '', locationId: '', unit: 'pcs', currentStock: 0, lowStockThreshold: 10,
@@ -75,7 +76,7 @@ export default function Products() {
       setFormData(emptyForm);
       setError('');
       if (wasInAllDepartmentsMode) {
-        localStorage.setItem('currentDepartmentId', 'all-departments');
+        localStorage.setItem('currentDepartmentId', ALL_DEPARTMENTS_ID);
         window.location.reload();
       }
     } catch (error: any) {
@@ -87,7 +88,7 @@ export default function Products() {
 
   const handleEdit = (product: Product) => {
     const currentDeptId = localStorage.getItem('currentDepartmentId');
-    const isInAllDepartmentsMode = currentDeptId === 'all-departments';
+    const isInAllDepartmentsMode = currentDeptId === ALL_DEPARTMENTS_ID;
     if (isInAllDepartmentsMode && product.departmentId) {
       setWasInAllDepartmentsMode(true);
       localStorage.setItem('currentDepartmentId', product.departmentId);
@@ -351,7 +352,7 @@ export default function Products() {
       error={error}
       showForm={showForm}
       onAddClick={() => setShowForm(true)}
-      showAddButton={user.role !== 'superadmin' && localStorage.getItem('currentDepartmentId') !== 'all-departments'}
+      showAddButton={user.role !== 'superadmin' && localStorage.getItem('currentDepartmentId') !== ALL_DEPARTMENTS_ID}
       formContent={formContent}
       filterContent={filterContent}>
       <div className="overflow-x-auto">

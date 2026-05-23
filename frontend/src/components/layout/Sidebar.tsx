@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { LayoutDashboard, Package, Tag, MapPin, ArrowLeftRight, Map, Building2, Users, UserCheck, Sun, Moon, LogOut, ChevronDown } from 'lucide-react';
 import { useTheme } from '@/contexts/ThemeContext';
+import { ALL_DEPARTMENTS_ID } from '@/constants/app';
 
 export default function Sidebar() {
   const navigate = useNavigate();
@@ -9,7 +10,7 @@ export default function Sidebar() {
   const { theme, toggleTheme } = useTheme();
   const user = JSON.parse(localStorage.getItem('user') || '{}');
   const [deptDropdownOpen, setDeptDropdownOpen] = useState(false);
-  const [currentDeptId, setCurrentDeptId] = useState(localStorage.getItem('currentDepartmentId') || 'all-departments');
+  const [currentDeptId, setCurrentDeptId] = useState(localStorage.getItem('currentDepartmentId') || ALL_DEPARTMENTS_ID);
 
   const isActive = (path: string) => location.pathname === path;
 
@@ -117,8 +118,8 @@ export default function Sidebar() {
             {deptDropdownOpen && (
               <div className="absolute bottom-full left-0 right-0 mb-2 bg-[var(--surface)] border border-[var(--border)] rounded-lg shadow-lg z-50">
                 <button
-                  onClick={() => handleDepartmentChange('all-departments')}
-                  className={`w-full text-left px-3 py-2 text-sm ${currentDeptId === 'all-departments' ? 'bg-[var(--primary)] text-white' : 'text-[var(--text)] hover:bg-[var(--surface-2)]'}`}
+                  onClick={() => handleDepartmentChange(ALL_DEPARTMENTS_ID)}
+                  className={`w-full text-left px-3 py-2 text-sm ${currentDeptId === ALL_DEPARTMENTS_ID ? 'bg-[var(--primary)] text-white' : 'text-[var(--text)] hover:bg-[var(--surface-2)]'}`}
                 >
                   All Departments
                 </button>

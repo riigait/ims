@@ -5,6 +5,7 @@ import { Category } from '@/types/inventory';
 import { CategoryFilter } from '@/types/filters';
 import { filterCategories } from '@/utils/filterHelpers';
 import DataPageLayout from '@/components/layout/DataPageLayout';
+import { ALL_DEPARTMENTS_ID } from '@/constants/app';
 
 interface Department {
   id: string;
@@ -71,7 +72,7 @@ export default function Categories() {
       setFormData({ name: '', description: '' });
       setError('');
       if (wasInAllDepartmentsMode) {
-        localStorage.setItem('currentDepartmentId', 'all-departments');
+        localStorage.setItem('currentDepartmentId', ALL_DEPARTMENTS_ID);
         window.location.reload();
       }
     } catch (error) {
@@ -82,7 +83,7 @@ export default function Categories() {
 
   const handleEdit = (category: Category) => {
     const currentDeptId = localStorage.getItem('currentDepartmentId');
-    const isInAllDepartmentsMode = currentDeptId === 'all-departments';
+    const isInAllDepartmentsMode = currentDeptId === ALL_DEPARTMENTS_ID;
     if (isInAllDepartmentsMode && category.departmentId) {
       setWasInAllDepartmentsMode(true);
       localStorage.setItem('currentDepartmentId', category.departmentId);
@@ -223,7 +224,7 @@ export default function Categories() {
       error={error}
       showForm={showForm}
       onAddClick={() => setShowForm(true)}
-      showAddButton={user.role === 'admin' && localStorage.getItem('currentDepartmentId') !== 'all-departments'}
+      showAddButton={user.role === 'admin' && localStorage.getItem('currentDepartmentId') !== ALL_DEPARTMENTS_ID}
       formContent={formContent}
       filterContent={filterContent}>
       <div className="overflow-x-auto">

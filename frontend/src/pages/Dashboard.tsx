@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { dashboardApi, departmentsApi } from '@/services/api';
 import { formatNumber } from '@/utils/ids';
+import { ALL_DEPARTMENTS_ID } from '@/constants/app';
 interface Stats {
   totalProducts: number;
   totalStock: number;
@@ -62,7 +63,7 @@ export default function Dashboard() {
         if (userDepts && userDepts.length > 0) {
           // User has multiple departments - get currently selected one
           const currentDeptId = localStorage.getItem('currentDepartmentId');
-          if (currentDeptId === 'all-departments') {
+          if (currentDeptId === ALL_DEPARTMENTS_ID) {
             setDepartmentName('All Departments');
           } else {
             const currentDept = userDepts.find((ad: any) => ad.departmentId === currentDeptId);

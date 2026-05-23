@@ -5,6 +5,7 @@ import { StockMovementFilter } from '@/types/filters';
 import { formatDate } from '@/utils/ids';
 import { filterStockMovements, sortStockMovements } from '@/utils/filterHelpers';
 import DataPageLayout from '@/components/layout/DataPageLayout';
+import { ALL_DEPARTMENTS_ID } from '@/constants/app';
 
 interface Department {
   id: string;
@@ -221,7 +222,7 @@ export default function StockMovements() {
       error={error}
       showForm={showForm}
       onAddClick={() => setShowForm(true)}
-      showAddButton={user.role === 'admin' && localStorage.getItem('currentDepartmentId') !== 'all-departments'}
+      showAddButton={user.role === 'admin' && localStorage.getItem('currentDepartmentId') !== ALL_DEPARTMENTS_ID}
       formContent={formContent}
       filterContent={filterContent}>
       <div className="overflow-x-auto">
