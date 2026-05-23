@@ -2,6 +2,7 @@
 import { useNavigate } from 'react-router-dom';
 import { Plus, Trash2, Building2, ArrowLeft } from 'lucide-react';
 import { departmentsApi } from '@/services/api';
+import Pagination from '@/components/Pagination';
 import ConfirmDialog from '@/components/ConfirmDialog';
 
 interface Department {
@@ -19,6 +20,8 @@ export default function AdminDepartments() {
   const [showForm, setShowForm] = useState(false);
   const [newDept, setNewDept] = useState({ name: '', description: '' });
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(20);
 
   useEffect(() => {
     loadDepartments();
@@ -68,6 +71,8 @@ export default function AdminDepartments() {
   };
 
   if (loading) return <div className="flex items-center justify-center h-screen"><div className="text-[var(--text-muted)]">Loading...</div></div>;
+
+  const paginatedDepartments = departments.slice((currentPage - 1) * pageSize, currentPage * pageSize);
 
   return (
     <>
@@ -180,7 +185,7 @@ export default function AdminDepartments() {
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {departments.map(dept => (
+            {paginatedDepartments.map(dept => (
               <div
                 key={dept.id}
                 className="bg-[var(--surface)] rounded-lg shadow p-6 border-l-4 border-[var(--primary)] hover:shadow-lg transition"
@@ -204,6 +209,15 @@ export default function AdminDepartments() {
               </div>
             ))}
           </div>
+          {departments.length > 0 && (
+            <Pagination
+              currentPage={currentPage}
+              totalItems={departments.length}
+              pageSize={pageSize}
+              onPageChange={setCurrentPage}
+              onPageSizeChange={(size) => { setPageSize(size); setCurrentPage(1); }}
+            />
+          )}
         )}
       </div>
       </div>

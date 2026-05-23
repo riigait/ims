@@ -3,6 +3,7 @@ import { Edit, Trash2 } from 'lucide-react';
 import { locationsApi, departmentsApi } from '@/services/api';
 import { Location } from '@/types/inventory';
 import DataPageLayout from '@/components/layout/DataPageLayout';
+import Pagination from '@/components/Pagination';
 import ConfirmDialog from '@/components/ConfirmDialog';
 import { ALL_DEPARTMENTS_ID } from '@/constants/app';
 
@@ -28,6 +29,8 @@ export default function Locations() {
   const [wasInAllDepartmentsMode, setWasInAllDepartmentsMode] = useState(false);
   const [error, setError] = useState('');
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(20);
 
   const fetchLocations = async () => {
     try {
@@ -130,6 +133,7 @@ export default function Locations() {
     if (sortBy === 'recently-added') return new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime();
     return 0;
   });
+  const paginatedLocations = sortedLocations.slice((currentPage - 1) * pageSize, currentPage * pageSize);
 
   const locationTypes = Array.from(new Set(locations.map(l => l.type))).sort();
 
@@ -138,6 +142,7 @@ export default function Locations() {
     setTypeFilter('');
     setDepartmentFilter('');
     setSortBy('recently-added');
+    setCurrentPage(1);
   };
 
   const getParentName = (parentId: string | undefined) => {
@@ -254,7 +259,7 @@ export default function Locations() {
           type="text"
           placeholder="Search by location name…"
           value={searchTerm}
-          onChange={e => setSearchTerm(e.target.value)}
+          onChange={e => { setSearchTerm(e.target.value); setCurrentPage(1); }}
           className="flex-1 px-4 py-2 border border-[var(--border)] rounded-lg text-sm bg-[var(--surface)] text-[var(--text)]"
           aria-label="Search locations"
         />
@@ -262,7 +267,7 @@ export default function Locations() {
           id="sort-by"
           name="sort-by"
           value={sortBy}
-          onChange={e => setSortBy(e.target.value)}
+          onChange={e => { setSortBy(e.target.value); setCurrentPage(1); }}
           className="px-3 py-2 border border-[var(--border)] rounded text-sm font-medium bg-[var(--surface-2)] text-[var(--text)]"
           aria-label="Sort by">
           <option value="recently-added">Sort: Recently Added</option>
@@ -280,7 +285,7 @@ export default function Locations() {
           id="filter-type"
           name="filter-type"
           value={typeFilter}
-          onChange={e => setTypeFilter(e.target.value)}
+          onChange={e => { setTypeFilter(e.target.value); setCurrentPage(1); }}
           className="px-3 py-2 border border-[var(--border)] rounded text-sm bg-[var(--surface)] text-[var(--text)]"
           aria-label="Filter by location type">
           <option value="">All Types</option>
@@ -295,7 +300,7 @@ export default function Locations() {
             id="filter-department"
             name="filter-department"
             value={departmentFilter}
-            onChange={e => setDepartmentFilter(e.target.value)}
+            onChange={e => { setDepartmentFilter(e.target.value); setCurrentPage(1); }}
             className="px-3 py-2 border border-[var(--border)] rounded text-sm bg-[var(--surface)] text-[var(--text)]"
             aria-label="Filter by department">
             <option value="">All Departments</option>
@@ -351,7 +356,7 @@ export default function Locations() {
                   {searchTerm ? 'No locations match your search.' : 'No locations yet. Create your first location.'}
                 </td>
               </tr>
-            ) : sortedLocations.map((location) => {
+            ) : paginatedLocations.map((location) => {
               const dept = location.departmentId ? departments.find(d => d.id === location.departmentId) : null;
               return (
                 <tr key={location.id} className="hover:bg-[var(--surface-2)] transition-colors">
@@ -383,6 +388,15 @@ export default function Locations() {
           </tbody>
         </table>
       </div>
+      {sortedLocations.length > 0 && (
+        <Pagination
+          currentPage={currentPage}
+          totalItems={sortedLocations.length}
+          pageSize={pageSize}
+          onPageChange={setCurrentPage}
+          onPageSizeChange={(size) => { setPageSize(size); setCurrentPage(1); }}
+        />
+      )}
       </DataPageLayout>
     </>
   );

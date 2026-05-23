@@ -5,6 +5,7 @@ import { Category } from '@/types/inventory';
 import { CategoryFilter } from '@/types/filters';
 import { filterCategories } from '@/utils/filterHelpers';
 import DataPageLayout from '@/components/layout/DataPageLayout';
+import Pagination from '@/components/Pagination';
 import ConfirmDialog from '@/components/ConfirmDialog';
 import { ALL_DEPARTMENTS_ID } from '@/constants/app';
 
@@ -29,6 +30,8 @@ export default function Categories() {
   const [wasInAllDepartmentsMode, setWasInAllDepartmentsMode] = useState(false);
   const [error, setError] = useState('');
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(20);
 
   const fetchCategories = async () => {
     try {
@@ -127,10 +130,12 @@ export default function Categories() {
       if (sortBy === 'recently-added') return new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime();
       return 0;
     });
+  const paginatedCategories = filteredAndSortedCategories.slice((currentPage - 1) * pageSize, currentPage * pageSize);
 
   const clearAllFilters = () => {
     setFilters({ search: '', departmentId: undefined });
     setSortBy('recently-added');
+    setCurrentPage(1);
   };
 
   if (loading) return <div className="text-center py-12">Loading...</div>;
@@ -187,7 +192,7 @@ export default function Categories() {
           type="text"
           placeholder="Search by category name…"
           value={filters.search}
-          onChange={e => setFilters({ ...filters, search: e.target.value })}
+          onChange={e => { setFilters({ ...filters, search: e.target.value }); setCurrentPage(1); }}
           className="flex-1 px-4 py-2 border border-[var(--border)] rounded-lg text-sm bg-[var(--surface)] text-[var(--text)]"
           aria-label="Search categories"
         />
@@ -195,7 +200,7 @@ export default function Categories() {
           id="sort-by"
           name="sort-by"
           value={sortBy}
-          onChange={e => setSortBy(e.target.value)}
+          onChange={e => { setSortBy(e.target.value); setCurrentPage(1); }}
           className="px-3 py-2 border border-[var(--border)] rounded text-sm font-medium bg-[var(--surface-2)] text-[var(--text)]"
           aria-label="Sort by">
           <option value="recently-added">Sort: Recently Added</option>
@@ -213,7 +218,7 @@ export default function Categories() {
             id="filter-department"
             name="filter-department"
             value={filters.departmentId || ''}
-            onChange={e => setFilters({ ...filters, departmentId: e.target.value || undefined })}
+            onChange={e => { setFilters({ ...filters, departmentId: e.target.value || undefined }); setCurrentPage(1); }}
             className="px-3 py-2 border border-[var(--border)] rounded text-sm bg-[var(--surface)] text-[var(--text)]"
             aria-label="Filter by department">
             <option value="">All Departments</option>
@@ -268,7 +273,7 @@ export default function Categories() {
                   No categories found.
                 </td>
               </tr>
-            ) : filteredAndSortedCategories.map((category) => {
+            ) : paginatedCategories.map((category) => {
               const dept = category.departmentId ? departments.find(d => d.id === category.departmentId) : null;
               return (
                 <tr key={category.id} className="hover:bg-[var(--surface-2)] transition-colors">
@@ -299,6 +304,15 @@ export default function Categories() {
           </tbody>
         </table>
       </div>
+      {filteredAndSortedCategories.length > 0 && (
+        <Pagination
+          currentPage={currentPage}
+          totalItems={filteredAndSortedCategories.length}
+          pageSize={pageSize}
+          onPageChange={setCurrentPage}
+          onPageSizeChange={(size) => { setPageSize(size); setCurrentPage(1); }}
+        />
+      )}
       </DataPageLayout>
     </>
   );

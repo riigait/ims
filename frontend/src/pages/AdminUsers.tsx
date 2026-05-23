@@ -2,6 +2,7 @@
 import { useNavigate } from 'react-router-dom';
 import { Copy, Trash2, Shield, Users, CheckCircle, Mail, ArrowLeft, Edit } from 'lucide-react';
 import { authApi, departmentsApi } from '@/services/api';
+import Pagination from '@/components/Pagination';
 import ConfirmDialog from '@/components/ConfirmDialog';
 
 interface Department {
@@ -46,6 +47,8 @@ export default function AdminUsers() {
   const [editFormData, setEditFormData] = useState({ name: '', email: '' });
   const [editError, setEditError] = useState('');
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(20);
 
   useEffect(() => {
     loadData();
@@ -205,6 +208,7 @@ export default function AdminUsers() {
     return [];
   };
   const pendingInvites = getFilteredPendingInvites();
+  const paginatedPendingInvites = pendingInvites.slice((currentPage - 1) * pageSize, currentPage * pageSize);
 
   const getFilteredUsedInvites = () => {
     const allUsed = invites.filter(i => i.usedAt);
@@ -213,6 +217,8 @@ export default function AdminUsers() {
     return [];
   };
   const usedInvites = getFilteredUsedInvites();
+  const paginatedUsedInvites = usedInvites.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+  const paginatedUsers = users.slice((currentPage - 1) * pageSize, currentPage * pageSize);
 
   return (
     <>
@@ -252,7 +258,7 @@ export default function AdminUsers() {
         {/* Tabs */}
         <div className="flex gap-2 border-b border-[var(--border)]">
           <button
-            onClick={() => setActiveTab('invites')}
+            onClick={() => { setActiveTab('invites'); setCurrentPage(1); }}
             className={`px-6 py-3 font-medium text-sm border-b-2 transition ${
               activeTab === 'invites'
                 ? 'border-[var(--primary)] text-[var(--primary)]'
@@ -263,7 +269,7 @@ export default function AdminUsers() {
             Invite Codes ({pendingInvites.length} pending)
           </button>
           <button
-            onClick={() => setActiveTab('users')}
+            onClick={() => { setActiveTab('users'); setCurrentPage(1); }}
             className={`px-6 py-3 font-medium text-sm border-b-2 transition ${
               activeTab === 'users'
                 ? 'border-[var(--primary)] text-[var(--primary)]'
@@ -324,7 +330,7 @@ export default function AdminUsers() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-[var(--border)]">
-                    {pendingInvites.map(invite => (
+                    {paginatedPendingInvites.map(invite => (
                       <tr key={invite.id} className="hover:bg-[var(--surface-2)] transition-colors">
                         <td className="px-4 py-3">
                           <code className="bg-[var(--surface-2)] px-3 py-1 rounded font-mono text-xs text-[var(--text)]">{invite.code}</code>
@@ -362,6 +368,15 @@ export default function AdminUsers() {
                   </tbody>
                 </table>
               </div>
+              {pendingInvites.length > 0 && (
+                <Pagination
+                  currentPage={currentPage}
+                  totalItems={pendingInvites.length}
+                  pageSize={pageSize}
+                  onPageChange={setCurrentPage}
+                  onPageSizeChange={(size) => { setPageSize(size); setCurrentPage(1); }}
+                />
+              )}
             )}
           </div>
         )}
@@ -384,7 +399,7 @@ export default function AdminUsers() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-[var(--border)]">
-                  {usedInvites.map(invite => (
+                  {paginatedUsedInvites.map(invite => (
                     <tr key={invite.id} className="hover:bg-[var(--surface-2)] transition-colors">
                       <td className="px-4 py-3">
                         <code className="bg-[var(--surface-2)] px-3 py-1 rounded font-mono text-xs text-[var(--text)]">{invite.code}</code>
@@ -403,6 +418,15 @@ export default function AdminUsers() {
                 </tbody>
               </table>
             </div>
+            {usedInvites.length > 0 && (
+              <Pagination
+                currentPage={currentPage}
+                totalItems={usedInvites.length}
+                pageSize={pageSize}
+                onPageChange={setCurrentPage}
+                onPageSizeChange={(size) => { setPageSize(size); setCurrentPage(1); }}
+              />
+            )}
           </div>
         )}
 
@@ -472,7 +496,7 @@ export default function AdminUsers() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-[var(--border)]">
-                  {users.map(user => (
+                  {paginatedUsers.map(user => (
                     <tr key={user.id} className="hover:bg-[var(--surface-2)] transition-colors">
                       <td className="px-4 py-3 font-medium text-[var(--text)]">{user.name}</td>
                       <td className="px-4 py-3 text-[var(--text-muted)]">{user.email}</td>
@@ -535,6 +559,15 @@ export default function AdminUsers() {
                 </tbody>
               </table>
             </div>
+            {users.length > 0 && (
+              <Pagination
+                currentPage={currentPage}
+                totalItems={users.length}
+                pageSize={pageSize}
+                onPageChange={setCurrentPage}
+                onPageSizeChange={(size) => { setPageSize(size); setCurrentPage(1); }}
+              />
+            )}
           </div>
         )}
       </div>

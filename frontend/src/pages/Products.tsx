@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { Edit, Trash2 } from 'lucide-react';
 import { productsApi, categoriesApi, locationsApi, deleteRequestsApi, departmentsApi } from '@/services/api';
 import ConfirmDialog from '@/components/ConfirmDialog';
+import Pagination from '@/components/Pagination';
 import { Product, Category, Location } from '@/types/inventory';
 import { ProductFilter, ProductSort } from '@/types/filters';
 import { validateProductName, validateSKU, validateStock } from '@/utils/validation';
@@ -33,6 +34,8 @@ export default function Products() {
   const [error, setError] = useState('');
   const [wasInAllDepartmentsMode, setWasInAllDepartmentsMode] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(20);
 
   const fetchData = async () => {
     try {
@@ -143,9 +146,11 @@ export default function Products() {
   const clearAllFilters = () => {
     setFilters(clearProductFilters());
     setSort({ field: 'date', order: 'desc' });
+    setCurrentPage(1);
   };
 
   const filteredProducts = filterAndSortProducts(products, filters, sort);
+  const paginatedProducts = filteredProducts.slice((currentPage - 1) * pageSize, currentPage * pageSize);
   const uniqueUnits = Array.from(new Set(products.map(p => p.unit))).sort();
   const categoriesMap = new Map(categories.map(c => [c.id, c]));
 
@@ -294,11 +299,12 @@ export default function Products() {
     <>
       <div className="flex gap-2">
         <input id="search-products" name="search" type="text" placeholder="Search by name or SKU…" value={filters.search}
-          onChange={e => setFilters({ ...filters, search: e.target.value })}
+          onChange={e => { setFilters({ ...filters, search: e.target.value }); setCurrentPage(1); }}
           className="flex-1 px-4 py-2 border border-[var(--border)] rounded-lg text-sm bg-[var(--surface)] text-[var(--text)]" aria-label="Search products by name or SKU" />
         <select id="sort-by" name="sort-by" value={`${sort.field}-${sort.order}`} onChange={e => {
           const [field, order] = e.target.value.split('-');
           setSort({ field: field as ProductSort['field'], order: order as ProductSort['order'] });
+          setCurrentPage(1);
         }}
           className="px-3 py-2 border border-[var(--border)] rounded text-sm font-medium bg-[var(--surface-2)] text-[var(--text)]" aria-label="Sort by">
           <option value="name-asc">Sort: Name</option>
@@ -313,28 +319,28 @@ export default function Products() {
         </button>
       </div>
       <div className="flex gap-2 flex-wrap">
-        <select id="filter-category" name="filter-category" value={filters.categoryId || ''} onChange={e => setFilters({ ...filters, categoryId: e.target.value || undefined })}
+        <select id="filter-category" name="filter-category" value={filters.categoryId || ''} onChange={e => { setFilters({ ...filters, categoryId: e.target.value || undefined }); setCurrentPage(1); }}
           className="px-3 py-2 border border-[var(--border)] rounded text-sm bg-[var(--surface)] text-[var(--text)]" aria-label="Filter by category">
           <option value="">All Categories</option>
           {categories.map(cat => (
             <option key={cat.id} value={cat.id}>{cat.name}</option>
           ))}
         </select>
-        <select id="filter-stock-status" name="filter-stock-status" value={filters.stockStatus || ''} onChange={e => setFilters({ ...filters, stockStatus: e.target.value as any || undefined })}
+        <select id="filter-stock-status" name="filter-stock-status" value={filters.stockStatus || ''} onChange={e => { setFilters({ ...filters, stockStatus: e.target.value as any || undefined }); setCurrentPage(1); }}
           className="px-3 py-2 border border-[var(--border)] rounded text-sm bg-[var(--surface)] text-[var(--text)]" aria-label="Filter by stock status">
           <option value="">All Stock Status</option>
           <option value="out-of-stock">Out of Stock</option>
           <option value="low-stock">Low Stock</option>
           <option value="in-stock">In Stock</option>
         </select>
-        <select id="filter-unit" name="filter-unit" value={filters.unit || ''} onChange={e => setFilters({ ...filters, unit: e.target.value || undefined })}
+        <select id="filter-unit" name="filter-unit" value={filters.unit || ''} onChange={e => { setFilters({ ...filters, unit: e.target.value || undefined }); setCurrentPage(1); }}
           className="px-3 py-2 border border-[var(--border)] rounded text-sm bg-[var(--surface)] text-[var(--text)]" aria-label="Filter by unit">
           <option value="">All Units</option>
           {uniqueUnits.map(unit => (
             <option key={unit} value={unit}>{unit}</option>
           ))}
         </select>
-        <select id="filter-date-range" name="filter-date-range" value={filters.dateRange} onChange={e => setFilters({ ...filters, dateRange: e.target.value as any })}
+        <select id="filter-date-range" name="filter-date-range" value={filters.dateRange} onChange={e => { setFilters({ ...filters, dateRange: e.target.value as any }); setCurrentPage(1); }}
           className="px-3 py-2 border border-[var(--border)] rounded text-sm bg-[var(--surface)] text-[var(--text)]" aria-label="Filter by date range">
           <option value="all">All Time</option>
           <option value="7days">Last 7 Days</option>
@@ -342,7 +348,7 @@ export default function Products() {
           <option value="90days">Last 90 Days</option>
         </select>
         {user.role === 'superadmin' && (
-          <select id="filter-department" name="filter-department" value={filters.departmentId || ''} onChange={e => setFilters({ ...filters, departmentId: e.target.value || undefined })}
+          <select id="filter-department" name="filter-department" value={filters.departmentId || ''} onChange={e => { setFilters({ ...filters, departmentId: e.target.value || undefined }); setCurrentPage(1); }}
             className="px-3 py-2 border border-[var(--border)] rounded text-sm bg-[var(--surface)] text-[var(--text)]" aria-label="Filter by department">
             <option value="">All Departments</option>
             {departments.map(dept => (
@@ -394,7 +400,7 @@ export default function Products() {
                   No products found.
                 </td>
               </tr>
-            ) : filteredProducts.map((product) => {
+            ) : paginatedProducts.map((product) => {
               const category = product.category ?? categoriesMap.get(product.categoryId);
               const isLowStock = product.currentStock > 0 && product.currentStock <= product.lowStockThreshold;
               const isOutOfStock = product.currentStock === 0;
@@ -444,6 +450,15 @@ export default function Products() {
           </tbody>
         </table>
       </div>
+      {filteredProducts.length > 0 && (
+        <Pagination
+          currentPage={currentPage}
+          totalItems={filteredProducts.length}
+          pageSize={pageSize}
+          onPageChange={setCurrentPage}
+          onPageSizeChange={(size) => { setPageSize(size); setCurrentPage(1); }}
+        />
+      )}
       </DataPageLayout>
     </>
   );

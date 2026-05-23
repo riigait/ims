@@ -5,6 +5,7 @@ import { StockMovementFilter } from '@/types/filters';
 import { formatDate } from '@/utils/ids';
 import { filterStockMovements, sortStockMovements } from '@/utils/filterHelpers';
 import DataPageLayout from '@/components/layout/DataPageLayout';
+import Pagination from '@/components/Pagination';
 import ConfirmDialog from '@/components/ConfirmDialog';
 import { ALL_DEPARTMENTS_ID } from '@/constants/app';
 import { Edit, Trash2 } from 'lucide-react';
@@ -52,6 +53,8 @@ export default function StockMovements() {
   const [sortBy, setSortBy] = useState('recently-added');
   const [error, setError] = useState('');
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(20);
 
   const fetchData = async () => {
     try {
@@ -149,10 +152,12 @@ export default function StockMovements() {
       .filter(m => !filters.departmentId || m.departmentId === filters.departmentId),
     sortBy, getProductName
   );
+  const paginatedMovements = filteredAndSortedMovements.slice((currentPage - 1) * pageSize, currentPage * pageSize);
 
   const clearAllFilters = () => {
     setFilters({ search: '', movementType: undefined, dateRange: 'all', departmentId: undefined });
     setSortBy('recently-added');
+    setCurrentPage(1);
   };
 
   if (loading) return <div className="text-center py-12">Loading...</div>;
@@ -225,9 +230,9 @@ export default function StockMovements() {
     <>
       <div className="flex gap-2">
         <input id="search-movements" name="search" type="text" placeholder="Search by product name…"
-          value={filters.search} onChange={e => setFilters({ ...filters, search: e.target.value })}
+          value={filters.search} onChange={e => { setFilters({ ...filters, search: e.target.value }); setCurrentPage(1); }}
           className="flex-1 px-4 py-2 border border-[var(--border)] rounded-lg text-sm bg-[var(--surface)] text-[var(--text)]" aria-label="Search stock movements" />
-        <select id="sort-by" name="sort-by" value={sortBy} onChange={e => setSortBy(e.target.value)}
+        <select id="sort-by" name="sort-by" value={sortBy} onChange={e => { setSortBy(e.target.value); setCurrentPage(1); }}
           className="px-3 py-2 border border-[var(--border)] rounded text-sm font-medium bg-[var(--surface-2)] text-[var(--text)]" aria-label="Sort by">
           <option value="recently-added">Sort: Recently Added</option>
           <option value="oldest">Sort: Oldest</option>
@@ -241,7 +246,7 @@ export default function StockMovements() {
       </div>
       <div className="flex gap-2 flex-wrap">
         <select id="filter-movement-type" name="filter-movement-type" value={filters.movementType || ''}
-          onChange={e => setFilters({ ...filters, movementType: e.target.value as any || undefined })}
+          onChange={e => { setFilters({ ...filters, movementType: e.target.value as any || undefined }); setCurrentPage(1); }}
           className="px-3 py-2 border border-[var(--border)] rounded text-sm bg-[var(--surface)] text-[var(--text)]" aria-label="Filter by movement type">
           <option value="">All Movement Types</option>
           {MOVEMENT_OPTIONS.map(o => (
@@ -250,7 +255,7 @@ export default function StockMovements() {
         </select>
         {user.role === 'superadmin' && (
           <select id="filter-department" name="filter-department" value={filters.departmentId || ''}
-            onChange={e => setFilters({ ...filters, departmentId: e.target.value || undefined })}
+            onChange={e => { setFilters({ ...filters, departmentId: e.target.value || undefined }); setCurrentPage(1); }}
             className="px-3 py-2 border border-[var(--border)] rounded text-sm bg-[var(--surface)] text-[var(--text)]" aria-label="Filter by department">
             <option value="">All Departments</option>
             {departments.map(dept => (
@@ -305,7 +310,7 @@ export default function StockMovements() {
                   {movements.length === 0 ? 'No movements recorded yet.' : 'No movements match your filters.'}
                 </td>
               </tr>
-            ) : filteredAndSortedMovements.map(movement => (
+            ) : paginatedMovements.map(movement => (
               <tr key={movement.id} className="hover:bg-[var(--surface-2)] transition-colors">
                 <td className="px-4 py-2 text-[var(--text)]">{getProductName(movement.productId)}</td>
                 <td className="px-4 py-2">
@@ -349,6 +354,15 @@ export default function StockMovements() {
           </tbody>
         </table>
       </div>
+      {filteredAndSortedMovements.length > 0 && (
+        <Pagination
+          currentPage={currentPage}
+          totalItems={filteredAndSortedMovements.length}
+          pageSize={pageSize}
+          onPageChange={setCurrentPage}
+          onPageSizeChange={(size) => { setPageSize(size); setCurrentPage(1); }}
+        />
+      )}
       </DataPageLayout>
     </>
   );
