@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { Plus, Trash2, MapPin, LayoutGrid, List } from 'lucide-react';
+import { Plus, Trash2, MapPin, LayoutGrid, List, Edit } from 'lucide-react';
 import { floorPlansApi, departmentsApi } from '@/services/api';
 import { FloorPlan } from '@/types/floorplan';
 import FloorPlanThumbnail from '@/components/floorplan/FloorPlanThumbnail';
@@ -171,9 +171,9 @@ export default function FloorPlans() {
       )}
 
       {/* Filters */}
-      <div className="bg-white rounded-lg shadow p-4 space-y-4">
-        <div className="space-y-3">
-          <div className="flex gap-2">
+      <div className="bg-white rounded-lg shadow p-4 space-y-3">
+        <div className="flex gap-2 items-center justify-between">
+          <div className="flex gap-2 flex-1">
             <input
               id="search-floor-plans"
               name="search"
@@ -184,24 +184,6 @@ export default function FloorPlans() {
               className="flex-1 px-4 py-2 border border-gray-300 rounded-lg text-sm"
               aria-label="Search floor plans"
             />
-          </div>
-
-          <div className="flex flex-wrap gap-2">
-            {user.role === 'superadmin' && (
-              <select
-                id="filter-department"
-                name="filter-department"
-                value={departmentFilter}
-                onChange={e => setDepartmentFilter(e.target.value)}
-                className="px-3 py-2 border border-gray-300 rounded text-sm"
-                aria-label="Filter by department">
-                <option value="">All Departments</option>
-                {departments.map(dept => (
-                  <option key={dept.id} value={dept.id}>{dept.name}</option>
-                ))}
-              </select>
-            )}
-
             <select
               id="sort-by"
               name="sort-by"
@@ -213,33 +195,47 @@ export default function FloorPlans() {
               <option value="name">Sort: Name</option>
               <option value="object-count">Sort: Object Count</option>
             </select>
-          </div>
-
-          <div className="flex justify-between items-center">
             <button
               onClick={clearAllFilters}
               className="text-xs px-3 py-1 bg-gray-100 text-gray-700 rounded hover:bg-gray-200 font-medium">
-              Clear All Filters
+              Clear
             </button>
+          </div>
 
-            <div className="flex gap-1 border border-gray-300 rounded">
-              <button
-                onClick={() => setViewMode('grid')}
-                className={`px-2 py-1 ${viewMode === 'grid' ? 'bg-blue-100 text-blue-700' : 'text-gray-600 hover:bg-gray-100'}`}
-                title="Grid view"
-              >
-                <LayoutGrid size={16} />
-              </button>
-              <button
-                onClick={() => setViewMode('list')}
-                className={`px-2 py-1 ${viewMode === 'list' ? 'bg-blue-100 text-blue-700' : 'text-gray-600 hover:bg-gray-100'}`}
-                title="List view"
-              >
-                <List size={16} />
-              </button>
-            </div>
+          <div className="flex gap-1 border border-gray-300 rounded flex-shrink-0">
+            <button
+              onClick={() => setViewMode('grid')}
+              className={`px-2 py-1 ${viewMode === 'grid' ? 'bg-blue-100 text-blue-700' : 'text-gray-600 hover:bg-gray-100'}`}
+              title="Grid view"
+            >
+              <LayoutGrid size={16} />
+            </button>
+            <button
+              onClick={() => setViewMode('list')}
+              className={`px-2 py-1 ${viewMode === 'list' ? 'bg-blue-100 text-blue-700' : 'text-gray-600 hover:bg-gray-100'}`}
+              title="List view"
+            >
+              <List size={16} />
+            </button>
           </div>
         </div>
+
+        {user.role === 'superadmin' && (
+          <div className="flex gap-2 flex-wrap">
+            <select
+              id="filter-department"
+              name="filter-department"
+              value={departmentFilter}
+              onChange={e => setDepartmentFilter(e.target.value)}
+              className="px-3 py-2 border border-gray-300 rounded text-sm"
+              aria-label="Filter by department">
+              <option value="">All Departments</option>
+              {departments.map(dept => (
+                <option key={dept.id} value={dept.id}>{dept.name}</option>
+              ))}
+            </select>
+          </div>
+        )}
       </div>
 
       {viewMode === 'grid' ? (
@@ -320,14 +316,14 @@ export default function FloorPlans() {
               <p className="text-gray-400 text-lg mb-1">{floorPlans.length === 0 ? 'No floor plans yet' : 'No floor plans match your filters'}</p>
             </div>
           ) : (
-            <table className="w-full">
+            <table className="w-full text-sm">
               <thead className="bg-gray-50">
                 <tr>
-                  <th className="px-6 py-3 text-left text-sm font-medium text-gray-700">Name</th>
-                  <th className="px-6 py-3 text-left text-sm font-medium text-gray-700">Dimensions</th>
-                  <th className="px-6 py-3 text-left text-sm font-medium text-gray-700">Objects</th>
-                  {user.role === 'superadmin' && <th className="px-6 py-3 text-left text-sm font-medium text-gray-700">Department</th>}
-                  <th className="px-6 py-3 text-left text-sm font-medium text-gray-700">Actions</th>
+                  <th className="px-4 py-2 text-left">Name</th>
+                  <th className="px-4 py-2 text-left">Dimensions</th>
+                  <th className="px-4 py-2 text-left">Objects</th>
+                  {user.role === 'superadmin' && <th className="px-4 py-2 text-left">Department</th>}
+                  <th className="px-4 py-2 text-right">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y">
@@ -336,35 +332,35 @@ export default function FloorPlans() {
                   const departmentName = plan.departmentId ? departmentsMap[plan.departmentId] : null;
                   return (
                     <tr key={plan.id} className="hover:bg-gray-50">
-                      <td className="px-6 py-4 text-sm text-gray-900 font-medium cursor-pointer hover:text-blue-600"
+                      <td className="px-4 py-2 text-gray-900 font-medium cursor-pointer hover:text-blue-600"
                         onClick={() => navigate(`/floor-plans/${plan.id}/edit`)}>
                         {plan.name}
                       </td>
-                      <td className="px-6 py-4 text-sm text-gray-600">
+                      <td className="px-4 py-2 text-gray-600">
                         {plan.width} × {plan.height} px
                       </td>
-                      <td className="px-6 py-4 text-sm text-gray-600">
+                      <td className="px-4 py-2 text-gray-600">
                         {plan.objects?.length ?? 0}
                       </td>
                       {user.role === 'superadmin' && (
-                        <td className="px-6 py-4 text-sm text-gray-700">
+                        <td className="px-4 py-2 text-gray-700">
                           {departmentName ? (
                             <span className="bg-gray-100 text-gray-700 px-2 py-0.5 rounded text-xs">{departmentName}</span>
                           ) : '—'}
                         </td>
                       )}
-                      <td className="px-6 py-4 text-sm space-x-2">
+                      <td className="px-4 py-2 text-right space-x-2">
                         {(user.role === 'admin' || user.role === 'superadmin') && (
                           <>
                             <button
                               onClick={() => navigate(`/floor-plans/${plan.id}/edit`)}
-                              className="text-blue-600 hover:text-blue-800 font-medium">
-                              Edit
+                              className="text-blue-600 hover:text-blue-800">
+                              <Edit size={18} />
                             </button>
                             <button
                               onClick={e => handleDelete(plan.id, e)}
                               className="text-red-600 hover:text-red-800">
-                              <Trash2 size={16} />
+                              <Trash2 size={18} />
                             </button>
                           </>
                         )}

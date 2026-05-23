@@ -12,11 +12,14 @@ export interface Product {
   name: string;
   description: string;
   categoryId: string;
+  category?: Category;
   unit: Unit;
   currentStock: number;
   lowStockThreshold: number;
   locationId?: string;
+  location?: Location;
   departmentId?: string;
+  department?: Department;
   createdAt: string;
   updatedAt: string;
 }
@@ -46,12 +49,16 @@ export type MovementType = 'stock_in' | 'stock_out' | 'adjustment' | 'transfer' 
 export interface StockMovement {
   id: string;
   productId: string;
+  product?: Product;
   movementType: MovementType;
   quantity: number;
-  reason: string;
+  reason?: string;
   locationId?: string;
+  location?: Location;
   userId: string;
+  user?: User;
   departmentId?: string;
+  department?: Department;
   createdAt: string;
 }
 

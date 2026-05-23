@@ -51,10 +51,10 @@ export default function Navbar() {
   };
 
   return (
-    <nav className="bg-blue-600 text-white shadow-lg sticky top-0 z-50">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+    <nav className="text-white shadow-lg sticky top-0 z-50 relative" style={{ backgroundColor: '#F9FAFB' }}>
+      <div className="bg-blue-600 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex justify-between items-center h-16">
-          <Link to="/" className="text-2xl font-bold flex-shrink-0">
+          <Link to="/dashboard" className="text-2xl font-bold flex-shrink-0">
             IMS
           </Link>
 
@@ -62,9 +62,7 @@ export default function Navbar() {
           <div className="hidden md:flex items-center space-x-1 flex-1 justify-center">
             {isLoggedIn && (
               <>
-                <Link to="/dashboard" className="px-3 py-2 rounded hover:bg-blue-500 transition text-sm">
-                  Dashboard
-                </Link>
+
                 <Link to="/products" className="px-3 py-2 rounded hover:bg-blue-500 transition text-sm">
                   Products
                 </Link>
@@ -133,32 +131,32 @@ export default function Navbar() {
           </div>
 
           {/* User Menu */}
-          <div className="hidden md:flex items-center space-x-4 flex-shrink-0">
+          <div className="hidden md:flex items-center flex-shrink-0">
             {isLoggedIn && (
               <>
                 <div className="relative">
                   <button
                     onClick={() => handleUserOpenChange(!userOpen)}
-                    className="text-sm font-medium flex items-center gap-1 hover:opacity-80"
+                    className="h-16 px-2 rounded hover:bg-blue-500 transition text-sm flex items-center gap-1"
                   >
                     {user.name}
-                    <ChevronDown size={16} />
+                    <ChevronDown size={14} />
                   </button>
                   {userOpen && (
-                    <div className="absolute right-0 mt-0 w-40 bg-white text-gray-800 rounded-lg shadow-lg py-2 z-10">
+                    <div className="absolute right-0 mt-0 min-w-full bg-white text-gray-800 rounded-lg shadow-lg py-0.5 z-10">
                       {['admin', 'superadmin', 'staff'].includes(user.role) && (
                         <>
-                          <Link to="/change-password" onClick={() => setUserOpen(false)} className="block px-4 py-2 hover:bg-gray-100 text-sm flex items-center gap-2">
-                            <Lock size={16} /> Change Password
+                          <Link to="/change-password" onClick={() => setUserOpen(false)} className="block px-2 py-0.5 hover:bg-gray-100 text-sm flex items-center gap-2">
+                            <Lock size={14} /> Change Password
                           </Link>
                           <div className="border-t border-gray-200"></div>
                         </>
                       )}
                       <button
                         onClick={handleLogout}
-                        className="block w-full text-left px-4 py-2 hover:bg-gray-100 text-sm flex items-center gap-2"
+                        className="block w-full text-left px-2 py-0.5 hover:bg-gray-100 text-sm flex items-center gap-2"
                       >
-                        <LogOut size={16} /> Logout
+                        <LogOut size={14} /> Logout
                       </button>
                     </div>
                   )}
@@ -181,9 +179,6 @@ export default function Navbar() {
           <div className="md:hidden pb-4 space-y-1 border-t border-blue-500">
             {isLoggedIn && (
               <>
-                <Link to="/dashboard" className="block px-4 py-2 hover:bg-blue-500 rounded text-sm">
-                  Dashboard
-                </Link>
                 <Link to="/products" className="block px-4 py-2 hover:bg-blue-500 rounded text-sm">
                   Products
                 </Link>

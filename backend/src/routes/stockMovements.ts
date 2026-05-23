@@ -36,7 +36,7 @@ router.get('/', async (req: AuthRequest, res: Response) => {
     }
     const movements = await prisma.stockMovement.findMany({
       where: whereFilter,
-      include: { product: true, location: true, user: true },
+      include: { product: true, location: true, user: true, department: true },
       orderBy: { createdAt: 'desc' },
     });
     res.json(movements);
@@ -51,7 +51,7 @@ router.get('/:id', async (req: AuthRequest, res: Response) => {
   try {
     const movement = await prisma.stockMovement.findUnique({
       where: { id: req.params.id },
-      include: { product: true, location: true, user: true },
+      include: { product: true, location: true, user: true, department: true },
     });
     if (!movement) return res.status(404).json({ error: 'Stock movement not found' });
 
@@ -121,7 +121,7 @@ router.post('/', async (req: AuthRequest, res: Response) => {
           quantity: qty,
           reason: reason ?? null,
           locationId: locationId || null,
-          departmentId: req.departmentId,
+          departmentId: req.departmentId || product.departmentId,
           userId,
         },
         include: { product: true },

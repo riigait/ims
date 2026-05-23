@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
-import { Plus, Edit, Trash2, ChevronRight } from 'lucide-react';
+import { Edit, Trash2 } from 'lucide-react';
 import { locationsApi, departmentsApi } from '@/services/api';
 import { Location } from '@/types/inventory';
+import DataPageLayout from '@/components/layout/DataPageLayout';
 
 interface Department {
   id: string;
@@ -15,18 +16,15 @@ export default function Locations() {
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [expandedParent, setExpandedParent] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [typeFilter, setTypeFilter] = useState('');
   const [departmentFilter, setDepartmentFilter] = useState('');
   const [sortBy, setSortBy] = useState('recently-added');
-
   const [formData, setFormData] = useState({
-    name: '',
-    type: 'room' as Location['type'],
-    parentId: '',
-    notes: '',
+    name: '', type: 'room' as Location['type'], parentId: '', notes: '',
   });
+  const [wasInAllDepartmentsMode, setWasInAllDepartmentsMode] = useState(false);
+  const [error, setError] = useState('');
 
   const fetchLocations = async () => {
     try {
@@ -44,11 +42,7 @@ export default function Locations() {
   };
 
   useEffect(() => {
-    const handleStorageChange = () => {
-      setLoading(true);
-      fetchLocations();
-    };
-
+    const handleStorageChange = () => { setLoading(true); fetchLocations(); };
     setLoading(true);
     fetchLocations();
     window.addEventListener('storage', handleStorageChange);
@@ -57,12 +51,10 @@ export default function Locations() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-
     if (!formData.name.trim()) {
-      alert('Location name is required');
+      setError('Location name is required');
       return;
     }
-
     try {
       if (editingId) {
         await locationsApi.update(editingId, formData);
@@ -72,24 +64,29 @@ export default function Locations() {
       await fetchLocations();
       setShowForm(false);
       setEditingId(null);
-      setFormData({
-        name: '',
-        type: 'room',
-        parentId: '',
-        notes: '',
-      });
+      setFormData({ name: '', type: 'room', parentId: '', notes: '' });
+      setError('');
+      if (wasInAllDepartmentsMode) {
+        localStorage.setItem('currentDepartmentId', 'all-departments');
+        window.location.reload();
+      }
     } catch (error) {
       console.error('Failed to save location:', error);
-      alert('Failed to save location');
+      setError('Failed to save location');
     }
   };
 
   const handleEdit = (location: Location) => {
+    const currentDeptId = localStorage.getItem('currentDepartmentId');
+    const isInAllDepartmentsMode = currentDeptId === 'all-departments';
+    if (isInAllDepartmentsMode && location.departmentId) {
+      setWasInAllDepartmentsMode(true);
+      localStorage.setItem('currentDepartmentId', location.departmentId);
+      window.location.reload();
+      return;
+    }
     setFormData({
-      name: location.name,
-      type: location.type,
-      parentId: location.parentId || '',
-      notes: location.notes || '',
+      name: location.name, type: location.type, parentId: location.parentId || '', notes: location.notes || '',
     });
     setEditingId(location.id);
     setShowForm(true);
@@ -97,31 +94,20 @@ export default function Locations() {
 
   const handleDelete = async (id: string) => {
     if (!confirm('Are you sure? This will delete all sub-locations.')) return;
-
     try {
       await locationsApi.delete(id);
       await fetchLocations();
     } catch (error) {
       console.error('Failed to delete location:', error);
-      alert('Failed to delete location');
+      setError('Failed to delete location');
     }
   };
 
   const handleCancel = () => {
     setShowForm(false);
     setEditingId(null);
-    setFormData({
-      name: '',
-      type: 'room',
-      parentId: '',
-      notes: '',
-    });
+    setFormData({ name: '', type: 'room', parentId: '', notes: '' });
   };
-
-  const getChildren = (parentId: string | undefined) => {
-    return locations.filter((loc) => loc.parentId === parentId);
-  };
-
 
   const filteredLocations = locations.filter(loc => {
     const matchesSearch = loc.name.toLowerCase().includes(searchTerm.toLowerCase());
@@ -136,8 +122,6 @@ export default function Locations() {
     return 0;
   });
 
-  const rootLocations = sortedLocations.filter((loc) => !loc.parentId);
-
   const locationTypes = Array.from(new Set(locations.map(l => l.type))).sort();
 
   const clearAllFilters = () => {
@@ -147,275 +131,237 @@ export default function Locations() {
     setSortBy('recently-added');
   };
 
-  const renderLocationTree = (location: Location, depth: number = 0) => {
-    const children = getChildren(location.id);
-    const isExpanded = expandedParent === location.id;
-    const dept = location.departmentId ? departments.find(d => d.id === location.departmentId) : null;
-
-    return (
-      <div key={location.id}>
-        <div
-          className="flex items-center gap-2 p-3 bg-gray-50 border-b hover:bg-gray-100"
-          style={{ marginLeft: `${depth * 20}px` }}
-        >
-          {children.length > 0 && (
-            <button
-              onClick={() =>
-                setExpandedParent(isExpanded ? null : location.id)
-              }
-              className="text-gray-400"
-            >
-              <ChevronRight
-                size={16}
-                style={{
-                  transform: isExpanded ? 'rotate(90deg)' : '',
-                }}
-              />
-            </button>
-          )}
-          <div className="flex-1">
-            <div className="font-medium text-gray-900">{location.name}</div>
-            <div className="text-xs text-gray-500">{location.type}
-              {user.role === 'superadmin' && dept && (
-                <span className="ml-2 px-2 py-0.5 bg-blue-100 text-blue-700 rounded text-xs">
-                  {dept.name}
-                </span>
-              )}
-            </div>
-          </div>
-          <div className="space-x-2">
-            {(user.role === 'admin' || user.role === 'superadmin') && (
-              <>
-                <button
-                  onClick={() => handleEdit(location)}
-                  className="text-blue-600 hover:text-blue-800"
-                >
-                  <Edit size={16} />
-                </button>
-                <button
-                  onClick={() => handleDelete(location.id)}
-                  className="text-red-600 hover:text-red-800"
-                >
-                  <Trash2 size={16} />
-                </button>
-              </>
-            )}
-          </div>
-        </div>
-
-        {isExpanded && children.length > 0 && (
-          <div>
-            {children.map((child) => renderLocationTree(child, depth + 1))}
-          </div>
-        )}
-      </div>
-    );
+  const getParentName = (parentId: string | undefined) => {
+    if (!parentId) return '—';
+    return locations.find(l => l.id === parentId)?.name ?? '—';
   };
 
-  if (loading) {
-    return <div className="text-center py-12">Loading...</div>;
-  }
+  if (loading) return <div className="text-center py-12">Loading...</div>;
 
-  return (
-    <div className="space-y-6">
-      <div className="flex justify-between items-center">
-        <h1 className="text-3xl font-bold text-gray-900">Locations</h1>
-        {(user.role === 'admin' || user.role === 'superadmin') && (
-          <button
-            onClick={() => setShowForm(true)}
-            className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700"
-          >
-            <Plus size={20} />
-            Add Location
-          </button>
-        )}
-      </div>
-
-      {showForm && (
-        <div className="bg-white p-6 rounded-lg shadow-lg">
-          <h2 className="text-xl font-semibold mb-4">
-            {editingId ? 'Edit Location' : 'New Location'}
-          </h2>
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label htmlFor="location-name" className="block text-sm font-medium text-gray-700 mb-1">
-                  Location Name *
-                </label>
-                <input
-                  id="location-name"
-                  name="name"
-                  type="text"
-                  value={formData.name}
-                  onChange={(e) =>
-                    setFormData({ ...formData, name: e.target.value })
-                  }
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg"
-                  required
-                />
-              </div>
-
-              <div>
-                <label htmlFor="location-type" className="block text-sm font-medium text-gray-700 mb-1">
-                  Type *
-                </label>
-                <select
-                  id="location-type"
-                  name="type"
-                  value={formData.type}
-                  onChange={(e) =>
-                    setFormData({
-                      ...formData,
-                      type: e.target.value as Location['type'],
-                    })
-                  }
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg"
-                >
-                  <option value="branch">Branch</option>
-                  <option value="building">Building</option>
-                  <option value="floor">Floor</option>
-                  <option value="room">Room</option>
-                  <option value="rack">Rack</option>
-                  <option value="shelf">Shelf</option>
-                </select>
-              </div>
-
-              <div>
-                <label htmlFor="parent-location" className="block text-sm font-medium text-gray-700 mb-1">
-                  Parent Location
-                </label>
-                <select
-                  id="parent-location"
-                  name="parentId"
-                  value={formData.parentId}
-                  onChange={(e) =>
-                    setFormData({ ...formData, parentId: e.target.value })
-                  }
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg"
-                >
-                  <option value="">None (Root)</option>
-                  {locations
-                    .filter((loc) => loc.id !== editingId)
-                    .map((loc) => (
-                      <option key={loc.id} value={loc.id}>
-                        {loc.name} ({loc.type})
-                      </option>
-                    ))}
-                </select>
-              </div>
-            </div>
-
-            <div>
-              <label htmlFor="location-notes" className="block text-sm font-medium text-gray-700 mb-1">
-                Notes
-              </label>
-              <textarea
-                id="location-notes"
-                name="notes"
-                value={formData.notes}
-                onChange={(e) =>
-                  setFormData({ ...formData, notes: e.target.value })
-                }
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg"
-                rows={2}
-              />
-            </div>
-
-            <div className="flex gap-2">
-              <button
-                type="submit"
-                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
-              >
-                Save
-              </button>
-              <button
-                type="button"
-                onClick={handleCancel}
-                className="px-4 py-2 bg-gray-200 rounded-lg hover:bg-gray-300"
-              >
-                Cancel
-              </button>
-            </div>
-          </form>
-        </div>
-      )}
-
-      <div className="bg-white rounded-lg shadow p-4 space-y-4">
-        {/* Filters */}
-        <div className="space-y-3">
-          <div className="flex gap-2">
+  const formContent = (
+    <>
+      <h2 className="text-xl font-semibold mb-4">
+        {editingId ? 'Edit Location' : 'New Location'}
+      </h2>
+      <form onSubmit={handleSubmit} className="space-y-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div>
+            <label htmlFor="location-name" className="block text-sm font-medium text-gray-700 mb-1">
+              Location Name *
+            </label>
             <input
-              id="search-locations"
-              name="search"
+              id="location-name"
+              name="name"
               type="text"
-              placeholder="Search by location name…"
-              value={searchTerm}
-              onChange={e => setSearchTerm(e.target.value)}
-              className="flex-1 px-4 py-2 border border-gray-300 rounded-lg text-sm"
-              aria-label="Search locations"
+              value={formData.name}
+              onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg"
+              required
             />
           </div>
 
-          <div className="flex flex-wrap gap-2">
+          <div>
+            <label htmlFor="location-type" className="block text-sm font-medium text-gray-700 mb-1">
+              Type *
+            </label>
             <select
-              id="filter-type"
-              name="filter-type"
-              value={typeFilter}
-              onChange={e => setTypeFilter(e.target.value)}
-              className="px-3 py-2 border border-gray-300 rounded text-sm"
-              aria-label="Filter by location type">
-              <option value="">All Types</option>
-              {locationTypes.map(type => (
-                <option key={type} value={type}>
-                  {type.charAt(0).toUpperCase() + type.slice(1)}
-                </option>
-              ))}
-            </select>
-
-            {user.role === 'superadmin' && (
-              <select
-                id="filter-department"
-                name="filter-department"
-                value={departmentFilter}
-                onChange={e => setDepartmentFilter(e.target.value)}
-                className="px-3 py-2 border border-gray-300 rounded text-sm"
-                aria-label="Filter by department">
-                <option value="">All Departments</option>
-                {departments.map(dept => (
-                  <option key={dept.id} value={dept.id}>{dept.name}</option>
-                ))}
-              </select>
-            )}
-
-            <select
-              id="sort-by"
-              name="sort-by"
-              value={sortBy}
-              onChange={e => setSortBy(e.target.value)}
-              className="px-3 py-2 border border-gray-300 rounded text-sm font-medium bg-blue-50"
-              aria-label="Sort by">
-              <option value="recently-added">Sort: Recently Added</option>
-              <option value="name">Sort: Name</option>
+              id="location-type"
+              name="type"
+              value={formData.type}
+              onChange={(e) => setFormData({ ...formData, type: e.target.value as Location['type'] })}
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg"
+            >
+              <option value="branch">Branch</option>
+              <option value="building">Building</option>
+              <option value="floor">Floor</option>
+              <option value="room">Room</option>
+              <option value="rack">Rack</option>
+              <option value="shelf">Shelf</option>
             </select>
           </div>
 
-          <button
-            onClick={clearAllFilters}
-            className="text-xs px-3 py-1 bg-gray-100 text-gray-700 rounded hover:bg-gray-200 font-medium">
-            Clear All Filters
-          </button>
+          <div>
+            <label htmlFor="parent-location" className="block text-sm font-medium text-gray-700 mb-1">
+              Parent Location
+            </label>
+            <select
+              id="parent-location"
+              name="parentId"
+              value={formData.parentId}
+              onChange={(e) => setFormData({ ...formData, parentId: e.target.value })}
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg"
+            >
+              <option value="">None (Root)</option>
+              {locations
+                .filter((loc) => loc.id !== editingId)
+                .map((loc) => (
+                  <option key={loc.id} value={loc.id}>
+                    {loc.name} ({loc.type})
+                  </option>
+                ))}
+            </select>
+          </div>
         </div>
 
-        {rootLocations.length > 0 ? (
-          <div>
-            {rootLocations.map((loc) => renderLocationTree(loc))}
-          </div>
-        ) : (
-          <div className="p-12 text-center text-gray-500">
-            {searchTerm ? 'No locations match your search.' : 'No locations yet. Create your first location.'}
-          </div>
+        <div>
+          <label htmlFor="location-notes" className="block text-sm font-medium text-gray-700 mb-1">
+            Notes
+          </label>
+          <textarea
+            id="location-notes"
+            name="notes"
+            value={formData.notes}
+            onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
+            className="w-full px-4 py-2 border border-gray-300 rounded-lg"
+            rows={2}
+          />
+        </div>
+
+        <div className="flex gap-2">
+          <button
+            type="submit"
+            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+          >
+            Save
+          </button>
+          <button
+            type="button"
+            onClick={handleCancel}
+            className="px-4 py-2 bg-gray-200 rounded-lg hover:bg-gray-300"
+          >
+            Cancel
+          </button>
+        </div>
+      </form>
+    </>
+  );
+
+  const filterContent = (
+    <>
+      <div className="flex gap-2">
+        <input
+          id="search-locations"
+          name="search"
+          type="text"
+          placeholder="Search by location name…"
+          value={searchTerm}
+          onChange={e => setSearchTerm(e.target.value)}
+          className="flex-1 px-4 py-2 border border-gray-300 rounded-lg text-sm"
+          aria-label="Search locations"
+        />
+        <select
+          id="sort-by"
+          name="sort-by"
+          value={sortBy}
+          onChange={e => setSortBy(e.target.value)}
+          className="px-3 py-2 border border-gray-300 rounded text-sm font-medium bg-blue-50"
+          aria-label="Sort by">
+          <option value="recently-added">Sort: Recently Added</option>
+          <option value="name">Sort: Name</option>
+        </select>
+        <button
+          onClick={clearAllFilters}
+          className="text-xs px-3 py-1 bg-gray-100 text-gray-700 rounded hover:bg-gray-200 font-medium">
+          Clear
+        </button>
+      </div>
+
+      <div className="flex gap-2 flex-wrap">
+        <select
+          id="filter-type"
+          name="filter-type"
+          value={typeFilter}
+          onChange={e => setTypeFilter(e.target.value)}
+          className="px-3 py-2 border border-gray-300 rounded text-sm"
+          aria-label="Filter by location type">
+          <option value="">All Types</option>
+          {locationTypes.map(type => (
+            <option key={type} value={type}>
+              {type.charAt(0).toUpperCase() + type.slice(1)}
+            </option>
+          ))}
+        </select>
+        {user.role === 'superadmin' && (
+          <select
+            id="filter-department"
+            name="filter-department"
+            value={departmentFilter}
+            onChange={e => setDepartmentFilter(e.target.value)}
+            className="px-3 py-2 border border-gray-300 rounded text-sm"
+            aria-label="Filter by department">
+            <option value="">All Departments</option>
+            {departments.map(dept => (
+              <option key={dept.id} value={dept.id}>{dept.name}</option>
+            ))}
+          </select>
         )}
       </div>
-    </div>
+    </>
+  );
+
+  return (
+    <DataPageLayout
+      title="Locations"
+      error={error}
+      showForm={showForm}
+      onAddClick={() => setShowForm(true)}
+      showAddButton={user.role === 'admin' && localStorage.getItem('currentDepartmentId') !== 'all-departments'}
+      formContent={formContent}
+      filterContent={filterContent}>
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead className="bg-gray-50">
+            <tr>
+              <th className="px-4 py-2 text-left">Name</th>
+              <th className="px-4 py-2 text-left">Type</th>
+              <th className="px-4 py-2 text-left">Parent Location</th>
+              {user.role === 'superadmin' && (
+                <th className="px-4 py-2 text-left">Department</th>
+              )}
+              {user.role !== 'superadmin' && (
+                <th className="px-4 py-2 text-right">Actions</th>
+              )}
+            </tr>
+          </thead>
+          <tbody className="divide-y">
+            {sortedLocations.length === 0 ? (
+              <tr>
+                <td colSpan={user.role === 'superadmin' ? 4 : 4} className="px-4 py-8 text-center text-gray-400">
+                  {searchTerm ? 'No locations match your search.' : 'No locations yet. Create your first location.'}
+                </td>
+              </tr>
+            ) : sortedLocations.map((location) => {
+              const dept = location.departmentId ? departments.find(d => d.id === location.departmentId) : null;
+              return (
+                <tr key={location.id}>
+                  <td className="px-4 py-2 text-gray-900">{location.name}</td>
+                  <td className="px-4 py-2 text-gray-500">{location.type}</td>
+                  <td className="px-4 py-2 text-gray-500">{getParentName(location.parentId)}</td>
+                  {user.role === 'superadmin' && (
+                    <td className="px-4 py-2 text-gray-700">{dept?.name ?? '—'}</td>
+                  )}
+                  <td className="px-4 py-2 text-right space-x-2">
+                    {user.role === 'admin' && (
+                      <>
+                        <button
+                          onClick={() => handleEdit(location)}
+                          className="text-blue-600 hover:text-blue-800">
+                          <Edit size={18} />
+                        </button>
+                        <button
+                          onClick={() => handleDelete(location.id)}
+                          className="text-red-600 hover:text-red-800">
+                          <Trash2 size={18} />
+                        </button>
+                      </>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </DataPageLayout>
   );
 }

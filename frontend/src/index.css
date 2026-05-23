@@ -15,4 +15,78 @@ body {
 
 html {
   scroll-behavior: smooth;
+  scrollbar-gutter: stable;
+}
+
+/* Modern scrollbar styling for Chromium browsers */
+::-webkit-scrollbar {
+  width: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, #3b82f6 0%, #2563eb 100%);
+  border-radius: 10px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+  box-shadow: inset 0 0 6px rgba(0, 0, 0, 0.1);
+  transition: all 0.3s ease;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(180deg, #2563eb 0%, #1d4ed8 100%);
+  background-clip: padding-box;
+  box-shadow: inset 0 0 8px rgba(0, 0, 0, 0.15);
+}
+
+::-webkit-scrollbar-thumb:active {
+  background: #1d4ed8;
+  background-clip: padding-box;
+}
+
+/* Firefox scrollbar styling */
+* {
+  scrollbar-color: #3b82f6 transparent;
+  scrollbar-width: thin;
+}
+
+/* Navbar background images */
+nav::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: calc((100vw - 80rem) / 2);
+  background-image: url('/imsbackground.png');
+  background-size: cover;
+  background-repeat: no-repeat;
+  background-position: left center;
+  opacity: 0.85;
+  pointer-events: none;
+}
+
+nav::after {
+  content: '';
+  position: absolute;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  width: calc((100vw - 80rem) / 2);
+  background-image: url('/imsbackground2.png');
+  background-size: cover;
+  background-repeat: no-repeat;
+  background-position: right center;
+  opacity: 0.85;
+  pointer-events: none;
+}
+
+@media (max-width: 1280px) {
+  nav::before,
+  nav::after {
+    width: 0;
+  }
 }

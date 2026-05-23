@@ -10,48 +10,7 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-enum Unit {
-  // Pieces/Count
-  pcs
-  dozen
-  box
-  pack
-
-  // Weight
-  g
-  kg
-  mg
-  oz
-  lb
-  ton
-
-  // Volume/Liquid
-  ml
-  liter
-  gallon
-  cup
-
-  // Length/Distance
-  mm
-  cm
-  m
-  km
-  inch
-  ft
-  yard
-
-  // Area
-  cm2
-  m2
-
-  // Other
-  roll
-  sheet
-  can
-  bottle
-  bag
-  carton
-}
+// Unit values (SQLite doesn't support enums): pcs, dozen, box, pack, g, kg, mg, oz, lb, ton, ml, liter, gallon, cup, mm, cm, m, km, inch, ft, yard, cm2, m2, roll, sheet, can, bottle, bag, carton
 
 model Department {
   id          String     @id @default(cuid())
@@ -99,7 +58,7 @@ model Product {
   category            Category   @relation(fields: [categoryId], references: [id], onDelete: Cascade)
   departmentId        String?
   department          Department? @relation(fields: [departmentId], references: [id], onDelete: SetNull)
-  unit                Unit       @default(pcs)
+  unit                String     @default("pcs") // pcs, dozen, box, pack, g, kg, mg, oz, lb, ton, ml, liter, gallon, cup, mm, cm, m, km, inch, ft, yard, cm2, m2, roll, sheet, can, bottle, bag, carton
   currentStock        Int        @default(0)
   lowStockThreshold   Int        @default(10)
   locationId          String?

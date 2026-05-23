@@ -36,7 +36,7 @@ router.get('/', async (req: AuthRequest, res: Response) => {
 
     const products = await prisma.product.findMany({
       where: whereFilter,
-      include: { category: true, location: true },
+      include: { category: true, location: true, department: true },
     });
     console.log(`[PRODUCTS] Found ${products.length} products`);
     res.json(products);
@@ -76,6 +76,26 @@ router.post('/', async (req: AuthRequest, res: Response) => {
       return res.status(400).json({ error: 'sku, name, and categoryId are required' });
     }
 
+    // Verify category exists and is accessible
+    const category = await prisma.category.findUnique({ where: { id: categoryId } });
+    if (!category) {
+      return res.status(404).json({ error: 'Category not found' });
+    }
+    if (req.departmentId && category.departmentId !== req.departmentId && category.departmentId !== null) {
+      return res.status(403).json({ error: 'Access denied to this category' });
+    }
+
+    // Verify location if provided
+    if (locationId) {
+      const location = await prisma.location.findUnique({ where: { id: locationId } });
+      if (!location) {
+        return res.status(404).json({ error: 'Location not found' });
+      }
+      if (req.departmentId && location.departmentId !== req.departmentId && location.departmentId !== null) {
+        return res.status(403).json({ error: 'Access denied to this location' });
+      }
+    }
+
     const product = await prisma.product.create({
       data: {
         sku,
@@ -110,6 +130,30 @@ router.put('/:id', async (req: AuthRequest, res: Response) => {
     }
 
     const { sku, name, description, categoryId, locationId, unit, lowStockThreshold } = req.body;
+
+    if (!categoryId) {
+      return res.status(400).json({ error: 'categoryId is required' });
+    }
+
+    // Verify category exists and is accessible
+    const category = await prisma.category.findUnique({ where: { id: categoryId } });
+    if (!category) {
+      return res.status(404).json({ error: 'Category not found' });
+    }
+    if (req.departmentId && category.departmentId !== req.departmentId && category.departmentId !== null) {
+      return res.status(403).json({ error: 'Access denied to this category' });
+    }
+
+    // Verify location if provided
+    if (locationId) {
+      const location = await prisma.location.findUnique({ where: { id: locationId } });
+      if (!location) {
+        return res.status(404).json({ error: 'Location not found' });
+      }
+      if (req.departmentId && location.departmentId !== req.departmentId && location.departmentId !== null) {
+        return res.status(403).json({ error: 'Access denied to this location' });
+      }
+    }
 
     const product = await prisma.product.update({
       where: { id: req.params.id },
