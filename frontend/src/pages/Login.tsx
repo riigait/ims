@@ -20,7 +20,6 @@ export default function Login() {
         }
       } catch (err) {
         // Silently fail - it's optional
-        console.log('Could not check superadmin status');
       }
     };
 

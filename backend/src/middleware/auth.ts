@@ -34,16 +34,13 @@ export const authMiddleware = async (req: AuthRequest, res: Response, next: Next
     } else if (req.userRole === 'admin' || req.userRole === 'staff') {
       // For admins and staff, check if X-Department-Id header is provided (from department switcher)
       const headerDeptId = req.headers['x-department-id'] as string;
-      console.log(`[AUTH] Header dept ID: ${headerDeptId}, User role: ${req.userRole}, User ID: ${decoded.userId}`);
       if (headerDeptId && headerDeptId !== 'all-departments') {
         // Use the selected department
         req.departmentId = headerDeptId;
-        console.log(`[AUTH] Set single departmentId: ${req.departmentId}`);
       } else if (headerDeptId === 'all-departments') {
         if (req.userRole === 'admin') {
           // Admins can view all departments
           req.departmentId = undefined;
-          console.log(`[AUTH] Admin with all-departments: cleared departmentId`);
         } else if (req.userRole === 'staff') {
           // Staff viewing "all departments" - get their assigned departments
           const staffDepts = await prisma.staffDepartment.findMany({
@@ -52,16 +49,12 @@ export const authMiddleware = async (req: AuthRequest, res: Response, next: Next
           });
           req.departmentIds = staffDepts.map(sd => sd.departmentId);
           req.departmentId = undefined; // No single department filter
-          console.log(`[AUTH] Staff with all-departments: departmentIds = [${req.departmentIds.join(', ')}]`);
         }
       } else {
         // Fallback to JWT departmentId (for single-department users)
         req.departmentId = decoded.departmentId;
-        console.log(`[AUTH] Fallback to JWT departmentId: ${req.departmentId}`);
       }
     }
-
-    console.log(`[AUTH] Final state - departmentId: ${req.departmentId}, departmentIds: ${req.departmentIds?.join(',') || 'undefined'}`);
     next();
   } catch (error) {
     return res.status(401).json({ error: 'Invalid token' });

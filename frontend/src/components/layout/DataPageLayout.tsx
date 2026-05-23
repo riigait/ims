@@ -25,17 +25,17 @@ export default function DataPageLayout({
   return (
     <div className="space-y-6">
       {error && (
-        <div className="bg-red-50 border border-red-200 rounded-lg p-4 text-red-700">
+        <div className="p-4 rounded-lg border border-[var(--border)]" style={{ backgroundColor: '#fee2e2', color: '#991b1b' }}>
           {error}
         </div>
       )}
 
       <div className="flex justify-between items-center">
-        <h1 className="text-3xl font-bold text-gray-900">{title}</h1>
+        <h1 className="text-3xl font-bold text-[var(--text)]">{title}</h1>
         {showAddButton && (
           <button
             onClick={onAddClick}
-            className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700"
+            className="flex items-center gap-2 bg-[var(--primary)] text-white px-4 py-2 rounded-lg hover:bg-[var(--primary-hover)]"
           >
             <Plus size={20} /> Add {title.slice(0, -1)}
           </button>
@@ -43,12 +43,12 @@ export default function DataPageLayout({
       </div>
 
       {showForm && (
-        <div className="bg-white p-6 rounded-lg shadow-lg">
+        <div className="bg-[var(--surface)] p-6 rounded-lg shadow-lg">
           {formContent}
         </div>
       )}
 
-      <div className="bg-white rounded-lg shadow p-4 space-y-3">
+      <div className="bg-[var(--surface)] rounded-lg shadow p-4 space-y-3">
         {filterContent}
         {children}
       </div>

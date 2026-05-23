@@ -140,13 +140,13 @@ export default function Locations() {
 
   const formContent = (
     <>
-      <h2 className="text-xl font-semibold mb-4">
+      <h2 className="text-xl font-semibold mb-4 text-[var(--text)]">
         {editingId ? 'Edit Location' : 'New Location'}
       </h2>
       <form onSubmit={handleSubmit} className="space-y-4">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
-            <label htmlFor="location-name" className="block text-sm font-medium text-gray-700 mb-1">
+            <label htmlFor="location-name" className="block text-sm font-medium text-[var(--text)] mb-1">
               Location Name *
             </label>
             <input
@@ -155,13 +155,13 @@ export default function Locations() {
               type="text"
               value={formData.name}
               onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg"
+              className="w-full px-4 py-2 border border-[var(--border)] rounded-lg bg-[var(--surface)] text-[var(--text)]"
               required
             />
           </div>
 
           <div>
-            <label htmlFor="location-type" className="block text-sm font-medium text-gray-700 mb-1">
+            <label htmlFor="location-type" className="block text-sm font-medium text-[var(--text)] mb-1">
               Type *
             </label>
             <select
@@ -169,7 +169,7 @@ export default function Locations() {
               name="type"
               value={formData.type}
               onChange={(e) => setFormData({ ...formData, type: e.target.value as Location['type'] })}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg"
+              className="w-full px-4 py-2 border border-[var(--border)] rounded-lg bg-[var(--surface)] text-[var(--text)]"
             >
               <option value="branch">Branch</option>
               <option value="building">Building</option>
@@ -181,7 +181,7 @@ export default function Locations() {
           </div>
 
           <div>
-            <label htmlFor="parent-location" className="block text-sm font-medium text-gray-700 mb-1">
+            <label htmlFor="parent-location" className="block text-sm font-medium text-[var(--text)] mb-1">
               Parent Location
             </label>
             <select
@@ -189,7 +189,7 @@ export default function Locations() {
               name="parentId"
               value={formData.parentId}
               onChange={(e) => setFormData({ ...formData, parentId: e.target.value })}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg"
+              className="w-full px-4 py-2 border border-[var(--border)] rounded-lg bg-[var(--surface)] text-[var(--text)]"
             >
               <option value="">None (Root)</option>
               {locations
@@ -204,7 +204,7 @@ export default function Locations() {
         </div>
 
         <div>
-          <label htmlFor="location-notes" className="block text-sm font-medium text-gray-700 mb-1">
+          <label htmlFor="location-notes" className="block text-sm font-medium text-[var(--text)] mb-1">
             Notes
           </label>
           <textarea
@@ -212,7 +212,7 @@ export default function Locations() {
             name="notes"
             value={formData.notes}
             onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
-            className="w-full px-4 py-2 border border-gray-300 rounded-lg"
+            className="w-full px-4 py-2 border border-[var(--border)] rounded-lg bg-[var(--surface)] text-[var(--text)]"
             rows={2}
           />
         </div>
@@ -220,14 +220,14 @@ export default function Locations() {
         <div className="flex gap-2">
           <button
             type="submit"
-            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+            className="px-4 py-2 bg-[var(--primary)] text-white rounded-lg hover:bg-[var(--primary-hover)]"
           >
             Save
           </button>
           <button
             type="button"
             onClick={handleCancel}
-            className="px-4 py-2 bg-gray-200 rounded-lg hover:bg-gray-300"
+            className="px-4 py-2 bg-[var(--surface-2)] text-[var(--text)] rounded-lg hover:bg-[var(--border)]"
           >
             Cancel
           </button>
@@ -246,7 +246,7 @@ export default function Locations() {
           placeholder="Search by location name…"
           value={searchTerm}
           onChange={e => setSearchTerm(e.target.value)}
-          className="flex-1 px-4 py-2 border border-gray-300 rounded-lg text-sm"
+          className="flex-1 px-4 py-2 border border-[var(--border)] rounded-lg text-sm bg-[var(--surface)] text-[var(--text)]"
           aria-label="Search locations"
         />
         <select
@@ -254,14 +254,14 @@ export default function Locations() {
           name="sort-by"
           value={sortBy}
           onChange={e => setSortBy(e.target.value)}
-          className="px-3 py-2 border border-gray-300 rounded text-sm font-medium bg-blue-50"
+          className="px-3 py-2 border border-[var(--border)] rounded text-sm font-medium bg-[var(--surface-2)] text-[var(--text)]"
           aria-label="Sort by">
           <option value="recently-added">Sort: Recently Added</option>
           <option value="name">Sort: Name</option>
         </select>
         <button
           onClick={clearAllFilters}
-          className="text-xs px-3 py-1 bg-gray-100 text-gray-700 rounded hover:bg-gray-200 font-medium">
+          className="text-xs px-3 py-1 bg-[var(--surface-2)] text-[var(--text-muted)] rounded hover:bg-[var(--border)] font-medium">
           Clear
         </button>
       </div>
@@ -272,7 +272,7 @@ export default function Locations() {
           name="filter-type"
           value={typeFilter}
           onChange={e => setTypeFilter(e.target.value)}
-          className="px-3 py-2 border border-gray-300 rounded text-sm"
+          className="px-3 py-2 border border-[var(--border)] rounded text-sm bg-[var(--surface)] text-[var(--text)]"
           aria-label="Filter by location type">
           <option value="">All Types</option>
           {locationTypes.map(type => (
@@ -287,7 +287,7 @@ export default function Locations() {
             name="filter-department"
             value={departmentFilter}
             onChange={e => setDepartmentFilter(e.target.value)}
-            className="px-3 py-2 border border-gray-300 rounded text-sm"
+            className="px-3 py-2 border border-[var(--border)] rounded text-sm bg-[var(--surface)] text-[var(--text)]"
             aria-label="Filter by department">
             <option value="">All Departments</option>
             {departments.map(dept => (
@@ -310,47 +310,47 @@ export default function Locations() {
       filterContent={filterContent}>
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
-          <thead className="bg-gray-50">
+          <thead className="bg-[var(--surface-2)] border-b border-[var(--border)]">
             <tr>
-              <th className="px-4 py-2 text-left">Name</th>
-              <th className="px-4 py-2 text-left">Type</th>
-              <th className="px-4 py-2 text-left">Parent Location</th>
+              <th className="px-4 py-2 text-left text-[var(--text)] font-semibold">Name</th>
+              <th className="px-4 py-2 text-left text-[var(--text)] font-semibold">Type</th>
+              <th className="px-4 py-2 text-left text-[var(--text)] font-semibold">Parent Location</th>
               {user.role === 'superadmin' && (
-                <th className="px-4 py-2 text-left">Department</th>
+                <th className="px-4 py-2 text-left text-[var(--text)] font-semibold">Department</th>
               )}
               {user.role !== 'superadmin' && (
-                <th className="px-4 py-2 text-right">Actions</th>
+                <th className="px-4 py-2 text-right text-[var(--text)] font-semibold">Actions</th>
               )}
             </tr>
           </thead>
-          <tbody className="divide-y">
+          <tbody className="divide-y divide-[var(--border)]">
             {sortedLocations.length === 0 ? (
               <tr>
-                <td colSpan={user.role === 'superadmin' ? 4 : 4} className="px-4 py-8 text-center text-gray-400">
+                <td colSpan={user.role === 'superadmin' ? 4 : 4} className="px-4 py-8 text-center text-[var(--text-muted)]">
                   {searchTerm ? 'No locations match your search.' : 'No locations yet. Create your first location.'}
                 </td>
               </tr>
             ) : sortedLocations.map((location) => {
               const dept = location.departmentId ? departments.find(d => d.id === location.departmentId) : null;
               return (
-                <tr key={location.id}>
-                  <td className="px-4 py-2 text-gray-900">{location.name}</td>
-                  <td className="px-4 py-2 text-gray-500">{location.type}</td>
-                  <td className="px-4 py-2 text-gray-500">{getParentName(location.parentId)}</td>
+                <tr key={location.id} className="hover:bg-[var(--surface-2)] transition-colors">
+                  <td className="px-4 py-2 text-[var(--text)]">{location.name}</td>
+                  <td className="px-4 py-2 text-[var(--text-muted)]">{location.type}</td>
+                  <td className="px-4 py-2 text-[var(--text-muted)]">{getParentName(location.parentId)}</td>
                   {user.role === 'superadmin' && (
-                    <td className="px-4 py-2 text-gray-700">{dept?.name ?? '—'}</td>
+                    <td className="px-4 py-2 text-[var(--text)]">{dept?.name ?? '—'}</td>
                   )}
                   <td className="px-4 py-2 text-right space-x-2">
                     {user.role === 'admin' && (
                       <>
                         <button
                           onClick={() => handleEdit(location)}
-                          className="text-blue-600 hover:text-blue-800">
+                          className="text-[var(--primary)] hover:text-[var(--primary-hover)]">
                           <Edit size={18} />
                         </button>
                         <button
                           onClick={() => handleDelete(location.id)}
-                          className="text-red-600 hover:text-red-800">
+                          className="text-red-600 hover:text-red-700">
                           <Trash2 size={18} />
                         </button>
                       </>

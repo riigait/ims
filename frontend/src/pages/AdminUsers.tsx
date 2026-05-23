@@ -1,6 +1,6 @@
 ﻿import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Copy, Trash2, Shield, Users, CheckCircle, Mail, ArrowLeft } from 'lucide-react';
+import { Copy, Trash2, Shield, Users, CheckCircle, Mail, ArrowLeft, Edit } from 'lucide-react';
 import { authApi, departmentsApi } from '@/services/api';
 
 interface Department {
@@ -41,6 +41,9 @@ export default function AdminUsers() {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'invites' | 'users'>('invites');
+  const [editingUser, setEditingUser] = useState<User | null>(null);
+  const [editFormData, setEditFormData] = useState({ name: '', email: '' });
+  const [editError, setEditError] = useState('');
 
   useEffect(() => {
     loadData();
@@ -112,6 +115,47 @@ export default function AdminUsers() {
     }
   };
 
+  const startEditUser = (user: User) => {
+    setEditingUser(user);
+    setEditFormData({ name: user.name, email: user.email });
+    setEditError('');
+  };
+
+  const saveUserEdit = async () => {
+    if (!editingUser) return;
+    if (!editFormData.name.trim()) {
+      setEditError('Name is required');
+      return;
+    }
+    if (!editFormData.email.trim()) {
+      setEditError('Email is required');
+      return;
+    }
+
+    try {
+      const response = await fetch(`/api/users/${editingUser.id}`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${localStorage.getItem('token')}`,
+        },
+        body: JSON.stringify({ name: editFormData.name, email: editFormData.email }),
+      });
+      if (!response.ok) throw new Error('Failed to update user');
+
+      setUsers(users.map(u => u.id === editingUser.id ? { ...u, ...editFormData } : u));
+      setEditingUser(null);
+      setError('');
+    } catch (err) {
+      setEditError('Failed to update user');
+    }
+  };
+
+  const cancelEditUser = () => {
+    setEditingUser(null);
+    setEditError('');
+  };
+
   const deleteUser = async (id: string) => {
     if (!confirm('Are you sure? This cannot be undone.')) return;
     try {
@@ -143,7 +187,7 @@ export default function AdminUsers() {
     return false;
   };
 
-  if (loading) return <div className="flex items-center justify-center h-screen"><div className="text-gray-500">Loading...</div></div>;
+  if (loading) return <div className="flex items-center justify-center h-screen"><div className="text-[var(--text-muted)]">Loading...</div></div>;
   if (!currentUser) return null;
 
   const getFilteredPendingInvites = () => {
@@ -163,7 +207,7 @@ export default function AdminUsers() {
   const usedInvites = getFilteredUsedInvites();
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-[var(--bg)]">
       {error && (
         <div className="bg-red-50 border-l-4 border-red-500 p-4 mb-6">
           <p className="text-red-700">{error}</p>
@@ -174,25 +218,25 @@ export default function AdminUsers() {
         <div className="flex items-center gap-4">
           <button
             onClick={() => navigate('/scanner')}
-            className="p-2 hover:bg-gray-200 rounded-lg transition"
+            className="p-2 hover:bg-[var(--surface-2)] rounded-lg transition"
             title="Back to Scanner"
           >
-            <ArrowLeft size={24} className="text-gray-700" />
+            <ArrowLeft size={24} className="text-[var(--text)]" />
           </button>
           <div>
-            <h1 className="text-4xl font-bold text-gray-900">User Management</h1>
-            <p className="text-gray-600 mt-2">Manage users and generate invite codes</p>
+            <h1 className="text-4xl font-bold text-[var(--text)]">User Management</h1>
+            <p className="text-[var(--text-muted)] mt-2">Manage users and generate invite codes</p>
           </div>
         </div>
 
         {/* Tabs */}
-        <div className="flex gap-2 border-b border-gray-200">
+        <div className="flex gap-2 border-b border-[var(--border)]">
           <button
             onClick={() => setActiveTab('invites')}
             className={`px-6 py-3 font-medium text-sm border-b-2 transition ${
               activeTab === 'invites'
-                ? 'border-blue-600 text-blue-600'
-                : 'border-transparent text-gray-600 hover:text-gray-900'
+                ? 'border-[var(--primary)] text-[var(--primary)]'
+                : 'border-transparent text-[var(--text-muted)] hover:text-[var(--text)]'
             }`}
           >
             <Mail className="inline mr-2" size={18} />
@@ -202,8 +246,8 @@ export default function AdminUsers() {
             onClick={() => setActiveTab('users')}
             className={`px-6 py-3 font-medium text-sm border-b-2 transition ${
               activeTab === 'users'
-                ? 'border-blue-600 text-blue-600'
-                : 'border-transparent text-gray-600 hover:text-gray-900'
+                ? 'border-[var(--primary)] text-[var(--primary)]'
+                : 'border-transparent text-[var(--text-muted)] hover:text-[var(--text)]'
             }`}
           >
             <Users className="inline mr-2" size={18} />
@@ -213,15 +257,15 @@ export default function AdminUsers() {
 
         {/* Generate Invite Section */}
         {activeTab === 'invites' && ['admin', 'superadmin'].includes(currentUser?.role || '') && (
-          <div className="bg-white rounded-lg shadow p-6">
-            <h2 className="text-lg font-semibold mb-4">Generate New Invite Code</h2>
+          <div className="bg-[var(--surface)] rounded-lg shadow p-6">
+            <h2 className="text-lg font-semibold mb-4 text-[var(--text)]">Generate New Invite Code</h2>
             <div className="flex gap-3">
               <select
                 id="generate-role"
                 name="generate-role"
                 value={generateRole}
                 onChange={(e) => setGenerateRole(e.target.value as 'superadmin' | 'admin' | 'staff')}
-                className="px-4 py-2 border border-gray-300 rounded-lg font-medium text-sm"
+                className="px-4 py-2 border border-[var(--border)] rounded-lg font-medium text-sm bg-[var(--surface)] text-[var(--text)]"
                 aria-label="Select role for new invite code"
               >
                 <option value="staff">Staff User</option>
@@ -232,38 +276,38 @@ export default function AdminUsers() {
               </select>
               <button
                 onClick={generateInvite}
-                className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium text-sm"
+                className="px-6 py-2 bg-[var(--primary)] text-white rounded-lg hover:bg-[var(--primary-hover)] font-medium text-sm"
               >
                 Generate Code
               </button>
             </div>
-            <p className="text-xs text-gray-500 mt-3">Invite codes expire in 7 days</p>
+            <p className="text-xs text-[var(--text-muted)] mt-3">Invite codes expire in 7 days</p>
           </div>
         )}
 
         {/* Pending Invites */}
         {activeTab === 'invites' && ['admin', 'superadmin'].includes(currentUser?.role || '') && (
-          <div className="bg-white rounded-lg shadow p-6">
-            <h3 className="text-lg font-semibold mb-4">Pending Invites</h3>
+          <div className="bg-[var(--surface)] rounded-lg shadow p-6">
+            <h3 className="text-lg font-semibold mb-4 text-[var(--text)]">Pending Invites</h3>
             {pendingInvites.length === 0 ? (
-              <p className="text-gray-500 py-8 text-center">No pending invites</p>
+              <p className="text-[var(--text-muted)] py-8 text-center">No pending invites</p>
             ) : (
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
-                  <thead className="bg-gray-50 border-b">
+                  <thead className="bg-[var(--surface-2)] border-b border-[var(--border)]">
                     <tr>
-                      <th className="px-4 py-3 text-left font-semibold text-gray-700">Code</th>
-                      <th className="px-4 py-3 text-left font-semibold text-gray-700">Role</th>
-                      <th className="px-4 py-3 text-left font-semibold text-gray-700">Created By</th>
-                      <th className="px-4 py-3 text-left font-semibold text-gray-700">Expires</th>
-                      <th className="px-4 py-3 text-left font-semibold text-gray-700">Actions</th>
+                      <th className="px-4 py-3 text-left font-semibold text-[var(--text)]">Code</th>
+                      <th className="px-4 py-3 text-left font-semibold text-[var(--text)]">Role</th>
+                      <th className="px-4 py-3 text-left font-semibold text-[var(--text)]">Created By</th>
+                      <th className="px-4 py-3 text-left font-semibold text-[var(--text)]">Expires</th>
+                      <th className="px-4 py-3 text-left font-semibold text-[var(--text)]">Actions</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y">
+                  <tbody className="divide-y divide-[var(--border)]">
                     {pendingInvites.map(invite => (
-                      <tr key={invite.id} className="hover:bg-gray-50">
+                      <tr key={invite.id} className="hover:bg-[var(--surface-2)] transition-colors">
                         <td className="px-4 py-3">
-                          <code className="bg-gray-100 px-3 py-1 rounded font-mono text-xs">{invite.code}</code>
+                          <code className="bg-[var(--surface-2)] px-3 py-1 rounded font-mono text-xs text-[var(--text)]">{invite.code}</code>
                         </td>
                         <td className="px-4 py-3">
                           <span className={`px-2 py-1 rounded text-xs font-medium ${
@@ -272,13 +316,13 @@ export default function AdminUsers() {
                             {invite.role}
                           </span>
                         </td>
-                        <td className="px-4 py-3 text-gray-600">{invite.creator?.name || 'Unknown'}</td>
-                        <td className="px-4 py-3 text-gray-600">{new Date(invite.expiresAt).toLocaleDateString()}</td>
+                        <td className="px-4 py-3 text-[var(--text-muted)]">{invite.creator?.name || 'Unknown'}</td>
+                        <td className="px-4 py-3 text-[var(--text-muted)]">{new Date(invite.expiresAt).toLocaleDateString()}</td>
                         <td className="px-4 py-3">
                           <div className="flex gap-2">
                             <button
                               onClick={() => copyToClipboard(invite.code)}
-                              className="p-2 text-blue-600 hover:bg-blue-50 rounded transition"
+                              className="p-2 text-[var(--primary)] hover:bg-[var(--surface-2)] rounded transition"
                               title="Copy code"
                             >
                               <Copy size={16} />
@@ -304,26 +348,26 @@ export default function AdminUsers() {
 
         {/* Used Invites */}
         {activeTab === 'invites' && usedInvites.length > 0 && ['admin', 'superadmin'].includes(currentUser?.role || '') && (
-          <div className="bg-white rounded-lg shadow p-6">
-            <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
+          <div className="bg-[var(--surface)] rounded-lg shadow p-6">
+            <h3 className="text-lg font-semibold mb-4 flex items-center gap-2 text-[var(--text)]">
               <CheckCircle size={20} className="text-green-600" />
               Used Invites ({usedInvites.length})
             </h3>
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
-                <thead className="bg-gray-50 border-b">
+                <thead className="bg-[var(--surface-2)] border-b border-[var(--border)]">
                   <tr>
-                    <th className="px-4 py-3 text-left font-semibold text-gray-700">Code</th>
-                    <th className="px-4 py-3 text-left font-semibold text-gray-700">Role</th>
-                    <th className="px-4 py-3 text-left font-semibold text-gray-700">Used By</th>
-                    <th className="px-4 py-3 text-left font-semibold text-gray-700">Date</th>
+                    <th className="px-4 py-3 text-left font-semibold text-[var(--text)]">Code</th>
+                    <th className="px-4 py-3 text-left font-semibold text-[var(--text)]">Role</th>
+                    <th className="px-4 py-3 text-left font-semibold text-[var(--text)]">Used By</th>
+                    <th className="px-4 py-3 text-left font-semibold text-[var(--text)]">Date</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y">
+                <tbody className="divide-y divide-[var(--border)]">
                   {usedInvites.map(invite => (
-                    <tr key={invite.id} className="hover:bg-gray-50">
+                    <tr key={invite.id} className="hover:bg-[var(--surface-2)] transition-colors">
                       <td className="px-4 py-3">
-                        <code className="bg-gray-100 px-3 py-1 rounded font-mono text-xs">{invite.code}</code>
+                        <code className="bg-[var(--surface-2)] px-3 py-1 rounded font-mono text-xs text-[var(--text)]">{invite.code}</code>
                       </td>
                       <td className="px-4 py-3">
                         <span className={`px-2 py-1 rounded text-xs font-medium ${
@@ -332,8 +376,8 @@ export default function AdminUsers() {
                           {invite.role}
                         </span>
                       </td>
-                      <td className="px-4 py-3 text-gray-600">{invite.usedBy || '-'}</td>
-                      <td className="px-4 py-3 text-gray-600">{new Date(invite.usedAt!).toLocaleDateString()}</td>
+                      <td className="px-4 py-3 text-[var(--text-muted)]">{invite.usedBy || '-'}</td>
+                      <td className="px-4 py-3 text-[var(--text-muted)]">{new Date(invite.usedAt!).toLocaleDateString()}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -342,27 +386,76 @@ export default function AdminUsers() {
           </div>
         )}
 
+        {/* Edit User Modal */}
+        {editingUser && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div className="bg-[var(--surface)] rounded-lg shadow-lg p-6 w-full max-w-md">
+              <h3 className="text-lg font-semibold mb-4 text-[var(--text)]">Edit User</h3>
+              {editError && (
+                <div className="mb-4 p-3 bg-red-50 border border-red-200 text-red-700 rounded text-sm">
+                  {editError}
+                </div>
+              )}
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-[var(--text)] mb-1">Name</label>
+                  <input
+                    type="text"
+                    value={editFormData.name}
+                    onChange={(e) => setEditFormData({ ...editFormData, name: e.target.value })}
+                    className="w-full px-4 py-2 border border-[var(--border)] rounded-lg bg-[var(--surface)] text-[var(--text)]"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-[var(--text)] mb-1">Email</label>
+                  <input
+                    type="email"
+                    value={editFormData.email}
+                    onChange={(e) => setEditFormData({ ...editFormData, email: e.target.value })}
+                    className="w-full px-4 py-2 border border-[var(--border)] rounded-lg bg-[var(--surface)] text-[var(--text)]"
+                  />
+                </div>
+                <p className="text-xs text-[var(--text-muted)]">Note: Password changes are handled through password requests</p>
+              </div>
+              <div className="mt-6 flex gap-2">
+                <button
+                  onClick={saveUserEdit}
+                  className="flex-1 px-4 py-2 bg-[var(--primary)] text-white rounded-lg hover:bg-[var(--primary-hover)] font-medium"
+                >
+                  Save
+                </button>
+                <button
+                  onClick={cancelEditUser}
+                  className="flex-1 px-4 py-2 bg-[var(--surface-2)] text-[var(--text)] rounded-lg hover:bg-[var(--border)] font-medium"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Users List */}
         {activeTab === 'users' && (
-          <div className="bg-white rounded-lg shadow p-6">
-            <h3 className="text-lg font-semibold mb-4">All Users</h3>
+          <div className="bg-[var(--surface)] rounded-lg shadow p-6">
+            <h3 className="text-lg font-semibold mb-4 text-[var(--text)]">All Users</h3>
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
-                <thead className="bg-gray-50 border-b">
+                <thead className="bg-[var(--surface-2)] border-b border-[var(--border)]">
                   <tr>
-                    <th className="px-4 py-3 text-left font-semibold text-gray-700">Name</th>
-                    <th className="px-4 py-3 text-left font-semibold text-gray-700">Email</th>
-                    <th className="px-4 py-3 text-left font-semibold text-gray-700">Role</th>
-                    <th className="px-4 py-3 text-left font-semibold text-gray-700">Department</th>
-                    <th className="px-4 py-3 text-left font-semibold text-gray-700">Created</th>
-                    <th className="px-4 py-3 text-left font-semibold text-gray-700">Action</th>
+                    <th className="px-4 py-3 text-left font-semibold text-[var(--text)]">Name</th>
+                    <th className="px-4 py-3 text-left font-semibold text-[var(--text)]">Email</th>
+                    <th className="px-4 py-3 text-left font-semibold text-[var(--text)]">Role</th>
+                    <th className="px-4 py-3 text-left font-semibold text-[var(--text)]">Department</th>
+                    <th className="px-4 py-3 text-left font-semibold text-[var(--text)]">Created</th>
+                    <th className="px-4 py-3 text-left font-semibold text-[var(--text)]">Action</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y">
+                <tbody className="divide-y divide-[var(--border)]">
                   {users.map(user => (
-                    <tr key={user.id} className="hover:bg-gray-50">
-                      <td className="px-4 py-3 font-medium text-gray-900">{user.name}</td>
-                      <td className="px-4 py-3 text-gray-600">{user.email}</td>
+                    <tr key={user.id} className="hover:bg-[var(--surface-2)] transition-colors">
+                      <td className="px-4 py-3 font-medium text-[var(--text)]">{user.name}</td>
+                      <td className="px-4 py-3 text-[var(--text-muted)]">{user.email}</td>
                       <td className="px-4 py-3">
                         <span className={`px-2 py-1 rounded text-xs font-medium flex w-fit gap-1 ${
                           user.role === 'superadmin' ? 'bg-blue-100 text-blue-700' : user.role === 'admin' ? 'bg-green-100 text-green-700' : 'bg-purple-100 text-purple-700'
@@ -385,19 +478,28 @@ export default function AdminUsers() {
                               ))}
                             </div>
                           ) : (
-                            <span className="text-gray-400 text-xs">Unassigned</span>
+                            <span className="text-[var(--text-muted)] text-xs">Unassigned</span>
                           )
                         ) : (
                           // Staff: show single department
                           user.departmentId ? (
                             <span className="px-2 py-1 bg-purple-50 text-purple-700 text-xs rounded border border-purple-200">{departments.find(d => d.id === user.departmentId)?.name || '-'}</span>
                           ) : (
-                            <span className="text-gray-400 text-xs">Unassigned</span>
+                            <span className="text-[var(--text-muted)] text-xs">Unassigned</span>
                           )
                         )}
                       </td>
-                      <td className="px-4 py-3 text-gray-600 text-xs">{new Date(user.createdAt).toLocaleDateString()}</td>
-                      <td className="px-4 py-3">
+                      <td className="px-4 py-3 text-[var(--text-muted)] text-xs">{new Date(user.createdAt).toLocaleDateString()}</td>
+                      <td className="px-4 py-3 flex gap-2">
+                        {currentUser?.role === 'superadmin' && (
+                          <button
+                            onClick={() => startEditUser(user)}
+                            className="p-2 text-[var(--primary)] hover:bg-[var(--surface-2)] rounded transition"
+                            title="Edit user"
+                          >
+                            <Edit size={16} />
+                          </button>
+                        )}
                         {canDeleteUser(user) && (
                           <button
                             onClick={() => deleteUser(user.id)}

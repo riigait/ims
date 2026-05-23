@@ -14,8 +14,6 @@ router.get('/', async (req: AuthRequest, res: Response) => {
     // For superadmins, fetch all products
     let whereFilter: any = {};
 
-    console.log(`[PRODUCTS] departmentId: ${req.departmentId}, departmentIds: ${req.departmentIds?.join(',') || 'undefined'}`);
-
     if (req.departmentIds && req.departmentIds.length > 0) {
       // Staff viewing all assigned departments - include products with null departmentId
       whereFilter = {
@@ -24,13 +22,9 @@ router.get('/', async (req: AuthRequest, res: Response) => {
           { departmentId: null }
         ]
       };
-      console.log(`[PRODUCTS] Using departmentIds filter with null inclusion: ${req.departmentIds.join(',')}`);
     } else if (req.departmentId) {
       // Single department filter (staff or admin with selected department)
       whereFilter = { departmentId: req.departmentId };
-      console.log(`[PRODUCTS] Using departmentId filter: ${req.departmentId}`);
-    } else {
-      console.log(`[PRODUCTS] No department filter, showing all products`);
     }
     // For superadmin or admin/staff without selected department: no filter (show all)
 
@@ -38,7 +32,6 @@ router.get('/', async (req: AuthRequest, res: Response) => {
       where: whereFilter,
       include: { category: true, location: true, department: true },
     });
-    console.log(`[PRODUCTS] Found ${products.length} products`);
     res.json(products);
   } catch (error) {
     console.error(error);

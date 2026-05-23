@@ -104,54 +104,54 @@ export default function Dashboard() {
     {
       label: 'Total Products',
       value: formatNumber(stats.totalProducts),
-      valueClass: 'text-gray-900',
+      valueClass: 'text-[var(--text)]',
       to: '/products',
-      bg: 'hover:bg-blue-50',
+      bg: 'hover:bg-[var(--surface-2)]',
     },
     {
       label: 'Total Stock',
       value: formatNumber(stats.totalStock),
-      valueClass: 'text-gray-900',
+      valueClass: 'text-[var(--text)]',
       to: '/stock-movements',
-      bg: 'hover:bg-blue-50',
+      bg: 'hover:bg-[var(--surface-2)]',
     },
     {
       label: 'Low Stock Items',
       value: formatNumber(stats.lowStockCount),
-      valueClass: stats.lowStockCount > 0 ? 'text-red-600' : 'text-gray-900',
+      valueClass: stats.lowStockCount > 0 ? 'text-red-600' : 'text-[var(--text)]',
       to: '/products',
-      bg: stats.lowStockCount > 0 ? 'hover:bg-red-50' : 'hover:bg-blue-50',
+      bg: stats.lowStockCount > 0 ? 'hover:bg-red-50' : 'hover:bg-[var(--surface-2)]',
     },
     {
       label: 'Total Locations',
       value: formatNumber(stats.totalLocations),
-      valueClass: 'text-gray-900',
+      valueClass: 'text-[var(--text)]',
       to: '/locations',
-      bg: 'hover:bg-blue-50',
+      bg: 'hover:bg-[var(--surface-2)]',
     },
     {
       label: 'Floor Plans',
       value: formatNumber(stats.totalFloorPlans),
-      valueClass: 'text-gray-900',
+      valueClass: 'text-[var(--text)]',
       to: '/floor-plans',
-      bg: 'hover:bg-blue-50',
+      bg: 'hover:bg-[var(--surface-2)]',
     },
   ];
 
   return (
     <div className="space-y-8">
       <div>
-        <h1 className="text-3xl font-bold text-gray-900">
+        <h1 className="text-3xl font-bold text-[var(--text)]">
           {user.role === 'superadmin' ? 'Superadmin Dashboard - All Departments' : 'Dashboard'}
         </h1>
         {user.role === 'admin' && (
-          <p className="text-gray-600 mt-2">Department: <span className="font-semibold">{departmentName || 'Loading...'}</span></p>
+          <p className="text-[var(--text-muted)] mt-2">Department: <span className="font-semibold text-[var(--text)]">{departmentName || 'Loading...'}</span></p>
         )}
         {user.role === 'staff' && departmentName && (
-          <p className="text-gray-600 mt-2">Department: <span className="font-semibold">{departmentName}</span></p>
+          <p className="text-[var(--text-muted)] mt-2">Department: <span className="font-semibold text-[var(--text)]">{departmentName}</span></p>
         )}
         {user.role === 'superadmin' && (
-          <p className="text-gray-600 mt-2">Viewing all inventory data across all departments</p>
+          <p className="text-[var(--text-muted)] mt-2">Viewing all inventory data across all departments</p>
         )}
       </div>
 
@@ -160,52 +160,52 @@ export default function Dashboard() {
           <button
             key={card.label}
             onClick={() => navigate(card.to)}
-            className={`bg-white p-6 rounded-lg shadow text-left transition cursor-pointer ${card.bg} hover:shadow-md active:scale-95`}
+            className={`bg-[var(--surface)] p-6 rounded-lg shadow text-left transition cursor-pointer ${card.bg} hover:shadow-md active:scale-95`}
           >
-            <div className="text-sm text-gray-500 mb-1">{card.label}</div>
+            <div className="text-sm text-[var(--text-muted)] mb-1">{card.label}</div>
             <div className={`text-3xl font-bold ${card.valueClass}`}>{card.value}</div>
           </button>
         ))}
       </div>
 
-      <div className="bg-white rounded-lg shadow">
-        <div className="px-6 py-4 border-b flex items-center justify-between">
-          <h2 className="text-xl font-semibold text-gray-900">Recent Stock Movements</h2>
+      <div className="bg-[var(--surface)] rounded-lg shadow">
+        <div className="px-6 py-4 border-b border-[var(--border)] flex items-center justify-between">
+          <h2 className="text-xl font-semibold text-[var(--text)]">Recent Stock Movements</h2>
           <button
             onClick={() => navigate('/stock-movements')}
-            className="text-sm text-blue-600 hover:text-blue-800 font-medium"
+            className="text-sm text-[var(--primary)] hover:text-[var(--primary-hover)] font-medium"
           >
             View all →
           </button>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full">
-            <thead className="bg-gray-50">
+            <thead className="bg-[var(--surface-2)]">
               <tr>
-                <th className="px-6 py-3 text-left text-sm font-medium text-gray-700">Product</th>
-                <th className="px-6 py-3 text-left text-sm font-medium text-gray-700">Type</th>
-                <th className="px-6 py-3 text-left text-sm font-medium text-gray-700">Quantity</th>
-                <th className="px-6 py-3 text-left text-sm font-medium text-gray-700">Date</th>
+                <th className="px-6 py-3 text-left text-sm font-medium text-[var(--text)]">Product</th>
+                <th className="px-6 py-3 text-left text-sm font-medium text-[var(--text)]">Type</th>
+                <th className="px-6 py-3 text-left text-sm font-medium text-[var(--text)]">Quantity</th>
+                <th className="px-6 py-3 text-left text-sm font-medium text-[var(--text)]">Date</th>
               </tr>
             </thead>
-            <tbody className="divide-y">
+            <tbody className="divide-y divide-[var(--border)]">
               {recentMovements.length === 0 ? (
                 <tr>
-                  <td colSpan={4} className="px-6 py-8 text-center text-gray-400 text-sm">
+                  <td colSpan={4} className="px-6 py-8 text-center text-[var(--text-muted)] text-sm">
                     No stock movements yet.
                   </td>
                 </tr>
               ) : recentMovements.map(movement => (
-                <tr key={movement.id} className="hover:bg-gray-50 cursor-pointer"
+                <tr key={movement.id} className="hover:bg-[var(--surface-2)] cursor-pointer transition-colors"
                   onClick={() => navigate('/stock-movements')}>
-                  <td className="px-6 py-4 text-sm text-gray-900">{movement.productName}</td>
+                  <td className="px-6 py-4 text-sm text-[var(--text)]">{movement.productName}</td>
                   <td className="px-6 py-4 text-sm">
                     <span className={`px-2 py-1 rounded-full text-xs font-semibold ${MOVEMENT_COLORS[movement.movementType] ?? 'bg-gray-100 text-gray-800'}`}>
                       {MOVEMENT_LABELS[movement.movementType] ?? movement.movementType}
                     </span>
                   </td>
-                  <td className="px-6 py-4 text-sm text-gray-900">{movement.quantity}</td>
-                  <td className="px-6 py-4 text-sm text-gray-500">
+                  <td className="px-6 py-4 text-sm text-[var(--text)]">{movement.quantity}</td>
+                  <td className="px-6 py-4 text-sm text-[var(--text-muted)]">
                     {new Date(movement.createdAt).toLocaleDateString()}
                   </td>
                 </tr>

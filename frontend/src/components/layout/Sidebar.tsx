@@ -1,0 +1,158 @@
+import { useState } from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
+import { LayoutDashboard, Package, Tag, MapPin, ArrowLeftRight, Map, Building2, Users, UserCheck, Sun, Moon, LogOut, ChevronDown } from 'lucide-react';
+import { useTheme } from '@/contexts/ThemeContext';
+
+export default function Sidebar() {
+  const navigate = useNavigate();
+  const location = useLocation();
+  const { theme, toggleTheme } = useTheme();
+  const user = JSON.parse(localStorage.getItem('user') || '{}');
+  const [deptDropdownOpen, setDeptDropdownOpen] = useState(false);
+  const [currentDeptId, setCurrentDeptId] = useState(localStorage.getItem('currentDepartmentId') || 'all-departments');
+
+  const isActive = (path: string) => location.pathname === path;
+
+  const handleDepartmentChange = (deptId: string) => {
+    localStorage.setItem('currentDepartmentId', deptId);
+    setCurrentDeptId(deptId);
+    setDeptDropdownOpen(false);
+    window.location.reload();
+  };
+
+  const handleLogout = () => {
+    localStorage.removeItem('token');
+    localStorage.removeItem('user');
+    navigate('/login');
+  };
+
+  const navItems = [
+    { path: '/dashboard', icon: LayoutDashboard, label: 'Dashboard', roles: ['superadmin', 'admin', 'staff'], section: 'main' },
+    { path: '/products', icon: Package, label: 'Products', roles: ['superadmin', 'admin', 'staff'], section: 'main' },
+    { path: '/categories', icon: Tag, label: 'Categories', roles: ['superadmin', 'admin', 'staff'], section: 'main' },
+    { path: '/locations', icon: MapPin, label: 'Locations', roles: ['superadmin', 'admin', 'staff'], section: 'main' },
+    { path: '/stock-movements', icon: ArrowLeftRight, label: 'Stock Movements', roles: ['superadmin', 'admin', 'staff'], section: 'main' },
+    { path: '/floor-plans', icon: Map, label: 'Floor Plans', roles: ['superadmin', 'admin', 'staff'], section: 'main' },
+    { path: '/admin/departments', icon: Building2, label: 'Departments', roles: ['superadmin', 'admin'], section: 'admin' },
+    { path: '/admin/users', icon: Users, label: 'Users', roles: ['superadmin', 'admin'], section: 'admin' },
+    { path: '/admin/assignment', icon: UserCheck, label: 'Role Assignments', roles: ['superadmin'], section: 'admin' },
+  ];
+
+  const filteredNavItems = navItems.filter(item => item.roles.includes(user.role));
+  const mainItems = filteredNavItems.filter(item => item.section === 'main');
+  const adminItems = filteredNavItems.filter(item => item.section === 'admin');
+
+  return (
+    <aside className="fixed left-0 top-0 bottom-0 w-60 bg-[var(--surface)] border-r border-[var(--border)] flex flex-col transition-all duration-300">
+      {/* Logo */}
+      <div className="p-6 border-b border-[var(--border)]">
+        <h1 className="text-xl font-semibold text-[var(--text)] tracking-tight">IMS</h1>
+        <p className="text-xs text-[var(--text-muted)] mt-1">Inventory Management</p>
+      </div>
+
+      {/* Navigation */}
+      <nav className="flex-1 overflow-y-auto p-4 space-y-2">
+        {/* Main Items */}
+        {mainItems.map(item => {
+          const Icon = item.icon;
+          const active = isActive(item.path);
+          return (
+            <button
+              key={item.path}
+              onClick={() => navigate(item.path)}
+              className={`w-full flex items-center gap-3 px-4 py-2 rounded-lg transition-colors text-sm font-medium ${
+                active
+                  ? 'bg-[var(--primary)] text-white'
+                  : 'text-[var(--text-muted)] hover:bg-[var(--surface-2)]'
+              }`}
+            >
+              <Icon size={18} />
+              {item.label}
+            </button>
+          );
+        })}
+
+        {/* Administration Section */}
+        {adminItems.length > 0 && (
+          <>
+            <div className="my-2 border-t border-[var(--border)]" />
+            <div className="px-4 py-2 text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wider">
+              Administration
+            </div>
+            {adminItems.map(item => {
+              const Icon = item.icon;
+              const active = isActive(item.path);
+              return (
+                <button
+                  key={item.path}
+                  onClick={() => navigate(item.path)}
+                  className={`w-full flex items-center gap-3 px-4 py-2 rounded-lg transition-colors text-sm font-medium ${
+                    active
+                      ? 'bg-[var(--primary)] text-white'
+                      : 'text-[var(--text-muted)] hover:bg-[var(--surface-2)]'
+                  }`}
+                >
+                  <Icon size={18} />
+                  {item.label}
+                </button>
+              );
+            })}
+          </>
+        )}
+      </nav>
+
+      {/* Department Switcher (for admin/staff) */}
+      {(user.role === 'admin' || user.role === 'staff') && (
+        <div className="p-4 border-t border-[var(--border)]">
+          <div className="relative">
+            <button
+              onClick={() => setDeptDropdownOpen(!deptDropdownOpen)}
+              className="w-full flex items-center justify-between px-3 py-2 rounded-lg bg-[var(--surface-2)] text-[var(--text)] text-sm hover:bg-[var(--border)] transition-colors"
+            >
+              <span className="font-medium text-xs">DEPARTMENT</span>
+              <ChevronDown size={16} className={`transition-transform ${deptDropdownOpen ? 'rotate-180' : ''}`} />
+            </button>
+            {deptDropdownOpen && (
+              <div className="absolute bottom-full left-0 right-0 mb-2 bg-[var(--surface)] border border-[var(--border)] rounded-lg shadow-lg z-50">
+                <button
+                  onClick={() => handleDepartmentChange('all-departments')}
+                  className={`w-full text-left px-3 py-2 text-sm ${currentDeptId === 'all-departments' ? 'bg-[var(--primary)] text-white' : 'text-[var(--text)] hover:bg-[var(--surface-2)]'}`}
+                >
+                  All Departments
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* User Section */}
+      <div className="p-4 border-t border-[var(--border)] space-y-4">
+        {/* User Info */}
+        <div className="px-3 py-2 bg-[var(--surface-2)] rounded-lg">
+          <p className="text-xs font-semibold text-[var(--text-muted)] uppercase">User</p>
+          <p className="text-sm font-medium text-[var(--text)] mt-1">{user.name || user.email}</p>
+          <p className="text-xs text-[var(--text-muted)] mt-0.5 capitalize">{user.role}</p>
+        </div>
+
+        {/* Theme Toggle + Logout */}
+        <div className="flex gap-2">
+          <button
+            onClick={toggleTheme}
+            className="flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-[var(--text-muted)] hover:bg-[var(--surface-2)] transition-colors"
+            title="Toggle theme"
+          >
+            {theme === 'light' ? <Moon size={16} /> : <Sun size={16} />}
+          </button>
+          <button
+            onClick={handleLogout}
+            className="flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-red-600 hover:bg-red-50 dark:hover:bg-red-950 transition-colors"
+            title="Logout"
+          >
+            <LogOut size={16} />
+          </button>
+        </div>
+      </div>
+    </aside>
+  );
+}

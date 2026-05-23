@@ -144,34 +144,34 @@ export default function Products() {
 
   const formContent = (
     <>
-      <h2 className="text-xl font-semibold mb-4">{editingId ? 'Edit Product' : 'New Product'}</h2>
+      <h2 className="text-xl font-semibold mb-4 text-[var(--text)]">{editingId ? 'Edit Product' : 'New Product'}</h2>
       <form onSubmit={handleSubmit} className="space-y-4">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
-            <label htmlFor="sku" className="block text-sm font-medium text-gray-700 mb-1">SKU</label>
+            <label htmlFor="sku" className="block text-sm font-medium text-[var(--text)] mb-1">SKU</label>
             <div className="flex gap-2">
               <input id="sku" name="sku" type="text" value={formData.sku}
                 onChange={e => setFormData({ ...formData, sku: e.target.value })}
-                className="flex-1 px-4 py-2 border border-gray-300 rounded-lg" />
+                className="flex-1 px-4 py-2 border border-[var(--border)] rounded-lg bg-[var(--surface)] text-[var(--text)]" />
               {!editingId && (
                 <button type="button" onClick={() => setFormData({ ...formData, sku: generateSKU() })}
-                  className="px-4 py-2 bg-gray-200 rounded-lg hover:bg-gray-300">
+                  className="px-4 py-2 bg-[var(--surface-2)] rounded-lg hover:bg-[var(--border)]">
                   Generate
                 </button>
               )}
             </div>
           </div>
           <div>
-            <label htmlFor="product-name" className="block text-sm font-medium text-gray-700 mb-1">Product Name *</label>
+            <label htmlFor="product-name" className="block text-sm font-medium text-[var(--text)] mb-1">Product Name *</label>
             <input id="product-name" name="name" type="text" value={formData.name} required
               onChange={e => setFormData({ ...formData, name: e.target.value })}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg" />
+              className="w-full px-4 py-2 border border-[var(--border)] rounded-lg bg-[var(--surface)] text-[var(--text)]" />
           </div>
           <div>
-            <label htmlFor="category" className="block text-sm font-medium text-gray-700 mb-1">Category *</label>
+            <label htmlFor="category" className="block text-sm font-medium text-[var(--text)] mb-1">Category *</label>
             <select id="category" name="category" value={formData.categoryId} required
               onChange={e => setFormData({ ...formData, categoryId: e.target.value })}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg">
+              className="w-full px-4 py-2 border border-[var(--border)] rounded-lg bg-[var(--surface)] text-[var(--text)]">
               <option value="">Select Category</option>
               {categories.map(cat => (
                 <option key={cat.id} value={cat.id}>{cat.name}</option>
@@ -179,12 +179,12 @@ export default function Products() {
             </select>
           </div>
           <div>
-            <label htmlFor="location" className="block text-sm font-medium text-gray-700 mb-1">
-              Location <span className="text-gray-400 font-normal">(optional)</span>
+            <label htmlFor="location" className="block text-sm font-medium text-[var(--text)] mb-1">
+              Location <span className="text-[var(--text-muted)] font-normal">(optional)</span>
             </label>
             <select id="location" name="location" value={formData.locationId}
               onChange={e => setFormData({ ...formData, locationId: e.target.value })}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg">
+              className="w-full px-4 py-2 border border-[var(--border)] rounded-lg bg-[var(--surface)] text-[var(--text)]">
               <option value="">— No location —</option>
               {locations.map(loc => (
                 <option key={loc.id} value={loc.id}>{loc.name} ({loc.type})</option>
@@ -192,10 +192,10 @@ export default function Products() {
             </select>
           </div>
           <div>
-            <label htmlFor="unit" className="block text-sm font-medium text-gray-700 mb-1">Unit</label>
+            <label htmlFor="unit" className="block text-sm font-medium text-[var(--text)] mb-1">Unit</label>
             <select id="unit" name="unit" value={formData.unit}
               onChange={e => setFormData({ ...formData, unit: e.target.value })}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg">
+              className="w-full px-4 py-2 border border-[var(--border)] rounded-lg bg-[var(--surface)] text-[var(--text)]">
               <optgroup label="Pieces/Count">
                 <option value="pcs">Pieces (pcs)</option>
                 <option value="dozen">Dozen</option>
@@ -241,39 +241,39 @@ export default function Products() {
           </div>
           {editingId ? (
             <div>
-              <label htmlFor="current-stock" className="block text-sm font-medium text-gray-700 mb-1">Current Stock</label>
-              <div id="current-stock" className="w-full px-4 py-2 border border-gray-200 rounded-lg bg-gray-50 text-gray-500 text-sm">
+              <label htmlFor="current-stock" className="block text-sm font-medium text-[var(--text)] mb-1">Current Stock</label>
+              <div id="current-stock" className="w-full px-4 py-2 border border-[var(--border)] rounded-lg bg-[var(--surface-2)] text-[var(--text-muted)] text-sm">
                 {formData.currentStock} {formData.unit}
-                <span className="ml-2 text-xs text-gray-400">(use Stock Movements to change)</span>
+                <span className="ml-2 text-xs text-[var(--text-muted)]">(use Stock Movements to change)</span>
               </div>
             </div>
           ) : (
             <div>
-              <label htmlFor="opening-stock" className="block text-sm font-medium text-gray-700 mb-1">Opening Stock *</label>
+              <label htmlFor="opening-stock" className="block text-sm font-medium text-[var(--text)] mb-1">Opening Stock *</label>
               <input id="opening-stock" name="opening-stock" type="number" value={formData.currentStock} required min={0}
                 onChange={e => setFormData({ ...formData, currentStock: parseInt(e.target.value) || 0 })}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg" />
+                className="w-full px-4 py-2 border border-[var(--border)] rounded-lg bg-[var(--surface)] text-[var(--text)]" />
             </div>
           )}
           <div>
-            <label htmlFor="low-stock-threshold" className="block text-sm font-medium text-gray-700 mb-1">Low Stock Threshold</label>
+            <label htmlFor="low-stock-threshold" className="block text-sm font-medium text-[var(--text)] mb-1">Low Stock Threshold</label>
             <input id="low-stock-threshold" name="low-stock-threshold" type="number" value={formData.lowStockThreshold} min={0}
               onChange={e => setFormData({ ...formData, lowStockThreshold: parseInt(e.target.value) || 0 })}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg" />
+              className="w-full px-4 py-2 border border-[var(--border)] rounded-lg bg-[var(--surface)] text-[var(--text)]" />
           </div>
         </div>
         <div>
-          <label htmlFor="description" className="block text-sm font-medium text-gray-700 mb-1">Description</label>
+          <label htmlFor="description" className="block text-sm font-medium text-[var(--text)] mb-1">Description</label>
           <textarea id="description" name="description" value={formData.description}
             onChange={e => setFormData({ ...formData, description: e.target.value })}
-            className="w-full px-4 py-2 border border-gray-300 rounded-lg" rows={3} />
+            className="w-full px-4 py-2 border border-[var(--border)] rounded-lg bg-[var(--surface)] text-[var(--text)]" rows={3} />
         </div>
         <div className="flex gap-2">
-          <button type="submit" className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
+          <button type="submit" className="px-4 py-2 bg-[var(--primary)] text-white rounded-lg hover:bg-[var(--primary-hover)]">
             Save
           </button>
           <button type="button" onClick={handleCancel}
-            className="px-4 py-2 bg-gray-200 rounded-lg hover:bg-gray-300">
+            className="px-4 py-2 bg-[var(--surface-2)] text-[var(--text)] rounded-lg hover:bg-[var(--border)]">
             Cancel
           </button>
         </div>
@@ -286,12 +286,12 @@ export default function Products() {
       <div className="flex gap-2">
         <input id="search-products" name="search" type="text" placeholder="Search by name or SKU…" value={filters.search}
           onChange={e => setFilters({ ...filters, search: e.target.value })}
-          className="flex-1 px-4 py-2 border border-gray-300 rounded-lg text-sm" aria-label="Search products by name or SKU" />
+          className="flex-1 px-4 py-2 border border-[var(--border)] rounded-lg text-sm bg-[var(--surface)] text-[var(--text)]" aria-label="Search products by name or SKU" />
         <select id="sort-by" name="sort-by" value={`${sort.field}-${sort.order}`} onChange={e => {
           const [field, order] = e.target.value.split('-');
           setSort({ field: field as ProductSort['field'], order: order as ProductSort['order'] });
         }}
-          className="px-3 py-2 border border-gray-300 rounded text-sm font-medium bg-blue-50" aria-label="Sort by">
+          className="px-3 py-2 border border-[var(--border)] rounded text-sm font-medium bg-[var(--surface-2)] text-[var(--text)]" aria-label="Sort by">
           <option value="name-asc">Sort: Name</option>
           <option value="sku-asc">Sort: SKU</option>
           <option value="stock-desc">Sort: Stock (High to Low)</option>
@@ -299,34 +299,34 @@ export default function Products() {
           <option value="date-desc">Sort: Recently Added</option>
         </select>
         <button onClick={clearAllFilters}
-          className="text-xs px-3 py-1 bg-gray-100 text-gray-700 rounded hover:bg-gray-200 font-medium">
+          className="text-xs px-3 py-1 bg-[var(--surface-2)] text-[var(--text-muted)] rounded hover:bg-[var(--border)] font-medium">
           Clear
         </button>
       </div>
       <div className="flex gap-2 flex-wrap">
         <select id="filter-category" name="filter-category" value={filters.categoryId || ''} onChange={e => setFilters({ ...filters, categoryId: e.target.value || undefined })}
-          className="px-3 py-2 border border-gray-300 rounded text-sm" aria-label="Filter by category">
+          className="px-3 py-2 border border-[var(--border)] rounded text-sm bg-[var(--surface)] text-[var(--text)]" aria-label="Filter by category">
           <option value="">All Categories</option>
           {categories.map(cat => (
             <option key={cat.id} value={cat.id}>{cat.name}</option>
           ))}
         </select>
         <select id="filter-stock-status" name="filter-stock-status" value={filters.stockStatus || ''} onChange={e => setFilters({ ...filters, stockStatus: e.target.value as any || undefined })}
-          className="px-3 py-2 border border-gray-300 rounded text-sm" aria-label="Filter by stock status">
+          className="px-3 py-2 border border-[var(--border)] rounded text-sm bg-[var(--surface)] text-[var(--text)]" aria-label="Filter by stock status">
           <option value="">All Stock Status</option>
           <option value="out-of-stock">Out of Stock</option>
           <option value="low-stock">Low Stock</option>
           <option value="in-stock">In Stock</option>
         </select>
         <select id="filter-unit" name="filter-unit" value={filters.unit || ''} onChange={e => setFilters({ ...filters, unit: e.target.value || undefined })}
-          className="px-3 py-2 border border-gray-300 rounded text-sm" aria-label="Filter by unit">
+          className="px-3 py-2 border border-[var(--border)] rounded text-sm bg-[var(--surface)] text-[var(--text)]" aria-label="Filter by unit">
           <option value="">All Units</option>
           {uniqueUnits.map(unit => (
             <option key={unit} value={unit}>{unit}</option>
           ))}
         </select>
         <select id="filter-date-range" name="filter-date-range" value={filters.dateRange} onChange={e => setFilters({ ...filters, dateRange: e.target.value as any })}
-          className="px-3 py-2 border border-gray-300 rounded text-sm" aria-label="Filter by date range">
+          className="px-3 py-2 border border-[var(--border)] rounded text-sm bg-[var(--surface)] text-[var(--text)]" aria-label="Filter by date range">
           <option value="all">All Time</option>
           <option value="7days">Last 7 Days</option>
           <option value="30days">Last 30 Days</option>
@@ -334,7 +334,7 @@ export default function Products() {
         </select>
         {user.role === 'superadmin' && (
           <select id="filter-department" name="filter-department" value={filters.departmentId || ''} onChange={e => setFilters({ ...filters, departmentId: e.target.value || undefined })}
-            className="px-3 py-2 border border-gray-300 rounded text-sm" aria-label="Filter by department">
+            className="px-3 py-2 border border-[var(--border)] rounded text-sm bg-[var(--surface)] text-[var(--text)]" aria-label="Filter by department">
             <option value="">All Departments</option>
             {departments.map(dept => (
               <option key={dept.id} value={dept.id}>{dept.name}</option>
@@ -356,20 +356,20 @@ export default function Products() {
       filterContent={filterContent}>
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
-          <thead className="bg-gray-50">
+          <thead className="bg-[var(--surface-2)] border-b border-[var(--border)]">
             <tr>
-              <th className="px-4 py-2 text-left">SKU</th>
-              <th className="px-4 py-2 text-left">Name</th>
-              <th className="px-4 py-2 text-left">Category</th>
-              {user.role === 'superadmin' && <th className="px-4 py-2 text-left">Department</th>}
-              <th className="px-4 py-2 text-right">Stock</th>
-              {user.role !== 'superadmin' && <th className="px-4 py-2 text-right">Actions</th>}
+              <th className="px-4 py-2 text-left text-[var(--text)] font-semibold">SKU</th>
+              <th className="px-4 py-2 text-left text-[var(--text)] font-semibold">Name</th>
+              <th className="px-4 py-2 text-left text-[var(--text)] font-semibold">Category</th>
+              {user.role === 'superadmin' && <th className="px-4 py-2 text-left text-[var(--text)] font-semibold">Department</th>}
+              <th className="px-4 py-2 text-right text-[var(--text)] font-semibold">Stock</th>
+              {user.role !== 'superadmin' && <th className="px-4 py-2 text-right text-[var(--text)] font-semibold">Actions</th>}
             </tr>
           </thead>
-          <tbody className="divide-y">
+          <tbody className="divide-y divide-[var(--border)]">
             {filteredProducts.length === 0 ? (
               <tr>
-                <td colSpan={5} className="px-4 py-8 text-center text-gray-400">
+                <td colSpan={5} className="px-4 py-8 text-center text-[var(--text-muted)]">
                   No products found.
                 </td>
               </tr>
@@ -378,12 +378,12 @@ export default function Products() {
               const isLowStock = product.currentStock > 0 && product.currentStock <= product.lowStockThreshold;
               const isOutOfStock = product.currentStock === 0;
               return (
-                <tr key={product.id} className={isOutOfStock ? 'bg-red-50' : isLowStock ? 'bg-yellow-50' : ''}>
-                  <td className="px-4 py-2 font-mono text-xs text-gray-600">{product.sku}</td>
-                  <td className="px-4 py-2 font-medium">{product.name}</td>
-                  <td className="px-4 py-2 text-gray-600">{category?.name ?? '—'}</td>
+                <tr key={product.id} className={`hover:bg-[var(--surface-2)] transition-colors ${isOutOfStock ? 'bg-red-50' : isLowStock ? 'bg-yellow-50' : ''}`}>
+                  <td className="px-4 py-2 font-mono text-xs text-[var(--text-muted)]">{product.sku}</td>
+                  <td className="px-4 py-2 font-medium text-[var(--text)]">{product.name}</td>
+                  <td className="px-4 py-2 text-[var(--text-muted)]">{category?.name ?? '—'}</td>
                   {user.role === 'superadmin' && (
-                    <td className="px-4 py-2 text-sm text-gray-700">
+                    <td className="px-4 py-2 text-sm text-[var(--text)]">
                       {product.department?.name ?? '—'}
                     </td>
                   )}
@@ -402,11 +402,11 @@ export default function Products() {
                   <td className="px-4 py-2 text-right space-x-2">
                     {user.role !== 'superadmin' && (
                       <>
-                        <button onClick={() => handleEdit(product)} className="text-blue-600 hover:text-blue-800">
+                        <button onClick={() => handleEdit(product)} className="text-[var(--primary)] hover:text-[var(--primary-hover)]">
                           <Edit size={18} />
                         </button>
                         {user.role === 'admin' ? (
-                          <button onClick={() => handleDelete(product.id)} className="text-red-600 hover:text-red-800">
+                          <button onClick={() => handleDelete(product.id)} className="text-red-600 hover:text-red-700">
                             <Trash2 size={18} />
                           </button>
                         ) : (

@@ -128,10 +128,10 @@ export default function Categories() {
 
   const formContent = (
     <>
-      <h2 className="text-xl font-semibold mb-4">{editingId ? 'Edit Category' : 'New Category'}</h2>
+      <h2 className="text-xl font-semibold mb-4 text-[var(--text)]">{editingId ? 'Edit Category' : 'New Category'}</h2>
       <form onSubmit={handleSubmit} className="space-y-4">
         <div>
-          <label htmlFor="category-name" className="block text-sm font-medium text-gray-700 mb-1">
+          <label htmlFor="category-name" className="block text-sm font-medium text-[var(--text)] mb-1">
             Category Name *
           </label>
           <input
@@ -140,12 +140,12 @@ export default function Categories() {
             type="text"
             value={formData.name}
             onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-            className="w-full px-4 py-2 border border-gray-300 rounded-lg"
+            className="w-full px-4 py-2 border border-[var(--border)] rounded-lg bg-[var(--surface)] text-[var(--text)]"
             required
           />
         </div>
         <div>
-          <label htmlFor="category-description" className="block text-sm font-medium text-gray-700 mb-1">
+          <label htmlFor="category-description" className="block text-sm font-medium text-[var(--text)] mb-1">
             Description
           </label>
           <textarea
@@ -153,15 +153,15 @@ export default function Categories() {
             name="description"
             value={formData.description}
             onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-            className="w-full px-4 py-2 border border-gray-300 rounded-lg"
+            className="w-full px-4 py-2 border border-[var(--border)] rounded-lg bg-[var(--surface)] text-[var(--text)]"
             rows={3}
           />
         </div>
         <div className="flex gap-2">
-          <button type="submit" className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
+          <button type="submit" className="px-4 py-2 bg-[var(--primary)] text-white rounded-lg hover:bg-[var(--primary-hover)]">
             Save
           </button>
-          <button type="button" onClick={handleCancel} className="px-4 py-2 bg-gray-200 rounded-lg hover:bg-gray-300">
+          <button type="button" onClick={handleCancel} className="px-4 py-2 bg-[var(--surface-2)] text-[var(--text)] rounded-lg hover:bg-[var(--border)]">
             Cancel
           </button>
         </div>
@@ -179,7 +179,7 @@ export default function Categories() {
           placeholder="Search by category name…"
           value={filters.search}
           onChange={e => setFilters({ ...filters, search: e.target.value })}
-          className="flex-1 px-4 py-2 border border-gray-300 rounded-lg text-sm"
+          className="flex-1 px-4 py-2 border border-[var(--border)] rounded-lg text-sm bg-[var(--surface)] text-[var(--text)]"
           aria-label="Search categories"
         />
         <select
@@ -187,14 +187,14 @@ export default function Categories() {
           name="sort-by"
           value={sortBy}
           onChange={e => setSortBy(e.target.value)}
-          className="px-3 py-2 border border-gray-300 rounded text-sm font-medium bg-blue-50"
+          className="px-3 py-2 border border-[var(--border)] rounded text-sm font-medium bg-[var(--surface-2)] text-[var(--text)]"
           aria-label="Sort by">
           <option value="recently-added">Sort: Recently Added</option>
           <option value="name">Sort: Name</option>
         </select>
         <button
           onClick={clearAllFilters}
-          className="text-xs px-3 py-1 bg-gray-100 text-gray-700 rounded hover:bg-gray-200 font-medium">
+          className="text-xs px-3 py-1 bg-[var(--surface-2)] text-[var(--text-muted)] rounded hover:bg-[var(--border)] font-medium">
           Clear
         </button>
       </div>
@@ -205,7 +205,7 @@ export default function Categories() {
             name="filter-department"
             value={filters.departmentId || ''}
             onChange={e => setFilters({ ...filters, departmentId: e.target.value || undefined })}
-            className="px-3 py-2 border border-gray-300 rounded text-sm"
+            className="px-3 py-2 border border-[var(--border)] rounded text-sm bg-[var(--surface)] text-[var(--text)]"
             aria-label="Filter by department">
             <option value="">All Departments</option>
             {departments.map(dept => (
@@ -228,45 +228,45 @@ export default function Categories() {
       filterContent={filterContent}>
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
-          <thead className="bg-gray-50">
+          <thead className="bg-[var(--surface-2)] border-b border-[var(--border)]">
             <tr>
-              <th className="px-4 py-2 text-left">Name</th>
-              <th className="px-4 py-2 text-left">Description</th>
+              <th className="px-4 py-2 text-left text-[var(--text)] font-semibold">Name</th>
+              <th className="px-4 py-2 text-left text-[var(--text)] font-semibold">Description</th>
               {user.role === 'superadmin' && (
-                <th className="px-4 py-2 text-left">Department</th>
+                <th className="px-4 py-2 text-left text-[var(--text)] font-semibold">Department</th>
               )}
               {user.role !== 'superadmin' && (
-                <th className="px-4 py-2 text-right">Actions</th>
+                <th className="px-4 py-2 text-right text-[var(--text)] font-semibold">Actions</th>
               )}
             </tr>
           </thead>
-          <tbody className="divide-y">
+          <tbody className="divide-y divide-[var(--border)]">
             {filteredAndSortedCategories.length === 0 ? (
               <tr>
-                <td colSpan={3} className="px-4 py-8 text-center text-gray-400">
+                <td colSpan={3} className="px-4 py-8 text-center text-[var(--text-muted)]">
                   No categories found.
                 </td>
               </tr>
             ) : filteredAndSortedCategories.map((category) => {
               const dept = category.departmentId ? departments.find(d => d.id === category.departmentId) : null;
               return (
-                <tr key={category.id}>
-                  <td className="px-4 py-2 text-gray-900">{category.name}</td>
-                  <td className="px-4 py-2 text-gray-500">{category.description}</td>
+                <tr key={category.id} className="hover:bg-[var(--surface-2)] transition-colors">
+                  <td className="px-4 py-2 text-[var(--text)]">{category.name}</td>
+                  <td className="px-4 py-2 text-[var(--text-muted)]">{category.description}</td>
                   {user.role === 'superadmin' && (
-                    <td className="px-4 py-2 text-gray-700">{dept?.name ?? '—'}</td>
+                    <td className="px-4 py-2 text-[var(--text)]">{dept?.name ?? '—'}</td>
                   )}
                   <td className="px-4 py-2 text-right space-x-2">
                     {user.role === 'admin' && (
                       <>
                         <button
                           onClick={() => handleEdit(category)}
-                          className="text-blue-600 hover:text-blue-800">
+                          className="text-[var(--primary)] hover:text-[var(--primary-hover)]">
                           <Edit size={18} />
                         </button>
                         <button
                           onClick={() => handleDelete(category.id)}
-                          className="text-red-600 hover:text-red-800">
+                          className="text-red-600 hover:text-red-700">
                           <Trash2 size={18} />
                         </button>
                       </>

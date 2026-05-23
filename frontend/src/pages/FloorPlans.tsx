@@ -111,58 +111,58 @@ export default function FloorPlans() {
     setSortBy('recently-added');
   };
 
-  if (loading) return <div className="text-center py-12 text-gray-500">Loading...</div>;
+  if (loading) return <div className="text-center py-12 text-[var(--text-muted)]">Loading...</div>;
 
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-center">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900">Floor Plans</h1>
+          <h1 className="text-3xl font-bold text-[var(--text)]">Floor Plans</h1>
           {locationId && (
-            <p className="text-sm text-blue-600 mt-1 flex items-center gap-1">
+            <p className="text-sm text-[var(--primary)] mt-1 flex items-center gap-1">
               <MapPin size={14} /> Looking for floor plan with linked location…
             </p>
           )}
         </div>
         {(user.role === 'admin' || user.role === 'superadmin') && (
           <button onClick={() => setShowForm(true)}
-            className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700">
+            className="flex items-center gap-2 bg-[var(--primary)] text-white px-4 py-2 rounded-lg hover:bg-[var(--primary-hover)]">
             <Plus size={20} /> New Floor Plan
           </button>
         )}
       </div>
 
       {showForm && (
-        <div className="bg-white p-6 rounded-lg shadow-lg">
-          <h2 className="text-xl font-semibold mb-4">Create Floor Plan</h2>
+        <div className="bg-[var(--surface)] p-6 rounded-lg shadow-lg">
+          <h2 className="text-xl font-semibold mb-4 text-[var(--text)]">Create Floor Plan</h2>
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div>
-                <label htmlFor="plan-name" className="block text-sm font-medium text-gray-700 mb-1">Floor Plan Name *</label>
+                <label htmlFor="plan-name" className="block text-sm font-medium text-[var(--text)] mb-1">Floor Plan Name *</label>
                 <input id="plan-name" name="name" type="text" value={formData.name} required
                   onChange={e => setFormData({ ...formData, name: e.target.value })}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg"
+                  className="w-full px-4 py-2 border border-[var(--border)] rounded-lg bg-[var(--surface)] text-[var(--text)]"
                   placeholder="e.g., Main Warehouse Floor 1" />
               </div>
               <div>
-                <label htmlFor="plan-width" className="block text-sm font-medium text-gray-700 mb-1">Width (px) *</label>
+                <label htmlFor="plan-width" className="block text-sm font-medium text-[var(--text)] mb-1">Width (px) *</label>
                 <input id="plan-width" name="width" type="number" value={formData.width} required min={100} max={10000}
                   onChange={e => setFormData({ ...formData, width: parseInt(e.target.value) || 0 })}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg" />
+                  className="w-full px-4 py-2 border border-[var(--border)] rounded-lg bg-[var(--surface)] text-[var(--text)]" />
               </div>
               <div>
-                <label htmlFor="plan-height" className="block text-sm font-medium text-gray-700 mb-1">Height (px) *</label>
+                <label htmlFor="plan-height" className="block text-sm font-medium text-[var(--text)] mb-1">Height (px) *</label>
                 <input id="plan-height" name="height" type="number" value={formData.height} required min={100} max={10000}
                   onChange={e => setFormData({ ...formData, height: parseInt(e.target.value) || 0 })}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg" />
+                  className="w-full px-4 py-2 border border-[var(--border)] rounded-lg bg-[var(--surface)] text-[var(--text)]" />
               </div>
             </div>
             <div className="flex gap-2">
-              <button type="submit" className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
+              <button type="submit" className="px-4 py-2 bg-[var(--primary)] text-white rounded-lg hover:bg-[var(--primary-hover)]">
                 Create Floor Plan
               </button>
               <button type="button" onClick={() => setShowForm(false)}
-                className="px-4 py-2 bg-gray-200 rounded-lg hover:bg-gray-300">
+                className="px-4 py-2 bg-[var(--surface-2)] rounded-lg hover:bg-[var(--border)]">
                 Cancel
               </button>
             </div>
@@ -171,7 +171,7 @@ export default function FloorPlans() {
       )}
 
       {/* Filters */}
-      <div className="bg-white rounded-lg shadow p-4 space-y-3">
+      <div className="bg-[var(--surface)] rounded-lg shadow p-4 space-y-3">
         <div className="flex gap-2 items-center justify-between">
           <div className="flex gap-2 flex-1">
             <input
@@ -181,7 +181,7 @@ export default function FloorPlans() {
               placeholder="Search by floor plan name…"
               value={searchTerm}
               onChange={e => setSearchTerm(e.target.value)}
-              className="flex-1 px-4 py-2 border border-gray-300 rounded-lg text-sm"
+              className="flex-1 px-4 py-2 border border-[var(--border)] rounded-lg text-sm bg-[var(--surface)] text-[var(--text)]"
               aria-label="Search floor plans"
             />
             <select
@@ -189,7 +189,7 @@ export default function FloorPlans() {
               name="sort-by"
               value={sortBy}
               onChange={e => setSortBy(e.target.value)}
-              className="px-3 py-2 border border-gray-300 rounded text-sm font-medium bg-blue-50"
+              className="px-3 py-2 border border-[var(--border)] rounded text-sm font-medium bg-[var(--surface-2)] text-[var(--text)]"
               aria-label="Sort by">
               <option value="recently-added">Sort: Recently Added</option>
               <option value="name">Sort: Name</option>
@@ -197,22 +197,22 @@ export default function FloorPlans() {
             </select>
             <button
               onClick={clearAllFilters}
-              className="text-xs px-3 py-1 bg-gray-100 text-gray-700 rounded hover:bg-gray-200 font-medium">
+              className="text-xs px-3 py-1 bg-[var(--surface-2)] text-[var(--text)] rounded hover:bg-[var(--border)] font-medium">
               Clear
             </button>
           </div>
 
-          <div className="flex gap-1 border border-gray-300 rounded flex-shrink-0">
+          <div className="flex gap-1 border border-[var(--border)] rounded flex-shrink-0">
             <button
               onClick={() => setViewMode('grid')}
-              className={`px-2 py-1 ${viewMode === 'grid' ? 'bg-blue-100 text-blue-700' : 'text-gray-600 hover:bg-gray-100'}`}
+              className={`px-2 py-1 ${viewMode === 'grid' ? 'bg-[var(--surface-2)] text-[var(--primary)]' : 'text-[var(--text-muted)] hover:bg-[var(--surface-2)]'}`}
               title="Grid view"
             >
               <LayoutGrid size={16} />
             </button>
             <button
               onClick={() => setViewMode('list')}
-              className={`px-2 py-1 ${viewMode === 'list' ? 'bg-blue-100 text-blue-700' : 'text-gray-600 hover:bg-gray-100'}`}
+              className={`px-2 py-1 ${viewMode === 'list' ? 'bg-[var(--surface-2)] text-[var(--primary)]' : 'text-[var(--text-muted)] hover:bg-[var(--surface-2)]'}`}
               title="List view"
             >
               <List size={16} />
@@ -227,7 +227,7 @@ export default function FloorPlans() {
               name="filter-department"
               value={departmentFilter}
               onChange={e => setDepartmentFilter(e.target.value)}
-              className="px-3 py-2 border border-gray-300 rounded text-sm"
+              className="px-3 py-2 border border-[var(--border)] rounded text-sm bg-[var(--surface)] text-[var(--text)]"
               aria-label="Filter by department">
               <option value="">All Departments</option>
               {departments.map(dept => (
@@ -241,14 +241,14 @@ export default function FloorPlans() {
       {viewMode === 'grid' ? (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {filteredAndSortedPlans.length === 0 ? (
-            <div className="col-span-full text-center py-16 bg-white rounded-lg shadow">
-              <p className="text-gray-400 text-lg mb-1">{floorPlans.length === 0 ? 'No floor plans yet' : 'No floor plans match your filters'}</p>
+            <div className="col-span-full text-center py-16 bg-[var(--surface)] rounded-lg shadow">
+              <p className="text-[var(--text-muted)] text-lg mb-1">{floorPlans.length === 0 ? 'No floor plans yet' : 'No floor plans match your filters'}</p>
               {floorPlans.length === 0 && (
                 <>
-                  <p className="text-gray-400 text-sm mb-4">Create one to start mapping your warehouse</p>
+                  <p className="text-[var(--text-muted)] text-sm mb-4">Create one to start mapping your warehouse</p>
                   {user.role === 'admin' && (
                     <button onClick={() => setShowForm(true)}
-                      className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
+                      className="px-4 py-2 bg-[var(--primary)] text-white rounded-lg hover:bg-[var(--primary-hover)]">
                       Create your first floor plan
                     </button>
                   )}
@@ -262,7 +262,7 @@ export default function FloorPlans() {
             return (
               <div key={plan.id}
                 onClick={() => navigate(`/floor-plans/${plan.id}/edit`)}
-                className={`bg-white rounded-lg shadow hover:shadow-lg transition cursor-pointer group ${hasLocation ? 'ring-2 ring-blue-500' : ''}`}>
+                className={`bg-[var(--surface)] rounded-lg shadow hover:shadow-lg transition cursor-pointer group ${hasLocation ? 'ring-2 ring-[var(--primary)]' : ''}`}>
                 {/* Thumbnail */}
                 <div className="h-44 overflow-hidden rounded-t-lg bg-slate-100">
                   <FloorPlanThumbnail plan={plan} width={400} height={176}
@@ -272,20 +272,20 @@ export default function FloorPlans() {
                 <div className="p-4">
                   <div className="flex items-start justify-between">
                     <div>
-                      <h3 className="text-base font-semibold text-gray-900 group-hover:text-blue-600 transition">
+                      <h3 className="text-base font-semibold text-[var(--text)] group-hover:text-[var(--primary)] transition">
                         {plan.name}
                       </h3>
-                      <p className="text-xs text-gray-400 mt-0.5">
+                      <p className="text-xs text-[var(--text-muted)] mt-0.5">
                         {plan.width} × {plan.height} px &nbsp;·&nbsp; {plan.objects?.length ?? 0} objects
                       </p>
                       {user.role === 'superadmin' && departmentName && (
-                        <p className="text-xs text-gray-500 mt-1">
-                          <span className="bg-gray-100 text-gray-700 px-2 py-0.5 rounded text-xs inline-block">{departmentName}</span>
+                        <p className="text-xs text-[var(--text-muted)] mt-1">
+                          <span className="bg-[var(--surface-2)] text-[var(--text)] px-2 py-0.5 rounded text-xs inline-block">{departmentName}</span>
                         </p>
                       )}
                     </div>
                     {hasLocation && (
-                      <span className="text-xs text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full flex items-center gap-1 flex-shrink-0">
+                      <span className="text-xs text-[var(--primary)] bg-[var(--surface-2)] px-2 py-0.5 rounded-full flex items-center gap-1 flex-shrink-0">
                         <MapPin size={10} /> Linked
                       </span>
                     )}
@@ -295,7 +295,7 @@ export default function FloorPlans() {
                     <div className="flex gap-2 mt-3">
                       <button
                         onClick={e => { e.stopPropagation(); navigate(`/floor-plans/${plan.id}/edit`); }}
-                        className="flex-1 px-3 py-1.5 bg-blue-600 text-white text-sm rounded hover:bg-blue-700">
+                        className="flex-1 px-3 py-1.5 bg-[var(--primary)] text-white text-sm rounded hover:bg-[var(--primary-hover)]">
                         Edit
                       </button>
                       <button onClick={e => handleDelete(plan.id, e)}
@@ -310,42 +310,42 @@ export default function FloorPlans() {
           })}
         </div>
       ) : (
-        <div className="bg-white rounded-lg shadow overflow-x-auto">
+        <div className="bg-[var(--surface)] rounded-lg shadow overflow-x-auto">
           {filteredAndSortedPlans.length === 0 ? (
-            <div className="text-center py-12 text-gray-500">
-              <p className="text-gray-400 text-lg mb-1">{floorPlans.length === 0 ? 'No floor plans yet' : 'No floor plans match your filters'}</p>
+            <div className="text-center py-12 text-[var(--text-muted)]">
+              <p className="text-[var(--text-muted)] text-lg mb-1">{floorPlans.length === 0 ? 'No floor plans yet' : 'No floor plans match your filters'}</p>
             </div>
           ) : (
             <table className="w-full text-sm">
-              <thead className="bg-gray-50">
+              <thead className="bg-[var(--surface-2)]">
                 <tr>
-                  <th className="px-4 py-2 text-left">Name</th>
-                  <th className="px-4 py-2 text-left">Dimensions</th>
-                  <th className="px-4 py-2 text-left">Objects</th>
-                  {user.role === 'superadmin' && <th className="px-4 py-2 text-left">Department</th>}
-                  <th className="px-4 py-2 text-right">Actions</th>
+                  <th className="px-4 py-2 text-left text-[var(--text)]">Name</th>
+                  <th className="px-4 py-2 text-left text-[var(--text)]">Dimensions</th>
+                  <th className="px-4 py-2 text-left text-[var(--text)]">Objects</th>
+                  {user.role === 'superadmin' && <th className="px-4 py-2 text-left text-[var(--text)]">Department</th>}
+                  <th className="px-4 py-2 text-right text-[var(--text)]">Actions</th>
                 </tr>
               </thead>
-              <tbody className="divide-y">
+              <tbody className="divide-y divide-[var(--border)]">
                 {filteredAndSortedPlans.map((plan) => {
                   const departmentsMap = departments.reduce((map, dept) => ({ ...map, [dept.id]: dept.name }), {} as Record<string, string>);
                   const departmentName = plan.departmentId ? departmentsMap[plan.departmentId] : null;
                   return (
-                    <tr key={plan.id} className="hover:bg-gray-50">
-                      <td className="px-4 py-2 text-gray-900 font-medium cursor-pointer hover:text-blue-600"
+                    <tr key={plan.id} className="hover:bg-[var(--surface-2)] transition-colors">
+                      <td className="px-4 py-2 text-[var(--text)] font-medium cursor-pointer hover:text-[var(--primary)]"
                         onClick={() => navigate(`/floor-plans/${plan.id}/edit`)}>
                         {plan.name}
                       </td>
-                      <td className="px-4 py-2 text-gray-600">
+                      <td className="px-4 py-2 text-[var(--text-muted)]">
                         {plan.width} × {plan.height} px
                       </td>
-                      <td className="px-4 py-2 text-gray-600">
+                      <td className="px-4 py-2 text-[var(--text-muted)]">
                         {plan.objects?.length ?? 0}
                       </td>
                       {user.role === 'superadmin' && (
-                        <td className="px-4 py-2 text-gray-700">
+                        <td className="px-4 py-2 text-[var(--text)]">
                           {departmentName ? (
-                            <span className="bg-gray-100 text-gray-700 px-2 py-0.5 rounded text-xs">{departmentName}</span>
+                            <span className="bg-[var(--surface-2)] text-[var(--text)] px-2 py-0.5 rounded text-xs">{departmentName}</span>
                           ) : '—'}
                         </td>
                       )}
@@ -354,7 +354,7 @@ export default function FloorPlans() {
                           <>
                             <button
                               onClick={() => navigate(`/floor-plans/${plan.id}/edit`)}
-                              className="text-blue-600 hover:text-blue-800">
+                              className="text-[var(--primary)] hover:text-[var(--primary-hover)]">
                               <Edit size={18} />
                             </button>
                             <button

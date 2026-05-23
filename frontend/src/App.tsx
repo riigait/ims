@@ -1,4 +1,5 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { ThemeProvider } from '@/contexts/ThemeContext';
 import Layout from '@/components/layout/Layout';
 import DepartmentGuard from '@/components/DepartmentGuard';
 import Login from '@/pages/Login';
@@ -49,8 +50,9 @@ function AdminRoute({ children }: { children: React.ReactNode }) {
 function App() {
   return (
     <ErrorBoundary>
-      <BrowserRouter>
-        <Routes>
+      <ThemeProvider>
+        <BrowserRouter>
+          <Routes>
         <Route path="/login" element={<Login />} />
         <Route path="/register" element={<Register />} />
         <Route path="/initial-setup" element={<InitialSetup />} />
@@ -217,8 +219,9 @@ function App() {
           }
         />
         <Route path="*" element={<NotFound />} />
-      </Routes>
-      </BrowserRouter>
+          </Routes>
+        </BrowserRouter>
+      </ThemeProvider>
     </ErrorBoundary>
   );
 }

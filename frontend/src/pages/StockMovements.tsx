@@ -112,14 +112,14 @@ export default function StockMovements() {
 
   const formContent = (
     <>
-      <h2 className="text-xl font-semibold mb-4">Record Stock Movement</h2>
+      <h2 className="text-xl font-semibold mb-4 text-[var(--text)]">Record Stock Movement</h2>
       <form onSubmit={handleSubmit} className="space-y-4">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
-            <label htmlFor="movement-product" className="block text-sm font-medium text-gray-700 mb-1">Product *</label>
+            <label htmlFor="movement-product" className="block text-sm font-medium text-[var(--text)] mb-1">Product *</label>
             <select id="movement-product" name="product" value={formData.productId} required
               onChange={e => setFormData({ ...formData, productId: e.target.value })}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg">
+              className="w-full px-4 py-2 border border-[var(--border)] rounded-lg bg-[var(--surface)] text-[var(--text)]">
               <option value="">Select Product</option>
               {products.map(p => (
                 <option key={p.id} value={p.id}>{p.name} (SKU: {p.sku})</option>
@@ -127,26 +127,26 @@ export default function StockMovements() {
             </select>
           </div>
           <div>
-            <label htmlFor="movement-type" className="block text-sm font-medium text-gray-700 mb-1">Type *</label>
+            <label htmlFor="movement-type" className="block text-sm font-medium text-[var(--text)] mb-1">Type *</label>
             <select id="movement-type" name="type" value={formData.movementType}
               onChange={e => setFormData({ ...formData, movementType: e.target.value as MovementType })}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg">
+              className="w-full px-4 py-2 border border-[var(--border)] rounded-lg bg-[var(--surface)] text-[var(--text)]">
               {MOVEMENT_OPTIONS.map(o => (
                 <option key={o.value} value={o.value}>{o.label}</option>
               ))}
             </select>
           </div>
           <div>
-            <label htmlFor="movement-quantity" className="block text-sm font-medium text-gray-700 mb-1">Quantity *</label>
+            <label htmlFor="movement-quantity" className="block text-sm font-medium text-[var(--text)] mb-1">Quantity *</label>
             <input id="movement-quantity" name="quantity" type="number" value={formData.quantity} required min={1}
               onChange={e => setFormData({ ...formData, quantity: parseInt(e.target.value) || 1 })}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg" />
+              className="w-full px-4 py-2 border border-[var(--border)] rounded-lg bg-[var(--surface)] text-[var(--text)]" />
           </div>
           <div>
-            <label htmlFor="movement-location" className="block text-sm font-medium text-gray-700 mb-1">Location</label>
+            <label htmlFor="movement-location" className="block text-sm font-medium text-[var(--text)] mb-1">Location</label>
             <select id="movement-location" name="location" value={formData.locationId}
               onChange={e => setFormData({ ...formData, locationId: e.target.value })}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg">
+              className="w-full px-4 py-2 border border-[var(--border)] rounded-lg bg-[var(--surface)] text-[var(--text)]">
               <option value="">— No location —</option>
               {locations.map(l => (
                 <option key={l.id} value={l.id}>{l.name}</option>
@@ -155,18 +155,18 @@ export default function StockMovements() {
           </div>
         </div>
         <div>
-          <label htmlFor="movement-reason" className="block text-sm font-medium text-gray-700 mb-1">Reason</label>
+          <label htmlFor="movement-reason" className="block text-sm font-medium text-[var(--text)] mb-1">Reason</label>
           <input id="movement-reason" name="reason" type="text" value={formData.reason}
             onChange={e => setFormData({ ...formData, reason: e.target.value })}
-            className="w-full px-4 py-2 border border-gray-300 rounded-lg"
+            className="w-full px-4 py-2 border border-[var(--border)] rounded-lg bg-[var(--surface)] text-[var(--text)]"
             placeholder="e.g., Purchase order, Customer return, Damaged on receiving…" />
         </div>
         <div className="flex gap-2">
-          <button type="submit" className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
+          <button type="submit" className="px-4 py-2 bg-[var(--primary)] text-white rounded-lg hover:bg-[var(--primary-hover)]">
             Record Movement
           </button>
           <button type="button" onClick={() => setShowForm(false)}
-            className="px-4 py-2 bg-gray-200 rounded-lg hover:bg-gray-300">
+            className="px-4 py-2 bg-[var(--surface-2)] text-[var(--text)] rounded-lg hover:bg-[var(--border)]">
             Cancel
           </button>
         </div>
@@ -179,23 +179,23 @@ export default function StockMovements() {
       <div className="flex gap-2">
         <input id="search-movements" name="search" type="text" placeholder="Search by product name…"
           value={filters.search} onChange={e => setFilters({ ...filters, search: e.target.value })}
-          className="flex-1 px-4 py-2 border border-gray-300 rounded-lg text-sm" aria-label="Search stock movements" />
+          className="flex-1 px-4 py-2 border border-[var(--border)] rounded-lg text-sm bg-[var(--surface)] text-[var(--text)]" aria-label="Search stock movements" />
         <select id="sort-by" name="sort-by" value={sortBy} onChange={e => setSortBy(e.target.value)}
-          className="px-3 py-2 border border-gray-300 rounded text-sm font-medium bg-blue-50" aria-label="Sort by">
+          className="px-3 py-2 border border-[var(--border)] rounded text-sm font-medium bg-[var(--surface-2)] text-[var(--text)]" aria-label="Sort by">
           <option value="recently-added">Sort: Recently Added</option>
           <option value="oldest">Sort: Oldest</option>
           <option value="product-name">Sort: Product Name</option>
           <option value="quantity-high">Sort: Quantity (High to Low)</option>
           <option value="quantity-low">Sort: Quantity (Low to High)</option>
         </select>
-        <button onClick={clearAllFilters} className="text-xs px-3 py-1 bg-gray-100 text-gray-700 rounded hover:bg-gray-200 font-medium">
+        <button onClick={clearAllFilters} className="text-xs px-3 py-1 bg-[var(--surface-2)] text-[var(--text-muted)] rounded hover:bg-[var(--border)] font-medium">
           Clear
         </button>
       </div>
       <div className="flex gap-2 flex-wrap">
         <select id="filter-movement-type" name="filter-movement-type" value={filters.movementType || ''}
           onChange={e => setFilters({ ...filters, movementType: e.target.value as any || undefined })}
-          className="px-3 py-2 border border-gray-300 rounded text-sm" aria-label="Filter by movement type">
+          className="px-3 py-2 border border-[var(--border)] rounded text-sm bg-[var(--surface)] text-[var(--text)]" aria-label="Filter by movement type">
           <option value="">All Movement Types</option>
           {MOVEMENT_OPTIONS.map(o => (
             <option key={o.value} value={o.value}>{o.label}</option>
@@ -204,7 +204,7 @@ export default function StockMovements() {
         {user.role === 'superadmin' && (
           <select id="filter-department" name="filter-department" value={filters.departmentId || ''}
             onChange={e => setFilters({ ...filters, departmentId: e.target.value || undefined })}
-            className="px-3 py-2 border border-gray-300 rounded text-sm" aria-label="Filter by department">
+            className="px-3 py-2 border border-[var(--border)] rounded text-sm bg-[var(--surface)] text-[var(--text)]" aria-label="Filter by department">
             <option value="">All Departments</option>
             {departments.map(dept => (
               <option key={dept.id} value={dept.id}>{dept.name}</option>
@@ -226,41 +226,41 @@ export default function StockMovements() {
       filterContent={filterContent}>
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
-          <thead className="bg-gray-50">
+          <thead className="bg-[var(--surface-2)] border-b border-[var(--border)]">
             <tr>
-              <th className="px-4 py-2 text-left">Product</th>
-              <th className="px-4 py-2 text-left">Type</th>
-              <th className="px-4 py-2 text-right">Quantity</th>
-              <th className="px-4 py-2 text-left">Reason</th>
-              <th className="px-4 py-2 text-left">Location</th>
-              {user.role === 'superadmin' && <th className="px-4 py-2 text-left">Department</th>}
-              <th className="px-4 py-2 text-left">Date</th>
+              <th className="px-4 py-2 text-left text-[var(--text)] font-semibold">Product</th>
+              <th className="px-4 py-2 text-left text-[var(--text)] font-semibold">Type</th>
+              <th className="px-4 py-2 text-right text-[var(--text)] font-semibold">Quantity</th>
+              <th className="px-4 py-2 text-left text-[var(--text)] font-semibold">Reason</th>
+              <th className="px-4 py-2 text-left text-[var(--text)] font-semibold">Location</th>
+              {user.role === 'superadmin' && <th className="px-4 py-2 text-left text-[var(--text)] font-semibold">Department</th>}
+              <th className="px-4 py-2 text-left text-[var(--text)] font-semibold">Date</th>
             </tr>
           </thead>
-          <tbody className="divide-y">
+          <tbody className="divide-y divide-[var(--border)]">
             {filteredAndSortedMovements.length === 0 ? (
               <tr>
-                <td colSpan={user.role === 'superadmin' ? 7 : 6} className="px-4 py-8 text-center text-gray-400">
+                <td colSpan={user.role === 'superadmin' ? 7 : 6} className="px-4 py-8 text-center text-[var(--text-muted)]">
                   {movements.length === 0 ? 'No movements recorded yet.' : 'No movements match your filters.'}
                 </td>
               </tr>
             ) : filteredAndSortedMovements.map(movement => (
-              <tr key={movement.id}>
-                <td className="px-4 py-2">{getProductName(movement.productId)}</td>
+              <tr key={movement.id} className="hover:bg-[var(--surface-2)] transition-colors">
+                <td className="px-4 py-2 text-[var(--text)]">{getProductName(movement.productId)}</td>
                 <td className="px-4 py-2">
                   <span className={`px-2 py-1 rounded text-xs font-semibold ${movementColor(movement.movementType)}`}>
                     {movementLabel(movement.movementType)}
                   </span>
                 </td>
-                <td className="px-4 py-2 text-right">{movement.quantity}</td>
-                <td className="px-4 py-2 text-gray-600">{movement.reason || '-'}</td>
-                <td className="px-4 py-2">{getLocationName(movement.locationId)}</td>
+                <td className="px-4 py-2 text-right text-[var(--text)]">{movement.quantity}</td>
+                <td className="px-4 py-2 text-[var(--text-muted)]">{movement.reason || '-'}</td>
+                <td className="px-4 py-2 text-[var(--text)]">{getLocationName(movement.locationId)}</td>
                 {user.role === 'superadmin' && (
-                  <td className="px-4 py-2 text-gray-700">
+                  <td className="px-4 py-2 text-[var(--text)]">
                     {movement.department?.name ?? '—'}
                   </td>
                 )}
-                <td className="px-4 py-2 text-gray-500">{formatDate(movement.createdAt)}</td>
+                <td className="px-4 py-2 text-[var(--text-muted)]">{formatDate(movement.createdAt)}</td>
               </tr>
             ))}
           </tbody>

@@ -1,6 +1,30 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+:root {
+  --bg: #F8FAFC;
+  --surface: #FFFFFF;
+  --surface-2: #F1F5F9;
+  --border: #E2E8F0;
+  --text: #0F172A;
+  --text-muted: #64748B;
+  --primary: #2563EB;
+  --primary-hover: #1D4ED8;
+}
+
+html.dark {
+  --bg: #0F172A;
+  --surface: #1E293B;
+  --surface-2: #273549;
+  --border: #334155;
+  --text: #F1F5F9;
+  --text-muted: #94A3B8;
+  --primary: #3B82F6;
+  --primary-hover: #60A5FA;
+}
 
 * {
   box-sizing: border-box;
@@ -9,8 +33,10 @@
 body {
   margin: 0;
   padding: 0;
-  font-family: system-ui, -apple-system, sans-serif;
+  font-family: Inter, system-ui, -apple-system, sans-serif;
   -webkit-font-smoothing: antialiased;
+  color: var(--text);
+  background-color: var(--bg);
 }
 
 html {
@@ -53,40 +79,3 @@ html {
   scrollbar-width: thin;
 }
 
-/* Navbar background images */
-nav::before {
-  content: '';
-  position: absolute;
-  left: 0;
-  top: 0;
-  bottom: 0;
-  width: calc((100vw - 80rem) / 2);
-  background-image: url('/imsbackground.png');
-  background-size: cover;
-  background-repeat: no-repeat;
-  background-position: left center;
-  opacity: 0.85;
-  pointer-events: none;
-}
-
-nav::after {
-  content: '';
-  position: absolute;
-  right: 0;
-  top: 0;
-  bottom: 0;
-  width: calc((100vw - 80rem) / 2);
-  background-image: url('/imsbackground2.png');
-  background-size: cover;
-  background-repeat: no-repeat;
-  background-position: right center;
-  opacity: 0.85;
-  pointer-events: none;
-}
-
-@media (max-width: 1280px) {
-  nav::before,
-  nav::after {
-    width: 0;
-  }
-}

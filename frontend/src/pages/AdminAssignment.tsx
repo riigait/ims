@@ -211,23 +211,23 @@ export default function AdminAssignment() {
   };
 
   if (loading) {
-    return <div className="text-center py-12">Loading...</div>;
+    return <div className="text-center py-12 text-[var(--text-muted)]">Loading...</div>;
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-[var(--bg)]">
       <div className="max-w-5xl mx-auto p-6 space-y-6">
         <div className="flex items-center gap-4">
           <button
             onClick={() => navigate('/scanner')}
-            className="p-2 hover:bg-gray-200 rounded-lg transition"
+            className="p-2 hover:bg-[var(--surface-2)] rounded-lg transition"
             title="Back to Scanner"
           >
-            <ArrowLeft size={24} className="text-gray-700" />
+            <ArrowLeft size={24} className="text-[var(--text)]" />
           </button>
           <div>
-            <h1 className="text-4xl font-bold text-gray-900">Role Assignments</h1>
-            <p className="text-gray-600 mt-2">Assign departments to admins and staff members</p>
+            <h1 className="text-4xl font-bold text-[var(--text)]">Role Assignments</h1>
+            <p className="text-[var(--text-muted)] mt-2">Assign departments to admins and staff members</p>
           </div>
         </div>
 
@@ -241,20 +241,20 @@ export default function AdminAssignment() {
         <div className="space-y-8">
           {/* Admin Assignments Section */}
           <div>
-            <h2 className="text-2xl font-bold text-gray-900 mb-4">Admin Assignments</h2>
-            <p className="text-gray-600 mb-4">Assign multiple departments to admins</p>
+            <h2 className="text-2xl font-bold text-[var(--text)] mb-4">Admin Assignments</h2>
+            <p className="text-[var(--text-muted)] mb-4">Assign multiple departments to admins</p>
             <div className="space-y-4">
               {admins.length === 0 ? (
-                <div className="text-center py-12 bg-white rounded-lg shadow">
-                  <p className="text-gray-500">No admins found. Create admin accounts first.</p>
+                <div className="text-center py-12 bg-[var(--surface)] rounded-lg shadow">
+                  <p className="text-[var(--text-muted)]">No admins found. Create admin accounts first.</p>
                 </div>
               ) : (
                 admins.map(admin => (
-              <div key={admin.id} className="bg-white rounded-lg shadow p-6">
+              <div key={admin.id} className="bg-[var(--surface)] rounded-lg shadow p-6">
                 <div className="flex items-start justify-between mb-4">
                   <div>
-                    <h3 className="text-lg font-semibold text-gray-900">{admin.name}</h3>
-                    <p className="text-sm text-gray-500">{admin.email}</p>
+                    <h3 className="text-lg font-semibold text-[var(--text)]">{admin.name}</h3>
+                    <p className="text-sm text-[var(--text-muted)]">{admin.email}</p>
                   </div>
                   <span className="px-3 py-1 bg-blue-100 text-blue-800 rounded-full text-xs font-medium">
                     Admin
@@ -263,11 +263,11 @@ export default function AdminAssignment() {
 
                 {/* Assigned Departments */}
                 <div className="mb-4">
-                  <p className="text-sm font-medium text-gray-700 mb-2">
+                  <p className="text-sm font-medium text-[var(--text)] mb-2">
                     Assigned Departments ({admin.adminDepartments?.length || 0})
                   </p>
                   {(admin.adminDepartments?.length || 0) === 0 ? (
-                    <p className="text-sm text-gray-500">No departments assigned</p>
+                    <p className="text-sm text-[var(--text-muted)]">No departments assigned</p>
                   ) : (
                     <div className="flex flex-wrap gap-2">
                       {admin.adminDepartments?.map(ad => (
@@ -295,7 +295,7 @@ export default function AdminAssignment() {
                     <select
                       id={`select-${admin.id}`}
                       name="admin-department"
-                      className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-600 text-sm"
+                      className="flex-1 px-3 py-2 border border-[var(--border)] rounded-lg focus:outline-none focus:ring-2 focus:ring-[var(--primary)] text-sm bg-[var(--surface)] text-[var(--text)]"
                       aria-label="Select department to assign to admin"
                     >
                       <option value="">Select a department to assign...</option>
@@ -313,7 +313,7 @@ export default function AdminAssignment() {
                           select.value = '';
                         }
                       }}
-                      className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium text-sm flex items-center gap-2 transition"
+                      className="px-4 py-2 bg-[var(--primary)] text-white rounded-lg hover:bg-[var(--primary-hover)] font-medium text-sm flex items-center gap-2 transition"
                     >
                       <Plus size={16} />
                       Assign
@@ -328,20 +328,20 @@ export default function AdminAssignment() {
 
           {/* Staff Assignments Section */}
           <div>
-            <h2 className="text-2xl font-bold text-gray-900 mb-4">Staff Assignments</h2>
-            <p className="text-gray-600 mb-4">Assign multiple departments to staff members</p>
+            <h2 className="text-2xl font-bold text-[var(--text)] mb-4">Staff Assignments</h2>
+            <p className="text-[var(--text-muted)] mb-4">Assign multiple departments to staff members</p>
             <div className="space-y-4">
               {staff.length === 0 ? (
-                <div className="text-center py-12 bg-white rounded-lg shadow">
-                  <p className="text-gray-500">No staff found. Create staff accounts first.</p>
+                <div className="text-center py-12 bg-[var(--surface)] rounded-lg shadow">
+                  <p className="text-[var(--text-muted)]">No staff found. Create staff accounts first.</p>
                 </div>
               ) : (
                 staff.map(s => (
-              <div key={s.id} className="bg-white rounded-lg shadow p-6">
+              <div key={s.id} className="bg-[var(--surface)] rounded-lg shadow p-6">
                 <div className="flex items-start justify-between mb-4">
                   <div>
-                    <h3 className="text-lg font-semibold text-gray-900">{s.name}</h3>
-                    <p className="text-sm text-gray-500">{s.email}</p>
+                    <h3 className="text-lg font-semibold text-[var(--text)]">{s.name}</h3>
+                    <p className="text-sm text-[var(--text-muted)]">{s.email}</p>
                   </div>
                   <span className="px-3 py-1 bg-purple-100 text-purple-800 rounded-full text-xs font-medium">
                     Staff
@@ -350,11 +350,11 @@ export default function AdminAssignment() {
 
                 {/* Assigned Departments */}
                 <div className="mb-4">
-                  <p className="text-sm font-medium text-gray-700 mb-2">
+                  <p className="text-sm font-medium text-[var(--text)] mb-2">
                     Assigned Departments ({s.staffDepartments?.length || 0})
                   </p>
                   {(s.staffDepartments?.length || 0) === 0 ? (
-                    <p className="text-sm text-gray-500">No departments assigned</p>
+                    <p className="text-sm text-[var(--text-muted)]">No departments assigned</p>
                   ) : (
                     <div className="flex flex-wrap gap-2">
                       {s.staffDepartments?.map(sd => (
@@ -382,7 +382,7 @@ export default function AdminAssignment() {
                     <select
                       id={`staff-select-${s.id}`}
                       name="staff-department"
-                      className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-600 text-sm"
+                      className="flex-1 px-3 py-2 border border-[var(--border)] rounded-lg focus:outline-none focus:ring-2 focus:ring-[var(--primary)] text-sm bg-[var(--surface)] text-[var(--text)]"
                       aria-label="Select department to assign to staff"
                     >
                       <option value="">Select a department to assign...</option>
@@ -400,7 +400,7 @@ export default function AdminAssignment() {
                           select.value = '';
                         }
                       }}
-                      className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium text-sm flex items-center gap-2 transition"
+                      className="px-4 py-2 bg-[var(--primary)] text-white rounded-lg hover:bg-[var(--primary-hover)] font-medium text-sm flex items-center gap-2 transition"
                     >
                       <Plus size={16} />
                       Assign

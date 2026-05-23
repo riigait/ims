@@ -59,31 +59,31 @@ export default function AdminDepartments() {
     }
   };
 
-  if (loading) return <div className="flex items-center justify-center h-screen"><div className="text-gray-500">Loading...</div></div>;
+  if (loading) return <div className="flex items-center justify-center h-screen"><div className="text-[var(--text-muted)]">Loading...</div></div>;
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-[var(--bg)]">
       <div className="max-w-4xl mx-auto p-6 space-y-6">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-4">
             <button
               onClick={() => navigate('/scanner')}
-              className="p-2 hover:bg-gray-200 rounded-lg transition"
+              className="p-2 hover:bg-[var(--surface-2)] rounded-lg transition"
               title="Back to Scanner"
             >
-              <ArrowLeft size={24} className="text-gray-700" />
+              <ArrowLeft size={24} className="text-[var(--text)]" />
             </button>
             <div>
-              <h1 className="text-4xl font-bold text-gray-900 flex items-center gap-3">
-                <Building2 size={36} className="text-blue-600" />
+              <h1 className="text-4xl font-bold text-[var(--text)] flex items-center gap-3">
+                <Building2 size={36} className="text-[var(--primary)]" />
                 Departments
               </h1>
-              <p className="text-gray-600 mt-2">Manage warehouse departments and locations</p>
+              <p className="text-[var(--text-muted)] mt-2">Manage warehouse departments and locations</p>
             </div>
           </div>
           <button
             onClick={() => setShowForm(!showForm)}
-            className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium flex items-center gap-2"
+            className="px-6 py-3 bg-[var(--primary)] text-white rounded-lg hover:bg-[var(--primary-hover)] font-medium flex items-center gap-2"
           >
             <Plus size={20} />
             Add Department
@@ -97,11 +97,11 @@ export default function AdminDepartments() {
         )}
 
         {showForm && (
-          <div className="bg-white rounded-lg shadow p-6 border-l-4 border-blue-600">
-            <h2 className="text-lg font-semibold mb-4">Create New Department</h2>
+          <div className="bg-[var(--surface)] rounded-lg shadow p-6 border-l-4 border-[var(--primary)]">
+            <h2 className="text-lg font-semibold mb-4 text-[var(--text)]">Create New Department</h2>
             <div className="space-y-4">
               <div>
-                <label htmlFor="dept-name" className="block text-sm font-medium text-gray-700 mb-2">
+                <label htmlFor="dept-name" className="block text-sm font-medium text-[var(--text)] mb-2">
                   Department Name *
                 </label>
                 <input
@@ -111,11 +111,11 @@ export default function AdminDepartments() {
                   placeholder="e.g., SCADA Office"
                   value={newDept.name}
                   onChange={(e) => setNewDept({ ...newDept, name: e.target.value })}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-600"
+                  className="w-full px-4 py-2 border border-[var(--border)] rounded-lg focus:outline-none focus:ring-2 focus:ring-[var(--primary)] bg-[var(--surface)] text-[var(--text)]"
                 />
               </div>
               <div>
-                <label htmlFor="dept-description" className="block text-sm font-medium text-gray-700 mb-2">
+                <label htmlFor="dept-description" className="block text-sm font-medium text-[var(--text)] mb-2">
                   Description
                 </label>
                 <textarea
@@ -124,20 +124,20 @@ export default function AdminDepartments() {
                   placeholder="Optional description"
                   value={newDept.description}
                   onChange={(e) => setNewDept({ ...newDept, description: e.target.value })}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-600 resize-none"
+                  className="w-full px-4 py-2 border border-[var(--border)] rounded-lg focus:outline-none focus:ring-2 focus:ring-[var(--primary)] resize-none bg-[var(--surface)] text-[var(--text)]"
                   rows={3}
                 />
               </div>
               <div className="flex gap-3">
                 <button
                   onClick={handleCreate}
-                  className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium"
+                  className="px-6 py-2 bg-[var(--primary)] text-white rounded-lg hover:bg-[var(--primary-hover)] font-medium"
                 >
                   Create
                 </button>
                 <button
                   onClick={() => setShowForm(false)}
-                  className="px-6 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 font-medium"
+                  className="px-6 py-2 bg-[var(--surface-2)] text-[var(--text)] rounded-lg hover:bg-[var(--border)] font-medium"
                 >
                   Cancel
                 </button>
@@ -147,12 +147,12 @@ export default function AdminDepartments() {
         )}
 
         {departments.length === 0 ? (
-          <div className="bg-white rounded-lg shadow p-12 text-center">
-            <Building2 size={48} className="mx-auto text-gray-400 mb-4" />
-            <p className="text-gray-500 mb-4">No departments yet</p>
+          <div className="bg-[var(--surface)] rounded-lg shadow p-12 text-center">
+            <Building2 size={48} className="mx-auto text-[var(--text-muted)] mb-4" />
+            <p className="text-[var(--text-muted)] mb-4">No departments yet</p>
             <button
               onClick={() => setShowForm(true)}
-              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium inline-flex items-center gap-2"
+              className="px-4 py-2 bg-[var(--primary)] text-white rounded-lg hover:bg-[var(--primary-hover)] font-medium inline-flex items-center gap-2"
             >
               <Plus size={18} />
               Create First Department
@@ -163,10 +163,10 @@ export default function AdminDepartments() {
             {departments.map(dept => (
               <div
                 key={dept.id}
-                className="bg-white rounded-lg shadow p-6 border-l-4 border-blue-600 hover:shadow-lg transition"
+                className="bg-[var(--surface)] rounded-lg shadow p-6 border-l-4 border-[var(--primary)] hover:shadow-lg transition"
               >
                 <div className="flex items-start justify-between mb-3">
-                  <h3 className="text-lg font-semibold text-gray-900">{dept.name}</h3>
+                  <h3 className="text-lg font-semibold text-[var(--text)]">{dept.name}</h3>
                   <button
                     onClick={() => handleDelete(dept.id)}
                     className="p-2 text-red-600 hover:bg-red-50 rounded transition"
@@ -176,9 +176,9 @@ export default function AdminDepartments() {
                   </button>
                 </div>
                 {dept.description && (
-                  <p className="text-gray-600 text-sm mb-3">{dept.description}</p>
+                  <p className="text-[var(--text-muted)] text-sm mb-3">{dept.description}</p>
                 )}
-                <p className="text-xs text-gray-500">
+                <p className="text-xs text-[var(--text-muted)]">
                   Created {new Date(dept.createdAt).toLocaleDateString()}
                 </p>
               </div>
