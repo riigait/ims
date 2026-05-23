@@ -46,7 +46,7 @@ export default function NotFound() {
 
           {user.role === 'admin' && (
             <a
-              href="mailto:noc.voxptech@gmail.com"
+              href={`mailto:${(import.meta as any).env.VITE_SUPPORT_EMAIL || 'support@example.com'}`}
               className="w-full flex items-center justify-center gap-2 bg-[var(--surface-2)] text-[var(--text)] px-6 py-3 rounded-lg hover:bg-[var(--border)] font-medium transition"
             >
               <Mail size={20} />
