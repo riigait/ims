@@ -301,17 +301,17 @@ export default function Products() {
         <input id="search-products" name="search" type="text" placeholder="Search by name or SKU…" value={filters.search}
           onChange={e => { setFilters({ ...filters, search: e.target.value }); setCurrentPage(1); }}
           className="flex-1 px-4 py-2 border border-[var(--border)] rounded-lg text-sm bg-[var(--surface)] text-[var(--text)]" aria-label="Search products by name or SKU" />
-        <select id="sort-by" name="sort-by" value={`${sort.field}-${sort.order}`} onChange={e => {
-          const [field, order] = e.target.value.split('-');
+        <select id="sort-by" name="sort-by" value={`${sort.field}:${sort.order}`} onChange={e => {
+          const [field, order] = e.target.value.split(':');
           setSort({ field: field as ProductSort['field'], order: order as ProductSort['order'] });
           setCurrentPage(1);
         }}
           className="px-3 py-2 border border-[var(--border)] rounded text-sm font-medium bg-[var(--surface-2)] text-[var(--text)]" aria-label="Sort by">
-          <option value="name-asc">Sort: Name</option>
-          <option value="sku-asc">Sort: SKU</option>
-          <option value="stock-desc">Sort: Stock (High to Low)</option>
-          <option value="low-stock-asc">Sort: Stock (Low to High)</option>
-          <option value="date-desc">Sort: Recently Added</option>
+          <option value="name:asc">Sort: Name</option>
+          <option value="sku:asc">Sort: SKU</option>
+          <option value="stock:desc">Sort: Stock (High to Low)</option>
+          <option value="low-stock:asc">Sort: Stock (Low to High)</option>
+          <option value="date:desc">Sort: Recently Added</option>
         </select>
         <button onClick={clearAllFilters}
           className="text-xs px-3 py-1 bg-[var(--surface-2)] text-[var(--text-muted)] rounded hover:bg-[var(--border)] font-medium">
