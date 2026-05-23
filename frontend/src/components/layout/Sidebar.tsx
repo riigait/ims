@@ -141,6 +141,7 @@ export default function Sidebar() {
         <div className="flex gap-2">
           <button
             onClick={toggleTheme}
+            aria-label={`Switch to ${theme === 'light' ? 'dark' : 'light'} mode`}
             className="flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-[var(--text-muted)] hover:bg-[var(--surface-2)] transition-colors"
             title="Toggle theme"
           >
@@ -148,6 +149,7 @@ export default function Sidebar() {
           </button>
           <button
             onClick={handleLogout}
+            aria-label="Logout"
             className="flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-red-600 hover:bg-red-50 dark:hover:bg-red-950 transition-colors"
             title="Logout"
           >

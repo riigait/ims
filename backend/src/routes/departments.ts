@@ -45,7 +45,8 @@ router.get('/:id', authMiddleware, async (req: AuthRequest, res: Response) => {
 // Create department (admin only)
 router.post('/', authMiddleware, adminMiddleware, async (req: AuthRequest, res: Response) => {
   try {
-    const { name, description } = req.body;
+    const name = (req.body.name || '').trim();
+    const description = (req.body.description || '').trim();
 
     if (!name) {
       return res.status(400).json({ error: 'Department name is required' });
@@ -70,11 +71,10 @@ router.post('/', authMiddleware, adminMiddleware, async (req: AuthRequest, res: 
 // Update department (admin only)
 router.patch('/:id', authMiddleware, adminMiddleware, async (req: AuthRequest, res: Response) => {
   try {
-    const { name, description } = req.body;
     const updates: any = {};
 
-    if (name) updates.name = name;
-    if (description !== undefined) updates.description = description;
+    if (req.body.name) updates.name = (req.body.name || '').trim();
+    if (req.body.description !== undefined) updates.description = (req.body.description || '').trim();
 
     const department = await prisma.department.update({
       where: { id: req.params.id },
