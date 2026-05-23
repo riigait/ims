@@ -48,10 +48,16 @@ export default function Sidebar() {
   return (
     <aside className="fixed left-0 top-0 bottom-0 w-60 bg-[var(--surface)] border-r border-[var(--border)] flex flex-col transition-all duration-300">
       {/* Logo */}
-      <div className="p-6 border-b border-[var(--border)]">
-        <h1 className="text-xl font-semibold text-[var(--text)] tracking-tight">IMS</h1>
-        <p className="text-xs text-[var(--text-muted)] mt-1">Inventory Management</p>
-      </div>
+      <button
+        onClick={() => navigate('/dashboard')}
+        className="w-full p-4 border-b border-[var(--border)] flex items-center gap-3 hover:bg-[var(--surface-2)] transition"
+      >
+        <img src="/icons/logo-ims.svg" alt="IMS" className="h-8 w-8 flex-shrink-0" />
+        <div className="text-left">
+          <h1 className="text-lg font-bold text-[var(--text)] tracking-tight">IMS</h1>
+          <p className="text-xs text-[var(--text-muted)]">Inventory</p>
+        </div>
+      </button>
 
       {/* Navigation */}
       <nav className="flex-1 overflow-y-auto p-4 space-y-2">
