@@ -1,9 +1,11 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Eye, EyeOff, AlertCircle, CheckCircle } from 'lucide-react';
+import { useTheme } from '@/contexts/ThemeContext';
 
 export default function Register() {
   const navigate = useNavigate();
+  const { theme } = useTheme();
   const [step, setStep] = useState<'code' | 'signup'>('code');
   const [inviteCode, setInviteCode] = useState('');
   const [inviteRole, setInviteRole] = useState<'admin' | 'staff'>('staff');
@@ -101,6 +103,9 @@ export default function Register() {
     <div className="min-h-screen bg-gradient-to-br from-blue-600 to-blue-800 flex items-center justify-center p-4">
       <div className="w-full max-w-md">
         <div className="bg-white rounded-lg shadow-2xl p-8">
+          <div className="flex justify-center mb-4">
+            <img src={theme === 'dark' ? '/icons/logo-img-white.svg' : '/icons/logo-img.svg'} alt="IMS" className="h-16 w-16" />
+          </div>
           <h1 className="text-3xl font-bold text-center text-gray-900 mb-2">
             Inventory Management
           </h1>
