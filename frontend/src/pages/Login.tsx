@@ -2,9 +2,11 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { authApi } from '@/services/api';
 import { validateEmail, validatePassword } from '@/utils/validation';
+import { useTheme } from '@/contexts/ThemeContext';
 
 export default function Login() {
   const navigate = useNavigate();
+  const { theme } = useTheme();
   const [formData, setFormData] = useState({ email: '', password: '' });
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -56,6 +58,9 @@ export default function Login() {
   return (
     <div className="min-h-screen bg-[var(--bg)] flex items-center justify-center py-12 px-4">
       <div className="max-w-md w-full bg-[var(--surface)] rounded-lg shadow-lg p-8 border border-[var(--border)]">
+        <div className="flex justify-center mb-6">
+          <img src={theme === 'dark' ? '/icons/logo-img-white.svg' : '/icons/logo-img.svg'} alt="IMS" className="h-16 w-16" />
+        </div>
         <h1 className="text-3xl font-bold text-center text-[var(--text)] mb-8">
           Inventory Management System
         </h1>
