@@ -25,7 +25,7 @@ export default function DataPageLayout({
   return (
     <div className="space-y-6">
       {error && (
-        <div className="p-4 rounded-lg border border-[var(--border)]" style={{ backgroundColor: '#fee2e2', color: '#991b1b' }}>
+        <div className="p-4 rounded-lg border border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-950 text-red-900 dark:text-red-100">
           {error}
         </div>
       )}

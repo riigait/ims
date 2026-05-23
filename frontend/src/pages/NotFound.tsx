@@ -6,32 +6,32 @@ export default function NotFound() {
   const user = JSON.parse(localStorage.getItem('user') || '{}');
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-red-50 to-orange-50 flex items-center justify-center p-4">
+    <div className="min-h-screen bg-[var(--bg)] flex items-center justify-center p-4">
       <div className="max-w-md w-full text-center">
         <div className="flex justify-center mb-6">
-          <div className="bg-red-100 p-6 rounded-full">
-            <AlertTriangle size={48} className="text-red-600" />
+          <div className="bg-red-100 dark:bg-red-950 p-6 rounded-full">
+            <AlertTriangle size={48} className="text-red-600 dark:text-red-400" />
           </div>
         </div>
 
-        <h1 className="text-4xl font-bold text-gray-900 mb-2">404</h1>
+        <h1 className="text-4xl font-bold text-[var(--text)] mb-2">404</h1>
 
-        <h2 className="text-2xl font-semibold text-gray-800 mb-4">
+        <h2 className="text-2xl font-semibold text-[var(--text)] mb-4">
           Something's Wrong
         </h2>
 
-        <p className="text-lg text-gray-600 mb-2">
+        <p className="text-lg text-[var(--text-muted)] mb-2">
           I Think We Need to See This To Admin
         </p>
 
-        <p className="text-gray-500 mb-8">
+        <p className="text-[var(--text-muted)] mb-8">
           There's Nothing in Here
         </p>
 
         <div className="space-y-3">
           <button
             onClick={() => navigate('/dashboard')}
-            className="w-full flex items-center justify-center gap-2 bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 font-medium transition"
+            className="w-full flex items-center justify-center gap-2 bg-[var(--primary)] text-white px-6 py-3 rounded-lg hover:bg-[var(--primary-hover)] font-medium transition"
           >
             <Home size={20} />
             Go to Dashboard
@@ -39,7 +39,7 @@ export default function NotFound() {
 
           <button
             onClick={() => navigate(-1)}
-            className="w-full px-6 py-3 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 font-medium transition"
+            className="w-full px-6 py-3 bg-[var(--surface-2)] text-[var(--text)] rounded-lg hover:bg-[var(--border)] font-medium transition"
           >
             Go Back
           </button>
@@ -47,7 +47,7 @@ export default function NotFound() {
           {user.role === 'admin' && (
             <a
               href="mailto:noc.voxptech@gmail.com"
-              className="w-full flex items-center justify-center gap-2 bg-gray-100 text-gray-700 px-6 py-3 rounded-lg hover:bg-gray-200 font-medium transition"
+              className="w-full flex items-center justify-center gap-2 bg-[var(--surface-2)] text-[var(--text)] px-6 py-3 rounded-lg hover:bg-[var(--border)] font-medium transition"
             >
               <Mail size={20} />
               Report to Admin
@@ -55,8 +55,8 @@ export default function NotFound() {
           )}
         </div>
 
-        <div className="mt-8 p-4 bg-white rounded-lg border border-gray-200">
-          <p className="text-xs text-gray-500">
+        <div className="mt-8 p-4 bg-[var(--surface)] rounded-lg border border-[var(--border)]">
+          <p className="text-xs text-[var(--text-muted)]">
             Error Code: 404<br />
             Page not found or access denied
           </p>
