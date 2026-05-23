@@ -3,6 +3,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { LayoutDashboard, Package, Tag, MapPin, ArrowLeftRight, Map, Building2, Users, UserCheck, Sun, Moon, LogOut, ChevronDown } from 'lucide-react';
 import { useTheme } from '@/contexts/ThemeContext';
 import { ALL_DEPARTMENTS_ID } from '@/constants/app';
+import ConfirmDialog from './ConfirmDialog';
 
 export default function Sidebar() {
   const navigate = useNavigate();
@@ -12,13 +13,20 @@ export default function Sidebar() {
   const [deptDropdownOpen, setDeptDropdownOpen] = useState(false);
   const [currentDeptId, setCurrentDeptId] = useState(localStorage.getItem('currentDepartmentId') || ALL_DEPARTMENTS_ID);
 
+  const [deptChangeConfirm, setDeptChangeConfirm] = useState<string | null>(null);
+
   const isActive = (path: string) => location.pathname === path;
 
   const handleDepartmentChange = (deptId: string) => {
-    if (window.confirm('Are you sure? Any unsaved changes will be lost.')) {
-      localStorage.setItem('currentDepartmentId', deptId);
-      setCurrentDeptId(deptId);
+    setDeptChangeConfirm(deptId);
+  };
+
+  const confirmDepartmentChange = () => {
+    if (deptChangeConfirm) {
+      localStorage.setItem('currentDepartmentId', deptChangeConfirm);
+      setCurrentDeptId(deptChangeConfirm);
       setDeptDropdownOpen(false);
+      setDeptChangeConfirm(null);
       window.location.reload();
     }
   };
@@ -46,7 +54,18 @@ export default function Sidebar() {
   const adminItems = filteredNavItems.filter(item => item.section === 'admin');
 
   return (
-    <aside className="fixed left-0 top-0 bottom-0 w-60 bg-[var(--surface)] border-r border-[var(--border)] flex flex-col transition-all duration-300">
+    <>
+      {deptChangeConfirm && (
+        <ConfirmDialog
+          title="Change Department"
+          message="Any unsaved changes will be lost. Continue?"
+          confirmText="Change"
+          cancelText="Cancel"
+          onConfirm={confirmDepartmentChange}
+          onCancel={() => setDeptChangeConfirm(null)}
+        />
+      )}
+      <aside className="fixed left-0 top-0 bottom-0 w-60 bg-[var(--surface)] border-r border-[var(--border)] flex flex-col transition-all duration-300">
       {/* Logo */}
       <button
         onClick={() => navigate('/dashboard')}
@@ -187,5 +206,6 @@ export default function Sidebar() {
         </div>
       </div>
     </aside>
+    </>
   );
 }
