@@ -18,14 +18,3 @@ export const validateStock = (stock: number): boolean => {
 export const validatePassword = (password: string): boolean => {
   return password.length >= 6;
 };
-
-export const validateFloorPlanName = (name: string): boolean => {
-  return name.trim().length > 0 && name.trim().length <= 255;
-};
-
-export const validateFloorPlanDimensions = (
-  width: number,
-  height: number
-): boolean => {
-  return width > 0 && height > 0 && width <= 10000 && height <= 10000;
-};
