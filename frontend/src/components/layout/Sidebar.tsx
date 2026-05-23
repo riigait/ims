@@ -48,8 +48,9 @@ export default function Sidebar() {
   return (
     <aside className="fixed left-0 top-0 bottom-0 w-60 bg-[var(--surface)] border-r border-[var(--border)] flex flex-col transition-all duration-300">
       {/* Logo */}
-      <div className="p-4 border-b border-[var(--border)] flex items-center justify-center">
-        <img src="/icons/logo-ims.svg" alt="IMS Logo" className="h-12 w-12 object-contain" />
+      <div className="p-6 border-b border-[var(--border)]">
+        <h1 className="text-xl font-semibold text-[var(--text)] tracking-tight">IMS</h1>
+        <p className="text-xs text-[var(--text-muted)] mt-1">Inventory Management</p>
       </div>
 
       {/* Navigation */}
