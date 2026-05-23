@@ -49,7 +49,7 @@ export default function Sidebar() {
     <aside className="fixed left-0 top-0 bottom-0 w-60 bg-[var(--surface)] border-r border-[var(--border)] flex flex-col transition-all duration-300">
       {/* Logo */}
       <div className="p-4 border-b border-[var(--border)] flex items-center justify-center">
-        <img src="/icons/logo-ims.png" alt="IMS Logo" className="h-12 w-12 object-contain bg-transparent" style={{ filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.1))' }} />
+        <img src="/icons/logo-ims.svg" alt="IMS Logo" className="h-12 w-12 object-contain" />
       </div>
 
       {/* Navigation */}
