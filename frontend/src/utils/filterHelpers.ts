@@ -73,10 +73,10 @@ export const sortProducts = (products: Product[], sort: ProductSort): Product[] 
         comparison = a.sku.localeCompare(b.sku);
         break;
       case 'stock':
-        comparison = b.currentStock - a.currentStock;
+        comparison = a.currentStock - b.currentStock;
         break;
       case 'date':
-        comparison = new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime();
+        comparison = new Date(a.createdAt || 0).getTime() - new Date(b.createdAt || 0).getTime();
         break;
       case 'low-stock':
         comparison = a.currentStock - b.currentStock;
