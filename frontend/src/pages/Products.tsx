@@ -405,7 +405,7 @@ export default function Products() {
               const isLowStock = product.currentStock > 0 && product.currentStock <= product.lowStockThreshold;
               const isOutOfStock = product.currentStock === 0;
               return (
-                <tr key={product.id} className={`hover:bg-[var(--surface-2)] transition-colors ${isOutOfStock ? 'bg-red-50' : isLowStock ? 'bg-yellow-50' : ''}`}>
+                <tr key={product.id} className="hover:bg-[var(--surface-2)] transition-colors">
                   <td className="px-4 py-2 font-mono text-xs text-[var(--text-muted)]">{product.sku}</td>
                   <td className="px-4 py-2 font-medium text-[var(--text)]">{product.name}</td>
                   <td className="px-4 py-2 text-[var(--text-muted)]">{category?.name ?? '—'}</td>
