@@ -295,7 +295,7 @@ export default function StockMovements() {
               <th className="px-4 py-2 text-left text-[var(--text)] font-semibold">Location</th>
               {user.role === 'superadmin' && <th className="px-4 py-2 text-left text-[var(--text)] font-semibold">Department</th>}
               <th className="px-4 py-2 text-left text-[var(--text)] font-semibold">Date</th>
-              {(user.role === 'superadmin' || user.role === 'admin') && <th className="px-4 py-2 text-center text-[var(--text)] font-semibold">Actions</th>}
+              {user.role === 'admin' && <th className="px-4 py-2 text-center text-[var(--text)] font-semibold">Actions</th>}
             </tr>
           </thead>
           <tbody className="divide-y divide-[var(--border)]">
@@ -322,7 +322,7 @@ export default function StockMovements() {
                   </td>
                 )}
                 <td className="px-4 py-2 text-[var(--text-muted)]">{formatDate(movement.createdAt)}</td>
-                {(user.role === 'superadmin' || user.role === 'admin') && (
+                {user.role === 'admin' && (
                   <td className="px-4 py-2 text-center">
                     <div className="flex gap-2 justify-center">
                       <button
