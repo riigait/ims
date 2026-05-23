@@ -52,7 +52,7 @@ export default function Sidebar() {
         onClick={() => navigate('/dashboard')}
         className="w-full p-4 border-b border-[var(--border)] flex items-center gap-3 hover:bg-[var(--surface-2)] transition"
       >
-        <img src="/icons/logo-img.svg" alt="IMS" className="h-8 w-8 flex-shrink-0" />
+        <img src="/icons/logo-img.svg" alt="IMS" className="h-12 w-12 flex-shrink-0" />
         <div className="text-left">
           <h1 className="text-lg font-bold text-[var(--text)] tracking-tight">IMS</h1>
           <p className="text-xs text-[var(--text-muted)]">Inventory</p>
