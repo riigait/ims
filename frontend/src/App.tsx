@@ -11,6 +11,7 @@ import Categories from '@/pages/Categories';
 import Locations from '@/pages/Locations';
 import StockMovements from '@/pages/StockMovements';
 import FloorPlans from '@/pages/FloorPlans';
+import ImportPCLSF from '@/pages/ImportPCLSF';
 import FloorPlanEditor from '@/pages/FloorPlanEditor';
 import Scanner from '@/pages/Scanner';
 import AdminUsers from '@/pages/AdminUsers';
@@ -131,6 +132,18 @@ function App() {
               <DepartmentGuard>
                 <Layout>
                   <FloorPlans />
+                </Layout>
+              </DepartmentGuard>
+            </PrivateRoute>
+          }
+        />
+        <Route
+          path="/import-pclsf"
+          element={
+            <PrivateRoute>
+              <DepartmentGuard>
+                <Layout>
+                  <ImportPCLSF />
                 </Layout>
               </DepartmentGuard>
             </PrivateRoute>

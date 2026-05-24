@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { LayoutDashboard, Package, Tag, MapPin, ArrowLeftRight, Map, Building2, Users, UserCheck, Sun, Moon, LogOut, ChevronDown } from 'lucide-react';
+import { LayoutDashboard, Package, Tag, MapPin, ArrowLeftRight, Map, Building2, Users, UserCheck, Sun, Moon, LogOut, ChevronDown, Upload } from 'lucide-react';
 import { useTheme } from '@/contexts/ThemeContext';
 import { ALL_DEPARTMENTS_ID } from '@/constants/app';
 import ConfirmDialog from '../ConfirmDialog';
@@ -44,6 +44,7 @@ export default function Sidebar() {
     { path: '/locations', icon: MapPin, label: 'Locations', roles: ['superadmin', 'admin', 'staff'], section: 'main' },
     { path: '/stock-movements', icon: ArrowLeftRight, label: 'Stock Movements', roles: ['superadmin', 'admin', 'staff'], section: 'main' },
     { path: '/floor-plans', icon: Map, label: 'Floor Plans', roles: ['superadmin', 'admin', 'staff'], section: 'main' },
+    { path: '/import-pclsf', icon: Upload, label: 'Import PCLSF', roles: ['superadmin', 'admin', 'staff'], section: 'main' },
     { path: '/admin/departments', icon: Building2, label: 'Departments', roles: ['superadmin', 'admin'], section: 'admin' },
     { path: '/admin/users', icon: Users, label: 'Users', roles: ['superadmin', 'admin'], section: 'admin' },
     { path: '/admin/assignment', icon: UserCheck, label: 'Role Assignments', roles: ['superadmin'], section: 'admin' },
