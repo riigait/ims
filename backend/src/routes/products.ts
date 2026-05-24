@@ -110,6 +110,8 @@ router.post('/', async (req: AuthRequest, res: Response) => {
   try {
     const { sku, name, description, categoryId, locationId, unit, currentStock, lowStockThreshold, supplier, unitPrice, status, expiryDate, leadTimeDays, notes } = req.body;
 
+    console.log(`[PRODUCT CREATE] Received request with currentStock: ${currentStock} (type: ${typeof currentStock}), userId: ${req.userId}`);
+
     if (!sku || !name || !categoryId) {
       return res.status(400).json({ error: 'sku, name, and categoryId are required' });
     }
@@ -156,63 +158,65 @@ router.post('/', async (req: AuthRequest, res: Response) => {
     });
 
     // Create opening stock movement if currentStock > 0
-    if (currentStock && currentStock > 0) {
+    const stockValue = parseInt(currentStock) || 0;
+    console.log(`[OPENING STOCK] Check: stockValue=${stockValue}, condition=${stockValue > 0}`);
+
+    if (stockValue > 0) {
       try {
         const { generateStockId, generateMovementNo } = await import('../utils/idGenerator.js');
 
-        console.log(`Creating opening stock for product ${product.id} with ${currentStock} units`);
+        console.log(`[OPENING STOCK] Creating opening stock for product ${product.id} with ${stockValue} units`);
 
-        // Generate all IDs before transaction to avoid isolation issues
+        // Generate all IDs
         const stockIds: string[] = [];
-        for (let i = 0; i < currentStock; i++) {
+        for (let i = 0; i < stockValue; i++) {
           stockIds.push(await generateStockId());
         }
         const movementNo = await generateMovementNo();
 
-        console.log(`Generated IDs - stocks: ${stockIds}, movement: ${movementNo}`);
+        console.log(`[OPENING STOCK] Generated IDs - stocks: ${stockIds.join(',')}, movement: ${movementNo}`);
 
-        await prisma.$transaction(async (tx) => {
-          // Create StockDetail entries for each unit of opening stock
-          const stockDetails = [];
-          for (let i = 0; i < stockIds.length; i++) {
-            const detail = await tx.stockDetail.create({
-              data: {
-                stockId: stockIds[i],
-                productId: product.id,
-                currentStatus: 'active',
-                currentLocationId: locationId || null,
-              },
-            });
-            console.log(`Created stock detail: ${detail.id} with stockId ${detail.stockId}`);
-            stockDetails.push(detail);
-          }
-
-          // Create opening stock movement
-          const movement = await tx.stockMovement.create({
+        // Create StockDetail entries
+        const stockDetails = [];
+        for (let i = 0; i < stockIds.length; i++) {
+          const detail = await prisma.stockDetail.create({
             data: {
-              movementNo,
-              movementType: 'adjustment',
-              status: 'pending',
-              remarks: 'Opening stock',
-              departmentId: req.departmentId || null,
-              userId: req.userId!,
-              items: {
-                create: stockDetails.map((detail) => ({
-                  stockDetailId: detail.id,
-                  productId: product.id,
-                  quantity: 1,
-                  fromLocationId: null,
-                  toLocationId: locationId || null,
-                  reason: 'Opening stock',
-                })),
-              },
+              stockId: stockIds[i],
+              productId: product.id,
+              currentStatus: 'active',
+              currentLocationId: locationId || null,
             },
           });
-          console.log(`Created opening stock movement: ${movement.id} with movementNo ${movement.movementNo}`);
+          console.log(`[OPENING STOCK] Created stock detail: ${detail.id} with stockId ${detail.stockId}`);
+          stockDetails.push(detail);
+        }
+
+        // Create opening stock movement
+        const movement = await prisma.stockMovement.create({
+          data: {
+            movementNo,
+            movementType: 'adjustment',
+            status: 'pending',
+            remarks: 'Opening stock',
+            departmentId: req.departmentId || null,
+            userId: req.userId!,
+            items: {
+              create: stockDetails.map((detail) => ({
+                stockDetailId: detail.id,
+                productId: product.id,
+                quantity: 1,
+                fromLocationId: null,
+                toLocationId: locationId || null,
+                reason: 'Opening stock',
+              })),
+            },
+          },
         });
+        console.log(`[OPENING STOCK] Created opening stock movement: ${movement.id} with movementNo ${movement.movementNo}`);
       } catch (error: any) {
-        console.error('Failed to create opening stock movement:', error);
-        console.error('Error details:', error.message, error.code);
+        console.error('[OPENING STOCK] FAILED:', error.message);
+        console.error('[OPENING STOCK] Error code:', error.code);
+        console.error('[OPENING STOCK] Full error:', error);
       }
     }
 
