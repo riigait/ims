@@ -160,12 +160,16 @@ router.post('/', async (req: AuthRequest, res: Response) => {
       try {
         const { generateStockId, generateMovementNo } = await import('../utils/idGenerator.js');
 
+        console.log(`Creating opening stock for product ${product.id} with ${currentStock} units`);
+
         // Generate all IDs before transaction to avoid isolation issues
         const stockIds: string[] = [];
         for (let i = 0; i < currentStock; i++) {
           stockIds.push(await generateStockId());
         }
         const movementNo = await generateMovementNo();
+
+        console.log(`Generated IDs - stocks: ${stockIds}, movement: ${movementNo}`);
 
         await prisma.$transaction(async (tx) => {
           // Create StockDetail entries for each unit of opening stock
@@ -179,15 +183,16 @@ router.post('/', async (req: AuthRequest, res: Response) => {
                 currentLocationId: locationId || null,
               },
             });
+            console.log(`Created stock detail: ${detail.id} with stockId ${detail.stockId}`);
             stockDetails.push(detail);
           }
 
           // Create opening stock movement
-          await tx.stockMovement.create({
+          const movement = await tx.stockMovement.create({
             data: {
               movementNo,
               movementType: 'adjustment',
-              status: 'completed',
+              status: 'pending',
               remarks: 'Opening stock',
               departmentId: req.departmentId || null,
               userId: req.userId!,
@@ -203,9 +208,11 @@ router.post('/', async (req: AuthRequest, res: Response) => {
               },
             },
           });
+          console.log(`Created opening stock movement: ${movement.id} with movementNo ${movement.movementNo}`);
         });
-      } catch (error) {
+      } catch (error: any) {
         console.error('Failed to create opening stock movement:', error);
+        console.error('Error details:', error.message, error.code);
       }
     }
 
