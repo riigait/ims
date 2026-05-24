@@ -105,10 +105,10 @@ export default function StockMovements() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    // Validate items
-    const validItems = formData.items.filter(item => item.stockDetailId && item.quantity > 0);
+    // Validate items - need either stockDetailId OR productId, plus valid quantity
+    const validItems = formData.items.filter(item => (item.stockDetailId || item.productId) && item.quantity > 0);
     if (validItems.length === 0) {
-      setError('Please select at least one stock detail and enter a valid quantity');
+      setError('Please select at least one product and enter a valid quantity');
       return;
     }
 
