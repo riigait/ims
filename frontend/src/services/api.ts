@@ -92,6 +92,15 @@ export const stockMovementsApi = {
   delete: (id: string) => api.delete(`/stock-movements/${id}`),
 };
 
+// Stock Details
+export const stockDetailsApi = {
+  getByProductId: (productId: string) => api.get(`/stock-details/product/${productId}`),
+  getById: (id: string) => api.get(`/stock-details/${id}`),
+  create: (data: any) => api.post('/stock-details', data),
+  update: (id: string, data: any) => api.put(`/stock-details/${id}`, data),
+  delete: (id: string) => api.delete(`/stock-details/${id}`),
+};
+
 // Floor Plans
 export const floorPlansApi = {
   getAll: () => api.get('/floor-plans'),

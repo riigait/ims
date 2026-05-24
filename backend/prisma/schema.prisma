@@ -72,6 +72,7 @@ model Product {
   createdAt           DateTime   @default(now())
   updatedAt           DateTime   @updatedAt
   movements           StockMovement[]
+  stockDetails        StockDetail[]
 }
 
 model Category {
@@ -101,6 +102,7 @@ model Location {
   updatedAt   DateTime   @updatedAt
   products    Product[]
   movements   StockMovement[]
+  stockDetails StockDetail[]
   floorPlans  FloorPlan[]
 }
 
@@ -120,7 +122,26 @@ model StockMovement {
   department    Department? @relation(fields: [departmentId], references: [id], onDelete: SetNull)
   userId        String
   user          User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  stockDetails  StockDetail[] // Individual items linked to this movement
   createdAt     DateTime   @default(now())
+}
+
+model StockDetail {
+  id            String     @id @default(cuid())
+  productId     String
+  product       Product    @relation(fields: [productId], references: [id], onDelete: Cascade)
+  modelNumber   String?    // e.g., Dell XPS 15-9500
+  serialNumber  String?    // e.g., SERIAL123456
+  macId         String?    // e.g., 00:1A:2B:3C:4D:5E
+  dateStock     DateTime?  // When this item was received
+  status        String     @default("active") // active, damaged, sold, lost, returned
+  locationId    String?
+  location      Location?  @relation(fields: [locationId], references: [id], onDelete: SetNull)
+  notes         String?    // Additional information about this specific unit
+  movementId    String?    // Link to the stock movement (optional, for tracking)
+  movement      StockMovement? @relation(fields: [movementId], references: [id], onDelete: SetNull)
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
 }
 
 model AuditLog {

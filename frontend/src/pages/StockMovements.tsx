@@ -7,8 +7,9 @@ import { filterStockMovements, sortStockMovements } from '@/utils/filterHelpers'
 import DataPageLayout from '@/components/layout/DataPageLayout';
 import Pagination from '@/components/Pagination';
 import ConfirmDialog from '@/components/ConfirmDialog';
+import StockDetails from '@/components/StockDetails';
 import { ALL_DEPARTMENTS_ID } from '@/constants/app';
-import { Edit, Trash2 } from 'lucide-react';
+import { Edit, Trash2, Package, X } from 'lucide-react';
 
 interface Department {
   id: string;
@@ -57,6 +58,8 @@ export default function StockMovements() {
   const [departments, setDepartments] = useState<Department[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
+  const [showStockDetails, setShowStockDetails] = useState(false);
+  const [selectedProductId, setSelectedProductId] = useState<string | null>(null);
   const [formData, setFormData] = useState(emptyForm);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [filters, setFilters] = useState<StockMovementFilter & { departmentId?: string }>({
@@ -328,6 +331,29 @@ export default function StockMovements() {
           onCancel={() => setDeleteConfirm(null)}
         />
       )}
+
+      {showStockDetails && selectedProductId && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
+          <div className="bg-[var(--surface)] rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] overflow-y-auto">
+            <div className="sticky top-0 bg-[var(--surface)] border-b border-[var(--border)] p-4 flex justify-between items-center">
+              <h2 className="text-xl font-bold text-[var(--text)]">Manage Stock Details</h2>
+              <button
+                onClick={() => { setShowStockDetails(false); setSelectedProductId(null); }}
+                className="text-[var(--text-muted)] hover:text-[var(--text)]"
+              >
+                <X size={24} />
+              </button>
+            </div>
+            <div className="p-6">
+              <StockDetails
+                productId={selectedProductId}
+                productName={getProductName(selectedProductId)}
+              />
+            </div>
+          </div>
+        </div>
+      )}
+
       <DataPageLayout
         title="Stock Movements"
         error={error}
@@ -376,6 +402,14 @@ export default function StockMovements() {
                 {user.role === 'admin' && (
                   <td className="px-4 py-2 text-center">
                     <div className="flex gap-2 justify-center">
+                      <button
+                        onClick={() => { setSelectedProductId(movement.productId); setShowStockDetails(true); }}
+                        className="p-1 text-green-600 hover:bg-green-50 rounded transition"
+                        title="View stock details"
+                        aria-label="View stock details"
+                      >
+                        <Package size={16} />
+                      </button>
                       <button
                         onClick={() => handleEdit(movement)}
                         className="p-1 text-blue-600 hover:bg-blue-50 rounded transition"
