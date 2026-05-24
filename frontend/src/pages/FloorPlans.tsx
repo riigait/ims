@@ -6,6 +6,7 @@ import { floorPlansApi, departmentsApi } from '@/services/api';
 import { FloorPlan } from '@/types/floorplan';
 import FloorPlanThumbnail from '@/components/floorplan/FloorPlanThumbnail';
 import ConfirmDialog from '@/components/ConfirmDialog';
+import { ALL_DEPARTMENTS_ID } from '@/constants/app';
 
 interface Department {
   id: string;
@@ -144,7 +145,7 @@ export default function FloorPlans() {
             </p>
           )}
         </div>
-        {(user.role === 'admin' || user.role === 'superadmin') && (
+        {(user.role === 'admin' || user.role === 'superadmin') && localStorage.getItem('currentDepartmentId') !== ALL_DEPARTMENTS_ID && (
           <button onClick={() => setShowForm(true)}
             className="flex items-center gap-2 bg-[var(--primary)] text-white px-4 py-2 rounded-lg hover:bg-[var(--primary-hover)]">
             <Plus size={20} /> New Floor Plan
