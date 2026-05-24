@@ -61,6 +61,9 @@ export interface StockMovement {
   reason?: string;
   locationId?: string;
   location?: Location;
+  modelNumber?: string;
+  serialNumber?: string;
+  macId?: string;
   userId: string;
   user?: User;
   departmentId?: string;

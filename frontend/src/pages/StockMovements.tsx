@@ -35,6 +35,9 @@ const emptyForm = {
   quantity: 0,
   reason: '',
   locationId: '',
+  modelNumber: '',
+  serialNumber: '',
+  macId: '',
 };
 
 export default function StockMovements() {
@@ -111,6 +114,9 @@ export default function StockMovements() {
       quantity: movement.quantity,
       reason: movement.reason || '',
       locationId: movement.locationId || '',
+      modelNumber: movement.modelNumber || '',
+      serialNumber: movement.serialNumber || '',
+      macId: movement.macId || '',
     });
     setEditingId(movement.id);
     setShowForm(true);
@@ -222,6 +228,29 @@ export default function StockMovements() {
             onChange={e => setFormData({ ...formData, reason: e.target.value })}
             className="w-full px-4 py-2 border border-[var(--border)] rounded-lg bg-[var(--surface)] text-[var(--text)]"
             placeholder="e.g., Purchase order, Customer return, Damaged on receiving…" />
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div>
+            <label htmlFor="movement-model-number" className="block text-sm font-medium text-[var(--text)] mb-1">Model Number</label>
+            <input id="movement-model-number" name="model-number" type="text" value={formData.modelNumber || ''}
+              onChange={e => setFormData({ ...formData, modelNumber: e.target.value })}
+              placeholder="e.g., Dell XPS 15-9500"
+              className="w-full px-4 py-2 border border-[var(--border)] rounded-lg bg-[var(--surface)] text-[var(--text)]" />
+          </div>
+          <div>
+            <label htmlFor="movement-serial-number" className="block text-sm font-medium text-[var(--text)] mb-1">Serial Number</label>
+            <input id="movement-serial-number" name="serial-number" type="text" value={formData.serialNumber || ''}
+              onChange={e => setFormData({ ...formData, serialNumber: e.target.value })}
+              placeholder="e.g., SERIAL123456"
+              className="w-full px-4 py-2 border border-[var(--border)] rounded-lg bg-[var(--surface)] text-[var(--text)]" />
+          </div>
+          <div>
+            <label htmlFor="movement-mac-id" className="block text-sm font-medium text-[var(--text)] mb-1">MAC ID</label>
+            <input id="movement-mac-id" name="mac-id" type="text" value={formData.macId || ''}
+              onChange={e => setFormData({ ...formData, macId: e.target.value })}
+              placeholder="e.g., 00:1A:2B:3C:4D:5E"
+              className="w-full px-4 py-2 border border-[var(--border)] rounded-lg bg-[var(--surface)] text-[var(--text)]" />
+          </div>
         </div>
         <div className="flex gap-2">
           <button type="submit" className="px-4 py-2 bg-[var(--primary)] text-white rounded-lg hover:bg-[var(--primary-hover)]">

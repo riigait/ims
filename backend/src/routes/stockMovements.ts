@@ -70,7 +70,7 @@ router.get('/:id', async (req: AuthRequest, res: Response) => {
 // Create stock movement
 router.post('/', async (req: AuthRequest, res: Response) => {
   try {
-    const { productId, movementType, quantity, reason, locationId } = req.body;
+    const { productId, movementType, quantity, reason, locationId, modelNumber, serialNumber, macId } = req.body;
     const userId = req.userId!;
     const userRole = req.userRole ?? 'staff';
 
@@ -122,6 +122,9 @@ router.post('/', async (req: AuthRequest, res: Response) => {
           quantity: qty,
           reason: reason ?? null,
           locationId: locationId || null,
+          modelNumber: modelNumber || null,
+          serialNumber: serialNumber || null,
+          macId: macId || null,
           departmentId: req.departmentId || product.departmentId,
           userId,
         },
@@ -157,7 +160,7 @@ router.post('/', async (req: AuthRequest, res: Response) => {
 // Update stock movement
 router.put('/:id', async (req: AuthRequest, res: Response) => {
   try {
-    const { productId, movementType, quantity, reason, locationId } = req.body;
+    const { productId, movementType, quantity, reason, locationId, modelNumber, serialNumber, macId } = req.body;
     const movementId = req.params.id;
 
     if (!productId || !movementType || quantity === undefined || quantity === null) {
@@ -219,6 +222,9 @@ router.put('/:id', async (req: AuthRequest, res: Response) => {
           quantity: qty,
           reason: reason ?? null,
           locationId: locationId || null,
+          modelNumber: modelNumber || null,
+          serialNumber: serialNumber || null,
+          macId: macId || null,
         },
         include: { product: true },
       });

@@ -113,6 +113,9 @@ model StockMovement {
   reason        String?
   locationId    String?
   location      Location?  @relation(fields: [locationId], references: [id], onDelete: SetNull)
+  modelNumber   String?    // Hardware model number for individual stock item
+  serialNumber  String?    // Unique serial number for individual stock item
+  macId         String?    // MAC address for network device (if applicable)
   departmentId  String?
   department    Department? @relation(fields: [departmentId], references: [id], onDelete: SetNull)
   userId        String
