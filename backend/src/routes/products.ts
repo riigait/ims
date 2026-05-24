@@ -391,4 +391,71 @@ router.post('/import/csv', async (req: AuthRequest, res: Response) => {
   }
 });
 
+// DEBUG: Create opening stock for a product (test endpoint)
+router.post('/:id/create-opening-stock', async (req: AuthRequest, res: Response) => {
+  try {
+    const { quantity } = req.body;
+    const productId = req.params.id;
+
+    console.log(`[DEBUG] Creating opening stock for product ${productId} with quantity ${quantity}`);
+
+    const product = await prisma.product.findUnique({ where: { id: productId } });
+    if (!product) {
+      return res.status(404).json({ error: 'Product not found' });
+    }
+
+    const { generateStockId, generateMovementNo } = await import('../utils/idGenerator.js');
+
+    const stockIds: string[] = [];
+    for (let i = 0; i < quantity; i++) {
+      stockIds.push(await generateStockId());
+    }
+    const movementNo = await generateMovementNo();
+
+    console.log(`[DEBUG] Generated movement: ${movementNo}, stocks: ${stockIds.join(',')}`);
+
+    const stockDetails = [];
+    for (const stockId of stockIds) {
+      const detail = await prisma.stockDetail.create({
+        data: {
+          stockId,
+          productId,
+          currentStatus: 'active',
+          currentLocationId: product.locationId || null,
+        },
+      });
+      stockDetails.push(detail);
+      console.log(`[DEBUG] Created stock detail: ${detail.stockId}`);
+    }
+
+    const movement = await prisma.stockMovement.create({
+      data: {
+        movementNo,
+        movementType: 'adjustment',
+        status: 'pending',
+        remarks: 'Opening stock',
+        departmentId: product.departmentId || null,
+        userId: req.userId!,
+        items: {
+          create: stockDetails.map((detail) => ({
+            stockDetailId: detail.id,
+            productId,
+            quantity: 1,
+            fromLocationId: null,
+            toLocationId: product.locationId || null,
+            reason: 'Opening stock',
+          })),
+        },
+      },
+      include: { items: true },
+    });
+
+    console.log(`[DEBUG] Created movement ${movement.movementNo} with ${movement.items.length} items`);
+    res.json({ success: true, movement });
+  } catch (error: any) {
+    console.error('[DEBUG] Error:', error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 export default router;
