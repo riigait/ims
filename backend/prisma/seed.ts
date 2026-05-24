@@ -6,6 +6,11 @@ const prisma = new PrismaClient();
 async function main() {
   const departments = [
     { name: 'Main Warehouse', description: 'Main warehouse and inventory management' },
+    { name: 'Boss House', description: 'Boss House location' },
+    { name: 'Office Accounting', description: 'Office Accounting location' },
+    { name: 'SCADA Dorm', description: 'SCADA Dorm location' },
+    { name: 'SCADA Office', description: 'SCADA Office location' },
+    { name: 'Tenant House', description: 'Tenant House location' },
   ];
 
   for (const dept of departments) {
