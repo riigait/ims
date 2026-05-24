@@ -1,10 +1,12 @@
 import { useState, useEffect } from 'react';
 import { Edit, Trash2 } from 'lucide-react';
 import { categoriesApi, departmentsApi } from '@/services/api';
+import CSVControls from '@/components/CSVControls';
 import { Category } from '@/types/inventory';
 import { CategoryFilter } from '@/types/filters';
 import { filterCategories } from '@/utils/filterHelpers';
 import { formatDate } from '@/utils/ids';
+import { downloadCsv } from '@/utils/csv';
 import DataPageLayout from '@/components/layout/DataPageLayout';
 import Pagination from '@/components/Pagination';
 import ConfirmDialog from '@/components/ConfirmDialog';
@@ -139,6 +141,35 @@ export default function Categories() {
     setCurrentPage(1);
   };
 
+  const handleExportCSV = async () => {
+    try {
+      downloadCsv(categories, 'categories.csv');
+    } catch (error) {
+      console.error('Export failed:', error);
+      setError('Failed to export categories');
+    }
+  };
+
+  const handleImportCSV = async (csvContent: string) => {
+    try {
+      const response = await fetch('/api/categories/import/csv', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ csv: csvContent }),
+      });
+      const result = await response.json();
+      if (response.ok) {
+        setError(`✓ ${result.message}`);
+        await fetchData();
+      } else {
+        setError(result.error || 'Import failed');
+      }
+    } catch (error) {
+      console.error('Import failed:', error);
+      setError('Failed to import categories');
+    }
+  };
+
   if (loading) return <div className="text-center py-12">Loading...</div>;
 
   const formContent = (
@@ -212,6 +243,12 @@ export default function Categories() {
           className="text-xs px-3 py-1 bg-[var(--surface-2)] text-[var(--text-muted)] rounded hover:bg-[var(--border)] font-medium">
           Clear
         </button>
+        <CSVControls
+          onExport={handleExportCSV}
+          onImport={handleImportCSV}
+          exportLabel="Export"
+          importLabel="Import"
+        />
       </div>
       <div className="flex gap-2 flex-wrap">
         {user.role === 'superadmin' && (
