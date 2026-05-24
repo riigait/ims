@@ -221,7 +221,12 @@ router.post('/', async (req: AuthRequest, res: Response) => {
     }
 
     await logAudit({ userId: req.userId, action: 'CREATE', entityType: 'product', entityId: product.id, changes: { name, sku, currentStock } });
-    res.status(201).json(product);
+
+    // Return product with flag indicating opening stock needs to be created
+    res.status(201).json({
+      ...product,
+      _needsOpeningStock: stockValue > 0
+    });
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: 'Internal server error' });

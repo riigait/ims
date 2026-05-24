@@ -84,11 +84,37 @@ export default function Products() {
     if (!validateStock(formData.currentStock)) { setError('Invalid stock quantity'); return; }
     try {
       const payload = { ...formData, locationId: formData.locationId || null };
+      let response: any;
       if (editingId) {
         await productsApi.update(editingId, payload);
       } else {
-        await productsApi.create(payload);
+        response = await productsApi.create(payload);
       }
+
+      // If product was created with opening stock, create the opening stock movement
+      if (!editingId && response?._needsOpeningStock && formData.currentStock > 0) {
+        try {
+          // Fetch stock movements API
+          const stockMovementsApi = (await import('@/services/api')).stockMovementsApi;
+          await stockMovementsApi.create({
+            movementType: 'adjustment',
+            remarks: 'Opening stock',
+            items: Array(formData.currentStock).fill(null).map(() => ({
+              productId: response.id,
+              stockDetailId: '',
+              quantity: 1,
+              fromLocationId: null,
+              toLocationId: formData.locationId || null,
+              reason: 'Opening stock',
+            })),
+          });
+          console.log('Opening stock movement created automatically');
+        } catch (movementError) {
+          console.warn('Failed to create opening stock movement:', movementError);
+          // Don't fail the product creation if movement creation fails
+        }
+      }
+
       await fetchData();
       setShowForm(false);
       setEditingId(null);
