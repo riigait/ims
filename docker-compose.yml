@@ -1,0 +1,29 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: ims_postgres
+    environment:
+      POSTGRES_DB: ims_db
+      POSTGRES_USER: ims_user
+      POSTGRES_PASSWORD: ims_password_secure
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ims_user -d ims_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - ims-network
+
+networks:
+  ims-network:
+    driver: bridge
+
+volumes:
+  postgres_data:
+    driver: local

@@ -6,11 +6,11 @@ generator client {
 }
 
 datasource db {
-  provider = "sqlite"
+  provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
-// Unit values (SQLite doesn't support enums): pcs, dozen, box, pack, g, kg, mg, oz, lb, ton, ml, liter, gallon, cup, mm, cm, m, km, inch, ft, yard, cm2, m2, roll, sheet, can, bottle, bag, carton
+// Unit values: pcs, dozen, box, pack, g, kg, mg, oz, lb, ton, ml, liter, gallon, cup, mm, cm, m, km, inch, ft, yard, cm2, m2, roll, sheet, can, bottle, bag, carton
 
 model Department {
   id          String     @id @default(cuid())
