@@ -96,6 +96,7 @@ router.post('/', async (req: AuthRequest, res: Response) => {
 
         // If no stockDetailId provided, create a StockDetail for this product
         if (!stockDetailId && item.productId) {
+          console.log(`[STOCK MOVEMENT] Creating StockDetail for product ${item.productId}`);
           const stockId = await generateStockId();
           const product = await tx.product.findUnique({ where: { id: item.productId } });
 
@@ -108,8 +109,14 @@ router.post('/', async (req: AuthRequest, res: Response) => {
             },
           });
           stockDetailId = stockDetail.id;
-          console.log(`[STOCK MOVEMENT] Auto-created stock detail: ${stockId}`);
+          console.log(`[STOCK MOVEMENT] Auto-created stock detail: ${stockId} with ID ${stockDetailId}`);
         }
+
+        if (!stockDetailId) {
+          throw new Error(`No stockDetailId available for product ${item.productId}`);
+        }
+
+        console.log(`[STOCK MOVEMENT] Processing item: productId=${item.productId}, stockDetailId=${stockDetailId}, quantity=${item.quantity}`);
 
         processedItems.push({
           stockDetailId,
