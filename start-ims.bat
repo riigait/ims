@@ -25,7 +25,7 @@ echo.
 
 REM Check if PostgreSQL container is running
 echo [2/3] Checking PostgreSQL container...
-docker ps --filter "name=ims-postgres" --format "{{.Names}}" 2>nul | findstr "ims-postgres" >nul
+docker ps -a 2>nul | find "ims-postgres" >nul
 if errorlevel 1 (
     echo PostgreSQL container not found. Starting docker-compose...
     docker-compose up -d
