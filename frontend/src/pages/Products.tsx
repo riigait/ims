@@ -4,13 +4,11 @@ import { Edit, Trash2 } from 'lucide-react';
 import { productsApi, categoriesApi, locationsApi, deleteRequestsApi, departmentsApi } from '@/services/api';
 import ConfirmDialog from '@/components/ConfirmDialog';
 import Pagination from '@/components/Pagination';
-import CSVControls from '@/components/CSVControls';
 import { Product, Category, Location } from '@/types/inventory';
 import { ProductFilter, ProductSort } from '@/types/filters';
 import { validateProductName, validateSKU, validateStock } from '@/utils/validation';
 import { generateSKU, formatDate } from '@/utils/ids';
 import { filterAndSortProducts, clearProductFilters } from '@/utils/filterHelpers';
-import { downloadCsv } from '@/utils/csv';
 import DataPageLayout from '@/components/layout/DataPageLayout';
 import { ALL_DEPARTMENTS_ID } from '@/constants/app';
 
