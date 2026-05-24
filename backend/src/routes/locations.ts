@@ -1,6 +1,7 @@
 import express, { Router, Request, Response } from 'express';
 import { PrismaClient } from '@prisma/client';
 import { AuthRequest } from '../middleware/auth';
+import { csvToJson, jsonToCsv } from '../utils/csv';
 
 const router = Router();
 const prisma = new PrismaClient();
@@ -122,6 +123,70 @@ router.delete('/:id', async (req: AuthRequest, res: Response) => {
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Export locations as CSV
+router.get('/export/csv', async (req: AuthRequest, res: Response) => {
+  try {
+    const locations = await prisma.location.findMany({
+      select: {
+        id: true,
+        name: true,
+        type: true,
+        parentId: true,
+        notes: true,
+        departmentId: true,
+      },
+    });
+
+    const csv = jsonToCsv(locations);
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Disposition', 'attachment; filename="locations.csv"');
+    res.send(csv);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Failed to export locations' });
+  }
+});
+
+// Import locations from CSV
+router.post('/import/csv', async (req: AuthRequest, res: Response) => {
+  try {
+    if (!req.body.csv) {
+      return res.status(400).json({ error: 'CSV data required' });
+    }
+
+    const rows = csvToJson<any>(req.body.csv);
+    const created = [];
+    const errors = [];
+
+    for (let i = 0; i < rows.length; i++) {
+      try {
+        const row = rows[i];
+        const location = await prisma.location.create({
+          data: {
+            name: row.name,
+            type: row.type || 'room',
+            parentId: row.parentId || null,
+            notes: row.notes || null,
+            departmentId: req.departmentId,
+          },
+        });
+        created.push(location);
+      } catch (err: any) {
+        errors.push({ row: i + 1, error: err.message });
+      }
+    }
+
+    res.json({
+      created: created.length,
+      errors: errors,
+      message: `Imported ${created.length} locations${errors.length > 0 ? ` with ${errors.length} errors` : ''}`,
+    });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Failed to import locations' });
   }
 });
 

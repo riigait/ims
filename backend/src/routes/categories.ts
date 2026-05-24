@@ -1,6 +1,7 @@
 import express, { Router, Request, Response } from 'express';
 import { PrismaClient } from '@prisma/client';
 import { AuthRequest } from '../middleware/auth';
+import { csvToJson, jsonToCsv } from '../utils/csv';
 
 const router = Router();
 const prisma = new PrismaClient();
@@ -114,6 +115,66 @@ router.delete('/:id', async (req: AuthRequest, res: Response) => {
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Export categories as CSV
+router.get('/export/csv', async (req: AuthRequest, res: Response) => {
+  try {
+    const categories = await prisma.category.findMany({
+      select: {
+        id: true,
+        name: true,
+        description: true,
+        departmentId: true,
+      },
+    });
+
+    const csv = jsonToCsv(categories);
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Disposition', 'attachment; filename="categories.csv"');
+    res.send(csv);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Failed to export categories' });
+  }
+});
+
+// Import categories from CSV
+router.post('/import/csv', async (req: AuthRequest, res: Response) => {
+  try {
+    if (!req.body.csv) {
+      return res.status(400).json({ error: 'CSV data required' });
+    }
+
+    const rows = csvToJson<any>(req.body.csv);
+    const created = [];
+    const errors = [];
+
+    for (let i = 0; i < rows.length; i++) {
+      try {
+        const row = rows[i];
+        const category = await prisma.category.create({
+          data: {
+            name: row.name,
+            description: row.description || null,
+            departmentId: req.departmentId,
+          },
+        });
+        created.push(category);
+      } catch (err: any) {
+        errors.push({ row: i + 1, error: err.message });
+      }
+    }
+
+    res.json({
+      created: created.length,
+      errors: errors,
+      message: `Imported ${created.length} categories${errors.length > 0 ? ` with ${errors.length} errors` : ''}`,
+    });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Failed to import categories' });
   }
 });
 

@@ -2,6 +2,7 @@ import { Router, Response } from 'express';
 import { PrismaClient } from '@prisma/client';
 import { AuthRequest } from '../middleware/auth';
 import { logAudit } from '../utils/audit';
+import { csvToJson, jsonToCsv } from '../utils/csv';
 
 const router = Router();
 const prisma = new PrismaClient();
@@ -291,6 +292,84 @@ router.delete('/:id', async (req: AuthRequest, res: Response) => {
     }
     console.error(error);
     res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Export stock movements as CSV
+router.get('/export/csv', async (req: AuthRequest, res: Response) => {
+  try {
+    const movements = await prisma.stockMovement.findMany({
+      select: {
+        id: true,
+        productId: true,
+        movementType: true,
+        quantity: true,
+        reason: true,
+        locationId: true,
+        departmentId: true,
+        userId: true,
+        createdAt: true,
+      },
+    });
+
+    const csv = jsonToCsv(movements);
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Disposition', 'attachment; filename="stock-movements.csv"');
+    res.send(csv);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Failed to export stock movements' });
+  }
+});
+
+// Import stock movements from CSV (uses stock_in type by default)
+router.post('/import/csv', async (req: AuthRequest, res: Response) => {
+  try {
+    if (!req.body.csv) {
+      return res.status(400).json({ error: 'CSV data required' });
+    }
+
+    const rows = csvToJson<any>(req.body.csv);
+    const created = [];
+    const errors = [];
+
+    for (let i = 0; i < rows.length; i++) {
+      try {
+        const row = rows[i];
+        const movement = await prisma.stockMovement.create({
+          data: {
+            productId: row.productId,
+            movementType: row.movementType || 'stock_in',
+            quantity: parseInt(row.quantity) || 0,
+            reason: row.reason || null,
+            locationId: row.locationId || null,
+            departmentId: req.departmentId,
+            userId: req.userId!,
+          },
+        });
+        created.push(movement);
+
+        // Log audit
+        await logAudit({
+          userId: req.userId,
+          action: 'STOCK_IN',
+          entityType: 'stock_movement',
+          entityId: movement.id,
+          changes: { movementType: movement.movementType, quantity: movement.quantity },
+        });
+      } catch (err: any) {
+        errors.push({ row: i + 1, error: err.message });
+      }
+    }
+
+    res.json({
+      created: created.length,
+      errors: errors,
+      message: `Imported ${created.length} stock movements${errors.length > 0 ? ` with ${errors.length} errors` : ''}`,
+    });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Failed to import stock movements' });
   }
 });
 

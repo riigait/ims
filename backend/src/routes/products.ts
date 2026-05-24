@@ -2,6 +2,7 @@ import { Router, Response } from 'express';
 import { PrismaClient } from '@prisma/client';
 import { AuthRequest } from '../middleware/auth';
 import { logAudit } from '../utils/audit';
+import { csvToJson, jsonToCsv } from '../utils/csv';
 
 const router = Router();
 const prisma = new PrismaClient();
@@ -248,6 +249,89 @@ router.delete('/:id', async (req: AuthRequest, res: Response) => {
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Export products as CSV
+router.get('/export/csv', async (req: AuthRequest, res: Response) => {
+  try {
+    const products = await prisma.product.findMany({
+      select: {
+        id: true,
+        sku: true,
+        name: true,
+        description: true,
+        categoryId: true,
+        unit: true,
+        currentStock: true,
+        lowStockThreshold: true,
+        locationId: true,
+        supplier: true,
+        unitPrice: true,
+        status: true,
+        expiryDate: true,
+        leadTimeDays: true,
+        notes: true,
+      },
+    });
+
+    const csv = jsonToCsv(products);
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Disposition', 'attachment; filename="products.csv"');
+    res.send(csv);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Failed to export products' });
+  }
+});
+
+// Import products from CSV
+router.post('/import/csv', async (req: AuthRequest, res: Response) => {
+  try {
+    if (!req.body.csv) {
+      return res.status(400).json({ error: 'CSV data required' });
+    }
+
+    const rows = csvToJson<any>(req.body.csv);
+    const created = [];
+    const errors = [];
+
+    for (let i = 0; i < rows.length; i++) {
+      try {
+        const row = rows[i];
+        const product = await prisma.product.create({
+          data: {
+            sku: row.sku,
+            name: row.name,
+            description: row.description || null,
+            categoryId: row.categoryId,
+            locationId: row.locationId || null,
+            departmentId: req.departmentId,
+            unit: row.unit || 'pcs',
+            currentStock: parseInt(row.currentStock) || 0,
+            lowStockThreshold: parseInt(row.lowStockThreshold) || 10,
+            supplier: row.supplier || null,
+            unitPrice: row.unitPrice ? parseFloat(row.unitPrice) : null,
+            status: row.status || 'active',
+            expiryDate: row.expiryDate ? new Date(row.expiryDate) : null,
+            leadTimeDays: row.leadTimeDays ? parseInt(row.leadTimeDays) : null,
+            notes: row.notes || null,
+          },
+        });
+        created.push(product);
+      } catch (err: any) {
+        errors.push({ row: i + 1, error: err.message });
+      }
+    }
+
+    res.json({
+      created: created.length,
+      errors: errors,
+      message: `Imported ${created.length} products${errors.length > 0 ? ` with ${errors.length} errors` : ''}`,
+    });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Failed to import products' });
   }
 });
 
