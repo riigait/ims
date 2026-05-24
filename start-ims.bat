@@ -23,28 +23,16 @@ if errorlevel 1 (
 
 echo.
 
-REM Check if PostgreSQL container is running
-echo [2/3] Checking PostgreSQL container...
-docker ps -a 2>nul | find "ims-postgres" >nul
-if errorlevel 1 (
-    echo PostgreSQL container not found. Starting docker-compose...
-    docker-compose up -d
-    if errorlevel 1 (
-        echo ERROR: Failed to start docker-compose. Make sure docker-compose.yml exists.
-        pause
-        exit /b 1
-    )
-    echo Waiting for database to be ready (10 seconds)...
-    timeout /t 10 /nobreak
-) else (
-    echo [OK] PostgreSQL is running
-)
+REM Start PostgreSQL container
+echo [2/3] Starting PostgreSQL container...
+docker-compose up -d
+echo Waiting for database to be ready (10 seconds)...
+timeout /t 10 /nobreak
 
 echo.
 
 REM Start Backend in a new window
 echo [3/3] Starting Backend Server...
-echo Starting in: backend
 start "IMS Backend" cmd /k "cd /d %CD%\backend && npm run dev"
 timeout /t 5 /nobreak
 
