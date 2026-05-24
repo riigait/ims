@@ -114,6 +114,10 @@ export default function Products() {
       window.location.reload();
       return;
     }
+    const expiryDateValue = product.expiryDate
+      ? new Date(product.expiryDate).toISOString().split('T')[0]
+      : '';
+
     setFormData({
       sku: product.sku,
       name: product.name,
@@ -124,10 +128,10 @@ export default function Products() {
       currentStock: product.currentStock,
       lowStockThreshold: product.lowStockThreshold,
       supplier: product.supplier || '',
-      unitPrice: product.unitPrice || 0,
+      unitPrice: product.unitPrice ? parseFloat(product.unitPrice.toString()) : 0,
       status: product.status || 'active',
-      expiryDate: product.expiryDate ? product.expiryDate.split('T')[0] : '',
-      leadTimeDays: product.leadTimeDays || 0,
+      expiryDate: expiryDateValue,
+      leadTimeDays: product.leadTimeDays ? parseInt(product.leadTimeDays.toString()) : 0,
       notes: product.notes || '',
     });
     setEditingId(product.id);
@@ -340,7 +344,7 @@ export default function Products() {
             </div>
             <div>
               <label htmlFor="unit-price" className="block text-sm font-medium text-[var(--text)] mb-1">Unit Price ($)</label>
-              <input id="unit-price" name="unit-price" type="number" value={formData.unitPrice || ''} step="0.01" min="0"
+              <input id="unit-price" name="unit-price" type="number" value={formData.unitPrice === 0 ? '' : formData.unitPrice} step="0.01" min="0"
                 onChange={e => setFormData({ ...formData, unitPrice: e.target.value ? parseFloat(e.target.value) : 0 })}
                 placeholder="0.00"
                 className="w-full px-4 py-2 border border-[var(--border)] rounded-lg bg-[var(--surface)] text-[var(--text)]" />

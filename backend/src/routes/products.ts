@@ -118,10 +118,10 @@ router.post('/', async (req: AuthRequest, res: Response) => {
         currentStock: currentStock || 0,
         lowStockThreshold: lowStockThreshold || 10,
         supplier: supplier || null,
-        unitPrice: unitPrice ? parseFloat(unitPrice) : null,
+        unitPrice: unitPrice !== null && unitPrice !== undefined && unitPrice !== '' ? parseFloat(unitPrice) : null,
         status: status || 'active',
-        expiryDate: expiryDate ? new Date(expiryDate) : null,
-        leadTimeDays: leadTimeDays ? parseInt(leadTimeDays) : null,
+        expiryDate: expiryDate && expiryDate !== '' ? new Date(expiryDate) : null,
+        leadTimeDays: leadTimeDays !== null && leadTimeDays !== undefined && leadTimeDays !== '' ? parseInt(leadTimeDays) : null,
         notes: notes || null,
       },
       include: { category: true, location: true, department: true },
@@ -141,7 +141,7 @@ router.put('/:id', async (req: AuthRequest, res: Response) => {
     // Check department access for staff
     const existing = await prisma.product.findUnique({ where: { id: req.params.id } });
     if (!existing) return res.status(404).json({ error: 'Product not found' });
-    if (req.userRole !== 'admin' && existing.departmentId !== req.departmentId) {
+    if (req.userRole === 'staff' && existing.departmentId !== req.departmentId) {
       return res.status(403).json({ error: 'Access denied' });
     }
 
@@ -182,10 +182,10 @@ router.put('/:id', async (req: AuthRequest, res: Response) => {
         unit,
         lowStockThreshold,
         supplier: supplier || null,
-        unitPrice: unitPrice ? parseFloat(unitPrice) : null,
+        unitPrice: unitPrice !== null && unitPrice !== undefined && unitPrice !== '' ? parseFloat(unitPrice) : null,
         status: status || 'active',
-        expiryDate: expiryDate ? new Date(expiryDate) : null,
-        leadTimeDays: leadTimeDays ? parseInt(leadTimeDays) : null,
+        expiryDate: expiryDate && expiryDate !== '' ? new Date(expiryDate) : null,
+        leadTimeDays: leadTimeDays !== null && leadTimeDays !== undefined && leadTimeDays !== '' ? parseInt(leadTimeDays) : null,
         notes: notes || null,
       },
       include: { category: true, location: true, department: true },
