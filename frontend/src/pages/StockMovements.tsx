@@ -11,14 +11,6 @@ import StockDetails from '@/components/StockDetails';
 import { ALL_DEPARTMENTS_ID } from '@/constants/app';
 import { Trash2, X } from 'lucide-react';
 
-interface StockDetailRecord {
-  id: string;
-  stockId: string;
-  productId: string;
-  currentStatus: string;
-  currentLocationId: string | null;
-}
-
 interface Department {
   id: string;
   name: string;
@@ -68,7 +60,6 @@ export default function StockMovements() {
   const [products, setProducts] = useState<Product[]>([]);
   const [locations, setLocations] = useState<Location[]>([]);
   const [departments, setDepartments] = useState<Department[]>([]);
-  const [stockDetails, setStockDetails] = useState<StockDetailRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [showStockDetails, setShowStockDetails] = useState(false);
@@ -96,17 +87,6 @@ export default function StockMovements() {
       setProducts(productsRes.data);
       setLocations(locationsRes.data);
       setDepartments(deptRes.data);
-
-      // Extract stock details from movements' items
-      const allStockDetails = new Map<string, StockDetailRecord>();
-      movementsRes.data.forEach((movement: any) => {
-        (movement.items || []).forEach((item: any) => {
-          if (item.stockDetail) {
-            allStockDetails.set(item.stockDetail.id, item.stockDetail);
-          }
-        });
-      });
-      setStockDetails(Array.from(allStockDetails.values()));
     } catch (error) {
       console.error('Failed to fetch data:', error);
     } finally {
@@ -235,28 +215,24 @@ export default function StockMovements() {
             {formData.items.map((item, idx) => (
               <div key={idx} className="grid grid-cols-1 md:grid-cols-4 gap-3 p-3 bg-[var(--surface-2)] rounded-lg">
                 <div>
-                  <label className="block text-xs font-medium text-[var(--text)] mb-1">Stock Detail *</label>
-                  <select value={item.stockDetailId}
+                  <label className="block text-xs font-medium text-[var(--text)] mb-1">Product *</label>
+                  <select value={item.productId}
                     onChange={e => {
-                      const detail = stockDetails.find(d => d.id === e.target.value);
                       const newItems = [...formData.items];
                       newItems[idx] = {
                         ...item,
-                        stockDetailId: e.target.value,
-                        productId: detail?.productId || '',
+                        productId: e.target.value,
+                        stockDetailId: e.target.value, // Use productId as stockDetailId temporarily
                       };
                       setFormData({ ...formData, items: newItems });
                     }}
                     className="w-full px-2 py-1 text-sm border border-[var(--border)] rounded bg-[var(--surface)] text-[var(--text)]">
-                    <option value="">Select stock detail</option>
-                    {stockDetails.map(d => {
-                      const product = products.find(p => p.id === d.productId);
-                      return (
-                        <option key={d.id} value={d.id}>
-                          {product?.name} ({d.stockId})
-                        </option>
-                      );
-                    })}
+                    <option value="">Select product</option>
+                    {products.map(p => (
+                      <option key={p.id} value={p.id}>
+                        {p.name} (Stock: {p.currentStock})
+                      </option>
+                    ))}
                   </select>
                 </div>
                 <div>

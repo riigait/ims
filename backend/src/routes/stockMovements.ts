@@ -84,11 +84,43 @@ router.post('/', async (req: AuthRequest, res: Response) => {
     }
 
     // Generate movement number
-    const { generateMovementNo } = await import('../utils/idGenerator.js');
+    const { generateMovementNo, generateStockId } = await import('../utils/idGenerator.js');
     const movementNo = await generateMovementNo();
 
     // Create movement header and items
     const result = await prisma.$transaction(async (tx) => {
+      // For each item, ensure stockDetailId exists (create if needed)
+      const processedItems = [];
+      for (const item of items) {
+        let stockDetailId = item.stockDetailId;
+
+        // If no stockDetailId provided, create a StockDetail for this product
+        if (!stockDetailId && item.productId) {
+          const stockId = await generateStockId();
+          const product = await tx.product.findUnique({ where: { id: item.productId } });
+
+          const stockDetail = await tx.stockDetail.create({
+            data: {
+              stockId,
+              productId: item.productId,
+              currentStatus: 'active',
+              currentLocationId: item.toLocationId || product?.locationId || null,
+            },
+          });
+          stockDetailId = stockDetail.id;
+          console.log(`[STOCK MOVEMENT] Auto-created stock detail: ${stockId}`);
+        }
+
+        processedItems.push({
+          stockDetailId,
+          productId: item.productId,
+          quantity: item.quantity || 0,
+          fromLocationId: item.fromLocationId || null,
+          toLocationId: item.toLocationId || null,
+          reason: item.reason || null,
+        });
+      }
+
       const movement = await tx.stockMovement.create({
         data: {
           movementNo,
@@ -98,14 +130,7 @@ router.post('/', async (req: AuthRequest, res: Response) => {
           departmentId: req.departmentId || null,
           userId,
           items: {
-            create: items.map((item: any) => ({
-              stockDetailId: item.stockDetailId,
-              productId: item.productId,
-              quantity: item.quantity || 0,
-              fromLocationId: item.fromLocationId || null,
-              toLocationId: item.toLocationId || null,
-              reason: item.reason || null,
-            })),
+            create: processedItems,
           },
         },
         include: { items: { include: { product: true, stockDetail: true } }, user: true, department: true },
