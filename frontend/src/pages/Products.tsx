@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Edit, Trash2 } from 'lucide-react';
+import { Edit, Trash2, Plus, ChevronDown, ChevronRight } from 'lucide-react';
 import { productsApi, categoriesApi, locationsApi, deleteRequestsApi, departmentsApi } from '@/services/api';
 import ConfirmDialog from '@/components/ConfirmDialog';
 import Pagination from '@/components/Pagination';
@@ -198,6 +198,8 @@ export default function Products() {
     setCurrentPage(1);
   };
 
+  const lowStockCount = products.filter(p => p.currentStock > 0 && p.currentStock <= p.lowStockThreshold).length;
+  const outOfStockCount = products.filter(p => p.currentStock === 0).length;
 
   const filteredProducts = filterAndSortProducts(products, filters, sort);
   const paginatedProducts = filteredProducts.slice((currentPage - 1) * pageSize, currentPage * pageSize);
@@ -475,12 +477,30 @@ export default function Products() {
           onCancel={() => setDeleteConfirm(null)}
         />
       )}
+
+      {/* Title Section with Stats */}
+      <div className="flex justify-between items-center mb-6">
+        <div>
+          <h1 className="text-3xl font-bold text-[var(--text)]">Products</h1>
+          <p className="text-sm text-[var(--text-muted)] mt-2">
+            {products.length} products • <span className="text-yellow-600">{lowStockCount} low stock</span> • <span className="text-red-600">{outOfStockCount} out of stock</span>
+          </p>
+        </div>
+        {user.role !== 'superadmin' && localStorage.getItem('currentDepartmentId') !== ALL_DEPARTMENTS_ID && (
+          <button
+            onClick={() => setShowForm(true)}
+            className="flex items-center gap-2 bg-[var(--primary)] text-white px-4 py-2 rounded-lg hover:bg-[var(--primary-hover)] transition-colors"
+          >
+            <Plus size={20} /> Add Product
+          </button>
+        )}
+      </div>
+
       <DataPageLayout
-        title="Products"
         error={error}
         showForm={showForm}
         onAddClick={() => setShowForm(true)}
-        showAddButton={user.role !== 'superadmin' && localStorage.getItem('currentDepartmentId') !== ALL_DEPARTMENTS_ID}
+        showAddButton={false}
         formContent={formContent}
         filterContent={filterContent}>
       <div className="space-y-0">
@@ -490,24 +510,27 @@ export default function Products() {
           </div>
         ) : (
           <div className="space-y-0 border border-[var(--border)] rounded-lg overflow-hidden">
-            {paginatedProducts.map((product) => {
+            {paginatedProducts.map((product, index) => {
               const category = product.category ?? categoriesMap.get(product.categoryId);
               const isLowStock = product.currentStock > 0 && product.currentStock <= product.lowStockThreshold;
               const isOutOfStock = product.currentStock === 0;
               const isExpanded = expandedRows.has(product.id);
               const totalValue = (product.unitPrice || 0) * product.currentStock;
               const lastMovementDate = getLastMovementDate(product.id);
+              const isFirstRow = index === 0;
 
               return (
                 <div key={product.id}>
                   {/* Main Row */}
                   <div
                     onClick={() => toggleRowExpansion(product.id)}
-                    className="flex items-center gap-4 px-4 py-3 bg-[var(--surface)] border-b border-[var(--border)] hover:bg-[var(--surface-2)] cursor-pointer transition-colors">
+                    className={`flex items-center gap-4 px-4 py-3 bg-[var(--surface)] border-b border-[var(--border)] hover:bg-[var(--surface-2)] cursor-pointer transition-colors ${
+                      isFirstRow ? 'border-t-2 border-[var(--primary)]' : ''
+                    }`}>
                     <button
                       onClick={(e) => { e.stopPropagation(); toggleRowExpansion(product.id); }}
-                      className="text-[var(--text-muted)] hover:text-[var(--text)] flex-shrink-0">
-                      {isExpanded ? '▼' : '▶'}
+                      className="text-[var(--text-muted)] hover:text-[var(--primary)] flex-shrink-0 transition-colors">
+                      {isExpanded ? <ChevronDown size={20} /> : <ChevronRight size={20} />}
                     </button>
                     <div className="flex-1 grid grid-cols-1 md:grid-cols-7 gap-4 text-sm min-w-0">
                       <div className="truncate">
@@ -527,10 +550,10 @@ export default function Products() {
                       </div>
                       <div>
                         <span className={`px-2 py-1 rounded text-xs font-semibold ${
-                          product.status === 'active' ? 'bg-green-100 text-green-800' :
-                          product.status === 'discontinued' ? 'bg-orange-100 text-orange-800' :
-                          product.status === 'obsolete' ? 'bg-red-100 text-red-800' :
-                          'bg-yellow-100 text-yellow-800'
+                          product.status === 'active' ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-100' :
+                          product.status === 'discontinued' ? 'bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-100' :
+                          product.status === 'obsolete' ? 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-100' :
+                          'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-100'
                         }`}>
                           {product.status || 'active'}
                         </span>
@@ -538,10 +561,10 @@ export default function Products() {
                       <div className="text-right">
                         <button
                           onClick={() => navigate('/stock-movements')}
-                          className={`px-2 py-1 rounded text-xs font-semibold ${
-                            isOutOfStock ? 'bg-red-100 text-red-800' :
-                            isLowStock   ? 'bg-yellow-100 text-yellow-800' :
-                                           'bg-green-100 text-green-800'
+                          className={`px-2 py-1 rounded text-xs font-semibold transition-colors ${
+                            isOutOfStock ? 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-100 hover:bg-red-200' :
+                            isLowStock   ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-100 hover:bg-yellow-200' :
+                                           'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-100 hover:bg-green-200'
                           }`}>
                           {product.currentStock} {product.unit}
                         </button>

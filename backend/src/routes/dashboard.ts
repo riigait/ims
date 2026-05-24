@@ -83,7 +83,7 @@ router.get('/recent-movements', authMiddleware, async (req: AuthRequest, res: Re
     // For superadmin or admin/staff with "all-departments": no filter
 
     const movements = await prisma.stockMovement.findMany({
-      include: { product: true },
+      include: { items: { include: { product: true } } },
       where: departmentFilter,
       orderBy: { createdAt: 'desc' },
       take: 10,
@@ -91,7 +91,7 @@ router.get('/recent-movements', authMiddleware, async (req: AuthRequest, res: Re
 
     const formatted = movements.map((m) => ({
       ...m,
-      productName: m.product.name,
+      products: m.items.map(item => item.product.name).join(', '),
     }));
 
     res.json(formatted);

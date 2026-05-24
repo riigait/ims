@@ -71,7 +71,7 @@ model Product {
   notes               String?    // Product-specific notes
   createdAt           DateTime   @default(now())
   updatedAt           DateTime   @updatedAt
-  movements           StockMovement[]
+  movementItems       StockMovementItem[] @relation("ProductMovementItems")
   stockDetails        StockDetail[]
 }
 
@@ -97,51 +97,68 @@ model Location {
   children    Location[] @relation("LocationParent")
   departmentId String?
   department  Department? @relation(fields: [departmentId], references: [id], onDelete: SetNull)
-  notes       String?
-  createdAt   DateTime   @default(now())
-  updatedAt   DateTime   @updatedAt
-  products    Product[]
-  movements   StockMovement[]
-  stockDetails StockDetail[]
-  floorPlans  FloorPlan[]
+  notes                    String?
+  createdAt                DateTime   @default(now())
+  updatedAt                DateTime   @updatedAt
+  products                 Product[]
+  stockDetails             StockDetail[]
+  movementItemsFromLocation StockMovementItem[] @relation("MovementItemFromLocation")
+  movementItemsToLocation   StockMovementItem[] @relation("MovementItemToLocation")
+  floorPlans               FloorPlan[]
 }
 
 model StockMovement {
-  id            String     @id @default(cuid())
-  productId     String
-  product       Product    @relation(fields: [productId], references: [id], onDelete: Cascade)
-  movementType  String     // stock_in, stock_out, adjustment, transfer, damaged, returned
-  quantity      Int
-  reason        String?
-  locationId    String?
-  location      Location?  @relation(fields: [locationId], references: [id], onDelete: SetNull)
-  modelNumber   String?    // Hardware model number for individual stock item
-  serialNumber  String?    // Unique serial number for individual stock item
-  macId         String?    // MAC address for network device (if applicable)
-  departmentId  String?
-  department    Department? @relation(fields: [departmentId], references: [id], onDelete: SetNull)
-  userId        String
-  user          User       @relation(fields: [userId], references: [id], onDelete: Cascade)
-  stockDetails  StockDetail[] // Individual items linked to this movement
-  createdAt     DateTime   @default(now())
+  id              String     @id @default(cuid())
+  movementNo      String?    @unique  // e.g., MVT-000001 (auto-generated)
+  movementType    String     // stock_in, stock_out, adjustment, transfer, damaged, returned
+  status          String     @default("pending") // pending, committed, cancelled
+  remarks         String?
+  departmentId    String?
+  department      Department? @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+  userId          String
+  user            User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  items           StockMovementItem[] // Line items in this movement
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
+
+  @@index([createdAt])
+}
+
+model StockMovementItem {
+  id              String     @id @default(cuid())
+  movementId      String
+  movement        StockMovement @relation(fields: [movementId], references: [id], onDelete: Cascade)
+  stockDetailId   String
+  stockDetail     StockDetail @relation(fields: [stockDetailId], references: [id], onDelete: Cascade)
+  productId       String
+  product         Product    @relation("ProductMovementItems", fields: [productId], references: [id], onDelete: Cascade)
+  quantity        Int
+  fromLocationId  String?
+  fromLocation    Location?  @relation("MovementItemFromLocation", fields: [fromLocationId], references: [id], onDelete: SetNull)
+  toLocationId    String?
+  toLocation      Location?  @relation("MovementItemToLocation", fields: [toLocationId], references: [id], onDelete: SetNull)
+  reason          String?
+  createdAt       DateTime   @default(now())
 }
 
 model StockDetail {
-  id            String     @id @default(cuid())
-  productId     String
-  product       Product    @relation(fields: [productId], references: [id], onDelete: Cascade)
-  modelNumber   String?    // e.g., Dell XPS 15-9500
-  serialNumber  String?    // e.g., SERIAL123456
-  macId         String?    // e.g., 00:1A:2B:3C:4D:5E
-  dateStock     DateTime?  // When this item was received
-  status        String     @default("active") // active, damaged, sold, lost, returned
-  locationId    String?
-  location      Location?  @relation(fields: [locationId], references: [id], onDelete: SetNull)
-  notes         String?    // Additional information about this specific unit
-  movementId    String?    // Link to the stock movement (optional, for tracking)
-  movement      StockMovement? @relation(fields: [movementId], references: [id], onDelete: SetNull)
-  createdAt     DateTime   @default(now())
-  updatedAt     DateTime   @updatedAt
+  id              String     @id @default(cuid())
+  stockId         String?    @unique  // e.g., STK-000001 (auto-generated)
+  productId       String
+  product         Product    @relation(fields: [productId], references: [id], onDelete: Cascade)
+  modelNumber     String?    // e.g., Dell XPS 15-9500
+  serialNumber    String?    // e.g., SERIAL123456
+  macId           String?    // e.g., 00:1A:2B:3C:4D:5E
+  dateStock       DateTime?  // When this item was received
+  currentStatus   String     @default("active") // active, damaged, sold, lost, returned
+  currentLocationId String?
+  currentLocation Location?  @relation(fields: [currentLocationId], references: [id], onDelete: SetNull)
+  notes           String?    // Additional information about this specific unit
+  movementItems   StockMovementItem[] // All movements involving this stock
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
+
+  @@index([stockId])
 }
 
 model AuditLog {

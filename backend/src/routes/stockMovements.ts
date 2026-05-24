@@ -25,7 +25,6 @@ router.get('/', async (req: AuthRequest, res: Response) => {
   try {
     let whereFilter: any = {};
     if (req.departmentIds && req.departmentIds.length > 0) {
-      // Include movements with null departmentId
       whereFilter = {
         OR: [
           { departmentId: { in: req.departmentIds } },
@@ -37,7 +36,7 @@ router.get('/', async (req: AuthRequest, res: Response) => {
     }
     const movements = await prisma.stockMovement.findMany({
       where: whereFilter,
-      include: { product: true, location: true, user: true, department: true },
+      include: { items: { include: { product: true, stockDetail: true, fromLocation: true, toLocation: true } }, user: true, department: true },
       orderBy: { createdAt: 'desc' },
     });
     res.json(movements);
@@ -52,7 +51,7 @@ router.get('/:id', async (req: AuthRequest, res: Response) => {
   try {
     const movement = await prisma.stockMovement.findUnique({
       where: { id: req.params.id },
-      include: { product: true, location: true, user: true, department: true },
+      include: { items: { include: { product: true, stockDetail: true, fromLocation: true, toLocation: true } }, user: true, department: true },
     });
     if (!movement) return res.status(404).json({ error: 'Stock movement not found' });
 
@@ -67,16 +66,15 @@ router.get('/:id', async (req: AuthRequest, res: Response) => {
   }
 });
 
-// Create stock movement
+// Create stock movement with items
 router.post('/', async (req: AuthRequest, res: Response) => {
   try {
-    const { productId, movementType, quantity, reason, locationId, modelNumber, serialNumber, macId } = req.body;
+    const { movementType, remarks, items } = req.body;
     const userId = req.userId!;
-    const userRole = req.userRole ?? 'staff';
 
-    // ── Validation ──────────────────────────────────────────────────────────
-    if (!productId || !movementType || quantity === undefined || quantity === null) {
-      return res.status(400).json({ error: 'productId, movementType, and quantity are required' });
+    // Validate input
+    if (!movementType || !items || !Array.isArray(items) || items.length === 0) {
+      return res.status(400).json({ error: 'movementType and items array are required' });
     }
 
     if (!VALID_MOVEMENT_TYPES.includes(movementType as MovementType)) {
@@ -85,55 +83,32 @@ router.post('/', async (req: AuthRequest, res: Response) => {
       });
     }
 
-    const qty = Number(quantity);
-    if (!Number.isInteger(qty) || qty <= 0) {
-      return res.status(400).json({ error: 'quantity must be a positive integer' });
-    }
+    // Generate movement number
+    const { generateMovementNo } = await import('../utils/idGenerator');
+    const movementNo = await generateMovementNo();
 
-    const type = movementType as MovementType;
-
-    // ── Transaction: validate stock + create movement + update product ──────
+    // Create movement header and items
     const result = await prisma.$transaction(async (tx) => {
-      const product = await tx.product.findUnique({ where: { id: productId } });
-      if (!product) throw Object.assign(new Error('Product not found'), { status: 404 });
-
-      // stock_out guard — admin can override
-      if (DEDUCTING_TYPES.includes(type) && product.currentStock < qty) {
-        if (userRole !== 'admin') {
-          throw Object.assign(
-            new Error(`Insufficient stock. Available: ${product.currentStock}, requested: ${qty}`),
-            { status: 400 }
-          );
-        }
-        // Admin override: allow negative stock
-      }
-
-      const delta = stockDelta(type, qty);
-      const newStock = Math.max(0, product.currentStock + delta);
-      // Allow admins to go below zero only on deducting moves; otherwise floor at 0
-      const finalStock = userRole === 'admin' && DEDUCTING_TYPES.includes(type)
-        ? product.currentStock + delta
-        : newStock;
-
       const movement = await tx.stockMovement.create({
         data: {
-          productId,
-          movementType: type,
-          quantity: qty,
-          reason: reason ?? null,
-          locationId: locationId || null,
-          modelNumber: modelNumber || null,
-          serialNumber: serialNumber || null,
-          macId: macId || null,
-          departmentId: req.departmentId || product.departmentId,
+          movementNo,
+          movementType: movementType as MovementType,
+          status: 'pending',
+          remarks: remarks || null,
+          departmentId: req.departmentId || null,
           userId,
+          items: {
+            create: items.map((item: any) => ({
+              stockDetailId: item.stockDetailId,
+              productId: item.productId,
+              quantity: item.quantity || 0,
+              fromLocationId: item.fromLocationId || null,
+              toLocationId: item.toLocationId || null,
+              reason: item.reason || null,
+            })),
+          },
         },
-        include: { product: true },
-      });
-
-      await tx.product.update({
-        where: { id: productId },
-        data: { currentStock: finalStock },
+        include: { items: { include: { product: true, stockDetail: true } }, user: true, department: true },
       });
 
       return movement;
@@ -141,100 +116,44 @@ router.post('/', async (req: AuthRequest, res: Response) => {
 
     await logAudit({
       userId,
-      action: type.toUpperCase(),
+      action: movementType.toUpperCase(),
       entityType: 'stock_movement',
       entityId: result.id,
-      changes: { productId, movementType: type, quantity: qty, reason },
+      changes: { movementNo, movementType, itemCount: items.length },
     });
 
     res.status(201).json(result);
   } catch (error: any) {
-    if (error?.status) {
-      return res.status(error.status).json({ error: error.message });
-    }
     console.error(error);
-    res.status(500).json({ error: 'Internal server error' });
+    res.status(500).json({ error: error.message || 'Internal server error' });
   }
 });
 
-// Update stock movement
+// Update stock movement header (status, remarks only)
 router.put('/:id', async (req: AuthRequest, res: Response) => {
   try {
-    const { productId, movementType, quantity, reason, locationId, modelNumber, serialNumber, macId } = req.body;
+    const { status, remarks, movementType } = req.body;
     const movementId = req.params.id;
-
-    if (!productId || !movementType || quantity === undefined || quantity === null) {
-      return res.status(400).json({ error: 'productId, movementType, and quantity are required' });
-    }
-
-    if (!VALID_MOVEMENT_TYPES.includes(movementType as MovementType)) {
-      return res.status(400).json({
-        error: `movementType must be one of: ${VALID_MOVEMENT_TYPES.join(', ')}`,
-      });
-    }
-
-    const qty = Number(quantity);
-    if (!Number.isInteger(qty) || qty <= 0) {
-      return res.status(400).json({ error: 'quantity must be a positive integer' });
-    }
 
     const oldMovement = await prisma.stockMovement.findUnique({
       where: { id: movementId },
-      include: { product: true },
+      include: { department: true },
     });
 
     if (!oldMovement) return res.status(404).json({ error: 'Stock movement not found' });
 
-    if (req.departmentId && oldMovement.departmentId !== req.departmentId && oldMovement.departmentId !== null) {
+    if (req.departmentId && oldMovement.departmentId !== req.departmentId) {
       return res.status(403).json({ error: 'Access denied' });
     }
 
-    const type = movementType as MovementType;
-    const userRole = req.userRole ?? 'staff';
-
-    const result = await prisma.$transaction(async (tx) => {
-      const product = await tx.product.findUnique({ where: { id: productId } });
-      if (!product) throw Object.assign(new Error('Product not found'), { status: 404 });
-
-      const oldDelta = stockDelta(oldMovement.movementType as MovementType, oldMovement.quantity);
-      const newDelta = stockDelta(type, qty);
-      const stockAdjustment = newDelta - oldDelta;
-
-      if (DEDUCTING_TYPES.includes(type) && product.currentStock + stockAdjustment < 0) {
-        if (userRole !== 'admin') {
-          throw Object.assign(
-            new Error(`Insufficient stock. Available: ${product.currentStock + stockAdjustment}`),
-            { status: 400 }
-          );
-        }
-      }
-
-      const newStock = product.currentStock + stockAdjustment;
-      const finalStock = userRole === 'admin' && DEDUCTING_TYPES.includes(type)
-        ? newStock
-        : Math.max(0, newStock);
-
-      const updated = await tx.stockMovement.update({
-        where: { id: movementId },
-        data: {
-          productId,
-          movementType: type,
-          quantity: qty,
-          reason: reason ?? null,
-          locationId: locationId || null,
-          modelNumber: modelNumber || null,
-          serialNumber: serialNumber || null,
-          macId: macId || null,
-        },
-        include: { product: true },
-      });
-
-      await tx.product.update({
-        where: { id: productId },
-        data: { currentStock: finalStock },
-      });
-
-      return updated;
+    const updated = await prisma.stockMovement.update({
+      where: { id: movementId },
+      data: {
+        status: status || oldMovement.status,
+        remarks: remarks !== undefined ? remarks : oldMovement.remarks,
+        movementType: movementType || oldMovement.movementType,
+      },
+      include: { items: { include: { product: true, stockDetail: true } }, user: true, department: true },
     });
 
     await logAudit({
@@ -242,14 +161,11 @@ router.put('/:id', async (req: AuthRequest, res: Response) => {
       action: 'UPDATE',
       entityType: 'stock_movement',
       entityId: movementId,
-      changes: { productId, movementType: type, quantity: qty, reason },
+      changes: { status, remarks, movementType },
     });
 
-    res.json(result);
+    res.json(updated);
   } catch (error: any) {
-    if (error?.status) {
-      return res.status(error.status).json({ error: error.message });
-    }
     console.error(error);
     res.status(500).json({ error: 'Internal server error' });
   }
@@ -260,27 +176,18 @@ router.delete('/:id', async (req: AuthRequest, res: Response) => {
   try {
     const movement = await prisma.stockMovement.findUnique({
       where: { id: req.params.id },
-      include: { product: true },
+      include: { department: true },
     });
 
     if (!movement) return res.status(404).json({ error: 'Stock movement not found' });
 
-    if (req.departmentId && movement.departmentId !== req.departmentId && movement.departmentId !== null) {
+    if (req.departmentId && movement.departmentId !== req.departmentId) {
       return res.status(403).json({ error: 'Access denied' });
     }
 
-    await prisma.$transaction(async (tx) => {
-      const delta = stockDelta(movement.movementType as MovementType, movement.quantity);
-      const newStock = Math.max(0, movement.product.currentStock - delta);
-
-      await tx.product.update({
-        where: { id: movement.productId },
-        data: { currentStock: newStock },
-      });
-
-      await tx.stockMovement.delete({
-        where: { id: req.params.id },
-      });
+    // Delete cascade will handle items deletion
+    await prisma.stockMovement.delete({
+      where: { id: req.params.id },
     });
 
     await logAudit({
@@ -293,9 +200,6 @@ router.delete('/:id', async (req: AuthRequest, res: Response) => {
 
     res.json({ message: 'Stock movement deleted successfully' });
   } catch (error: any) {
-    if (error?.status) {
-      return res.status(error.status).json({ error: error.message });
-    }
     console.error(error);
     res.status(500).json({ error: 'Internal server error' });
   }
@@ -307,11 +211,10 @@ router.get('/export/csv', async (req: AuthRequest, res: Response) => {
     const movements = await prisma.stockMovement.findMany({
       select: {
         id: true,
-        productId: true,
+        movementNo: true,
         movementType: true,
-        quantity: true,
-        reason: true,
-        locationId: true,
+        status: true,
+        remarks: true,
         departmentId: true,
         userId: true,
         createdAt: true,
@@ -328,7 +231,7 @@ router.get('/export/csv', async (req: AuthRequest, res: Response) => {
   }
 });
 
-// Import stock movements from CSV (uses stock_in type by default)
+// Import stock movements from CSV
 router.post('/import/csv', async (req: AuthRequest, res: Response) => {
   try {
     if (!req.body.csv) {
@@ -338,30 +241,31 @@ router.post('/import/csv', async (req: AuthRequest, res: Response) => {
     const rows = csvToJson<any>(req.body.csv);
     const created = [];
     const errors = [];
+    const { generateMovementNo } = await import('../utils/idGenerator');
 
     for (let i = 0; i < rows.length; i++) {
       try {
         const row = rows[i];
+        const movementNo = await generateMovementNo();
+
         const movement = await prisma.stockMovement.create({
           data: {
-            productId: row.productId,
+            movementNo,
             movementType: row.movementType || 'stock_in',
-            quantity: parseInt(row.quantity) || 0,
-            reason: row.reason || null,
-            locationId: row.locationId || null,
+            status: row.status || 'pending',
+            remarks: row.remarks || null,
             departmentId: req.departmentId,
             userId: req.userId!,
           },
         });
         created.push(movement);
 
-        // Log audit
         await logAudit({
           userId: req.userId,
           action: 'STOCK_IN',
           entityType: 'stock_movement',
           entityId: movement.id,
-          changes: { movementType: movement.movementType, quantity: movement.quantity },
+          changes: { movementType: movement.movementType },
         });
       } catch (err: any) {
         errors.push({ row: i + 1, error: err.message });

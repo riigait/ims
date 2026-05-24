@@ -53,11 +53,6 @@ router.get('/', async (req: AuthRequest, res: Response) => {
         notes: true,
         createdAt: true,
         updatedAt: true,
-        movements: {
-          select: { id: true, createdAt: true },
-          orderBy: { createdAt: 'desc' },
-          take: 1,
-        },
       },
     });
     res.json(products);
@@ -94,10 +89,6 @@ router.get('/:id', async (req: AuthRequest, res: Response) => {
         notes: true,
         createdAt: true,
         updatedAt: true,
-        movements: {
-          select: { id: true, createdAt: true },
-          orderBy: { createdAt: 'desc' },
-        },
       },
     });
     if (!product) return res.status(404).json({ error: 'Product not found' });
@@ -164,23 +155,8 @@ router.post('/', async (req: AuthRequest, res: Response) => {
       include: { category: true, location: true, department: true },
     });
 
-    // Create opening stock movement if stock > 0
-    if (currentStock && currentStock > 0 && req.userId) {
-      await prisma.stockMovement.create({
-        data: {
-          productId: product.id,
-          movementType: 'adjustment',
-          quantity: currentStock,
-          reason: 'Opening stock',
-          locationId: locationId || null,
-          departmentId: req.departmentId,
-          userId: req.userId,
-        },
-      }).catch(err => {
-        // Log but don't fail product creation if stock movement fails
-        console.error('Failed to create opening stock movement:', err);
-      });
-    }
+    // TODO: Implement opening stock movement creation with new StockMovementItem structure
+    // Opening stock movements will be created through the new StockMovement/StockMovementItem API
 
     await logAudit({ userId: req.userId, action: 'CREATE', entityType: 'product', entityId: product.id, changes: { name, sku, currentStock } });
     res.status(201).json(product);
