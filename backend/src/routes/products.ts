@@ -63,7 +63,7 @@ router.get('/:id', async (req: AuthRequest, res: Response) => {
 // Create product
 router.post('/', async (req: AuthRequest, res: Response) => {
   try {
-    const { sku, name, description, categoryId, locationId, unit, currentStock, lowStockThreshold } = req.body;
+    const { sku, name, description, categoryId, locationId, unit, currentStock, lowStockThreshold, supplier, unitPrice, status, expiryDate, leadTimeDays, notes } = req.body;
 
     if (!sku || !name || !categoryId) {
       return res.status(400).json({ error: 'sku, name, and categoryId are required' });
@@ -100,8 +100,14 @@ router.post('/', async (req: AuthRequest, res: Response) => {
         unit: unit || 'pcs',
         currentStock: currentStock || 0,
         lowStockThreshold: lowStockThreshold || 10,
+        supplier: supplier || null,
+        unitPrice: unitPrice ? parseFloat(unitPrice) : null,
+        status: status || 'active',
+        expiryDate: expiryDate ? new Date(expiryDate) : null,
+        leadTimeDays: leadTimeDays ? parseInt(leadTimeDays) : null,
+        notes: notes || null,
       },
-      include: { category: true, location: true },
+      include: { category: true, location: true, department: true },
     });
 
     await logAudit({ userId: req.userId, action: 'CREATE', entityType: 'product', entityId: product.id, changes: { name, sku } });
@@ -122,7 +128,7 @@ router.put('/:id', async (req: AuthRequest, res: Response) => {
       return res.status(403).json({ error: 'Access denied' });
     }
 
-    const { sku, name, description, categoryId, locationId, unit, lowStockThreshold } = req.body;
+    const { sku, name, description, categoryId, locationId, unit, lowStockThreshold, supplier, unitPrice, status, expiryDate, leadTimeDays, notes } = req.body;
 
     if (!categoryId) {
       return res.status(400).json({ error: 'categoryId is required' });
@@ -150,8 +156,22 @@ router.put('/:id', async (req: AuthRequest, res: Response) => {
 
     const product = await prisma.product.update({
       where: { id: req.params.id },
-      data: { sku, name, description, categoryId, locationId: locationId || null, unit, lowStockThreshold },
-      include: { category: true, location: true },
+      data: {
+        sku,
+        name,
+        description,
+        categoryId,
+        locationId: locationId || null,
+        unit,
+        lowStockThreshold,
+        supplier: supplier || null,
+        unitPrice: unitPrice ? parseFloat(unitPrice) : null,
+        status: status || 'active',
+        expiryDate: expiryDate ? new Date(expiryDate) : null,
+        leadTimeDays: leadTimeDays ? parseInt(leadTimeDays) : null,
+        notes: notes || null,
+      },
+      include: { category: true, location: true, department: true },
     });
 
     await logAudit({ userId: req.userId, action: 'UPDATE', entityType: 'product', entityId: product.id, changes: { name, sku } });

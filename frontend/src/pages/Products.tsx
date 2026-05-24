@@ -13,7 +13,20 @@ import DataPageLayout from '@/components/layout/DataPageLayout';
 import { ALL_DEPARTMENTS_ID } from '@/constants/app';
 
 const emptyForm = {
-  sku: '', name: '', description: '', categoryId: '', locationId: '', unit: 'pcs', currentStock: 0, lowStockThreshold: 10,
+  sku: '',
+  name: '',
+  description: '',
+  categoryId: '',
+  locationId: '',
+  unit: 'pcs',
+  currentStock: 0,
+  lowStockThreshold: 10,
+  supplier: '',
+  unitPrice: 0,
+  status: 'active',
+  expiryDate: '',
+  leadTimeDays: 0,
+  notes: '',
 };
 
 export default function Products() {
@@ -101,8 +114,20 @@ export default function Products() {
       return;
     }
     setFormData({
-      sku: product.sku, name: product.name, description: product.description || '', categoryId: product.categoryId,
-      locationId: product.locationId || '', unit: product.unit, currentStock: product.currentStock, lowStockThreshold: product.lowStockThreshold,
+      sku: product.sku,
+      name: product.name,
+      description: product.description || '',
+      categoryId: product.categoryId,
+      locationId: product.locationId || '',
+      unit: product.unit,
+      currentStock: product.currentStock,
+      lowStockThreshold: product.lowStockThreshold,
+      supplier: product.supplier || '',
+      unitPrice: product.unitPrice || 0,
+      status: product.status || 'active',
+      expiryDate: product.expiryDate ? product.expiryDate.split('T')[0] : '',
+      leadTimeDays: product.leadTimeDays || 0,
+      notes: product.notes || '',
     });
     setEditingId(product.id);
     setShowForm(true);
@@ -282,6 +307,58 @@ export default function Products() {
             onChange={e => setFormData({ ...formData, description: e.target.value })}
             className="w-full px-4 py-2 border border-[var(--border)] rounded-lg bg-[var(--surface)] text-[var(--text)]" rows={3} />
         </div>
+
+        <div className="border-t border-[var(--border)] pt-4 mt-4">
+          <h3 className="text-sm font-semibold text-[var(--text)] mb-4">Additional Details</h3>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label htmlFor="supplier" className="block text-sm font-medium text-[var(--text)] mb-1">Supplier/Vendor</label>
+              <input id="supplier" name="supplier" type="text" value={formData.supplier || ''}
+                onChange={e => setFormData({ ...formData, supplier: e.target.value })}
+                placeholder="e.g., Tech Supply Co"
+                className="w-full px-4 py-2 border border-[var(--border)] rounded-lg bg-[var(--surface)] text-[var(--text)]" />
+            </div>
+            <div>
+              <label htmlFor="unit-price" className="block text-sm font-medium text-[var(--text)] mb-1">Unit Price ($)</label>
+              <input id="unit-price" name="unit-price" type="number" value={formData.unitPrice || ''} step="0.01" min="0"
+                onChange={e => setFormData({ ...formData, unitPrice: e.target.value ? parseFloat(e.target.value) : 0 })}
+                placeholder="0.00"
+                className="w-full px-4 py-2 border border-[var(--border)] rounded-lg bg-[var(--surface)] text-[var(--text)]" />
+            </div>
+            <div>
+              <label htmlFor="status" className="block text-sm font-medium text-[var(--text)] mb-1">Status</label>
+              <select id="status" name="status" value={formData.status || 'active'}
+                onChange={e => setFormData({ ...formData, status: e.target.value })}
+                className="w-full px-4 py-2 border border-[var(--border)] rounded-lg bg-[var(--surface)] text-[var(--text)]">
+                <option value="active">Active</option>
+                <option value="discontinued">Discontinued</option>
+                <option value="obsolete">Obsolete</option>
+                <option value="on-backorder">On Backorder</option>
+              </select>
+            </div>
+            <div>
+              <label htmlFor="lead-time" className="block text-sm font-medium text-[var(--text)] mb-1">Lead Time (days)</label>
+              <input id="lead-time" name="lead-time" type="number" value={formData.leadTimeDays || ''} min="0"
+                onChange={e => setFormData({ ...formData, leadTimeDays: e.target.value ? parseInt(e.target.value) : 0 })}
+                placeholder="Days until stock arrives"
+                className="w-full px-4 py-2 border border-[var(--border)] rounded-lg bg-[var(--surface)] text-[var(--text)]" />
+            </div>
+            <div>
+              <label htmlFor="expiry-date" className="block text-sm font-medium text-[var(--text)] mb-1">Expiry Date (optional)</label>
+              <input id="expiry-date" name="expiry-date" type="date" value={formData.expiryDate || ''}
+                onChange={e => setFormData({ ...formData, expiryDate: e.target.value })}
+                className="w-full px-4 py-2 border border-[var(--border)] rounded-lg bg-[var(--surface)] text-[var(--text)]" />
+            </div>
+            <div>
+              <label htmlFor="notes" className="block text-sm font-medium text-[var(--text)] mb-1">Notes</label>
+              <input id="notes" name="notes" type="text" value={formData.notes || ''}
+                onChange={e => setFormData({ ...formData, notes: e.target.value })}
+                placeholder="e.g., Requires refrigeration, Handle with care"
+                className="w-full px-4 py-2 border border-[var(--border)] rounded-lg bg-[var(--surface)] text-[var(--text)]" />
+            </div>
+          </div>
+        </div>
+
         <div className="flex gap-2">
           <button type="submit" className="px-4 py-2 bg-[var(--primary)] text-white rounded-lg hover:bg-[var(--primary-hover)]">
             Save
