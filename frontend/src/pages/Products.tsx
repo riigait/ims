@@ -49,6 +49,7 @@ export default function Products() {
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
+  const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
 
   const fetchData = async () => {
     try {
@@ -166,6 +167,25 @@ export default function Products() {
     setShowForm(false);
     setEditingId(null);
     setFormData(emptyForm);
+  };
+
+  const toggleRowExpansion = (productId: string) => {
+    const newExpanded = new Set(expandedRows);
+    if (newExpanded.has(productId)) {
+      newExpanded.delete(productId);
+    } else {
+      newExpanded.add(productId);
+    }
+    setExpandedRows(newExpanded);
+  };
+
+  const getLastMovementDate = (productId: string) => {
+    const movement = products
+      .flatMap((p: any) => p.movements || [])
+      .filter((m: any) => m.productId === productId)
+      .sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+      .at(0);
+    return movement ? formatDate(movement.createdAt) : 'Never';
   };
 
   const clearAllFilters = () => {
@@ -458,74 +478,120 @@ export default function Products() {
         showAddButton={user.role !== 'superadmin' && localStorage.getItem('currentDepartmentId') !== ALL_DEPARTMENTS_ID}
         formContent={formContent}
         filterContent={filterContent}>
-      <div className="overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead className="bg-[var(--surface-2)] border-b border-[var(--border)]">
-            <tr>
-              <th className="px-4 py-2 text-left text-[var(--text)] font-semibold">SKU</th>
-              <th className="px-4 py-2 text-left text-[var(--text)] font-semibold">Name</th>
-              <th className="px-4 py-2 text-left text-[var(--text)] font-semibold">Category</th>
-              <th className="px-4 py-2 text-left text-[var(--text)] font-semibold">Department</th>
-              <th className="px-4 py-2 text-right text-[var(--text)] font-semibold">Stock</th>
-              <th className="px-4 py-2 text-left text-[var(--text)] font-semibold">Date</th>
-              {user.role !== 'superadmin' && <th className="px-4 py-2 text-right text-[var(--text)] font-semibold">Actions</th>}
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-[var(--border)]">
-            {filteredProducts.length === 0 ? (
-              <tr>
-                <td colSpan={5} className="px-4 py-8 text-center text-[var(--text-muted)]">
-                  No products found.
-                </td>
-              </tr>
-            ) : paginatedProducts.map((product) => {
+      <div className="space-y-0">
+        {filteredProducts.length === 0 ? (
+          <div className="text-center py-12 bg-[var(--surface)] rounded-lg">
+            <p className="text-[var(--text-muted)]">No products found.</p>
+          </div>
+        ) : (
+          <div className="space-y-0 border border-[var(--border)] rounded-lg overflow-hidden">
+            {paginatedProducts.map((product) => {
               const category = product.category ?? categoriesMap.get(product.categoryId);
               const isLowStock = product.currentStock > 0 && product.currentStock <= product.lowStockThreshold;
               const isOutOfStock = product.currentStock === 0;
+              const isExpanded = expandedRows.has(product.id);
+              const totalValue = (product.unitPrice || 0) * product.currentStock;
+              const lastMovementDate = getLastMovementDate(product.id);
+
               return (
-                <tr key={product.id} className="hover:bg-[var(--surface-2)] transition-colors">
-                  <td className="px-4 py-2 font-mono text-xs text-[var(--text-muted)]">{product.sku}</td>
-                  <td className="px-4 py-2 font-medium text-[var(--text)]">{product.name}</td>
-                  <td className="px-4 py-2 text-[var(--text-muted)]">{category?.name ?? '—'}</td>
-                  <td className="px-4 py-2 text-sm text-[var(--text)]">
-                    {product.department?.name ?? '—'}
-                  </td>
-                  <td className="px-4 py-2 text-right">
+                <div key={product.id}>
+                  {/* Main Row */}
+                  <div
+                    onClick={() => toggleRowExpansion(product.id)}
+                    className="flex items-center gap-4 px-4 py-3 bg-[var(--surface)] border-b border-[var(--border)] hover:bg-[var(--surface-2)] cursor-pointer transition-colors">
                     <button
-                      onClick={() => navigate('/stock-movements')}
-                      title="View stock movements"
-                      className={`px-2 py-1 rounded text-xs font-semibold cursor-pointer hover:opacity-75 transition-opacity ${
-                        isOutOfStock ? 'bg-red-100 text-red-800' :
-                        isLowStock   ? 'bg-yellow-100 text-yellow-800' :
-                                       'bg-green-100 text-green-800'
-                      }`}>
-                      {product.currentStock} {product.unit}
+                      onClick={(e) => { e.stopPropagation(); toggleRowExpansion(product.id); }}
+                      className="text-[var(--text-muted)] hover:text-[var(--text)] flex-shrink-0">
+                      {isExpanded ? '▼' : '▶'}
                     </button>
-                  </td>
-                  <td className="px-4 py-2 text-[var(--text-muted)] text-sm">{formatDate(product.createdAt)}</td>
-                  <td className="px-4 py-2 text-right space-x-2">
-                    {user.role !== 'superadmin' && (
-                      <>
-                        <button onClick={() => handleEdit(product)} className="text-[var(--primary)] hover:text-[var(--primary-hover)]">
-                          <Edit size={18} />
+                    <div className="flex-1 grid grid-cols-1 md:grid-cols-7 gap-4 text-sm min-w-0">
+                      <div className="truncate">
+                        <span className="font-mono text-xs text-[var(--text-muted)]">{product.sku}</span>
+                      </div>
+                      <div className="truncate">
+                        <span className="font-medium text-[var(--text)]">{product.name}</span>
+                      </div>
+                      <div className="truncate">
+                        <span className="text-[var(--text-muted)]">{category?.name ?? '—'}</span>
+                      </div>
+                      <div className="text-right">
+                        <span className="text-[var(--text)]">${(product.unitPrice || 0).toFixed(2)}</span>
+                      </div>
+                      <div className="text-right">
+                        <span className="text-[var(--text)]">${totalValue.toFixed(2)}</span>
+                      </div>
+                      <div>
+                        <span className={`px-2 py-1 rounded text-xs font-semibold ${
+                          product.status === 'active' ? 'bg-green-100 text-green-800' :
+                          product.status === 'discontinued' ? 'bg-orange-100 text-orange-800' :
+                          product.status === 'obsolete' ? 'bg-red-100 text-red-800' :
+                          'bg-yellow-100 text-yellow-800'
+                        }`}>
+                          {product.status || 'active'}
+                        </span>
+                      </div>
+                      <div className="text-right">
+                        <button
+                          onClick={() => navigate('/stock-movements')}
+                          className={`px-2 py-1 rounded text-xs font-semibold ${
+                            isOutOfStock ? 'bg-red-100 text-red-800' :
+                            isLowStock   ? 'bg-yellow-100 text-yellow-800' :
+                                           'bg-green-100 text-green-800'
+                          }`}>
+                          {product.currentStock} {product.unit}
                         </button>
-                        {user.role === 'admin' ? (
-                          <button onClick={() => handleDelete(product.id)} className="text-red-600 hover:text-red-700">
-                            <Trash2 size={18} />
-                          </button>
-                        ) : (
-                          <button onClick={() => handleRequestDelete(product.id, product.name)} className="text-orange-600 hover:text-orange-800" title="Request deletion">
-                            <Trash2 size={18} />
-                          </button>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Expanded Details */}
+                  {isExpanded && (
+                    <div className="px-8 py-4 bg-[var(--surface-2)] border-b border-[var(--border)] grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+                      <div>
+                        <p className="text-[var(--text-muted)] text-xs mb-1">Supplier</p>
+                        <p className="text-[var(--text)]">{product.supplier || '—'}</p>
+                      </div>
+                      <div>
+                        <p className="text-[var(--text-muted)] text-xs mb-1">Lead Time</p>
+                        <p className="text-[var(--text)]">{product.leadTimeDays ? `${product.leadTimeDays} days` : '—'}</p>
+                      </div>
+                      <div>
+                        <p className="text-[var(--text-muted)] text-xs mb-1">Expiry Date</p>
+                        <p className="text-[var(--text)]">{product.expiryDate ? formatDate(product.expiryDate) : '—'}</p>
+                      </div>
+                      <div>
+                        <p className="text-[var(--text-muted)] text-xs mb-1">Last Movement</p>
+                        <p className="text-[var(--text)]">{lastMovementDate}</p>
+                      </div>
+                      <div className="md:col-span-2">
+                        <p className="text-[var(--text-muted)] text-xs mb-1">Notes</p>
+                        <p className="text-[var(--text)]">{product.notes || '—'}</p>
+                      </div>
+                      <div className="md:col-span-2 flex gap-2">
+                        {user.role !== 'superadmin' && (
+                          <>
+                            <button onClick={() => handleEdit(product)} className="px-3 py-1 bg-[var(--primary)] text-white text-xs rounded hover:bg-[var(--primary-hover)]">
+                              Edit
+                            </button>
+                            {user.role === 'admin' ? (
+                              <button onClick={() => handleDelete(product.id)} className="px-3 py-1 bg-red-100 text-red-600 text-xs rounded hover:bg-red-200">
+                                Delete
+                              </button>
+                            ) : (
+                              <button onClick={() => handleRequestDelete(product.id, product.name)} className="px-3 py-1 bg-orange-100 text-orange-600 text-xs rounded hover:bg-orange-200">
+                                Request Delete
+                              </button>
+                            )}
+                          </>
                         )}
-                      </>
-                    )}
-                  </td>
-                </tr>
+                      </div>
+                    </div>
+                  )}
+                </div>
               );
             })}
-          </tbody>
-        </table>
+          </div>
+        )}
       </div>
       {filteredProducts.length > 0 && (
         <Pagination

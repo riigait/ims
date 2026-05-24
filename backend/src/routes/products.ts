@@ -30,7 +30,16 @@ router.get('/', async (req: AuthRequest, res: Response) => {
 
     const products = await prisma.product.findMany({
       where: whereFilter,
-      include: { category: true, location: true, department: true },
+      include: {
+        category: true,
+        location: true,
+        department: true,
+        movements: {
+          select: { id: true, createdAt: true },
+          orderBy: { createdAt: 'desc' },
+          take: 1,
+        },
+      },
     });
     res.json(products);
   } catch (error) {
@@ -44,7 +53,15 @@ router.get('/:id', async (req: AuthRequest, res: Response) => {
   try {
     const product = await prisma.product.findUnique({
       where: { id: req.params.id },
-      include: { category: true, location: true },
+      include: {
+        category: true,
+        location: true,
+        department: true,
+        movements: {
+          select: { id: true, createdAt: true },
+          orderBy: { createdAt: 'desc' },
+        },
+      },
     });
     if (!product) return res.status(404).json({ error: 'Product not found' });
 
