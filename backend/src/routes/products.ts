@@ -160,14 +160,20 @@ router.post('/', async (req: AuthRequest, res: Response) => {
       try {
         const { generateStockId, generateMovementNo } = await import('../utils/idGenerator.js');
 
+        // Generate all IDs before transaction to avoid isolation issues
+        const stockIds: string[] = [];
+        for (let i = 0; i < currentStock; i++) {
+          stockIds.push(await generateStockId());
+        }
+        const movementNo = await generateMovementNo();
+
         await prisma.$transaction(async (tx) => {
           // Create StockDetail entries for each unit of opening stock
           const stockDetails = [];
-          for (let i = 0; i < currentStock; i++) {
-            const stockId = await generateStockId();
+          for (let i = 0; i < stockIds.length; i++) {
             const detail = await tx.stockDetail.create({
               data: {
-                stockId,
+                stockId: stockIds[i],
                 productId: product.id,
                 currentStatus: 'active',
                 currentLocationId: locationId || null,
@@ -177,7 +183,6 @@ router.post('/', async (req: AuthRequest, res: Response) => {
           }
 
           // Create opening stock movement
-          const movementNo = await generateMovementNo();
           await tx.stockMovement.create({
             data: {
               movementNo,
