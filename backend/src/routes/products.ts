@@ -155,8 +155,54 @@ router.post('/', async (req: AuthRequest, res: Response) => {
       include: { category: true, location: true, department: true },
     });
 
-    // TODO: Implement opening stock movement creation with new StockMovementItem structure
-    // Opening stock movements will be created through the new StockMovement/StockMovementItem API
+    // Create opening stock movement if currentStock > 0
+    if (currentStock && currentStock > 0) {
+      try {
+        const { generateStockId, generateMovementNo } = await import('../utils/idGenerator.js');
+
+        await prisma.$transaction(async (tx) => {
+          // Create StockDetail entries for each unit of opening stock
+          const stockDetails = [];
+          for (let i = 0; i < currentStock; i++) {
+            const stockId = await generateStockId();
+            const detail = await tx.stockDetail.create({
+              data: {
+                stockId,
+                productId: product.id,
+                currentStatus: 'active',
+                currentLocationId: locationId || null,
+              },
+            });
+            stockDetails.push(detail);
+          }
+
+          // Create opening stock movement
+          const movementNo = await generateMovementNo();
+          await tx.stockMovement.create({
+            data: {
+              movementNo,
+              movementType: 'adjustment',
+              status: 'completed',
+              remarks: 'Opening stock',
+              departmentId: req.departmentId || null,
+              userId: req.userId!,
+              items: {
+                create: stockDetails.map((detail) => ({
+                  stockDetailId: detail.id,
+                  productId: product.id,
+                  quantity: 1,
+                  fromLocationId: null,
+                  toLocationId: locationId || null,
+                  reason: 'Opening stock',
+                })),
+              },
+            },
+          });
+        });
+      } catch (error) {
+        console.error('Failed to create opening stock movement:', error);
+      }
+    }
 
     await logAudit({ userId: req.userId, action: 'CREATE', entityType: 'product', entityId: product.id, changes: { name, sku, currentStock } });
     res.status(201).json(product);

@@ -84,7 +84,7 @@ router.post('/', async (req: AuthRequest, res: Response) => {
     }
 
     // Generate movement number
-    const { generateMovementNo } = await import('../utils/idGenerator');
+    const { generateMovementNo } = await import('../utils/idGenerator.js');
     const movementNo = await generateMovementNo();
 
     // Create movement header and items
@@ -241,7 +241,7 @@ router.post('/import/csv', async (req: AuthRequest, res: Response) => {
     const rows = csvToJson<any>(req.body.csv);
     const created = [];
     const errors = [];
-    const { generateMovementNo } = await import('../utils/idGenerator');
+    const { generateMovementNo } = await import('../utils/idGenerator.js');
 
     for (let i = 0; i < rows.length; i++) {
       try {
