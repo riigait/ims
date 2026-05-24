@@ -30,10 +30,28 @@ router.get('/', async (req: AuthRequest, res: Response) => {
 
     const products = await prisma.product.findMany({
       where: whereFilter,
-      include: {
+      select: {
+        id: true,
+        sku: true,
+        name: true,
+        description: true,
+        categoryId: true,
         category: true,
-        location: true,
+        departmentId: true,
         department: true,
+        unit: true,
+        currentStock: true,
+        lowStockThreshold: true,
+        locationId: true,
+        location: true,
+        supplier: true,
+        unitPrice: true,
+        status: true,
+        expiryDate: true,
+        leadTimeDays: true,
+        notes: true,
+        createdAt: true,
+        updatedAt: true,
         movements: {
           select: { id: true, createdAt: true },
           orderBy: { createdAt: 'desc' },
@@ -53,10 +71,28 @@ router.get('/:id', async (req: AuthRequest, res: Response) => {
   try {
     const product = await prisma.product.findUnique({
       where: { id: req.params.id },
-      include: {
+      select: {
+        id: true,
+        sku: true,
+        name: true,
+        description: true,
+        categoryId: true,
         category: true,
-        location: true,
+        departmentId: true,
         department: true,
+        unit: true,
+        currentStock: true,
+        lowStockThreshold: true,
+        locationId: true,
+        location: true,
+        supplier: true,
+        unitPrice: true,
+        status: true,
+        expiryDate: true,
+        leadTimeDays: true,
+        notes: true,
+        createdAt: true,
+        updatedAt: true,
         movements: {
           select: { id: true, createdAt: true },
           orderBy: { createdAt: 'desc' },
