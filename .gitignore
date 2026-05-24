@@ -18,6 +18,7 @@ out/
 *.db-journal
 *.db-wal
 *.db-shm
+.backups/
 
 # Logs
 *.log
