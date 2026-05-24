@@ -222,7 +222,7 @@ export default function StockMovements() {
                       newItems[idx] = {
                         ...item,
                         productId: e.target.value,
-                        stockDetailId: e.target.value, // Use productId as stockDetailId temporarily
+                        stockDetailId: '', // Leave empty - backend will create StockDetail
                       };
                       setFormData({ ...formData, items: newItems });
                     }}
