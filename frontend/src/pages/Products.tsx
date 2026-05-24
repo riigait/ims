@@ -4,11 +4,13 @@ import { Edit, Trash2 } from 'lucide-react';
 import { productsApi, categoriesApi, locationsApi, deleteRequestsApi, departmentsApi } from '@/services/api';
 import ConfirmDialog from '@/components/ConfirmDialog';
 import Pagination from '@/components/Pagination';
+import CSVControls from '@/components/CSVControls';
 import { Product, Category, Location } from '@/types/inventory';
 import { ProductFilter, ProductSort } from '@/types/filters';
 import { validateProductName, validateSKU, validateStock } from '@/utils/validation';
 import { generateSKU, formatDate } from '@/utils/ids';
 import { filterAndSortProducts, clearProductFilters } from '@/utils/filterHelpers';
+import { downloadCsv } from '@/utils/csv';
 import DataPageLayout from '@/components/layout/DataPageLayout';
 import { ALL_DEPARTMENTS_ID } from '@/constants/app';
 
@@ -196,6 +198,37 @@ export default function Products() {
     setFilters(clearProductFilters());
     setSort({ field: 'date', order: 'desc' });
     setCurrentPage(1);
+  };
+
+  const handleExportCSV = async () => {
+    try {
+      const response = await fetch('/api/products/export/csv');
+      const csv = await response.text();
+      downloadCsv(products, 'products.csv');
+    } catch (error) {
+      console.error('Export failed:', error);
+      setError('Failed to export products');
+    }
+  };
+
+  const handleImportCSV = async (csvContent: string) => {
+    try {
+      const response = await fetch('/api/products/import/csv', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ csv: csvContent }),
+      });
+      const result = await response.json();
+      if (response.ok) {
+        setError(`✓ ${result.message}`);
+        await fetchData();
+      } else {
+        setError(result.error || 'Import failed');
+      }
+    } catch (error) {
+      console.error('Import failed:', error);
+      setError('Failed to import products');
+    }
   };
 
   const filteredProducts = filterAndSortProducts(products, filters, sort);
@@ -418,6 +451,12 @@ export default function Products() {
           className="text-xs px-3 py-1 bg-[var(--surface-2)] text-[var(--text-muted)] rounded hover:bg-[var(--border)] font-medium">
           Clear
         </button>
+        <CSVControls
+          onExport={handleExportCSV}
+          onImport={handleImportCSV}
+          exportLabel="Export"
+          importLabel="Import"
+        />
       </div>
       <div className="flex gap-2 flex-wrap">
         <select id="filter-category" name="filter-category" value={filters.categoryId || ''} onChange={e => { setFilters({ ...filters, categoryId: e.target.value || undefined }); setCurrentPage(1); }}
