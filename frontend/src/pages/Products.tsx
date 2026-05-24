@@ -304,8 +304,8 @@ export default function Products() {
           </div>
           {editingId ? (
             <div>
-              <label htmlFor="current-stock" className="block text-sm font-medium text-[var(--text)] mb-1">Current Stock</label>
-              <div id="current-stock" className="w-full px-4 py-2 border border-[var(--border)] rounded-lg bg-[var(--surface-2)] text-[var(--text-muted)] text-sm">
+              <div className="block text-sm font-medium text-[var(--text)] mb-1">Current Stock</div>
+              <div className="w-full px-4 py-2 border border-[var(--border)] rounded-lg bg-[var(--surface-2)] text-[var(--text-muted)] text-sm">
                 {formData.currentStock} {formData.unit}
                 <span className="ml-2 text-xs text-[var(--text-muted)]">(use Stock Movements to change)</span>
               </div>
