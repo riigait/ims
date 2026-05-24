@@ -31,7 +31,7 @@ Write-Host ""
 # Start Backend
 Write-Host "[3/3] Starting Backend Server..." -ForegroundColor Yellow
 Write-Host "Starting: npm run dev (in backend folder)" -ForegroundColor Gray
-$backendProcess = Start-Process -FilePath "npm" -ArgumentList "run dev" -WorkingDirectory "$PSScriptRoot\backend" -NoNewWindow -PassThru
+$backendProcess = Start-Process -FilePath "cmd.exe" -ArgumentList "/c npm run dev" -WorkingDirectory "$PSScriptRoot\backend" -NoNewWindow -PassThru
 Write-Host "Backend PID: $($backendProcess.Id)" -ForegroundColor Gray
 Start-Sleep -Seconds 5
 
@@ -40,7 +40,7 @@ Write-Host ""
 # Start Frontend
 Write-Host "[4/4] Starting Frontend Server..." -ForegroundColor Yellow
 Write-Host "Starting: npm run dev (in frontend folder)" -ForegroundColor Gray
-$frontendProcess = Start-Process -FilePath "npm" -ArgumentList "run dev" -WorkingDirectory "$PSScriptRoot\frontend" -NoNewWindow -PassThru
+$frontendProcess = Start-Process -FilePath "cmd.exe" -ArgumentList "/c npm run dev" -WorkingDirectory "$PSScriptRoot\frontend" -NoNewWindow -PassThru
 Write-Host "Frontend PID: $($frontendProcess.Id)" -ForegroundColor Gray
 
 Write-Host ""
