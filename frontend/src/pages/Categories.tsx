@@ -4,6 +4,7 @@ import { categoriesApi, departmentsApi } from '@/services/api';
 import { Category } from '@/types/inventory';
 import { CategoryFilter } from '@/types/filters';
 import { filterCategories } from '@/utils/filterHelpers';
+import { formatDate } from '@/utils/ids';
 import DataPageLayout from '@/components/layout/DataPageLayout';
 import Pagination from '@/components/Pagination';
 import ConfirmDialog from '@/components/ConfirmDialog';
@@ -37,7 +38,7 @@ export default function Categories() {
     try {
       const [categoriesRes, deptRes] = await Promise.all([
         categoriesApi.getAll(),
-        user.role === 'superadmin' ? departmentsApi.getAll() : Promise.resolve({ data: [] }),
+        departmentsApi.getAll(),
       ]);
       setCategories(categoriesRes.data);
       setDepartments(deptRes.data);
@@ -258,9 +259,8 @@ export default function Categories() {
             <tr>
               <th className="px-4 py-2 text-left text-[var(--text)] font-semibold">Name</th>
               <th className="px-4 py-2 text-left text-[var(--text)] font-semibold">Description</th>
-              {user.role === 'superadmin' && (
-                <th className="px-4 py-2 text-left text-[var(--text)] font-semibold">Department</th>
-              )}
+              <th className="px-4 py-2 text-left text-[var(--text)] font-semibold">Department</th>
+              <th className="px-4 py-2 text-left text-[var(--text)] font-semibold">Date</th>
               {user.role !== 'superadmin' && (
                 <th className="px-4 py-2 text-right text-[var(--text)] font-semibold">Actions</th>
               )}
@@ -279,9 +279,8 @@ export default function Categories() {
                 <tr key={category.id} className="hover:bg-[var(--surface-2)] transition-colors">
                   <td className="px-4 py-2 text-[var(--text)]">{category.name}</td>
                   <td className="px-4 py-2 text-[var(--text-muted)]">{category.description}</td>
-                  {user.role === 'superadmin' && (
-                    <td className="px-4 py-2 text-[var(--text)]">{dept?.name ?? '—'}</td>
-                  )}
+                  <td className="px-4 py-2 text-[var(--text)]">{dept?.name ?? '—'}</td>
+                  <td className="px-4 py-2 text-[var(--text-muted)] text-sm">{formatDate(category.createdAt)}</td>
                   <td className="px-4 py-2 text-right space-x-2">
                     {user.role === 'admin' && (
                       <>

@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Edit, Trash2 } from 'lucide-react';
 import { locationsApi, departmentsApi } from '@/services/api';
+import { formatDate } from '@/utils/ids';
 import { Location } from '@/types/inventory';
 import DataPageLayout from '@/components/layout/DataPageLayout';
 import Pagination from '@/components/Pagination';
@@ -36,7 +37,7 @@ export default function Locations() {
     try {
       const [locationsRes, deptRes] = await Promise.all([
         locationsApi.getAll(),
-        user.role === 'superadmin' ? departmentsApi.getAll() : Promise.resolve({ data: [] }),
+        departmentsApi.getAll(),
       ]);
       setLocations(locationsRes.data);
       setDepartments(deptRes.data);
@@ -341,9 +342,8 @@ export default function Locations() {
               <th className="px-4 py-2 text-left text-[var(--text)] font-semibold">Name</th>
               <th className="px-4 py-2 text-left text-[var(--text)] font-semibold">Type</th>
               <th className="px-4 py-2 text-left text-[var(--text)] font-semibold">Parent Location</th>
-              {user.role === 'superadmin' && (
-                <th className="px-4 py-2 text-left text-[var(--text)] font-semibold">Department</th>
-              )}
+              <th className="px-4 py-2 text-left text-[var(--text)] font-semibold">Department</th>
+              <th className="px-4 py-2 text-left text-[var(--text)] font-semibold">Date</th>
               {user.role !== 'superadmin' && (
                 <th className="px-4 py-2 text-right text-[var(--text)] font-semibold">Actions</th>
               )}
@@ -363,9 +363,8 @@ export default function Locations() {
                   <td className="px-4 py-2 text-[var(--text)]">{location.name}</td>
                   <td className="px-4 py-2 text-[var(--text-muted)]">{location.type}</td>
                   <td className="px-4 py-2 text-[var(--text-muted)]">{getParentName(location.parentId)}</td>
-                  {user.role === 'superadmin' && (
-                    <td className="px-4 py-2 text-[var(--text)]">{dept?.name ?? '—'}</td>
-                  )}
+                  <td className="px-4 py-2 text-[var(--text)]">{dept?.name ?? '—'}</td>
+                  <td className="px-4 py-2 text-[var(--text-muted)] text-sm">{formatDate(location.createdAt)}</td>
                   <td className="px-4 py-2 text-right space-x-2">
                     {user.role === 'admin' && (
                       <>

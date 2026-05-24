@@ -32,7 +32,7 @@ const movementLabel = (type: MovementType) =>
 const emptyForm = {
   productId: '',
   movementType: 'stock_in' as MovementType,
-  quantity: 1,
+  quantity: 0,
   reason: '',
   locationId: '',
 };
@@ -187,12 +187,22 @@ export default function StockMovements() {
                 <option key={o.value} value={o.value}>{o.label}</option>
               ))}
             </select>
+            <p className="text-xs text-[var(--text-muted)] mt-1">
+              {formData.movementType === 'stock_in' && 'ℹ️ Use for received goods, purchases, or stock arriving from suppliers.'}
+              {formData.movementType === 'stock_out' && 'ℹ️ Use for sales, shipments, or stock leaving the warehouse.'}
+              {formData.movementType === 'adjustment' && 'ℹ️ Use for manual corrections when physical count differs from system. Enter the adjustment amount (positive or negative).'}
+              {formData.movementType === 'returned' && 'ℹ️ Use for customer returns or items coming back to inventory.'}
+              {formData.movementType === 'damaged' && 'ℹ️ Use for damaged items being written off from inventory.'}
+              {formData.movementType === 'transfer' && 'ℹ️ Use for moving stock between locations within your facility.'}
+            </p>
           </div>
           <div>
-            <label htmlFor="movement-quantity" className="block text-sm font-medium text-[var(--text)] mb-1">Quantity *</label>
-            <input id="movement-quantity" name="quantity" type="number" value={formData.quantity} required min={1}
-              onChange={e => setFormData({ ...formData, quantity: parseInt(e.target.value) || 1 })}
+            <label htmlFor="movement-quantity" className="block text-sm font-medium text-[var(--text)] mb-1">Quantity * (must be greater than 0)</label>
+            <input id="movement-quantity" name="quantity" type="number" value={formData.quantity === 0 ? '' : formData.quantity} required min={1}
+              onChange={e => setFormData({ ...formData, quantity: parseInt(e.target.value) || 0 })}
+              placeholder="Enter quantity..."
               className="w-full px-4 py-2 border border-[var(--border)] rounded-lg bg-[var(--surface)] text-[var(--text)]" />
+            <p className="text-xs text-[var(--text-muted)] mt-1">You must enter a quantity to record the movement</p>
           </div>
           <div>
             <label htmlFor="movement-location" className="block text-sm font-medium text-[var(--text)] mb-1">Location</label>
@@ -298,7 +308,7 @@ export default function StockMovements() {
               <th className="px-4 py-2 text-right text-[var(--text)] font-semibold">Quantity</th>
               <th className="px-4 py-2 text-left text-[var(--text)] font-semibold">Reason</th>
               <th className="px-4 py-2 text-left text-[var(--text)] font-semibold">Location</th>
-              {user.role === 'superadmin' && <th className="px-4 py-2 text-left text-[var(--text)] font-semibold">Department</th>}
+              <th className="px-4 py-2 text-left text-[var(--text)] font-semibold">Department</th>
               <th className="px-4 py-2 text-left text-[var(--text)] font-semibold">Date</th>
               {user.role === 'admin' && <th className="px-4 py-2 text-center text-[var(--text)] font-semibold">Actions</th>}
             </tr>
@@ -321,11 +331,9 @@ export default function StockMovements() {
                 <td className="px-4 py-2 text-right text-[var(--text)]">{movement.quantity}</td>
                 <td className="px-4 py-2 text-[var(--text-muted)]">{movement.reason || '-'}</td>
                 <td className="px-4 py-2 text-[var(--text)]">{getLocationName(movement.locationId)}</td>
-                {user.role === 'superadmin' && (
-                  <td className="px-4 py-2 text-[var(--text)]">
-                    {movement.department?.name ?? '—'}
-                  </td>
-                )}
+                <td className="px-4 py-2 text-[var(--text)]">
+                  {movement.department?.name ?? '—'}
+                </td>
                 <td className="px-4 py-2 text-[var(--text-muted)]">{formatDate(movement.createdAt)}</td>
                 {user.role === 'admin' && (
                   <td className="px-4 py-2 text-center">

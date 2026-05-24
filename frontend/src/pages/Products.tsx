@@ -7,7 +7,7 @@ import Pagination from '@/components/Pagination';
 import { Product, Category, Location } from '@/types/inventory';
 import { ProductFilter, ProductSort } from '@/types/filters';
 import { validateProductName, validateSKU, validateStock } from '@/utils/validation';
-import { generateSKU } from '@/utils/ids';
+import { generateSKU, formatDate } from '@/utils/ids';
 import { filterAndSortProducts, clearProductFilters } from '@/utils/filterHelpers';
 import DataPageLayout from '@/components/layout/DataPageLayout';
 import { ALL_DEPARTMENTS_ID } from '@/constants/app';
@@ -388,8 +388,9 @@ export default function Products() {
               <th className="px-4 py-2 text-left text-[var(--text)] font-semibold">SKU</th>
               <th className="px-4 py-2 text-left text-[var(--text)] font-semibold">Name</th>
               <th className="px-4 py-2 text-left text-[var(--text)] font-semibold">Category</th>
-              {user.role === 'superadmin' && <th className="px-4 py-2 text-left text-[var(--text)] font-semibold">Department</th>}
+              <th className="px-4 py-2 text-left text-[var(--text)] font-semibold">Department</th>
               <th className="px-4 py-2 text-right text-[var(--text)] font-semibold">Stock</th>
+              <th className="px-4 py-2 text-left text-[var(--text)] font-semibold">Date</th>
               {user.role !== 'superadmin' && <th className="px-4 py-2 text-right text-[var(--text)] font-semibold">Actions</th>}
             </tr>
           </thead>
@@ -409,11 +410,9 @@ export default function Products() {
                   <td className="px-4 py-2 font-mono text-xs text-[var(--text-muted)]">{product.sku}</td>
                   <td className="px-4 py-2 font-medium text-[var(--text)]">{product.name}</td>
                   <td className="px-4 py-2 text-[var(--text-muted)]">{category?.name ?? '—'}</td>
-                  {user.role === 'superadmin' && (
-                    <td className="px-4 py-2 text-sm text-[var(--text)]">
-                      {product.department?.name ?? '—'}
-                    </td>
-                  )}
+                  <td className="px-4 py-2 text-sm text-[var(--text)]">
+                    {product.department?.name ?? '—'}
+                  </td>
                   <td className="px-4 py-2 text-right">
                     <button
                       onClick={() => navigate('/stock-movements')}
@@ -426,6 +425,7 @@ export default function Products() {
                       {product.currentStock} {product.unit}
                     </button>
                   </td>
+                  <td className="px-4 py-2 text-[var(--text-muted)] text-sm">{formatDate(product.createdAt)}</td>
                   <td className="px-4 py-2 text-right space-x-2">
                     {user.role !== 'superadmin' && (
                       <>
