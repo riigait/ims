@@ -164,7 +164,25 @@ router.post('/', async (req: AuthRequest, res: Response) => {
       include: { category: true, location: true, department: true },
     });
 
-    await logAudit({ userId: req.userId, action: 'CREATE', entityType: 'product', entityId: product.id, changes: { name, sku } });
+    // Create opening stock movement if stock > 0
+    if (currentStock && currentStock > 0 && req.userId) {
+      await prisma.stockMovement.create({
+        data: {
+          productId: product.id,
+          movementType: 'adjustment',
+          quantity: currentStock,
+          reason: 'Opening stock',
+          locationId: locationId || null,
+          departmentId: req.departmentId,
+          userId: req.userId,
+        },
+      }).catch(err => {
+        // Log but don't fail product creation if stock movement fails
+        console.error('Failed to create opening stock movement:', err);
+      });
+    }
+
+    await logAudit({ userId: req.userId, action: 'CREATE', entityType: 'product', entityId: product.id, changes: { name, sku, currentStock } });
     res.status(201).json(product);
   } catch (error) {
     console.error(error);

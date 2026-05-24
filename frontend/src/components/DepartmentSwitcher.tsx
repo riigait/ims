@@ -58,7 +58,7 @@ export default function DepartmentSwitcher({ isOpen, onOpenChange }: DepartmentS
     window.location.reload();
   };
 
-  if ((user.role !== 'admin' && user.role !== 'staff') || departments.length === 0) {
+  if ((user.role !== 'admin' && user.role !== 'staff' && user.role !== 'superadmin') || departments.length === 0) {
     return null;
   }
 

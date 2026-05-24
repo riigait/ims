@@ -145,7 +145,7 @@ export default function FloorPlans() {
             </p>
           )}
         </div>
-        {(user.role === 'admin' || user.role === 'superadmin') && localStorage.getItem('currentDepartmentId') !== ALL_DEPARTMENTS_ID && (
+        {user.role === 'admin' && localStorage.getItem('currentDepartmentId') !== ALL_DEPARTMENTS_ID && (
           <button onClick={() => setShowForm(true)}
             className="flex items-center gap-2 bg-[var(--primary)] text-white px-4 py-2 rounded-lg hover:bg-[var(--primary-hover)]">
             <Plus size={20} /> New Floor Plan
@@ -264,15 +264,13 @@ export default function FloorPlans() {
           {filteredAndSortedPlans.length === 0 ? (
             <div className="col-span-full text-center py-16 bg-[var(--surface)] rounded-lg shadow">
               <p className="text-[var(--text-muted)] text-lg mb-1">{floorPlans.length === 0 ? 'No floor plans yet' : 'No floor plans match your filters'}</p>
-              {floorPlans.length === 0 && (
+              {floorPlans.length === 0 && user.role === 'admin' && localStorage.getItem('currentDepartmentId') !== ALL_DEPARTMENTS_ID && (
                 <>
                   <p className="text-[var(--text-muted)] text-sm mb-4">Create one to start mapping your warehouse</p>
-                  {user.role === 'admin' && localStorage.getItem('currentDepartmentId') !== ALL_DEPARTMENTS_ID && (
-                    <button onClick={() => setShowForm(true)}
-                      className="px-4 py-2 bg-[var(--primary)] text-white rounded-lg hover:bg-[var(--primary-hover)]">
-                      Create your first floor plan
-                    </button>
-                  )}
+                  <button onClick={() => setShowForm(true)}
+                    className="px-4 py-2 bg-[var(--primary)] text-white rounded-lg hover:bg-[var(--primary-hover)]">
+                    Create your first floor plan
+                  </button>
                 </>
               )}
             </div>

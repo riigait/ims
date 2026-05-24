@@ -24,10 +24,19 @@ const MOVEMENT_OPTIONS: { value: MovementType; label: string; color: string }[] 
   { value: 'transfer',   label: 'Transfer',    color: 'bg-purple-100 text-purple-800' },
 ];
 
-const movementColor = (type: MovementType) =>
-  MOVEMENT_OPTIONS.find(o => o.value === type)?.color ?? 'bg-gray-100 text-gray-800';
-const movementLabel = (type: MovementType) =>
-  MOVEMENT_OPTIONS.find(o => o.value === type)?.label ?? type;
+const movementColor = (type: MovementType, reason?: string) => {
+  if (type === 'adjustment' && reason === 'Opening stock') {
+    return 'bg-indigo-100 text-indigo-800';
+  }
+  return MOVEMENT_OPTIONS.find(o => o.value === type)?.color ?? 'bg-gray-100 text-gray-800';
+};
+
+const movementLabel = (type: MovementType, reason?: string) => {
+  if (type === 'adjustment' && reason === 'Opening stock') {
+    return 'Opening Stock';
+  }
+  return MOVEMENT_OPTIONS.find(o => o.value === type)?.label ?? type;
+};
 
 const emptyForm = {
   productId: '',
@@ -353,8 +362,8 @@ export default function StockMovements() {
               <tr key={movement.id} className="hover:bg-[var(--surface-2)] transition-colors">
                 <td className="px-4 py-2 text-[var(--text)]">{getProductName(movement.productId)}</td>
                 <td className="px-4 py-2">
-                  <span className={`px-2 py-1 rounded text-xs font-semibold ${movementColor(movement.movementType)}`}>
-                    {movementLabel(movement.movementType)}
+                  <span className={`px-2 py-1 rounded text-xs font-semibold ${movementColor(movement.movementType, movement.reason)}`}>
+                    {movementLabel(movement.movementType, movement.reason)}
                   </span>
                 </td>
                 <td className="px-4 py-2 text-right text-[var(--text)]">{movement.quantity}</td>

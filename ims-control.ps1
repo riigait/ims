@@ -12,8 +12,8 @@ function Get-PortProcess {
     param([int]$port)
     $netstat = netstat -ano | Select-String ":$port.*LISTENING"
     if ($netstat) {
-        $pid = $netstat -split '\s+' | Select-Object -Last 1
-        return [int]$pid
+        $procId = $netstat -split '\s+' | Select-Object -Last 1
+        return [int]$procId
     }
     return $null
 }
@@ -23,17 +23,29 @@ function Show-Status {
     $frontendPid = Get-PortProcess $frontendPort
 
     Write-Host "`n=== IMS App Status ===" -ForegroundColor Cyan
+
     if ($backendPid) {
-        Write-Host "✓ Backend (Port $backendPort): Running (PID: $backendPid)" -ForegroundColor Green
+        Write-Host "[OK] Backend (Port $backendPort): Running (PID: $backendPid)" -ForegroundColor Green
     } else {
-        Write-Host "✗ Backend (Port $backendPort): Stopped" -ForegroundColor Red
+        Write-Host "[STOP] Backend (Port $backendPort): Stopped" -ForegroundColor Red
     }
 
     if ($frontendPid) {
-        Write-Host "✓ Frontend (Port $frontendPort): Running (PID: $frontendPid)" -ForegroundColor Green
+        Write-Host "[OK] Frontend (Port $frontendPort): Running (PID: $frontendPid)" -ForegroundColor Green
     } else {
-        Write-Host "✗ Frontend (Port $frontendPort): Stopped" -ForegroundColor Red
+        Write-Host "[STOP] Frontend (Port $frontendPort): Stopped" -ForegroundColor Red
     }
+
+    # Check Docker containers
+    Push-Location $PSScriptRoot
+    $dockerStatus = docker-compose ps --services 2>&1 | Where-Object { $_ -and $_ -notmatch "warning" }
+    if ($dockerStatus) {
+        Write-Host "[OK] Docker: Running" -ForegroundColor Green
+    } else {
+        Write-Host "[STOP] Docker: Stopped" -ForegroundColor Red
+    }
+    Pop-Location
+
     Write-Host "`n"
 }
 
@@ -53,6 +65,17 @@ function Stop-IMSApp {
         Write-Host "Killing frontend process (PID: $frontendPid)..."
         Stop-Process -Id $frontendPid -Force -ErrorAction SilentlyContinue
         Start-Sleep -Milliseconds 500
+    }
+
+    # Stop Docker containers
+    Write-Host "Stopping Docker containers..." -ForegroundColor Cyan
+    try {
+        Push-Location (Split-Path -Parent $MyInvocation.MyCommand.Path)
+        docker-compose down 2>$null
+        Pop-Location
+    } catch {
+        Write-Host "WARNING: Could not stop Docker containers" -ForegroundColor Yellow
+        Pop-Location
     }
 
     if (-not $backendPid -and -not $frontendPid) {
@@ -75,20 +98,35 @@ function Start-IMSApp {
         return
     }
 
-    # Start backend
+    # Start Docker containers
+    Write-Host "Starting Docker containers..." -ForegroundColor Cyan
+    try {
+        Push-Location (Split-Path -Parent $MyInvocation.MyCommand.Path)
+        docker-compose up -d 2>$null
+        if ($LASTEXITCODE -eq 0) {
+            Write-Host "Waiting for database to be ready (10 seconds)..." -ForegroundColor Yellow
+            Start-Sleep -Seconds 10
+        } else {
+            Write-Host "WARNING: Docker containers could not be started (Docker may not be running)" -ForegroundColor Yellow
+        }
+        Pop-Location
+    } catch {
+        Write-Host "WARNING: Docker containers could not be started (Docker may not be running)" -ForegroundColor Yellow
+        Pop-Location
+    }
+
+    # Start backend in current terminal
     Write-Host "Starting backend..." -ForegroundColor Cyan
-    Start-Process powershell -ArgumentList "-NoExit", "-Command", "cd '$backendPath'; npm run dev" -WindowStyle Normal
+    Start-Process cmd -ArgumentList "/c", "cd /d $backendPath && npm run dev" -NoNewWindow
 
-    Start-Sleep -Seconds 3
+    Start-Sleep -Seconds 5
 
-    # Start frontend
+    # Start frontend in current terminal
     Write-Host "Starting frontend..." -ForegroundColor Cyan
-    Start-Process powershell -ArgumentList "-NoExit", "-Command", "cd '$frontendPath'; npm run dev" -WindowStyle Normal
-
-    Start-Sleep -Seconds 3
+    Start-Process cmd -ArgumentList "/c", "cd /d $frontendPath && npm run dev" -NoNewWindow
 
     Write-Host "`nWaiting for services to start..." -ForegroundColor Yellow
-    Start-Sleep -Seconds 5
+    Start-Sleep -Seconds 8
 
     Show-Status
 }
@@ -104,7 +142,8 @@ switch ($action) {
     }
     'restart' {
         Stop-IMSApp
-        Start-Sleep -Seconds 2
+        Write-Host "Waiting for services to fully stop..." -ForegroundColor Yellow
+        Start-Sleep -Seconds 3
         Start-IMSApp
     }
     'status' {
