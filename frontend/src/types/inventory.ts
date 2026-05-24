@@ -20,6 +20,12 @@ export interface Product {
   location?: Location;
   departmentId?: string;
   department?: Department;
+  supplier?: string;
+  unitPrice?: number;
+  status?: string;
+  expiryDate?: string;
+  leadTimeDays?: number;
+  notes?: string;
   createdAt: string;
   updatedAt: string;
 }
