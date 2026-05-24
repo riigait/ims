@@ -1,5 +1,5 @@
 @echo off
-REM IMS Startup Script - Starts Docker, Backend, and Frontend
+setlocal enabledelayedexpansion
 
 echo.
 echo ====================================
@@ -7,16 +7,16 @@ echo   IMS - Inventory Management System
 echo ====================================
 echo.
 
-setlocal enabledelayedexpansion
-
 REM Check if Docker is running
 echo [1/3] Checking Docker status...
-docker ps >/dev/null 2>&1
+docker ps >nul 2>&1
 if errorlevel 1 (
-    echo WARNING: Docker is not running. Starting Docker Desktop...
-    start "" "C:\Program Files\Docker\Docker\Docker.exe"
-    echo Waiting for Docker to start (30 seconds)...
-    timeout /t 30 /nobreak
+    echo ERROR: Docker is not running or not installed.
+    echo.
+    echo Please start Docker Desktop manually and run this script again.
+    echo.
+    pause
+    exit /b 1
 ) else (
     echo [OK] Docker is running
 )
@@ -25,10 +25,15 @@ echo.
 
 REM Check if PostgreSQL container is running
 echo [2/3] Checking PostgreSQL container...
-docker ps --filter "name=ims-postgres" --format "{{.Names}}" | findstr "ims-postgres" >/dev/null
+docker ps --filter "name=ims-postgres" --format "{{.Names}}" 2>nul | findstr "ims-postgres" >nul
 if errorlevel 1 (
     echo PostgreSQL container not found. Starting docker-compose...
     docker-compose up -d
+    if errorlevel 1 (
+        echo ERROR: Failed to start docker-compose. Make sure docker-compose.yml exists.
+        pause
+        exit /b 1
+    )
     echo Waiting for database to be ready (10 seconds)...
     timeout /t 10 /nobreak
 ) else (
@@ -39,14 +44,16 @@ echo.
 
 REM Start Backend in a new window
 echo [3/3] Starting Backend Server...
-start "IMS Backend" cmd /k "cd backend && npm run dev"
+echo Starting in: backend
+start "IMS Backend" cmd /k "cd /d %CD%\backend && npm run dev"
 timeout /t 5 /nobreak
 
 echo.
 
 REM Start Frontend in a new window
 echo [4/4] Starting Frontend Server...
-start "IMS Frontend" cmd /k "cd frontend && npm run dev"
+echo Starting in: frontend
+start "IMS Frontend" cmd /k "cd /d %CD%\frontend && npm run dev"
 
 echo.
 echo ====================================
@@ -57,6 +64,7 @@ echo Backend:  http://localhost:5000
 echo Frontend: http://localhost:5173
 echo Database: PostgreSQL via Docker
 echo.
-echo Close any window to stop that service.
+echo New windows are opening for Backend and Frontend servers.
+echo Check those windows for any startup errors.
 echo.
-pause
+timeout /t 3 /nobreak
