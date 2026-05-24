@@ -267,7 +267,7 @@ export default function FloorPlans() {
               {floorPlans.length === 0 && (
                 <>
                   <p className="text-[var(--text-muted)] text-sm mb-4">Create one to start mapping your warehouse</p>
-                  {user.role === 'admin' && (
+                  {user.role === 'admin' && localStorage.getItem('currentDepartmentId') !== ALL_DEPARTMENTS_ID && (
                     <button onClick={() => setShowForm(true)}
                       className="px-4 py-2 bg-[var(--primary)] text-white rounded-lg hover:bg-[var(--primary-hover)]">
                       Create your first floor plan
