@@ -1,0 +1,6 @@
+sku,name,categoryId,unit,currentStock,lowStockThreshold,description,supplier,unitPrice,status,expiryDate,leadTimeDays,notes
+SKU-001,Laptop Computer,cat-001,pcs,10,2,High performance laptop,Tech Corp,999.99,active,2027-12-31,7,Requires careful handling
+SKU-002,Wireless Mouse,cat-001,pcs,50,10,Ergonomic design,Tech Corp,29.99,active,,3,
+SKU-003,USB-C Cable,cat-001,pcs,100,20,2m length,Parts Inc,5.99,active,,1,
+SKU-004,Monitor Stand,cat-001,pcs,15,5,Adjustable height,Office Pro,49.99,active,,5,
+SKU-005,Desk Lamp,cat-001,pcs,8,2,LED technology,Light Corp,39.99,discontinued,,7,Old model

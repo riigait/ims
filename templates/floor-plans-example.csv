@@ -1,0 +1,4 @@
+name,width,height,planJson,locationId
+Main Floor,100,80,"{""tiles"":[]}"
+Second Floor,100,80,"{""tiles"":[]}"
+Warehouse Layout,150,120,"{""tiles"":[]}"
