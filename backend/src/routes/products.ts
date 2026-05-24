@@ -3,6 +3,7 @@ import { PrismaClient } from '@prisma/client';
 import { AuthRequest } from '../middleware/auth';
 import { logAudit } from '../utils/audit';
 import { csvToJson, jsonToCsv } from '../utils/csv';
+import { generateStockId, generateMovementNo } from '../utils/idGenerator';
 
 const router = Router();
 const prisma = new PrismaClient();
@@ -163,7 +164,6 @@ router.post('/', async (req: AuthRequest, res: Response) => {
 
     if (stockValue > 0) {
       try {
-        const { generateStockId, generateMovementNo } = await import('../utils/idGenerator.js');
 
         console.log(`[OPENING STOCK] Creating opening stock for product ${product.id} with ${stockValue} units`);
 

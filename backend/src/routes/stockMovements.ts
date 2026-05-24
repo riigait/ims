@@ -3,6 +3,7 @@ import { PrismaClient } from '@prisma/client';
 import { AuthRequest } from '../middleware/auth';
 import { logAudit } from '../utils/audit';
 import { csvToJson, jsonToCsv } from '../utils/csv';
+import { generateStockId, generateMovementNo } from '../utils/idGenerator';
 
 const router = Router();
 const prisma = new PrismaClient();
@@ -84,7 +85,6 @@ router.post('/', async (req: AuthRequest, res: Response) => {
     }
 
     // Generate movement number
-    const { generateMovementNo, generateStockId } = await import('../utils/idGenerator.js');
     const movementNo = await generateMovementNo();
 
     // Create movement header and items
