@@ -31,6 +31,14 @@ timeout /t 10 /nobreak
 
 echo.
 
+REM Recommend using PowerShell version instead
+echo.
+echo NOTE: For better output in one window, use the PowerShell version:
+echo   powershell -ExecutionPolicy Bypass -File start-ims.ps1
+echo.
+echo Or continue with batch (opens new windows)...
+echo.
+
 REM Start Backend in a new window
 echo [3/3] Starting Backend Server...
 start "IMS Backend" cmd /k "cd /d %CD%\backend && npm run dev"
@@ -40,7 +48,6 @@ echo.
 
 REM Start Frontend in a new window
 echo [4/4] Starting Frontend Server...
-echo Starting in: frontend
 start "IMS Frontend" cmd /k "cd /d %CD%\frontend && npm run dev"
 
 echo.
@@ -52,7 +59,6 @@ echo Backend:  http://localhost:5000
 echo Frontend: http://localhost:5173
 echo Database: PostgreSQL via Docker
 echo.
-echo New windows are opening for Backend and Frontend servers.
-echo Check those windows for any startup errors.
+echo Backend and Frontend are opening in new windows.
 echo.
 timeout /t 3 /nobreak
