@@ -40,7 +40,7 @@ export default function Categories() {
     try {
       const [categoriesRes, deptRes] = await Promise.all([
         categoriesApi.getAll(),
-        departmentsApi.getAll(),
+        user.role === 'superadmin' ? departmentsApi.getAll() : Promise.resolve({ data: [] }),
       ]);
       setCategories(categoriesRes.data);
       setDepartments(deptRes.data);
@@ -217,7 +217,7 @@ export default function Categories() {
                   </td>
                 </tr>
               ) : paginatedCategories.map((category) => {
-                const dept = category.departmentId ? departments.find(d => d.id === category.departmentId) : null;
+                const dept = category.department;
                 return (
                   <tr
                     key={category.id}
@@ -261,7 +261,7 @@ export default function Categories() {
                 </h2>
                 {drawerItem && !drawerEditing && (
                   <p className="text-sm text-[var(--text-muted)] mt-0.5">
-                    {departments.find(d => d.id === drawerItem.departmentId)?.name ?? 'No department'}
+                    {drawerItem.department?.name ?? 'No department'}
                   </p>
                 )}
               </div>
@@ -311,7 +311,7 @@ export default function Categories() {
                       </div>
                       <div>
                         <p className="text-xs text-[var(--text-muted)] mb-0.5">Department</p>
-                        <p className="text-sm text-[var(--text)]">{departments.find(d => d.id === drawerItem.departmentId)?.name ?? '—'}</p>
+                        <p className="text-sm text-[var(--text)]">{drawerItem.department?.name ?? '—'}</p>
                       </div>
                       <div>
                         <p className="text-xs text-[var(--text-muted)] mb-0.5">Date Added</p>

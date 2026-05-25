@@ -22,7 +22,7 @@ router.get('/', async (req: AuthRequest, res: Response) => {
     }
     const locations = await prisma.location.findMany({
       where: whereFilter,
-      include: { parent: true, children: true },
+      include: { parent: true, children: true, department: { select: { name: true } } },
     });
     res.json(locations);
   } catch (error) {

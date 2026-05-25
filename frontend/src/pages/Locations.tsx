@@ -39,7 +39,7 @@ export default function Locations() {
     try {
       const [locationsRes, deptRes] = await Promise.all([
         locationsApi.getAll(),
-        departmentsApi.getAll(),
+        user.role === 'superadmin' ? departmentsApi.getAll() : Promise.resolve({ data: [] }),
       ]);
       setLocations(locationsRes.data);
       setDepartments(deptRes.data);
@@ -245,7 +245,7 @@ export default function Locations() {
                   </td>
                 </tr>
               ) : paginatedLocations.map((location) => {
-                const dept = location.departmentId ? departments.find(d => d.id === location.departmentId) : null;
+                const dept = location.department;
                 return (
                   <tr
                     key={location.id}
@@ -372,7 +372,7 @@ export default function Locations() {
                       </div>
                       <div>
                         <p className="text-xs text-[var(--text-muted)] mb-0.5">Department</p>
-                        <p className="text-sm text-[var(--text)]">{departments.find(d => d.id === drawerItem.departmentId)?.name ?? '—'}</p>
+                        <p className="text-sm text-[var(--text)]">{drawerItem.department?.name ?? '—'}</p>
                       </div>
                       {drawerItem.notes && (
                         <div>

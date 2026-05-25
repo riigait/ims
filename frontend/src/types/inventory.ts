@@ -35,6 +35,7 @@ export interface Category {
   name: string;
   description: string;
   departmentId?: string;
+  department?: { name: string };
   createdAt: string;
   updatedAt: string;
 }
@@ -46,6 +47,7 @@ export interface Location {
   parentId?: string;
   notes?: string;
   departmentId?: string;
+  department?: { name: string };
   createdAt: string;
   updatedAt: string;
 }

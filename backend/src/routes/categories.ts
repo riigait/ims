@@ -20,7 +20,10 @@ router.get('/', async (req: AuthRequest, res: Response) => {
     } else if ((req.userRole === 'staff' || req.userRole === 'admin') && req.departmentId) {
       whereFilter = { departmentId: req.departmentId };
     }
-    const categories = await prisma.category.findMany({ where: whereFilter });
+    const categories = await prisma.category.findMany({
+      where: whereFilter,
+      include: { department: { select: { name: true } } },
+    });
     res.json(categories);
   } catch (error: any) {
     console.error(error);
