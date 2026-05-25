@@ -55,7 +55,7 @@ Auto-generate a starter layout from the current locations, or build one by hand 
 ### Auth and roles
 - Three roles — **superadmin**, **admin**, **staff**
 - **Invite-code registration** — admins create one-time codes; new users sign up against them
-- **Forced initial setup** — the seeded `admin@ims.local` / `changeme123` superadmin must complete a profile + password reset before anything else is reachable
+- **Forced initial setup** — on first boot the system creates a temporary setup-only superadmin account; the account must complete a profile + password reset before any other route is reachable
 - **Password change requests** — staff can request a reset; admins approve/reject
 - **Department guard** — every data page is blocked until a department (or "All Departments") is selected via the top-bar switcher (uses the `X-Department-Id` header)
 
@@ -131,10 +131,9 @@ Three tabs in one page:
 - Backend writes audit records on key actions (CREATE / UPDATE / DELETE, stock movements, login, etc.) with user, entity, JSON change snapshot, IP
 - Exposed at `GET /api/audit-logs` to admins/superadmins
 
-### Superadmin danger zone (`/admin/settings`)
-- One destructive button: "Delete operational data" with typed confirmation phrase + 5-second countdown
-- Wipes products, categories, locations, movements, stock details, floor plans, requests, invites, audit logs
-- **Preserves** users, departments, and department assignments
+### Superadmin maintenance (`/admin/settings`)
+- Superadmin-only maintenance actions guarded by a typed confirmation phrase and a countdown delay
+- Operational data can be reset for clean re-onboarding while users, departments, and department assignments are preserved
 
 ---
 
@@ -229,29 +228,11 @@ ims/
 
 ## API surface
 
-All `/api/*` routes except `/api/auth/*` and `/api/invites` require `Authorization: Bearer <JWT>`. Admin/staff requests also send `X-Department-Id: <id | 'all-departments'>` so the backend can scope queries.
+The backend exposes authenticated REST endpoints for auth, products, categories, locations, stock movements, stock details, floor plans, dashboard metrics, users, departments, requests (delete and password), settings, and audit logs.
 
-| Mount | File | Purpose |
-|-------|------|---------|
-| `/api/auth` | `auth.ts` | login, register, me, initial setup, change/reset password, ensure-superadmin |
-| `/api/invites` | `invites.ts` | create / list invite codes |
-| `/api/products` | `products.ts` | CRUD + CSV import/export + opening-stock helpers |
-| `/api/categories` | `categories.ts` | CRUD + CSV |
-| `/api/locations` | `locations.ts` | hierarchical CRUD + CSV |
-| `/api/stock-movements` | `stockMovements.ts` | list + create multi-line movements |
-| `/api/stock-details` | `stockDetails.ts` | per-unit inventory CRUD |
-| `/api/floor-plans` | `floorPlans.ts` | CRUD + CSV |
-| `/api/dashboard` | `dashboard.ts` | KPIs + recent movements |
-| `/api/audit-logs` | `auditLogs.ts` | list audit entries |
-| `/api/users` | `users.ts` | admin user management |
-| `/api/departments` | `departments.ts` | department CRUD |
-| `/api/admin-departments` | `adminDepartments.ts` | admin ↔ department links |
-| `/api/staff-departments` | `staffDepartments.ts` | staff ↔ department links |
-| `/api/delete-requests` | `deleteRequests.ts` | approve / reject staff deletes |
-| `/api/password-requests` | `passwordRequests.ts` | approve / reject password changes |
-| `/api/settings` | `settings.ts` | superadmin danger-zone wipe |
+All endpoints (except auth and invite-code endpoints) require a bearer token. Admin and staff requests additionally pass a department-context header so the backend can scope queries to the right department.
 
-`GET /api/health` — unauthenticated `{ status: 'ok' }`.
+For the exact endpoint list, see the route modules in `backend/src/routes/`.
 
 ---
 
@@ -282,7 +263,7 @@ npm run dev
 
 - Frontend: <http://localhost:5173>
 - Backend:  <http://localhost:3001>
-- Postgres: `localhost:5432` (db `ims_db`, user `ims_user`)
+- Postgres: `localhost:5432` (db / user / password come from `backend/.env`)
 
 ### Root scripts (`package.json`)
 | Script | Does |
@@ -301,14 +282,14 @@ npm run dev
 
 ## First-time login
 
-The backend ensures a default superadmin exists on first boot:
+On first boot the system creates a **temporary setup-only superadmin account**. The exact credentials are printed in the backend console and shown on the login screen of a fresh install.
 
-| Field | Value |
-|-------|-------|
-| Email | `admin@ims.local` |
-| Password | `changeme123` |
+> ⚠️ **Security**
+> - Change the default credentials immediately during initial setup.
+> - Do not expose the app on a public network before completing initial setup.
+> - The default account is invalidated as soon as the setup form is submitted.
 
-Logging in with that account redirects to `/initial-setup` — set your real name, email, and a new password before anything else opens.
+Logging in with the default account is redirected to `/initial-setup` — set your real name, email, and a new password before anything else opens.
 
 After setup:
 1. Create departments at `/admin/departments`
@@ -323,13 +304,15 @@ After setup:
 
 `backend/.env`:
 ```env
-DATABASE_URL="postgresql://ims_user:ims_password_secure@localhost:5432/ims_db"
-JWT_SECRET="change-this-to-a-strong-random-secret"
+DATABASE_URL="postgresql://<db_user>:<db_password>@<host>:5432/<db_name>"
+JWT_SECRET="<generate-a-strong-random-secret>"
 NODE_ENV="development"
 PORT=3001
 # Comma-separated origins for CORS (production)
 # ALLOWED_ORIGINS="https://yourdomain.com,https://app.yourdomain.com"
 ```
+
+Generate `JWT_SECRET` with something like `openssl rand -base64 48`. Use a unique, long, random value per deployment.
 
 The frontend needs no env vars — `vite.config.ts` proxies `/api` to `http://localhost:3001` in dev.
 
@@ -349,7 +332,7 @@ The frontend needs no env vars — `vite.config.ts` proxies `/api` to `http://lo
 | Floor-plan editor | ✓ | ✓ | ✓ (own dept) |
 | CSV import / export / corrector | ✓ | ✓ | ✓ (own dept) |
 | Audit log | ✓ | ✓ | – |
-| Superadmin danger zone | ✓ | – | – |
+| Superadmin maintenance | ✓ | – | – |
 
 ---
 
@@ -359,9 +342,10 @@ The frontend needs no env vars — `vite.config.ts` proxies `/api` to `http://lo
 - Department scoping enforced in `backend/src/middleware/auth.ts` via `req.departmentId` / `req.departmentIds`
 - Soft-delete pattern via `DeleteRequest` for staff
 - Audit log captures user, entity, JSON change snapshot, IP
-- Never commit `backend/.env` — use `backend/.env.example`
-- Change `admin@ims.local` / `changeme123` immediately on first login
-- Use HTTPS in production; rotate `JWT_SECRET` periodically
+- Never commit `backend/.env` — use `backend/.env.example` as a template
+- Change the default superadmin credentials immediately on first login (do not expose the app publicly before initial setup is complete)
+- Generate a strong, unique `JWT_SECRET` per deployment and rotate it periodically
+- Use HTTPS in production
 
 ---
 
