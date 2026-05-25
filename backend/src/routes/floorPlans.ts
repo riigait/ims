@@ -1,9 +1,8 @@
 import express, { Router, Request, Response } from 'express';
-import { PrismaClient } from '@prisma/client';
+import prisma from '../utils/prisma';
 import { AuthRequest } from '../middleware/auth';
 
 const router = Router();
-const prisma = new PrismaClient();
 
 // Get all floor plans
 router.get('/', async (req: AuthRequest, res: Response) => {

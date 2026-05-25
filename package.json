@@ -4,7 +4,7 @@
   "description": "Inventory Management System with Interactive 2D Floor Plan Builder",
   "private": true,
   "scripts": {
-    "dev": "concurrently -n frontend,backend -c cyan,yellow \"npm run frontend:dev\" \"npm run backend:dev\"",
+    "dev": "node scripts/dev-start.js",
     "frontend:install": "cd frontend && npm install",
     "backend:install": "cd backend && npm install",
     "install": "npm run frontend:install && npm run backend:install",

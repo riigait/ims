@@ -1,9 +1,8 @@
 import { Router, Response } from 'express';
-import { PrismaClient } from '@prisma/client';
+import prisma from '../utils/prisma';
 import { AuthRequest, adminMiddleware } from '../middleware/auth';
 
 const router = Router();
-const prisma = new PrismaClient();
 
 // Only admins can view audit logs
 router.get('/', adminMiddleware, async (req: AuthRequest, res: Response) => {

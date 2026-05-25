@@ -1,11 +1,10 @@
 import { Router, Request, Response } from 'express';
-import { PrismaClient } from '@prisma/client';
+import prisma from '../utils/prisma';
 import { authMiddleware, AuthRequest } from '../middleware/auth';
 import crypto from 'crypto';
 import bcrypt from 'bcryptjs';
 
 const router = Router();
-const prisma = new PrismaClient();
 
 // Generate invite code (admin only)
 router.post('/generate', authMiddleware, async (req: AuthRequest, res: Response) => {

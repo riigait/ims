@@ -29,6 +29,9 @@ Claude must NOT:
 13. Print or expose secrets.
 14. Commit changes automatically.
 15. Delete files without approval.
+16. Show code previews or before/after comparisons when editing.
+17. Print full file contents after making changes.
+18. Show diffs or code blocks just to confirm what was changed — describe it in words instead.
 
 ---
 
@@ -61,56 +64,68 @@ Do not inspect these unless I specifically ask:
 
 Project-specific instructions should be placed in:
 
-```text
+```
 PROJECT_CONTEXT.md
+```
 
-Do not read PROJECT_CONTEXT.md automatically unless:
+Do not read `PROJECT_CONTEXT.md` automatically unless:
 
-I ask you to read it.
-The current task needs project-specific rules.
-You are unsure about the project direction.
+- I ask you to read it.
+- The current task needs project-specific rules.
+- You are unsure about the project direction.
 
-Keep CLAUDE.md focused on Claude Code usage rules only.
+Keep `CLAUDE.md` focused on Claude Code usage rules only.
 
-Workflow For Every Task
+---
+
+## Workflow For Every Task
 
 Before editing, Claude must briefly say:
 
-What was found
-Which files need to be inspected
-What will be changed
-What will not be touched
+- What was found
+- Which files need to be inspected
+- What will be changed
+- What will not be touched
 
 Then follow this process:
 
-Understand the task.
-Inspect only the smallest number of files needed.
-Make the smallest safe change.
-Do not touch unrelated code.
-Test only the affected area.
-Stop after the change and summarize briefly.
-Search Rules
+1. Understand the task.
+2. Inspect only the smallest number of files needed.
+3. Make the smallest safe change.
+4. Do not touch unrelated code.
+5. Test only the affected area.
+6. Stop after the change and summarize briefly.
+
+---
+
+## Search Rules
 
 When searching code:
 
-Use targeted search terms.
-Search only likely folders.
-Do not open every search result.
-Stop once the correct file is found.
-Do not search dependency or generated folders.
+- Use targeted search terms.
+- Search only likely folders.
+- Do not open every search result.
+- Stop once the correct file is found.
+- Do not search dependency or generated folders.
 
 Avoid broad commands like:
 
+```
 find .
 ls -R
 cat large-file
-search everything
+```
 
 Prefer targeted commands like:
 
+```
 grep -n "keyword" file
 sed -n '1,120p' file
-Testing Rules
+```
+
+---
+
+## Testing Rules
 
 Do not test many things automatically.
 
@@ -118,18 +133,21 @@ Before running tests, explain what test will be run and why.
 
 Prefer:
 
-Run the smallest related test.
-Check only the affected page or function.
-Fix one error at a time.
-Stop if the error is unclear and ask.
+- Run the smallest related test.
+- Check only the affected page or function.
+- Fix one error at a time.
+- Stop if the error is unclear and ask.
 
 Avoid:
 
-full test suite repeatedly
-full build repeatedly
-repeated install commands
-random trial-and-error fixes
-Terminal Output Rules
+- Full test suite repeatedly
+- Full build repeatedly
+- Repeated install commands
+- Random trial-and-error fixes
+
+---
+
+## Terminal Output Rules
 
 Avoid commands that produce huge output.
 
@@ -137,7 +155,9 @@ If command output is long, summarize only the important error lines.
 
 Do not paste unnecessary logs.
 
-Model Usage Rule
+---
+
+## Model Usage Rule
 
 Use the cheapest and fastest model available for normal coding.
 
@@ -145,80 +165,100 @@ Use Haiku if available.
 
 Use Sonnet or Opus only for:
 
-complex debugging
-architecture decisions
-major design planning
-difficult multi-file reasoning
+- Complex debugging
+- Architecture decisions
+- Major design planning
+- Difficult multi-file reasoning
 
 If Claude wants to use Sonnet or Opus, explain why first.
 
-Claude Code Commands
+---
 
-Use this to check current usage:
+## Claude Code Commands
 
+Check current usage:
+
+```
 /usage
+```
 
-Use this after finishing a clear phase but continuing the same topic:
+After finishing a clear phase but continuing the same topic:
 
-/compact Keep only current task goal, files changed, important decisions, errors fixed, and next step.
+```
+/compact
+```
 
-Use this when switching to a different task:
+Keep only: current task goal, files changed, important decisions, errors fixed, and next step.
 
+When switching to a different task:
+
+```
 /clear
+```
 
 Recommended starting prompt:
 
+```
 /clear
-
 Read CLAUDE.md first and follow it strictly.
-
 Do not scan the whole repository.
 Do not run full tests.
 First tell me the smallest set of files you need to inspect.
-Dependency Rules
+```
+
+---
+
+## Dependency Rules
 
 Do not install packages unless necessary.
 
 Before adding a package, explain:
 
-Package:
-Reason:
-Alternative without package:
-Why package is better:
+- **Package:** name
+- **Reason:** why it is needed
+- **Alternative without package:** what can be done instead
+- **Why package is better:** clear justification
 
 Prefer existing project libraries first.
 
-Error Fixing Rule
+---
+
+## Error Fixing Rule
 
 When fixing errors:
 
-Read the exact error.
-Identify the file causing it.
-Fix only the related issue.
-Do not guess and change many files.
-Stop after one fix and explain the result.
+- Read the exact error.
+- Identify the file causing it.
+- Fix only the related issue.
+- Do not guess and change many files.
+- Stop after one fix and explain the result.
 
 Avoid trial-and-error coding.
 
-Security Rule
+---
+
+## Security Rule
 
 Never print, edit, or commit secrets such as:
 
-passwords
-API keys
-tokens
-database credentials
-private keys
-private URLs
+- Passwords
+- API keys
+- Tokens
+- Database credentials
+- Private keys
+- Private URLs
 
-Use .env for sensitive values.
+Use `.env` for sensitive values.
 
-Only update .env.example with safe placeholders.
+Only update `.env.example` with safe placeholders.
 
-Final Response Format
+---
+
+## Final Response Format
 
 After finishing a task, respond only with:
 
+```
 Files checked:
 - file/path
 
@@ -233,7 +273,11 @@ How to test:
 
 Next step:
 - one recommended next step only
-Final Reminder
+```
+
+---
+
+## Final Reminder
 
 Build small.
 
@@ -246,9 +290,3 @@ Explain short.
 Do not overbuild.
 
 Ask first before large changes.
-
-
-Also create an empty file beside it:
-
-```text
-PROJECT_CONTEXT.md

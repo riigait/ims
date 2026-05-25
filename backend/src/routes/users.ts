@@ -1,10 +1,9 @@
 import { Router, Request, Response } from 'express';
-import { PrismaClient } from '@prisma/client';
+import prisma from '../utils/prisma';
 import { authMiddleware, AuthRequest } from '../middleware/auth';
 import bcrypt from 'bcryptjs';
 
 const router = Router();
-const prisma = new PrismaClient();
 
 // List all users (admin/superadmin only) — superadmin sees all, admin sees admin+staff only
 router.get('/', authMiddleware, async (req: AuthRequest, res: Response) => {

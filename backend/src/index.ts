@@ -1,7 +1,8 @@
-import express from 'express';
+import express, { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
 import 'dotenv/config';
 import { authMiddleware } from './middleware/auth';
+import { checkDatabaseConnection } from './utils/prisma';
 import authRoutes from './routes/auth';
 import productsRoutes from './routes/products';
 import categoriesRoutes from './routes/categories';
@@ -23,7 +24,11 @@ const app = express();
 const PORT = process.env.PORT || 3001;
 
 // Middleware
-app.use(cors());
+const allowedOrigins = process.env.ALLOWED_ORIGINS
+  ? process.env.ALLOWED_ORIGINS.split(',')
+  : ['http://localhost:5173', 'http://localhost:3000'];
+
+app.use(cors({ origin: allowedOrigins, credentials: true }));
 app.use(express.json());
 
 // Routes
@@ -52,11 +57,19 @@ app.get('/api/health', (req, res) => {
 });
 
 // Error handling
-app.use((err: any, req: any, res: any, next: any) => {
+app.use((err: Error & { status?: number }, req: Request, res: Response, next: NextFunction) => {
+  const name = err.constructor.name;
+  if (name === 'PrismaClientInitializationError' || (err.message && err.message.includes("Can't reach database"))) {
+    console.error('❌ Database is not running. Start it with: docker-compose up -d');
+    return res.status(503).json({ error: 'Database is not available. Please try again later.' });
+  }
   console.error(err);
-  res.status(err.status || 500).json({ error: err.message || 'Internal server error' });
+  res.status((err as any).status || 500).json({ error: err.message || 'Internal server error' });
 });
 
-app.listen(Number(PORT), '0.0.0.0', () => {
-  console.log(`Server running on http://0.0.0.0:${PORT}`);
+checkDatabaseConnection().then(() => {
+  app.listen(Number(PORT), '0.0.0.0', () => {
+    console.log(`✅ Database connected`);
+    console.log(`🚀 Server running on http://0.0.0.0:${PORT}`);
+  });
 });

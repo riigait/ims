@@ -1,10 +1,9 @@
 import express, { Router, Request, Response } from 'express';
-import { PrismaClient } from '@prisma/client';
+import prisma from '../utils/prisma';
 import { AuthRequest } from '../middleware/auth';
 import { csvToJson, jsonToCsv } from '../utils/csv';
 
 const router = Router();
-const prisma = new PrismaClient();
 
 // Get all locations
 router.get('/', async (req: AuthRequest, res: Response) => {
