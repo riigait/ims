@@ -36,9 +36,10 @@ const MOVEMENT_LABEL: Record<string, string> = {
 };
 
 const emptyForm = {
-  assetTag: '', barcode: '', modelNumber: '', serialNumber: '', macId: '',
-  dateStock: '', condition: 'new', warrantyExpiry: '', warrantyNotes: '',
-  currentStatus: 'active', currentLocationId: '', notes: '',
+  assetTag: '', barcode: '', brand: '', itemType: '', modelNumber: '',
+  serialNumber: '', macId: '', dateStock: '', condition: 'new',
+  warrantyExpiry: '', warrantyNotes: '', currentStatus: 'active',
+  currentLocationId: '', custodian: '', lastCheckedDate: '', checkedBy: '', notes: '',
 };
 
 function Field({ label, value }: { label: string; value?: string | null }) {
@@ -74,7 +75,7 @@ export default function InventoryItems() {
   const [filterStatus, setFilterStatus] = useState('');
   const [filterLocation, setFilterLocation] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
-  const pageSize = 20;
+  const [pageSize, setPageSize] = useState(20);
 
   const fetchData = async () => {
     try {
@@ -97,6 +98,7 @@ export default function InventoryItems() {
 
   const openDrawer = async (item: any) => {
     setDrawerItem(item);
+    setEditingItem(null);
     setDrawerMovements([]);
     setDrawerMovementsLoading(true);
     try {
@@ -109,6 +111,7 @@ export default function InventoryItems() {
 
   const closeDrawer = () => {
     setDrawerItem(null);
+    setEditingItem(null);
     setDrawerMovements([]);
   };
 
@@ -116,6 +119,8 @@ export default function InventoryItems() {
     setFormData({
       assetTag: item.assetTag || '',
       barcode: item.barcode || '',
+      brand: item.brand || '',
+      itemType: item.itemType || '',
       modelNumber: item.modelNumber || '',
       serialNumber: item.serialNumber || '',
       macId: item.macId || '',
@@ -125,6 +130,9 @@ export default function InventoryItems() {
       warrantyNotes: item.warrantyNotes || '',
       currentStatus: item.currentStatus || 'active',
       currentLocationId: item.currentLocationId || '',
+      custodian: item.custodian || '',
+      lastCheckedDate: item.lastCheckedDate ? new Date(item.lastCheckedDate).toISOString().split('T')[0] : '',
+      checkedBy: item.checkedBy || '',
       notes: item.notes || '',
     });
     setEditingItem(item);
@@ -140,6 +148,7 @@ export default function InventoryItems() {
         currentLocationId: formData.currentLocationId || null,
         dateStock: formData.dateStock || null,
         warrantyExpiry: formData.warrantyExpiry || null,
+        lastCheckedDate: formData.lastCheckedDate || null,
         assetTag: formData.assetTag || null,
         barcode: formData.barcode || null,
       });
@@ -274,7 +283,7 @@ export default function InventoryItems() {
       )}
 
       <div className="mt-4">
-        <Pagination currentPage={currentPage} totalItems={filtered.length} pageSize={pageSize} onPageChange={setCurrentPage} />
+        <Pagination currentPage={currentPage} totalItems={filtered.length} pageSize={pageSize} onPageChange={setCurrentPage} onPageSizeChange={(size) => { setPageSize(size); setCurrentPage(1); }} />
       </div>
 
       {/* Side Drawer */}
@@ -306,64 +315,124 @@ export default function InventoryItems() {
             {/* Drawer Body */}
             <div className="flex-1 overflow-y-auto px-6 py-4 space-y-6">
 
-              {editingItem?.id === drawerItem.id ? (
+              {editingItem ? (
                 /* Inline Edit Form */
-                <form onSubmit={handleSubmit} className="space-y-4">
-                  <h3 className="font-semibold text-[var(--text)]">Edit Details</h3>
-                  <div className="grid grid-cols-2 gap-3">
-                    {[
-                      { field: 'assetTag', label: 'Asset Tag', placeholder: 'IMS-2026-000001' },
-                      { field: 'barcode', label: 'Barcode', placeholder: 'Barcode value' },
-                      { field: 'serialNumber', label: 'Serial Number', placeholder: 'SN123456' },
-                      { field: 'macId', label: 'MAC Address', placeholder: '00:1A:2B:3C:4D:5E' },
-                      { field: 'modelNumber', label: 'Model Number', placeholder: 'e.g. Archer C24' },
-                      { field: 'dateStock', label: 'Date Received', type: 'date' },
-                      { field: 'warrantyExpiry', label: 'Warranty Expiry', type: 'date' },
-                    ].map(({ field, label, placeholder, type }) => (
-                      <div key={field}>
-                        <label className="block text-xs font-medium text-[var(--text-muted)] mb-1">{label}</label>
-                        <input type={type || 'text'} value={(formData as any)[field]}
-                          onChange={e => setFormData({ ...formData, [field]: e.target.value })}
-                          placeholder={placeholder}
+                <form onSubmit={handleSubmit} className="space-y-5">
+                  {/* Identification */}
+                  <div>
+                    <h4 className="text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wider mb-2">Identification</h4>
+                    <div className="grid grid-cols-2 gap-2">
+                      {[
+                        { field: 'assetTag', label: 'Asset Tag', placeholder: 'IMS-2026-000001' },
+                        { field: 'barcode', label: 'Barcode', placeholder: 'Barcode value' },
+                        { field: 'brand', label: 'Brand', placeholder: 'e.g. Cisco' },
+                        { field: 'itemType', label: 'Item Type', placeholder: 'e.g. Hardware' },
+                        { field: 'modelNumber', label: 'Model Number', placeholder: 'e.g. Archer C24' },
+                        { field: 'serialNumber', label: 'Serial Number', placeholder: 'SN123456' },
+                        { field: 'macId', label: 'MAC Address', placeholder: '00:1A:2B:3C:4D:5E' },
+                      ].map(({ field, label, placeholder }) => (
+                        <div key={field}>
+                          <label className="block text-xs font-medium text-[var(--text-muted)] mb-1">{label}</label>
+                          <input type="text" value={(formData as any)[field]}
+                            onChange={e => setFormData({ ...formData, [field]: e.target.value })}
+                            placeholder={placeholder}
+                            className="w-full px-3 py-1.5 text-sm border border-[var(--border)] rounded-lg bg-[var(--surface)] text-[var(--text)]" />
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                  {/* Condition & Status */}
+                  <div>
+                    <h4 className="text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wider mb-2">Condition & Status</h4>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="block text-xs font-medium text-[var(--text-muted)] mb-1">Condition</label>
+                        <select value={formData.condition} onChange={e => setFormData({ ...formData, condition: e.target.value })}
+                          className="w-full px-3 py-1.5 text-sm border border-[var(--border)] rounded-lg bg-[var(--surface)] text-[var(--text)]">
+                          {CONDITION_OPTIONS.map(c => <option key={c} value={c}>{c.charAt(0).toUpperCase() + c.slice(1)}</option>)}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-[var(--text-muted)] mb-1">Status</label>
+                        <select value={formData.currentStatus} onChange={e => setFormData({ ...formData, currentStatus: e.target.value })}
+                          className="w-full px-3 py-1.5 text-sm border border-[var(--border)] rounded-lg bg-[var(--surface)] text-[var(--text)]">
+                          {STATUS_OPTIONS.map(s => <option key={s} value={s}>{s.charAt(0).toUpperCase() + s.slice(1)}</option>)}
+                        </select>
+                      </div>
+                    </div>
+                  </div>
+                  {/* Location & Custodian */}
+                  <div>
+                    <h4 className="text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wider mb-2">Location & Assignment</h4>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div className="col-span-2">
+                        <label className="block text-xs font-medium text-[var(--text-muted)] mb-1">Location</label>
+                        <select value={formData.currentLocationId} onChange={e => setFormData({ ...formData, currentLocationId: e.target.value })}
+                          className="w-full px-3 py-1.5 text-sm border border-[var(--border)] rounded-lg bg-[var(--surface)] text-[var(--text)]">
+                          <option value="">— No location —</option>
+                          {locations.map(l => <option key={l.id} value={l.id}>{l.name} ({l.type})</option>)}
+                        </select>
+                      </div>
+                      <div className="col-span-2">
+                        <label className="block text-xs font-medium text-[var(--text-muted)] mb-1">Assigned To / Custodian</label>
+                        <input type="text" value={formData.custodian}
+                          onChange={e => setFormData({ ...formData, custodian: e.target.value })}
+                          placeholder="Name of responsible person"
                           className="w-full px-3 py-1.5 text-sm border border-[var(--border)] rounded-lg bg-[var(--surface)] text-[var(--text)]" />
                       </div>
-                    ))}
-                    <div>
-                      <label className="block text-xs font-medium text-[var(--text-muted)] mb-1">Condition</label>
-                      <select value={formData.condition} onChange={e => setFormData({ ...formData, condition: e.target.value })}
-                        className="w-full px-3 py-1.5 text-sm border border-[var(--border)] rounded-lg bg-[var(--surface)] text-[var(--text)]">
-                        {CONDITION_OPTIONS.map(c => <option key={c} value={c}>{c.charAt(0).toUpperCase() + c.slice(1)}</option>)}
-                      </select>
                     </div>
-                    <div>
-                      <label className="block text-xs font-medium text-[var(--text-muted)] mb-1">Status</label>
-                      <select value={formData.currentStatus} onChange={e => setFormData({ ...formData, currentStatus: e.target.value })}
-                        className="w-full px-3 py-1.5 text-sm border border-[var(--border)] rounded-lg bg-[var(--surface)] text-[var(--text)]">
-                        {STATUS_OPTIONS.map(s => <option key={s} value={s}>{s.charAt(0).toUpperCase() + s.slice(1)}</option>)}
-                      </select>
+                  </div>
+                  {/* Dates */}
+                  <div>
+                    <h4 className="text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wider mb-2">Dates & Checks</h4>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="block text-xs font-medium text-[var(--text-muted)] mb-1">Date Received</label>
+                        <input type="date" value={formData.dateStock}
+                          onChange={e => setFormData({ ...formData, dateStock: e.target.value })}
+                          className="w-full px-3 py-1.5 text-sm border border-[var(--border)] rounded-lg bg-[var(--surface)] text-[var(--text)]" />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-[var(--text-muted)] mb-1">Last Checked Date</label>
+                        <input type="date" value={formData.lastCheckedDate}
+                          onChange={e => setFormData({ ...formData, lastCheckedDate: e.target.value })}
+                          className="w-full px-3 py-1.5 text-sm border border-[var(--border)] rounded-lg bg-[var(--surface)] text-[var(--text)]" />
+                      </div>
+                      <div className="col-span-2">
+                        <label className="block text-xs font-medium text-[var(--text-muted)] mb-1">Checked By</label>
+                        <input type="text" value={formData.checkedBy}
+                          onChange={e => setFormData({ ...formData, checkedBy: e.target.value })}
+                          placeholder="Name of person who checked"
+                          className="w-full px-3 py-1.5 text-sm border border-[var(--border)] rounded-lg bg-[var(--surface)] text-[var(--text)]" />
+                      </div>
                     </div>
-                    <div className="col-span-2">
-                      <label className="block text-xs font-medium text-[var(--text-muted)] mb-1">Location</label>
-                      <select value={formData.currentLocationId} onChange={e => setFormData({ ...formData, currentLocationId: e.target.value })}
-                        className="w-full px-3 py-1.5 text-sm border border-[var(--border)] rounded-lg bg-[var(--surface)] text-[var(--text)]">
-                        <option value="">— No location —</option>
-                        {locations.map(l => <option key={l.id} value={l.id}>{l.name} ({l.type})</option>)}
-                      </select>
+                  </div>
+                  {/* Warranty */}
+                  <div>
+                    <h4 className="text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wider mb-2">Warranty</h4>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div className="col-span-2">
+                        <label className="block text-xs font-medium text-[var(--text-muted)] mb-1">Warranty Expiry</label>
+                        <input type="date" value={formData.warrantyExpiry}
+                          onChange={e => setFormData({ ...formData, warrantyExpiry: e.target.value })}
+                          className="w-full px-3 py-1.5 text-sm border border-[var(--border)] rounded-lg bg-[var(--surface)] text-[var(--text)]" />
+                      </div>
+                      <div className="col-span-2">
+                        <label className="block text-xs font-medium text-[var(--text-muted)] mb-1">Warranty Notes</label>
+                        <input type="text" value={formData.warrantyNotes}
+                          onChange={e => setFormData({ ...formData, warrantyNotes: e.target.value })}
+                          placeholder="Warranty details..."
+                          className="w-full px-3 py-1.5 text-sm border border-[var(--border)] rounded-lg bg-[var(--surface)] text-[var(--text)]" />
+                      </div>
                     </div>
-                    <div className="col-span-2">
-                      <label className="block text-xs font-medium text-[var(--text-muted)] mb-1">Warranty Notes</label>
-                      <input type="text" value={formData.warrantyNotes}
-                        onChange={e => setFormData({ ...formData, warrantyNotes: e.target.value })}
-                        placeholder="Warranty details..."
-                        className="w-full px-3 py-1.5 text-sm border border-[var(--border)] rounded-lg bg-[var(--surface)] text-[var(--text)]" />
-                    </div>
-                    <div className="col-span-2">
-                      <label className="block text-xs font-medium text-[var(--text-muted)] mb-1">Notes</label>
-                      <textarea value={formData.notes} rows={2}
-                        onChange={e => setFormData({ ...formData, notes: e.target.value })}
-                        placeholder="Additional notes..."
-                        className="w-full px-3 py-1.5 text-sm border border-[var(--border)] rounded-lg bg-[var(--surface)] text-[var(--text)]" />
-                    </div>
+                  </div>
+                  {/* Notes */}
+                  <div>
+                    <label className="block text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wider mb-2">Notes</label>
+                    <textarea value={formData.notes} rows={2}
+                      onChange={e => setFormData({ ...formData, notes: e.target.value })}
+                      placeholder="Additional notes..."
+                      className="w-full px-3 py-1.5 text-sm border border-[var(--border)] rounded-lg bg-[var(--surface)] text-[var(--text)]" />
                   </div>
                   {formError && <p className="text-red-500 text-sm">{formError}</p>}
                   <div className="flex gap-2">
@@ -373,27 +442,58 @@ export default function InventoryItems() {
                 </form>
               ) : (
                 <>
-                  {/* Identity */}
+                  {/* Item Info */}
                   <section>
-                    <h3 className="text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wider mb-3">Identity</h3>
+                    <h3 className="text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wider mb-3">Item Information</h3>
                     <div className="grid grid-cols-2 gap-3">
+                      <Field label="Item Name" value={drawerItem.product?.name} />
+                      <Field label="Category" value={drawerItem.product?.category?.name} />
+                      <Field label="Item Type" value={drawerItem.itemType} />
+                      <Field label="Brand" value={drawerItem.brand} />
+                      <Field label="Model Number" value={drawerItem.modelNumber} />
                       <Field label="Asset Tag" value={drawerItem.assetTag} />
                       <Field label="Barcode" value={drawerItem.barcode} />
-                      <Field label="Serial Number" value={drawerItem.serialNumber} />
-                      <Field label="MAC Address" value={drawerItem.macId} />
-                      <Field label="Model Number" value={drawerItem.modelNumber} />
-                      <Field label="Product SKU" value={drawerItem.product?.sku} />
                     </div>
                   </section>
 
-                  {/* Condition & Status */}
+                  {/* Stock */}
                   <section>
-                    <h3 className="text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wider mb-3">Condition & Location</h3>
+                    <h3 className="text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wider mb-3">Stock</h3>
                     <div className="grid grid-cols-2 gap-3">
+                      <Field label="Quantity" value="1" />
+                      <Field label="Unit" value={drawerItem.product?.unit} />
                       <Field label="Condition" value={drawerItem.condition ? drawerItem.condition.charAt(0).toUpperCase() + drawerItem.condition.slice(1) : null} />
+                      <Field label="Status" value={drawerItem.currentStatus} />
+                    </div>
+                  </section>
+
+                  {/* Tracking IDs */}
+                  <section>
+                    <h3 className="text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wider mb-3">Tracking IDs</h3>
+                    <div className="grid grid-cols-2 gap-3">
+                      <Field label="Serial Number" value={drawerItem.serialNumber} />
+                      <Field label="MAC Address" value={drawerItem.macId} />
+                    </div>
+                  </section>
+
+                  {/* Location */}
+                  <section>
+                    <h3 className="text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wider mb-3">Location & Assignment</h3>
+                    <div className="grid grid-cols-2 gap-3">
                       <Field label="Location" value={drawerItem.currentLocation?.name} />
+                      <Field label="Department" value={drawerItem.product?.department?.name} />
+                      <Field label="Assigned To / Custodian" value={drawerItem.custodian} />
+                    </div>
+                  </section>
+
+                  {/* Procurement */}
+                  <section>
+                    <h3 className="text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wider mb-3">Procurement</h3>
+                    <div className="grid grid-cols-2 gap-3">
+                      <Field label="Supplier / Vendor" value={drawerItem.product?.supplier} />
                       <Field label="Date Received" value={drawerItem.dateStock ? new Date(drawerItem.dateStock).toLocaleDateString() : null} />
-                      <Field label="Date Added" value={new Date(drawerItem.createdAt).toLocaleDateString()} />
+                      <Field label="Unit Cost" value={drawerItem.product?.unitPrice ? `$${Number(drawerItem.product.unitPrice).toFixed(2)}` : null} />
+                      <Field label="Total Cost" value={drawerItem.product?.unitPrice ? `$${Number(drawerItem.product.unitPrice).toFixed(2)}` : null} />
                     </div>
                   </section>
 
@@ -403,6 +503,16 @@ export default function InventoryItems() {
                     <div className="grid grid-cols-2 gap-3">
                       <Field label="Warranty Expiry" value={drawerItem.warrantyExpiry ? new Date(drawerItem.warrantyExpiry).toLocaleDateString() : null} />
                       <Field label="Warranty Notes" value={drawerItem.warrantyNotes} />
+                    </div>
+                  </section>
+
+                  {/* Audit */}
+                  <section>
+                    <h3 className="text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wider mb-3">Audit</h3>
+                    <div className="grid grid-cols-2 gap-3">
+                      <Field label="Last Checked Date" value={drawerItem.lastCheckedDate ? new Date(drawerItem.lastCheckedDate).toLocaleDateString() : null} />
+                      <Field label="Checked By" value={drawerItem.checkedBy} />
+                      <Field label="Date Added" value={new Date(drawerItem.createdAt).toLocaleDateString()} />
                     </div>
                   </section>
 

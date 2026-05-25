@@ -17,7 +17,7 @@ router.get('/', async (req: AuthRequest, res: Response) => {
     }
     const stockDetails = await prisma.stockDetail.findMany({
       where: whereFilter,
-      include: { product: true, currentLocation: true },
+      include: { product: { include: { category: true, department: true } }, currentLocation: true },
       orderBy: { createdAt: 'desc' },
     });
     res.json(stockDetails);
@@ -58,7 +58,7 @@ router.get('/:id', async (req: AuthRequest, res: Response) => {
   try {
     const stockDetail = await prisma.stockDetail.findUnique({
       where: { id: req.params.id },
-      include: { product: true, currentLocation: true, movementItems: true },
+      include: { product: { include: { category: true, department: true } }, currentLocation: true, movementItems: true },
     });
 
     if (!stockDetail) return res.status(404).json({ error: 'Stock detail not found' });
@@ -109,7 +109,7 @@ router.get('/:id/movements', async (req: AuthRequest, res: Response) => {
 // Create stock detail
 router.post('/', async (req: AuthRequest, res: Response) => {
   try {
-    const { productId, modelNumber, serialNumber, macId, dateStock, currentStatus, currentLocationId, notes, assetTag, barcode, condition, warrantyExpiry, warrantyNotes } = req.body;
+    const { productId, modelNumber, serialNumber, macId, dateStock, currentStatus, currentLocationId, notes, assetTag, barcode, condition, warrantyExpiry, warrantyNotes, brand, itemType, custodian, lastCheckedDate, checkedBy } = req.body;
 
     if (!productId) {
       return res.status(400).json({ error: 'productId is required' });
@@ -141,9 +141,14 @@ router.post('/', async (req: AuthRequest, res: Response) => {
         warrantyNotes: warrantyNotes || null,
         currentStatus: currentStatus || 'active',
         currentLocationId: currentLocationId || null,
+        brand: brand || null,
+        itemType: itemType || null,
+        custodian: custodian || null,
+        lastCheckedDate: lastCheckedDate ? new Date(lastCheckedDate) : null,
+        checkedBy: checkedBy || null,
         notes: notes || null,
       },
-      include: { product: true, currentLocation: true },
+      include: { product: { include: { category: true, department: true } }, currentLocation: true },
     });
 
     await logAudit({
@@ -164,7 +169,7 @@ router.post('/', async (req: AuthRequest, res: Response) => {
 // Update stock detail
 router.put('/:id', async (req: AuthRequest, res: Response) => {
   try {
-    const { modelNumber, serialNumber, macId, dateStock, currentStatus, currentLocationId, notes, assetTag, barcode, condition, warrantyExpiry, warrantyNotes } = req.body;
+    const { modelNumber, serialNumber, macId, dateStock, currentStatus, currentLocationId, notes, assetTag, barcode, condition, warrantyExpiry, warrantyNotes, brand, itemType, custodian, lastCheckedDate, checkedBy } = req.body;
 
     const stockDetail = await prisma.stockDetail.findUnique({
       where: { id: req.params.id },
@@ -192,9 +197,14 @@ router.put('/:id', async (req: AuthRequest, res: Response) => {
         warrantyNotes: warrantyNotes !== undefined ? (warrantyNotes || null) : stockDetail.warrantyNotes,
         currentStatus: currentStatus !== undefined ? currentStatus : stockDetail.currentStatus,
         currentLocationId: currentLocationId !== undefined ? (currentLocationId || null) : stockDetail.currentLocationId,
+        brand: brand !== undefined ? (brand || null) : stockDetail.brand,
+        itemType: itemType !== undefined ? (itemType || null) : stockDetail.itemType,
+        custodian: custodian !== undefined ? (custodian || null) : stockDetail.custodian,
+        lastCheckedDate: lastCheckedDate !== undefined ? (lastCheckedDate ? new Date(lastCheckedDate) : null) : stockDetail.lastCheckedDate,
+        checkedBy: checkedBy !== undefined ? (checkedBy || null) : stockDetail.checkedBy,
         notes: notes !== undefined ? notes : stockDetail.notes,
       },
-      include: { product: true, currentLocation: true },
+      include: { product: { include: { category: true, department: true } }, currentLocation: true },
     });
 
     await logAudit({

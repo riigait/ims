@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { X, Trash2 } from 'lucide-react';
 import { stockMovementsApi, productsApi, locationsApi, departmentsApi } from '@/services/api';
 import { StockMovement, MovementType, Product, Location } from '@/types/inventory';
 import { StockMovementFilter } from '@/types/filters';
@@ -6,10 +7,8 @@ import { formatDate } from '@/utils/ids';
 import { filterStockMovements, sortStockMovements } from '@/utils/filterHelpers';
 import DataPageLayout from '@/components/layout/DataPageLayout';
 import Pagination from '@/components/Pagination';
-import ConfirmDialog from '@/components/ConfirmDialog';
 import StockDetails from '@/components/StockDetails';
 import { ALL_DEPARTMENTS_ID } from '@/constants/app';
-import { Trash2, X } from 'lucide-react';
 
 interface Department {
   id: string;
@@ -31,7 +30,6 @@ const MOVEMENT_OPTIONS: { value: MovementType; label: string; color: string }[] 
   { value: 'lost',          label: 'Lost',          color: 'bg-rose-100 text-rose-800' },
 ];
 
-// Options shown in the create form — opening_stock is system-generated, not manually selectable
 const FORM_MOVEMENT_OPTIONS = MOVEMENT_OPTIONS.filter(o => o.value !== 'opening_stock');
 
 const movementColor = (type: MovementType) =>
@@ -43,16 +41,7 @@ const movementLabel = (type: MovementType) =>
 const emptyForm = {
   movementType: 'stock_in' as MovementType,
   remarks: '',
-  items: [
-    {
-      stockDetailId: '',
-      productId: '',
-      quantity: 0,
-      fromLocationId: '',
-      toLocationId: '',
-      reason: '',
-    }
-  ],
+  items: [{ stockDetailId: '', productId: '', quantity: 0, fromLocationId: '', toLocationId: '', reason: '' }],
 };
 
 export default function StockMovements() {
@@ -62,19 +51,23 @@ export default function StockMovements() {
   const [locations, setLocations] = useState<Location[]>([]);
   const [departments, setDepartments] = useState<Department[]>([]);
   const [loading, setLoading] = useState(true);
-  const [showForm, setShowForm] = useState(false);
   const [showStockDetails, setShowStockDetails] = useState(false);
   const [selectedProductId, setSelectedProductId] = useState<string | null>(null);
-  const [formData, setFormData] = useState(emptyForm);
-  const [editingId, setEditingId] = useState<string | null>(null);
   const [filters, setFilters] = useState<StockMovementFilter & { departmentId?: string }>({
     search: '', movementType: undefined, dateRange: 'all', departmentId: undefined,
   });
   const [sortBy, setSortBy] = useState('recently-added');
   const [error, setError] = useState('');
-  const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
+
+  // Drawer
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [drawerItem, setDrawerItem] = useState<StockMovement | null>(null);
+  const [drawerIsNew, setDrawerIsNew] = useState(false);
+  const [formData, setFormData] = useState(emptyForm);
+  const [formError, setFormError] = useState('');
 
   const fetchData = async () => {
     try {
@@ -88,8 +81,8 @@ export default function StockMovements() {
       setProducts(productsRes.data);
       setLocations(locationsRes.data);
       setDepartments(deptRes.data);
-    } catch (error) {
-      console.error('Failed to fetch data:', error);
+    } catch {
+      console.error('Failed to fetch data');
     } finally {
       setLoading(false);
     }
@@ -103,62 +96,62 @@ export default function StockMovements() {
     return () => window.removeEventListener('storage', handleStorageChange);
   }, []);
 
+  const openNewDrawer = () => {
+    setDrawerItem(null);
+    setDrawerIsNew(true);
+    setFormData(emptyForm);
+    setFormError('');
+    setDrawerOpen(true);
+  };
+
+  const openViewDrawer = (movement: StockMovement) => {
+    setDrawerItem(movement);
+    setDrawerIsNew(false);
+    setFormError('');
+    setDrawerOpen(true);
+  };
+
+  const closeDrawer = () => {
+    setDrawerOpen(false);
+    setDrawerItem(null);
+    setDrawerIsNew(false);
+    setConfirmingDelete(false);
+    setFormData(emptyForm);
+    setFormError('');
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-
-    // Validate items - need either stockDetailId OR productId, plus valid quantity
     const validItems = formData.items.filter(item => (item.stockDetailId || item.productId) && item.quantity > 0);
     if (validItems.length === 0) {
-      setError('Please select at least one product and enter a valid quantity');
+      setFormError('Please select at least one product and enter a valid quantity');
       return;
     }
-
     try {
-      const payload = {
+      await stockMovementsApi.create({
         movementType: formData.movementType,
         remarks: formData.remarks || null,
         items: validItems,
-      };
-
-      if (editingId) {
-        await stockMovementsApi.update(editingId, payload);
-      } else {
-        await stockMovementsApi.create(payload);
-      }
+      });
       await fetchData();
-      setShowForm(false);
-      setFormData(emptyForm);
-      setEditingId(null);
+      closeDrawer();
       setError('');
-    } catch (error: any) {
-      const msg = error?.response?.data?.error ?? (editingId ? 'Failed to update stock movement' : 'Failed to create stock movement');
-      setError(msg);
+    } catch (err: any) {
+      setFormError(err?.response?.data?.error ?? 'Failed to create stock movement');
     }
   };
 
-
-  const handleDelete = async (id: string) => {
-    setDeleteConfirm(id);
-  };
-
-  const confirmDelete = async () => {
-    if (!deleteConfirm) return;
+  const doDelete = async () => {
+    if (!drawerItem) return;
     try {
-      await stockMovementsApi.delete(deleteConfirm);
+      await stockMovementsApi.delete(drawerItem.id);
       await fetchData();
-      setDeleteConfirm(null);
+      closeDrawer();
       setError('');
-    } catch (error: any) {
-      const msg = error?.response?.data?.error ?? 'Failed to delete stock movement';
-      setError(msg);
-      setDeleteConfirm(null);
+    } catch (err: any) {
+      setError(err?.response?.data?.error ?? 'Failed to delete stock movement');
+      setConfirmingDelete(false);
     }
-  };
-
-  const handleCloseForm = () => {
-    setShowForm(false);
-    setFormData(emptyForm);
-    setEditingId(null);
   };
 
   const getProductName = (productId: string) => products.find(p => p.id === productId)?.name ?? 'Unknown';
@@ -178,165 +171,35 @@ export default function StockMovements() {
 
   if (loading) return <div className="text-center py-12">Loading...</div>;
 
-  const formContent = (
-    <>
-      <h2 className="text-xl font-semibold mb-4 text-[var(--text)]">Record Stock Movement</h2>
-      <form onSubmit={handleSubmit} className="space-y-4">
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div>
-            <label htmlFor="movement-type" className="block text-sm font-medium text-[var(--text)] mb-1">Movement Type *</label>
-            <select id="movement-type" value={formData.movementType}
-              onChange={e => setFormData({ ...formData, movementType: e.target.value as MovementType })}
-              className="w-full px-4 py-2 border border-[var(--border)] rounded-lg bg-[var(--surface)] text-[var(--text)]">
-              {FORM_MOVEMENT_OPTIONS.map(o => (
-                <option key={o.value} value={o.value}>{o.label}</option>
-              ))}
-            </select>
-            <p className="text-xs text-[var(--text-muted)] mt-1">
-              {formData.movementType === 'stock_in' && 'ℹ️ Received goods or stock arriving'}
-              {formData.movementType === 'stock_out' && 'ℹ️ Sales, shipments, or stock leaving'}
-              {formData.movementType === 'adjustment' && 'ℹ️ Manual corrections or count differences'}
-              {formData.movementType === 'returned' && 'ℹ️ Customer returns or items coming back'}
-              {formData.movementType === 'damaged' && 'ℹ️ Damaged items being written off'}
-              {formData.movementType === 'transfer' && 'ℹ️ Moving stock between locations'}
-            </p>
-          </div>
-          <div>
-            <label htmlFor="movement-remarks" className="block text-sm font-medium text-[var(--text)] mb-1">General Remarks</label>
-            <input id="movement-remarks" type="text" value={formData.remarks}
-              onChange={e => setFormData({ ...formData, remarks: e.target.value })}
-              placeholder="e.g., Purchase order #123, Batch adjustment..."
-              className="w-full px-4 py-2 border border-[var(--border)] rounded-lg bg-[var(--surface)] text-[var(--text)]" />
-          </div>
-        </div>
-
-        <div className="border-t border-[var(--border)] pt-4">
-          <h3 className="text-sm font-semibold text-[var(--text)] mb-3">Items *</h3>
-          <div className="space-y-3">
-            {formData.items.map((item, idx) => (
-              <div key={idx} className="grid grid-cols-1 md:grid-cols-4 gap-3 p-3 bg-[var(--surface-2)] rounded-lg">
-                <div>
-                  <label className="block text-xs font-medium text-[var(--text)] mb-1">Product *</label>
-                  <select value={item.productId}
-                    onChange={e => {
-                      const newItems = [...formData.items];
-                      newItems[idx] = {
-                        ...item,
-                        productId: e.target.value,
-                        stockDetailId: '', // Leave empty - backend will create StockDetail
-                      };
-                      setFormData({ ...formData, items: newItems });
-                    }}
-                    className="w-full px-2 py-1 text-sm border border-[var(--border)] rounded bg-[var(--surface)] text-[var(--text)]">
-                    <option value="">Select product</option>
-                    {products.map(p => (
-                      <option key={p.id} value={p.id}>
-                        {p.name} (Stock: {p.currentStock})
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-[var(--text)] mb-1">Quantity *</label>
-                  <input type="number" min={1} value={item.quantity || ''}
-                    onChange={e => {
-                      const newItems = [...formData.items];
-                      newItems[idx].quantity = parseInt(e.target.value) || 0;
-                      setFormData({ ...formData, items: newItems });
-                    }}
-                    placeholder="0"
-                    className="w-full px-2 py-1 text-sm border border-[var(--border)] rounded bg-[var(--surface)] text-[var(--text)]" />
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-[var(--text)] mb-1">From Location</label>
-                  <select value={(item.fromLocationId as string) || ''}
-                    onChange={e => {
-                      const newItems = [...formData.items];
-                      newItems[idx].fromLocationId = e.target.value || '';
-                      setFormData({ ...formData, items: newItems });
-                    }}
-                    className="w-full px-2 py-1 text-sm border border-[var(--border)] rounded bg-[var(--surface)] text-[var(--text)]">
-                    <option value="">—</option>
-                    {locations.map(l => (
-                      <option key={l.id} value={l.id}>{l.name}</option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-[var(--text)] mb-1">To Location</label>
-                  <select value={(item.toLocationId as string) || ''}
-                    onChange={e => {
-                      const newItems = [...formData.items];
-                      newItems[idx].toLocationId = e.target.value || '';
-                      setFormData({ ...formData, items: newItems });
-                    }}
-                    className="w-full px-2 py-1 text-sm border border-[var(--border)] rounded bg-[var(--surface)] text-[var(--text)]">
-                    <option value="">—</option>
-                    {locations.map(l => (
-                      <option key={l.id} value={l.id}>{l.name}</option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-            ))}
-          </div>
-          <button type="button" onClick={() => setFormData({
-            ...formData,
-            items: [...formData.items, { stockDetailId: '', productId: '', quantity: 0, fromLocationId: '', toLocationId: '', reason: '' }]
-          })}
-            className="mt-2 text-sm px-3 py-1 bg-[var(--surface-2)] text-[var(--text)] rounded hover:bg-[var(--border)]">
-            + Add Item
-          </button>
-        </div>
-
-        <div className="flex gap-2">
-          <button type="submit" className="px-4 py-2 bg-[var(--primary)] text-white rounded-lg hover:bg-[var(--primary-hover)]">
-            Record Movement
-          </button>
-          <button type="button" onClick={handleCloseForm}
-            className="px-4 py-2 bg-[var(--surface-2)] text-[var(--text)] rounded-lg hover:bg-[var(--border)]">
-            Cancel
-          </button>
-        </div>
-      </form>
-    </>
-  );
-
   const filterContent = (
     <>
       <div className="flex gap-2">
-        <input id="search-movements" name="search" type="text" placeholder="Search by product name…"
+        <input type="text" placeholder="Search by product name…"
           value={filters.search} onChange={e => { setFilters({ ...filters, search: e.target.value }); setCurrentPage(1); }}
-          className="flex-1 px-4 py-2 border border-[var(--border)] rounded-lg text-sm bg-[var(--surface)] text-[var(--text)]" aria-label="Search stock movements" />
-        <select id="sort-by" name="sort-by" value={sortBy} onChange={e => { setSortBy(e.target.value); setCurrentPage(1); }}
-          className="px-3 py-2 border border-[var(--border)] rounded text-sm font-medium bg-[var(--surface-2)] text-[var(--text)]" aria-label="Sort by">
+          className="flex-1 px-4 py-2 border border-[var(--border)] rounded-lg text-sm bg-[var(--surface)] text-[var(--text)]" />
+        <select value={sortBy} onChange={e => { setSortBy(e.target.value); setCurrentPage(1); }}
+          className="px-3 py-2 border border-[var(--border)] rounded text-sm font-medium bg-[var(--surface-2)] text-[var(--text)]">
           <option value="recently-added">Sort: Recently Added</option>
           <option value="oldest">Sort: Oldest</option>
           <option value="product-name">Sort: Product Name</option>
-          <option value="quantity-high">Sort: Quantity (High to Low)</option>
-          <option value="quantity-low">Sort: Quantity (Low to High)</option>
+          <option value="quantity-high">Sort: Quantity (High)</option>
+          <option value="quantity-low">Sort: Quantity (Low)</option>
         </select>
-        <button onClick={clearAllFilters} className="text-xs px-3 py-1 bg-[var(--surface-2)] text-[var(--text-muted)] rounded hover:bg-[var(--border)] font-medium">
-          Clear
-        </button>
+        <button onClick={clearAllFilters} className="text-xs px-3 py-1 bg-[var(--surface-2)] text-[var(--text-muted)] rounded hover:bg-[var(--border)] font-medium">Clear</button>
       </div>
       <div className="flex gap-2 flex-wrap">
-        <select id="filter-movement-type" name="filter-movement-type" value={filters.movementType || ''}
+        <select value={filters.movementType || ''}
           onChange={e => { setFilters({ ...filters, movementType: e.target.value as any || undefined }); setCurrentPage(1); }}
-          className="px-3 py-2 border border-[var(--border)] rounded text-sm bg-[var(--surface)] text-[var(--text)]" aria-label="Filter by movement type">
+          className="px-3 py-2 border border-[var(--border)] rounded text-sm bg-[var(--surface)] text-[var(--text)]">
           <option value="">All Movement Types</option>
-          {MOVEMENT_OPTIONS.map(o => (
-            <option key={o.value} value={o.value}>{o.label}</option>
-          ))}
+          {MOVEMENT_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
         </select>
         {user.role === 'superadmin' && (
-          <select id="filter-department" name="filter-department" value={filters.departmentId || ''}
+          <select value={filters.departmentId || ''}
             onChange={e => { setFilters({ ...filters, departmentId: e.target.value || undefined }); setCurrentPage(1); }}
-            className="px-3 py-2 border border-[var(--border)] rounded text-sm bg-[var(--surface)] text-[var(--text)]" aria-label="Filter by department">
+            className="px-3 py-2 border border-[var(--border)] rounded text-sm bg-[var(--surface)] text-[var(--text)]">
             <option value="">All Departments</option>
-            {departments.map(dept => (
-              <option key={dept.id} value={dept.id}>{dept.name}</option>
-            ))}
+            {departments.map(dept => <option key={dept.id} value={dept.id}>{dept.name}</option>)}
           </select>
         )}
       </div>
@@ -345,35 +208,17 @@ export default function StockMovements() {
 
   return (
     <>
-      {deleteConfirm && (
-        <ConfirmDialog
-          title="Delete Stock Movement"
-          message="Are you sure you want to delete this stock movement? This will adjust the product stock accordingly."
-          confirmText="Delete"
-          cancelText="Cancel"
-          isDangerous
-          onConfirm={confirmDelete}
-          onCancel={() => setDeleteConfirm(null)}
-        />
-      )}
-
       {showStockDetails && selectedProductId && (
         <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
           <div className="bg-[var(--surface)] rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] overflow-y-auto">
             <div className="sticky top-0 bg-[var(--surface)] border-b border-[var(--border)] p-4 flex justify-between items-center">
               <h2 className="text-xl font-bold text-[var(--text)]">Manage Stock Details</h2>
-              <button
-                onClick={() => { setShowStockDetails(false); setSelectedProductId(null); }}
-                className="text-[var(--text-muted)] hover:text-[var(--text)]"
-              >
+              <button onClick={() => { setShowStockDetails(false); setSelectedProductId(null); }} className="text-[var(--text-muted)] hover:text-[var(--text)]">
                 <X size={24} />
               </button>
             </div>
             <div className="p-6">
-              <StockDetails
-                productId={selectedProductId}
-                productName={getProductName(selectedProductId)}
-              />
+              <StockDetails productId={selectedProductId} productName={getProductName(selectedProductId)} />
             </div>
           </div>
         </div>
@@ -382,96 +227,301 @@ export default function StockMovements() {
       <DataPageLayout
         title="Stock Movements"
         error={error}
-        showForm={showForm}
-        onAddClick={() => { setFormData(emptyForm); setEditingId(null); setShowForm(true); }}
+        showForm={false}
+        formContent={null}
+        onAddClick={openNewDrawer}
         showAddButton={user.role === 'admin' && localStorage.getItem('currentDepartmentId') !== ALL_DEPARTMENTS_ID}
-        formContent={formContent}
         filterContent={filterContent}>
-      <div className="space-y-4">
-        {filteredAndSortedMovements.length === 0 ? (
-          <div className="text-center py-8 text-[var(--text-muted)]">
-            {movements.length === 0 ? 'No movements recorded yet.' : 'No movements match your filters.'}
-          </div>
-        ) : (
-          paginatedMovements.map(movement => (
-            <div key={movement.id} className="border border-[var(--border)] rounded-lg p-4 bg-[var(--surface)]">
-              <div className="flex justify-between items-start mb-3">
-                <div>
-                  <div className="flex items-center gap-2 mb-1">
-                    <span className={`px-2 py-1 rounded text-xs font-semibold ${movementColor(movement.movementType)}`}>
-                      {movementLabel(movement.movementType)}
-                    </span>
-                    <span className="text-xs text-[var(--text-muted)]">Movement #{movement.movementNo}</span>
-                  </div>
+        <div className="space-y-3">
+          {filteredAndSortedMovements.length === 0 ? (
+            <div className="text-center py-8 text-[var(--text-muted)]">
+              {movements.length === 0 ? 'No movements recorded yet.' : 'No movements match your filters.'}
+            </div>
+          ) : paginatedMovements.map(movement => (
+            <div
+              key={movement.id}
+              onClick={() => openViewDrawer(movement)}
+              className="border border-[var(--border)] rounded-lg p-4 bg-[var(--surface)] hover:bg-[var(--surface-2)] cursor-pointer transition-colors">
+              <div className="flex justify-between items-start mb-2">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className={`px-2 py-0.5 rounded text-xs font-semibold ${movementColor(movement.movementType)}`}>
+                    {movementLabel(movement.movementType)}
+                  </span>
+                  <span className="text-xs text-[var(--text-muted)]">#{movement.movementNo}</span>
                   {movement.remarks && (
-                    <p className="text-sm text-[var(--text-muted)]">{movement.remarks}</p>
+                    <span className="text-sm text-[var(--text-muted)] truncate max-w-xs">{movement.remarks}</span>
                   )}
                 </div>
-                {user.role === 'admin' && (
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() => handleDelete(movement.id)}
-                      className="p-1 text-red-600 hover:bg-red-50 rounded transition"
-                      title="Delete movement"
-                    >
-                      <Trash2 size={16} />
-                    </button>
-                  </div>
-                )}
+                <span className="text-xs text-[var(--text-muted)] flex-shrink-0 ml-2">{formatDate(movement.createdAt)}</span>
               </div>
-
-              <div className="space-y-2 mb-3">
-                {(movement.items || []).map((item: any, idx: number) => (
-                  <div key={idx} className="bg-[var(--surface-2)] p-3 rounded text-sm">
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-                      <div>
-                        <span className="text-xs text-[var(--text-muted)]">Product</span>
-                        <p className="text-[var(--text)] font-medium">{item.product?.name || 'Unknown'}</p>
-                      </div>
-                      <div>
-                        <span className="text-xs text-[var(--text-muted)]">Stock ID</span>
-                        <p className="text-[var(--text)]">{item.stockDetail?.stockId || 'N/A'}</p>
-                      </div>
-                      <div>
-                        <span className="text-xs text-[var(--text-muted)]">Quantity</span>
-                        <p className="text-[var(--text)] font-medium">{item.quantity}</p>
-                      </div>
-                      <div>
-                        <span className="text-xs text-[var(--text-muted)]">Locations</span>
-                        <p className="text-[var(--text)]">
-                          {item.fromLocation?.name || '—'} → {item.toLocation?.name || '—'}
-                        </p>
-                      </div>
-                    </div>
-                    {item.reason && (
-                      <p className="text-xs text-[var(--text-muted)] mt-2">Reason: {item.reason}</p>
+              <div className="space-y-1">
+                {(movement.items || []).slice(0, 3).map((item: any, idx: number) => (
+                  <div key={idx} className="text-xs text-[var(--text-muted)]">
+                    <span className="font-medium text-[var(--text)]">{item.product?.name || 'Unknown'}</span>
+                    <span className="mx-1">·</span>
+                    <span>qty {item.quantity}</span>
+                    {(item.fromLocation || item.toLocation) && (
+                      <span className="mx-1">· {item.fromLocation?.name ?? '?'} → {item.toLocation?.name ?? '?'}</span>
                     )}
                   </div>
                 ))}
+                {(movement.items || []).length > 3 && (
+                  <p className="text-xs text-[var(--text-muted)]">+{(movement.items || []).length - 3} more items</p>
+                )}
               </div>
-
-              <div className="flex justify-between items-center text-xs text-[var(--text-muted)]">
-                <div>
-                  Department: {movement.department?.name || '—'}
-                </div>
-                <div>
-                  {formatDate(movement.createdAt)}
-                </div>
-              </div>
+              {movement.department?.name && (
+                <p className="text-xs text-[var(--text-muted)] mt-2">{movement.department.name}</p>
+              )}
             </div>
-          ))
+          ))}
+        </div>
+        {filteredAndSortedMovements.length > 0 && (
+          <Pagination
+            currentPage={currentPage}
+            totalItems={filteredAndSortedMovements.length}
+            pageSize={pageSize}
+            onPageChange={setCurrentPage}
+            onPageSizeChange={(size) => { setPageSize(size); setCurrentPage(1); }}
+          />
         )}
-      </div>
-      {filteredAndSortedMovements.length > 0 && (
-        <Pagination
-          currentPage={currentPage}
-          totalItems={filteredAndSortedMovements.length}
-          pageSize={pageSize}
-          onPageChange={setCurrentPage}
-          onPageSizeChange={(size) => { setPageSize(size); setCurrentPage(1); }}
-        />
-      )}
       </DataPageLayout>
+
+      {/* Right-Side Drawer */}
+      {drawerOpen && (
+        <div className="fixed inset-0 z-50 flex">
+          <div className="flex-1 bg-black/30" onClick={closeDrawer} />
+          <div className="w-full max-w-lg bg-[var(--surface)] border-l border-[var(--border)] flex flex-col h-full overflow-hidden">
+
+            {/* Header */}
+            <div className="px-6 py-4 border-b border-[var(--border)] flex items-start justify-between flex-shrink-0">
+              <div>
+                <div className="flex items-center gap-2">
+                  {drawerIsNew ? (
+                    <h2 className="text-lg font-semibold text-[var(--text)]">Record Stock Movement</h2>
+                  ) : drawerItem && (
+                    <>
+                      <span className={`px-2 py-0.5 rounded text-xs font-semibold ${movementColor(drawerItem.movementType)}`}>
+                        {movementLabel(drawerItem.movementType)}
+                      </span>
+                      <span className="text-sm text-[var(--text-muted)]">#{drawerItem.movementNo}</span>
+                    </>
+                  )}
+                </div>
+                {drawerItem && !drawerIsNew && (
+                  <p className="text-xs text-[var(--text-muted)] mt-0.5">{formatDate(drawerItem.createdAt)}</p>
+                )}
+              </div>
+              <button onClick={closeDrawer} className="p-1.5 rounded-lg hover:bg-[var(--surface-2)] text-[var(--text-muted)] flex-shrink-0 ml-2">
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* Body */}
+            <div className="flex-1 overflow-y-auto px-6 py-4">
+              {drawerIsNew ? (
+                <form id="movement-form" onSubmit={handleSubmit} className="space-y-4">
+                  <div className="grid grid-cols-1 gap-4">
+                    <div>
+                      <label className="block text-xs font-medium text-[var(--text-muted)] mb-1">Movement Type *</label>
+                      <select value={formData.movementType}
+                        onChange={e => setFormData({ ...formData, movementType: e.target.value as MovementType })}
+                        className="w-full px-3 py-2 border border-[var(--border)] rounded-lg text-sm bg-[var(--surface)] text-[var(--text)]">
+                        {FORM_MOVEMENT_OPTIONS.map(o => (
+                          <option key={o.value} value={o.value}>{o.label}</option>
+                        ))}
+                      </select>
+                      <p className="text-xs text-[var(--text-muted)] mt-1">
+                        {formData.movementType === 'stock_in' && 'Received goods or stock arriving'}
+                        {formData.movementType === 'stock_out' && 'Sales, shipments, or stock leaving'}
+                        {formData.movementType === 'adjustment' && 'Manual corrections or count differences'}
+                        {formData.movementType === 'returned' && 'Customer returns or items coming back'}
+                        {formData.movementType === 'damaged' && 'Damaged items being written off'}
+                        {formData.movementType === 'transfer' && 'Moving stock between locations'}
+                      </p>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-[var(--text-muted)] mb-1">General Remarks</label>
+                      <input type="text" value={formData.remarks}
+                        onChange={e => setFormData({ ...formData, remarks: e.target.value })}
+                        placeholder="e.g., Purchase order #123, Batch adjustment..."
+                        className="w-full px-3 py-2 border border-[var(--border)] rounded-lg text-sm bg-[var(--surface)] text-[var(--text)]" />
+                    </div>
+                  </div>
+
+                  <div className="border-t border-[var(--border)] pt-4">
+                    <h3 className="text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wider mb-3">Items *</h3>
+                    <div className="space-y-3">
+                      {formData.items.map((item, idx) => (
+                        <div key={idx} className="p-3 bg-[var(--surface-2)] rounded-lg space-y-2">
+                          <div className="grid grid-cols-2 gap-2">
+                            <div>
+                              <label className="block text-xs font-medium text-[var(--text-muted)] mb-1">Product *</label>
+                              <select value={item.productId}
+                                onChange={e => {
+                                  const newItems = [...formData.items];
+                                  newItems[idx] = { ...item, productId: e.target.value, stockDetailId: '' };
+                                  setFormData({ ...formData, items: newItems });
+                                }}
+                                className="w-full px-2 py-1.5 text-sm border border-[var(--border)] rounded bg-[var(--surface)] text-[var(--text)]">
+                                <option value="">Select product</option>
+                                {products.map(p => (
+                                  <option key={p.id} value={p.id}>{p.name} ({p.currentStock})</option>
+                                ))}
+                              </select>
+                            </div>
+                            <div>
+                              <label className="block text-xs font-medium text-[var(--text-muted)] mb-1">Quantity *</label>
+                              <input type="number" min={1} value={item.quantity || ''}
+                                onChange={e => {
+                                  const newItems = [...formData.items];
+                                  newItems[idx].quantity = parseInt(e.target.value) || 0;
+                                  setFormData({ ...formData, items: newItems });
+                                }}
+                                placeholder="0"
+                                className="w-full px-2 py-1.5 text-sm border border-[var(--border)] rounded bg-[var(--surface)] text-[var(--text)]" />
+                            </div>
+                            <div>
+                              <label className="block text-xs font-medium text-[var(--text-muted)] mb-1">From Location</label>
+                              <select value={(item.fromLocationId as string) || ''}
+                                onChange={e => {
+                                  const newItems = [...formData.items];
+                                  newItems[idx].fromLocationId = e.target.value || '';
+                                  setFormData({ ...formData, items: newItems });
+                                }}
+                                className="w-full px-2 py-1.5 text-sm border border-[var(--border)] rounded bg-[var(--surface)] text-[var(--text)]">
+                                <option value="">—</option>
+                                {locations.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
+                              </select>
+                            </div>
+                            <div>
+                              <label className="block text-xs font-medium text-[var(--text-muted)] mb-1">To Location</label>
+                              <select value={(item.toLocationId as string) || ''}
+                                onChange={e => {
+                                  const newItems = [...formData.items];
+                                  newItems[idx].toLocationId = e.target.value || '';
+                                  setFormData({ ...formData, items: newItems });
+                                }}
+                                className="w-full px-2 py-1.5 text-sm border border-[var(--border)] rounded bg-[var(--surface)] text-[var(--text)]">
+                                <option value="">—</option>
+                                {locations.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
+                              </select>
+                            </div>
+                          </div>
+                          {formData.items.length > 1 && (
+                            <button type="button"
+                              onClick={() => setFormData({ ...formData, items: formData.items.filter((_, i) => i !== idx) })}
+                              className="text-xs text-red-500 hover:text-red-700">
+                              Remove item
+                            </button>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                    <button type="button"
+                      onClick={() => setFormData({
+                        ...formData,
+                        items: [...formData.items, { stockDetailId: '', productId: '', quantity: 0, fromLocationId: '', toLocationId: '', reason: '' }],
+                      })}
+                      className="mt-2 text-sm px-3 py-1 bg-[var(--surface-2)] text-[var(--text)] rounded hover:bg-[var(--border)]">
+                      + Add Item
+                    </button>
+                  </div>
+                  {formError && <p className="text-red-500 text-sm">{formError}</p>}
+                </form>
+              ) : drawerItem && (
+                <div className="space-y-6">
+                  {drawerItem.remarks && (
+                    <section>
+                      <h3 className="text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wider mb-2">Remarks</h3>
+                      <p className="text-sm text-[var(--text)]">{drawerItem.remarks}</p>
+                    </section>
+                  )}
+                  <section>
+                    <h3 className="text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wider mb-3">Items</h3>
+                    <div className="space-y-2">
+                      {(drawerItem.items || []).map((item: any, idx: number) => (
+                        <div key={idx} className="p-3 bg-[var(--surface-2)] rounded-lg text-sm">
+                          <div className="grid grid-cols-2 gap-2">
+                            <div>
+                              <p className="text-xs text-[var(--text-muted)]">Product</p>
+                              <p className="font-medium text-[var(--text)]">{item.product?.name || 'Unknown'}</p>
+                            </div>
+                            <div>
+                              <p className="text-xs text-[var(--text-muted)]">Stock ID</p>
+                              <p className="text-[var(--text)] font-mono text-xs">{item.stockDetail?.stockId || '—'}</p>
+                            </div>
+                            <div>
+                              <p className="text-xs text-[var(--text-muted)]">Quantity</p>
+                              <p className="font-medium text-[var(--text)]">{item.quantity}</p>
+                            </div>
+                            <div>
+                              <p className="text-xs text-[var(--text-muted)]">Locations</p>
+                              <p className="text-[var(--text)]">{item.fromLocation?.name || '—'} → {item.toLocation?.name || '—'}</p>
+                            </div>
+                          </div>
+                          {item.reason && (
+                            <p className="text-xs text-[var(--text-muted)] mt-2 italic">{item.reason}</p>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </section>
+                  <section>
+                    <h3 className="text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wider mb-3">Details</h3>
+                    <div className="space-y-2">
+                      <div>
+                        <p className="text-xs text-[var(--text-muted)] mb-0.5">Department</p>
+                        <p className="text-sm text-[var(--text)]">{drawerItem.department?.name || '—'}</p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-[var(--text-muted)] mb-0.5">Recorded</p>
+                        <p className="text-sm text-[var(--text)]">{formatDate(drawerItem.createdAt)}</p>
+                      </div>
+                    </div>
+                  </section>
+                </div>
+              )}
+            </div>
+
+            {/* Footer */}
+            <div className="px-6 py-4 border-t border-[var(--border)] flex-shrink-0">
+              {drawerIsNew ? (
+                <div className="flex gap-2">
+                  <button type="submit" form="movement-form"
+                    className="px-4 py-2 bg-[var(--primary)] text-white text-sm rounded-lg hover:bg-[var(--primary-hover)]">
+                    Record Movement
+                  </button>
+                  <button type="button" onClick={closeDrawer}
+                    className="px-4 py-2 border border-[var(--border)] text-sm rounded-lg text-[var(--text)] hover:bg-[var(--surface-2)]">
+                    Cancel
+                  </button>
+                </div>
+              ) : confirmingDelete ? (
+                <div className="w-full">
+                  <p className="text-sm font-medium text-[var(--text)] mb-3">Delete this movement?</p>
+                  <div className="flex gap-2">
+                    <button onClick={doDelete}
+                      className="px-4 py-2 bg-red-600 text-white text-sm rounded-lg hover:bg-red-700">
+                      Yes, Delete
+                    </button>
+                    <button onClick={() => setConfirmingDelete(false)}
+                      className="px-4 py-2 border border-[var(--border)] text-sm rounded-lg text-[var(--text)] hover:bg-[var(--surface-2)]">
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              ) : drawerItem && user.role === 'admin' && (
+                <div className="flex gap-2">
+                  <button onClick={() => setConfirmingDelete(true)}
+                    className="flex items-center gap-2 px-4 py-2 border border-red-300 text-red-600 text-sm rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20">
+                    <Trash2 size={14} /> Delete
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 }

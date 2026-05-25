@@ -13,12 +13,12 @@ Use **Sonnet in one sweep** for all pages below.
 
 | Page | File | Complexity |
 |---|---|---|
-| Categories | `frontend/src/pages/Categories.tsx` | Low |
-| Locations | `frontend/src/pages/Locations.tsx` | Low |
-| Admin Departments | `frontend/src/pages/AdminDepartments.tsx` | Low |
-| Admin Users | `frontend/src/pages/AdminUsers.tsx` | Medium |
-| Products | `frontend/src/pages/Products.tsx` | High |
-| Stock Movements | `frontend/src/pages/StockMovements.tsx` | High |
+| Categories | `frontend/src/pages/Categories.tsx` | Low | ✅ Done |
+| Locations | `frontend/src/pages/Locations.tsx` | Low | ✅ Done |
+| Admin Departments | `frontend/src/pages/AdminDepartments.tsx` | Low | ✅ Done |
+| Admin Users | `frontend/src/pages/AdminUsers.tsx` | Medium | ✅ Done |
+| Products | `frontend/src/pages/Products.tsx` | High | ✅ Done |
+| Stock Movements | `frontend/src/pages/StockMovements.tsx` | High | ✅ Done |
 
 ### Pages to Skip
 

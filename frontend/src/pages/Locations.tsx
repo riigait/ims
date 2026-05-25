@@ -1,11 +1,10 @@
 import { useState, useEffect } from 'react';
-import { Edit, Trash2 } from 'lucide-react';
+import { X, Edit, Trash2, ChevronRight } from 'lucide-react';
 import { locationsApi, departmentsApi } from '@/services/api';
 import { formatDate } from '@/utils/ids';
 import { Location } from '@/types/inventory';
 import DataPageLayout from '@/components/layout/DataPageLayout';
 import Pagination from '@/components/Pagination';
-import ConfirmDialog from '@/components/ConfirmDialog';
 import { ALL_DEPARTMENTS_ID } from '@/constants/app';
 
 interface Department {
@@ -18,20 +17,23 @@ export default function Locations() {
   const [locations, setLocations] = useState<Location[]>([]);
   const [departments, setDepartments] = useState<Department[]>([]);
   const [loading, setLoading] = useState(true);
-  const [showForm, setShowForm] = useState(false);
-  const [editingId, setEditingId] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [typeFilter, setTypeFilter] = useState('');
   const [departmentFilter, setDepartmentFilter] = useState('');
   const [sortBy, setSortBy] = useState('recently-added');
+  const [error, setError] = useState('');
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(20);
+
+  // Drawer
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [drawerItem, setDrawerItem] = useState<Location | null>(null);
+  const [drawerEditing, setDrawerEditing] = useState(false);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [formData, setFormData] = useState({
     name: '', type: 'room' as Location['type'], parentId: '', notes: '',
   });
-  const [wasInAllDepartmentsMode, setWasInAllDepartmentsMode] = useState(false);
-  const [error, setError] = useState('');
-  const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
-  const [currentPage, setCurrentPage] = useState(1);
-  const [pageSize, setPageSize] = useState(20);
+  const [formError, setFormError] = useState('');
 
   const fetchLocations = async () => {
     try {
@@ -41,8 +43,8 @@ export default function Locations() {
       ]);
       setLocations(locationsRes.data);
       setDepartments(deptRes.data);
-    } catch (error) {
-      console.error('Failed to fetch locations:', error);
+    } catch (err) {
+      console.error('Failed to fetch locations:', err);
     } finally {
       setLoading(false);
     }
@@ -56,70 +58,82 @@ export default function Locations() {
     return () => window.removeEventListener('storage', handleStorageChange);
   }, []);
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!formData.name.trim()) {
-      setError('Location name is required');
-      return;
-    }
-    try {
-      if (editingId) {
-        await locationsApi.update(editingId, formData);
-      } else {
-        await locationsApi.create(formData);
-      }
-      await fetchLocations();
-      setShowForm(false);
-      setEditingId(null);
-      setFormData({ name: '', type: 'room', parentId: '', notes: '' });
-      setError('');
-      if (wasInAllDepartmentsMode) {
-        localStorage.setItem('currentDepartmentId', ALL_DEPARTMENTS_ID);
-        window.location.reload();
-      }
-    } catch (error) {
-      console.error('Failed to save location:', error);
-      setError('Failed to save location');
-    }
+  const openNewDrawer = () => {
+    setDrawerItem(null);
+    setFormData({ name: '', type: 'room', parentId: '', notes: '' });
+    setFormError('');
+    setDrawerEditing(true);
+    setConfirmingDelete(false);
+    setDrawerOpen(true);
   };
 
-  const handleEdit = (location: Location) => {
+  const openViewDrawer = (location: Location) => {
+    setDrawerItem(location);
+    setFormError('');
+    setDrawerEditing(false);
+    setConfirmingDelete(false);
+    setDrawerOpen(true);
+  };
+
+  const startEdit = (location: Location) => {
     const currentDeptId = localStorage.getItem('currentDepartmentId');
-    const isInAllDepartmentsMode = currentDeptId === ALL_DEPARTMENTS_ID;
-    if (isInAllDepartmentsMode && location.departmentId) {
-      setWasInAllDepartmentsMode(true);
+    if (currentDeptId === ALL_DEPARTMENTS_ID && location.departmentId) {
       localStorage.setItem('currentDepartmentId', location.departmentId);
       window.location.reload();
       return;
     }
     setFormData({
-      name: location.name, type: location.type, parentId: location.parentId || '', notes: location.notes || '',
+      name: location.name,
+      type: location.type,
+      parentId: location.parentId || '',
+      notes: location.notes || '',
     });
-    setEditingId(location.id);
-    setShowForm(true);
+    setFormError('');
+    setConfirmingDelete(false);
+    setDrawerEditing(true);
   };
 
-  const handleDelete = (id: string) => {
-    setDeleteConfirm(id);
+  const closeDrawer = () => {
+    setDrawerOpen(false);
+    setDrawerItem(null);
+    setDrawerEditing(false);
+    setConfirmingDelete(false);
+    setFormData({ name: '', type: 'room', parentId: '', notes: '' });
+    setFormError('');
   };
 
-  const confirmDelete = async () => {
-    if (!deleteConfirm) return;
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!formData.name.trim()) {
+      setFormError('Location name is required');
+      return;
+    }
     try {
-      await locationsApi.delete(deleteConfirm);
+      if (drawerItem) {
+        await locationsApi.update(drawerItem.id, formData);
+        setDrawerItem({ ...drawerItem, ...formData });
+        setDrawerEditing(false);
+      } else {
+        await locationsApi.create(formData);
+        closeDrawer();
+      }
       await fetchLocations();
-      setDeleteConfirm(null);
-    } catch (error) {
-      console.error('Failed to delete location:', error);
-      setError('Failed to delete location');
-      setDeleteConfirm(null);
+      setFormError('');
+    } catch {
+      setFormError('Failed to save location');
     }
   };
 
-  const handleCancel = () => {
-    setShowForm(false);
-    setEditingId(null);
-    setFormData({ name: '', type: 'room', parentId: '', notes: '' });
+  const doDelete = async () => {
+    if (!drawerItem) return;
+    try {
+      await locationsApi.delete(drawerItem.id);
+      await fetchLocations();
+      closeDrawer();
+    } catch {
+      setError('Failed to delete location');
+      setConfirmingDelete(false);
+    }
   };
 
   const filteredLocations = locations.filter(loc => {
@@ -153,124 +167,20 @@ export default function Locations() {
 
   if (loading) return <div className="text-center py-12">Loading...</div>;
 
-  const formContent = (
-    <>
-      <h2 className="text-xl font-semibold mb-4 text-[var(--text)]">
-        {editingId ? 'Edit Location' : 'New Location'}
-      </h2>
-      <form onSubmit={handleSubmit} className="space-y-4">
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div>
-            <label htmlFor="location-name" className="block text-sm font-medium text-[var(--text)] mb-1">
-              Location Name *
-            </label>
-            <input
-              id="location-name"
-              name="name"
-              type="text"
-              value={formData.name}
-              onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-              className="w-full px-4 py-2 border border-[var(--border)] rounded-lg bg-[var(--surface)] text-[var(--text)]"
-              required
-            />
-          </div>
-
-          <div>
-            <label htmlFor="location-type" className="block text-sm font-medium text-[var(--text)] mb-1">
-              Type *
-            </label>
-            <select
-              id="location-type"
-              name="type"
-              value={formData.type}
-              onChange={(e) => setFormData({ ...formData, type: e.target.value as Location['type'] })}
-              className="w-full px-4 py-2 border border-[var(--border)] rounded-lg bg-[var(--surface)] text-[var(--text)]"
-            >
-              <option value="branch">Branch</option>
-              <option value="building">Building</option>
-              <option value="floor">Floor</option>
-              <option value="room">Room</option>
-              <option value="rack">Rack</option>
-              <option value="shelf">Shelf</option>
-            </select>
-          </div>
-
-          <div>
-            <label htmlFor="parent-location" className="block text-sm font-medium text-[var(--text)] mb-1">
-              Parent Location
-            </label>
-            <select
-              id="parent-location"
-              name="parentId"
-              value={formData.parentId}
-              onChange={(e) => setFormData({ ...formData, parentId: e.target.value })}
-              className="w-full px-4 py-2 border border-[var(--border)] rounded-lg bg-[var(--surface)] text-[var(--text)]"
-            >
-              <option value="">None (Root)</option>
-              {locations
-                .filter((loc) => loc.id !== editingId)
-                .map((loc) => (
-                  <option key={loc.id} value={loc.id}>
-                    {loc.name} ({loc.type})
-                  </option>
-                ))}
-            </select>
-          </div>
-        </div>
-
-        <div>
-          <label htmlFor="location-notes" className="block text-sm font-medium text-[var(--text)] mb-1">
-            Notes
-          </label>
-          <textarea
-            id="location-notes"
-            name="notes"
-            value={formData.notes}
-            onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
-            className="w-full px-4 py-2 border border-[var(--border)] rounded-lg bg-[var(--surface)] text-[var(--text)]"
-            rows={2}
-          />
-        </div>
-
-        <div className="flex gap-2">
-          <button
-            type="submit"
-            className="px-4 py-2 bg-[var(--primary)] text-white rounded-lg hover:bg-[var(--primary-hover)]"
-          >
-            Save
-          </button>
-          <button
-            type="button"
-            onClick={handleCancel}
-            className="px-4 py-2 bg-[var(--surface-2)] text-[var(--text)] rounded-lg hover:bg-[var(--border)]"
-          >
-            Cancel
-          </button>
-        </div>
-      </form>
-    </>
-  );
-
   const filterContent = (
     <>
       <div className="flex gap-2">
         <input
-          id="search-locations"
-          name="search"
           type="text"
           placeholder="Search by location name…"
           value={searchTerm}
           onChange={e => { setSearchTerm(e.target.value); setCurrentPage(1); }}
           className="flex-1 px-4 py-2 border border-[var(--border)] rounded-lg text-sm bg-[var(--surface)] text-[var(--text)]"
-          aria-label="Search locations"
         />
         <select
-          id="sort-by"
-          name="sort-by"
           value={sortBy}
           onChange={e => { setSortBy(e.target.value); setCurrentPage(1); }}
-          className="px-3 py-2 border border-[var(--border)] rounded text-sm font-medium bg-[var(--surface-2)] text-[var(--text)]"
-          aria-label="Sort by">
+          className="px-3 py-2 border border-[var(--border)] rounded text-sm font-medium bg-[var(--surface-2)] text-[var(--text)]">
           <option value="recently-added">Sort: Recently Added</option>
           <option value="name">Sort: Name</option>
         </select>
@@ -280,30 +190,21 @@ export default function Locations() {
           Clear
         </button>
       </div>
-
       <div className="flex gap-2 flex-wrap">
         <select
-          id="filter-type"
-          name="filter-type"
           value={typeFilter}
           onChange={e => { setTypeFilter(e.target.value); setCurrentPage(1); }}
-          className="px-3 py-2 border border-[var(--border)] rounded text-sm bg-[var(--surface)] text-[var(--text)]"
-          aria-label="Filter by location type">
+          className="px-3 py-2 border border-[var(--border)] rounded text-sm bg-[var(--surface)] text-[var(--text)]">
           <option value="">All Types</option>
           {locationTypes.map(type => (
-            <option key={type} value={type}>
-              {type.charAt(0).toUpperCase() + type.slice(1)}
-            </option>
+            <option key={type} value={type}>{type.charAt(0).toUpperCase() + type.slice(1)}</option>
           ))}
         </select>
         {user.role === 'superadmin' && (
           <select
-            id="filter-department"
-            name="filter-department"
             value={departmentFilter}
             onChange={e => { setDepartmentFilter(e.target.value); setCurrentPage(1); }}
-            className="px-3 py-2 border border-[var(--border)] rounded text-sm bg-[var(--surface)] text-[var(--text)]"
-            aria-label="Filter by department">
+            className="px-3 py-2 border border-[var(--border)] rounded text-sm bg-[var(--surface)] text-[var(--text)]">
             <option value="">All Departments</option>
             {departments.map(dept => (
               <option key={dept.id} value={dept.id}>{dept.name}</option>
@@ -316,87 +217,222 @@ export default function Locations() {
 
   return (
     <>
-      {deleteConfirm && (
-        <ConfirmDialog
-          title="Delete Location"
-          message="Are you sure? This will delete all sub-locations."
-          confirmText="Delete"
-          cancelText="Cancel"
-          isDangerous
-          onConfirm={confirmDelete}
-          onCancel={() => setDeleteConfirm(null)}
-        />
-      )}
       <DataPageLayout
         title="Locations"
         error={error}
-        showForm={showForm}
-        onAddClick={() => setShowForm(true)}
+        showForm={false}
+        formContent={null}
+        onAddClick={openNewDrawer}
         showAddButton={user.role === 'admin' && localStorage.getItem('currentDepartmentId') !== ALL_DEPARTMENTS_ID}
-        formContent={formContent}
         filterContent={filterContent}>
-      <div className="overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead className="bg-[var(--surface-2)] border-b border-[var(--border)]">
-            <tr>
-              <th className="px-4 py-2 text-left text-[var(--text)] font-semibold">Name</th>
-              <th className="px-4 py-2 text-left text-[var(--text)] font-semibold">Type</th>
-              <th className="px-4 py-2 text-left text-[var(--text)] font-semibold">Parent Location</th>
-              <th className="px-4 py-2 text-left text-[var(--text)] font-semibold">Department</th>
-              <th className="px-4 py-2 text-left text-[var(--text)] font-semibold">Date</th>
-              {user.role !== 'superadmin' && (
-                <th className="px-4 py-2 text-right text-[var(--text)] font-semibold">Actions</th>
-              )}
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-[var(--border)]">
-            {sortedLocations.length === 0 ? (
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead className="bg-[var(--surface-2)] border-b border-[var(--border)]">
               <tr>
-                <td colSpan={user.role === 'superadmin' ? 4 : 4} className="px-4 py-8 text-center text-[var(--text-muted)]">
-                  {searchTerm ? 'No locations match your search.' : 'No locations yet. Create your first location.'}
-                </td>
+                <th className="px-4 py-2 text-left text-[var(--text)] font-semibold">Name</th>
+                <th className="px-4 py-2 text-left text-[var(--text)] font-semibold">Type</th>
+                <th className="px-4 py-2 text-left text-[var(--text)] font-semibold">Parent</th>
+                <th className="px-4 py-2 text-left text-[var(--text)] font-semibold">Department</th>
+                <th className="px-4 py-2 text-left text-[var(--text)] font-semibold">Date</th>
+                <th className="px-4 py-2" />
               </tr>
-            ) : paginatedLocations.map((location) => {
-              const dept = location.departmentId ? departments.find(d => d.id === location.departmentId) : null;
-              return (
-                <tr key={location.id} className="hover:bg-[var(--surface-2)] transition-colors">
-                  <td className="px-4 py-2 text-[var(--text)]">{location.name}</td>
-                  <td className="px-4 py-2 text-[var(--text-muted)]">{location.type}</td>
-                  <td className="px-4 py-2 text-[var(--text-muted)]">{getParentName(location.parentId)}</td>
-                  <td className="px-4 py-2 text-[var(--text)]">{dept?.name ?? '—'}</td>
-                  <td className="px-4 py-2 text-[var(--text-muted)] text-sm">{formatDate(location.createdAt)}</td>
-                  <td className="px-4 py-2 text-right space-x-2">
-                    {user.role === 'admin' && (
-                      <>
-                        <button
-                          onClick={() => handleEdit(location)}
-                          className="text-[var(--primary)] hover:text-[var(--primary-hover)]">
-                          <Edit size={18} />
-                        </button>
-                        <button
-                          onClick={() => handleDelete(location.id)}
-                          className="text-red-600 hover:text-red-700">
-                          <Trash2 size={18} />
-                        </button>
-                      </>
-                    )}
+            </thead>
+            <tbody className="divide-y divide-[var(--border)]">
+              {sortedLocations.length === 0 ? (
+                <tr>
+                  <td colSpan={6} className="px-4 py-8 text-center text-[var(--text-muted)]">
+                    {searchTerm ? 'No locations match your search.' : 'No locations yet. Create your first location.'}
                   </td>
                 </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
-      {sortedLocations.length > 0 && (
-        <Pagination
-          currentPage={currentPage}
-          totalItems={sortedLocations.length}
-          pageSize={pageSize}
-          onPageChange={setCurrentPage}
-          onPageSizeChange={(size) => { setPageSize(size); setCurrentPage(1); }}
-        />
-      )}
+              ) : paginatedLocations.map((location) => {
+                const dept = location.departmentId ? departments.find(d => d.id === location.departmentId) : null;
+                return (
+                  <tr
+                    key={location.id}
+                    onClick={() => openViewDrawer(location)}
+                    className="hover:bg-[var(--surface-2)] transition-colors cursor-pointer">
+                    <td className="px-4 py-2 text-[var(--text)] font-medium">{location.name}</td>
+                    <td className="px-4 py-2 text-[var(--text-muted)] capitalize">{location.type}</td>
+                    <td className="px-4 py-2 text-[var(--text-muted)]">{getParentName(location.parentId)}</td>
+                    <td className="px-4 py-2 text-[var(--text)]">{dept?.name ?? '—'}</td>
+                    <td className="px-4 py-2 text-[var(--text-muted)] text-sm">{formatDate(location.createdAt)}</td>
+                    <td className="px-4 py-2 text-right">
+                      <ChevronRight size={16} className="text-[var(--text-muted)] inline-block" />
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+        {sortedLocations.length > 0 && (
+          <Pagination
+            currentPage={currentPage}
+            totalItems={sortedLocations.length}
+            pageSize={pageSize}
+            onPageChange={setCurrentPage}
+            onPageSizeChange={(size) => { setPageSize(size); setCurrentPage(1); }}
+          />
+        )}
       </DataPageLayout>
+
+      {/* Right-Side Drawer */}
+      {drawerOpen && (
+        <div className="fixed inset-0 z-50 flex">
+          <div className="flex-1 bg-black/30" onClick={closeDrawer} />
+          <div className="w-full max-w-lg bg-[var(--surface)] border-l border-[var(--border)] flex flex-col h-full overflow-hidden">
+
+            {/* Header */}
+            <div className="px-6 py-4 border-b border-[var(--border)] flex items-start justify-between flex-shrink-0">
+              <div>
+                <h2 className="text-lg font-semibold text-[var(--text)]">
+                  {!drawerItem ? 'New Location' : drawerEditing ? 'Edit Location' : drawerItem.name}
+                </h2>
+                {drawerItem && !drawerEditing && (
+                  <p className="text-sm text-[var(--text-muted)] mt-0.5 capitalize">{drawerItem.type}</p>
+                )}
+              </div>
+              <button onClick={closeDrawer} className="p-1.5 rounded-lg hover:bg-[var(--surface-2)] text-[var(--text-muted)] flex-shrink-0 ml-2">
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* Body */}
+            <div className="flex-1 overflow-y-auto px-6 py-4">
+              {drawerEditing ? (
+                <form id="location-form" onSubmit={handleSubmit} className="space-y-4">
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="col-span-2">
+                      <label className="block text-xs font-medium text-[var(--text-muted)] mb-1">Location Name *</label>
+                      <input
+                        type="text"
+                        value={formData.name}
+                        onChange={e => setFormData({ ...formData, name: e.target.value })}
+                        className="w-full px-3 py-2 border border-[var(--border)] rounded-lg text-sm bg-[var(--surface)] text-[var(--text)]"
+                        autoFocus
+                        required
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-[var(--text-muted)] mb-1">Type *</label>
+                      <select
+                        value={formData.type}
+                        onChange={e => setFormData({ ...formData, type: e.target.value as Location['type'] })}
+                        className="w-full px-3 py-2 border border-[var(--border)] rounded-lg text-sm bg-[var(--surface)] text-[var(--text)]">
+                        <option value="branch">Branch</option>
+                        <option value="building">Building</option>
+                        <option value="floor">Floor</option>
+                        <option value="room">Room</option>
+                        <option value="rack">Rack</option>
+                        <option value="shelf">Shelf</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-[var(--text-muted)] mb-1">Parent Location</label>
+                      <select
+                        value={formData.parentId}
+                        onChange={e => setFormData({ ...formData, parentId: e.target.value })}
+                        className="w-full px-3 py-2 border border-[var(--border)] rounded-lg text-sm bg-[var(--surface)] text-[var(--text)]">
+                        <option value="">None (Root)</option>
+                        {locations
+                          .filter(loc => loc.id !== drawerItem?.id)
+                          .map(loc => (
+                            <option key={loc.id} value={loc.id}>{loc.name} ({loc.type})</option>
+                          ))}
+                      </select>
+                    </div>
+                    <div className="col-span-2">
+                      <label className="block text-xs font-medium text-[var(--text-muted)] mb-1">Notes</label>
+                      <textarea
+                        value={formData.notes}
+                        onChange={e => setFormData({ ...formData, notes: e.target.value })}
+                        rows={2}
+                        className="w-full px-3 py-2 border border-[var(--border)] rounded-lg text-sm bg-[var(--surface)] text-[var(--text)]"
+                      />
+                    </div>
+                  </div>
+                  {formError && <p className="text-red-500 text-sm">{formError}</p>}
+                </form>
+              ) : drawerItem && (
+                <div className="space-y-6">
+                  <section>
+                    <h3 className="text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wider mb-3">Details</h3>
+                    <div className="space-y-3">
+                      <div>
+                        <p className="text-xs text-[var(--text-muted)] mb-0.5">Name</p>
+                        <p className="text-sm font-medium text-[var(--text)]">{drawerItem.name}</p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-[var(--text-muted)] mb-0.5">Type</p>
+                        <p className="text-sm text-[var(--text)] capitalize">{drawerItem.type}</p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-[var(--text-muted)] mb-0.5">Parent Location</p>
+                        <p className="text-sm text-[var(--text)]">{getParentName(drawerItem.parentId)}</p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-[var(--text-muted)] mb-0.5">Department</p>
+                        <p className="text-sm text-[var(--text)]">{departments.find(d => d.id === drawerItem.departmentId)?.name ?? '—'}</p>
+                      </div>
+                      {drawerItem.notes && (
+                        <div>
+                          <p className="text-xs text-[var(--text-muted)] mb-0.5">Notes</p>
+                          <p className="text-sm text-[var(--text)]">{drawerItem.notes}</p>
+                        </div>
+                      )}
+                      <div>
+                        <p className="text-xs text-[var(--text-muted)] mb-0.5">Date Added</p>
+                        <p className="text-sm text-[var(--text)]">{formatDate(drawerItem.createdAt)}</p>
+                      </div>
+                    </div>
+                  </section>
+                </div>
+              )}
+            </div>
+
+            {/* Footer */}
+            <div className="px-6 py-4 border-t border-[var(--border)] flex-shrink-0">
+              {drawerEditing ? (
+                <div className="flex gap-2">
+                  <button type="submit" form="location-form"
+                    className="px-4 py-2 bg-[var(--primary)] text-white text-sm rounded-lg hover:bg-[var(--primary-hover)]">
+                    Save
+                  </button>
+                  <button type="button" onClick={() => drawerItem ? setDrawerEditing(false) : closeDrawer()}
+                    className="px-4 py-2 border border-[var(--border)] text-sm rounded-lg text-[var(--text)] hover:bg-[var(--surface-2)]">
+                    Cancel
+                  </button>
+                </div>
+              ) : confirmingDelete ? (
+                <div className="w-full">
+                  <p className="text-sm font-medium text-[var(--text)] mb-3">Delete "{drawerItem?.name}"?</p>
+                  <div className="flex gap-2">
+                    <button onClick={doDelete}
+                      className="px-4 py-2 bg-red-600 text-white text-sm rounded-lg hover:bg-red-700">
+                      Yes, Delete
+                    </button>
+                    <button onClick={() => setConfirmingDelete(false)}
+                      className="px-4 py-2 border border-[var(--border)] text-sm rounded-lg text-[var(--text)] hover:bg-[var(--surface-2)]">
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              ) : user.role === 'admin' && (
+                <div className="flex gap-2">
+                  <button onClick={() => drawerItem && startEdit(drawerItem)}
+                    className="flex items-center gap-2 px-4 py-2 bg-[var(--primary)] text-white text-sm rounded-lg hover:bg-[var(--primary-hover)]">
+                    <Edit size={14} /> Edit
+                  </button>
+                  <button onClick={() => setConfirmingDelete(true)}
+                    className="flex items-center gap-2 px-4 py-2 border border-red-300 text-red-600 text-sm rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20">
+                    <Trash2 size={14} /> Delete
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 }

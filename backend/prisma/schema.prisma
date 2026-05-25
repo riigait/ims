@@ -152,12 +152,17 @@ model StockDetail {
   serialNumber      String?
   macId             String?
   dateStock         DateTime?
+  brand             String?
+  itemType          String?
   condition         String?    @default("new") // new, good, fair, poor
   warrantyExpiry    DateTime?
   warrantyNotes     String?
   currentStatus     String     @default("active") // active, damaged, sold, lost, returned, deployed, borrowed, disposed, repair
   currentLocationId String?
   currentLocation   Location?  @relation(fields: [currentLocationId], references: [id], onDelete: SetNull)
+  custodian         String?
+  lastCheckedDate   DateTime?
+  checkedBy         String?
   notes             String?
   movementItems     StockMovementItem[]
   createdAt         DateTime   @default(now())

@@ -5,7 +5,7 @@ import { formatDate } from '@/utils/ids';
 import { floorPlansApi, departmentsApi } from '@/services/api';
 import { FloorPlan } from '@/types/floorplan';
 import FloorPlanThumbnail from '@/components/floorplan/FloorPlanThumbnail';
-import ConfirmDialog from '@/components/ConfirmDialog';
+import Pagination from '@/components/Pagination';
 import { ALL_DEPARTMENTS_ID } from '@/constants/app';
 
 interface Department {
@@ -28,7 +28,9 @@ export default function FloorPlans() {
   const [departmentFilter, setDepartmentFilter] = useState('');
   const [sortBy, setSortBy] = useState('recently-added');
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
-  const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
+  const [confirmingDeleteId, setConfirmingDeleteId] = useState<string | null>(null);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(20);
   const [locationLookupFailed, setLocationLookupFailed] = useState(false);
 
   const fetchFloorPlans = async () => {
@@ -92,20 +94,14 @@ export default function FloorPlans() {
     }
   };
 
-  const handleDelete = (id: string, e: React.MouseEvent) => {
-    e.stopPropagation();
-    setDeleteConfirm(id);
-  };
-
-  const confirmDelete = async () => {
-    if (!deleteConfirm) return;
+  const doDelete = async (id: string) => {
     try {
-      await floorPlansApi.delete(deleteConfirm);
+      await floorPlansApi.delete(id);
       await fetchFloorPlans();
-      setDeleteConfirm(null);
+      setConfirmingDeleteId(null);
     } catch (error) {
       console.error('Failed to delete floor plan:', error);
-      setDeleteConfirm(null);
+      setConfirmingDeleteId(null);
     }
   };
 
@@ -122,10 +118,13 @@ export default function FloorPlans() {
       return 0;
     });
 
+  const paginatedPlans = filteredAndSortedPlans.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+
   const clearAllFilters = () => {
     setSearchTerm('');
     setDepartmentFilter('');
     setSortBy('recently-added');
+    setCurrentPage(1);
   };
 
   if (loading) return <div className="text-center py-12 text-[var(--text-muted)]">Loading...</div>;
@@ -139,17 +138,6 @@ export default function FloorPlans() {
 
   return (
     <>
-      {deleteConfirm && (
-        <ConfirmDialog
-          title="Delete Floor Plan"
-          message="Delete this floor plan?"
-          confirmText="Delete"
-          cancelText="Cancel"
-          isDangerous
-          onConfirm={confirmDelete}
-          onCancel={() => setDeleteConfirm(null)}
-        />
-      )}
       <div className="space-y-6">
       <div className="flex justify-between items-center">
         <div>
@@ -216,7 +204,7 @@ export default function FloorPlans() {
               type="text"
               placeholder="Search by floor plan name…"
               value={searchTerm}
-              onChange={e => setSearchTerm(e.target.value)}
+              onChange={e => { setSearchTerm(e.target.value); setCurrentPage(1); }}
               className="flex-1 px-4 py-2 border border-[var(--border)] rounded-lg text-sm bg-[var(--surface)] text-[var(--text)]"
               aria-label="Search floor plans"
             />
@@ -224,7 +212,7 @@ export default function FloorPlans() {
               id="sort-by"
               name="sort-by"
               value={sortBy}
-              onChange={e => setSortBy(e.target.value)}
+              onChange={e => { setSortBy(e.target.value); setCurrentPage(1); }}
               className="px-3 py-2 border border-[var(--border)] rounded text-sm font-medium bg-[var(--surface-2)] text-[var(--text)]"
               aria-label="Sort by">
               <option value="recently-added">Sort: Recently Added</option>
@@ -262,7 +250,7 @@ export default function FloorPlans() {
               id="filter-department"
               name="filter-department"
               value={departmentFilter}
-              onChange={e => setDepartmentFilter(e.target.value)}
+              onChange={e => { setDepartmentFilter(e.target.value); setCurrentPage(1); }}
               className="px-3 py-2 border border-[var(--border)] rounded text-sm bg-[var(--surface)] text-[var(--text)]"
               aria-label="Filter by department">
               <option value="">All Departments</option>
@@ -275,6 +263,7 @@ export default function FloorPlans() {
       </div>
 
       {viewMode === 'grid' ? (
+        <>
         <div className="grid grid-cols-3 md:grid-cols-5 lg:grid-cols-6 gap-2">
           {filteredAndSortedPlans.length === 0 ? (
             <div className="col-span-full text-center py-16 bg-[var(--surface)] rounded-lg shadow">
@@ -289,7 +278,7 @@ export default function FloorPlans() {
                 </>
               )}
             </div>
-          ) : filteredAndSortedPlans.map((plan) => {
+          ) : paginatedPlans.map((plan) => {
             const hasLocation = locationId && plan.objects?.some(o => o.linkedLocationId === locationId);
             return (
               <div key={plan.id}
@@ -306,24 +295,49 @@ export default function FloorPlans() {
                     {plan.name}
                   </h3>
                   {(user.role === 'admin' || user.role === 'superadmin') && (
-                    <div className="flex gap-1">
-                      <button
-                        onClick={e => { e.stopPropagation(); navigate(`/floor-plans/${plan.id}/edit`); }}
-                        className="flex-1 px-1 py-0.5 bg-[var(--primary)] text-white text-xs rounded hover:bg-[var(--primary-hover)]">
-                        Edit
-                      </button>
-                      <button onClick={e => handleDelete(plan.id, e)}
-                        className="px-1 py-0.5 bg-red-50 text-red-600 text-xs rounded hover:bg-red-100">
-                        <Trash2 size={12} />
-                      </button>
-                    </div>
+                    confirmingDeleteId === plan.id ? (
+                      <div className="flex gap-1" onClick={e => e.stopPropagation()}>
+                        <span className="text-xs text-[var(--text-muted)] flex-1 leading-tight">Delete?</span>
+                        <button onClick={() => doDelete(plan.id)}
+                          className="px-1 py-0.5 bg-red-600 text-white text-xs rounded hover:bg-red-700">
+                          Yes
+                        </button>
+                        <button onClick={() => setConfirmingDeleteId(null)}
+                          className="px-1 py-0.5 bg-[var(--surface-2)] text-xs rounded hover:bg-[var(--border)]">
+                          No
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="flex gap-1">
+                        <button
+                          onClick={e => { e.stopPropagation(); navigate(`/floor-plans/${plan.id}/edit`); }}
+                          className="flex-1 px-1 py-0.5 bg-[var(--primary)] text-white text-xs rounded hover:bg-[var(--primary-hover)]">
+                          Edit
+                        </button>
+                        <button onClick={e => { e.stopPropagation(); setConfirmingDeleteId(plan.id); }}
+                          className="px-1 py-0.5 bg-red-50 text-red-600 text-xs rounded hover:bg-red-100">
+                          <Trash2 size={12} />
+                        </button>
+                      </div>
+                    )
                   )}
                 </div>
               </div>
             );
           })}
         </div>
+        {filteredAndSortedPlans.length > 0 && (
+          <Pagination
+            currentPage={currentPage}
+            totalItems={filteredAndSortedPlans.length}
+            pageSize={pageSize}
+            onPageChange={setCurrentPage}
+            onPageSizeChange={(size) => { setPageSize(size); setCurrentPage(1); }}
+          />
+        )}
+        </>
       ) : (
+        <>
         <div className="bg-[var(--surface)] rounded-lg shadow overflow-x-auto">
           {filteredAndSortedPlans.length === 0 ? (
             <div className="text-center py-12 text-[var(--text-muted)]">
@@ -342,7 +356,7 @@ export default function FloorPlans() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-[var(--border)]">
-                {filteredAndSortedPlans.map((plan) => {
+                {paginatedPlans.map((plan) => {
                   const departmentsMap = departments.reduce((map, dept) => ({ ...map, [dept.id]: dept.name }), {} as Record<string, string>);
                   const departmentName = plan.departmentId ? departmentsMap[plan.departmentId] : null;
                   return (
@@ -363,20 +377,30 @@ export default function FloorPlans() {
                         ) : '—'}
                       </td>
                       <td className="px-4 py-2 text-[var(--text-muted)] text-sm">{formatDate(plan.createdAt)}</td>
-                      <td className="px-4 py-2 text-right space-x-2">
+                      <td className="px-4 py-2 text-right">
                         {(user.role === 'admin' || user.role === 'superadmin') && (
-                          <>
-                            <button
-                              onClick={() => navigate(`/floor-plans/${plan.id}/edit`)}
-                              className="text-[var(--primary)] hover:text-[var(--primary-hover)]">
-                              <Edit size={18} />
-                            </button>
-                            <button
-                              onClick={e => handleDelete(plan.id, e)}
-                              className="text-red-600 hover:text-red-800">
-                              <Trash2 size={18} />
-                            </button>
-                          </>
+                          confirmingDeleteId === plan.id ? (
+                            <span className="inline-flex gap-2 items-center">
+                              <span className="text-xs text-[var(--text-muted)]">Delete?</span>
+                              <button onClick={() => doDelete(plan.id)}
+                                className="text-red-600 text-xs hover:text-red-800 font-medium">Yes</button>
+                              <button onClick={() => setConfirmingDeleteId(null)}
+                                className="text-[var(--text-muted)] text-xs hover:text-[var(--text)] font-medium">No</button>
+                            </span>
+                          ) : (
+                            <span className="inline-flex gap-2 items-center">
+                              <button
+                                onClick={() => navigate(`/floor-plans/${plan.id}/edit`)}
+                                className="text-[var(--primary)] hover:text-[var(--primary-hover)]">
+                                <Edit size={18} />
+                              </button>
+                              <button
+                                onClick={() => setConfirmingDeleteId(plan.id)}
+                                className="text-red-600 hover:text-red-800">
+                                <Trash2 size={18} />
+                              </button>
+                            </span>
+                          )
                         )}
                       </td>
                     </tr>
@@ -386,6 +410,16 @@ export default function FloorPlans() {
             </table>
           )}
         </div>
+        {filteredAndSortedPlans.length > 0 && (
+          <Pagination
+            currentPage={currentPage}
+            totalItems={filteredAndSortedPlans.length}
+            pageSize={pageSize}
+            onPageChange={setCurrentPage}
+            onPageSizeChange={(size) => { setPageSize(size); setCurrentPage(1); }}
+          />
+        )}
+        </>
       )}
       </div>
     </>
