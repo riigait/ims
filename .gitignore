@@ -1,11 +1,15 @@
 # Dependencies
 node_modules/
+venv/
+.venv/
+__pycache__/
 
 # Build output
 dist/
 build/
 out/
 .next/
+.nuxt/
 .turbo/
 
 # Environment variables (contain secrets)
@@ -13,7 +17,7 @@ out/
 .env.local
 .env.*.local
 
-# Database files (SQLite - local data only)
+# Database files (local data only)
 *.db
 *.db-journal
 *.db-wal
@@ -24,9 +28,15 @@ out/
 *.log
 npm-debug.log*
 
+# Test coverage
+coverage/
+
 # OS files
 .DS_Store
 Thumbs.db
+desktop.ini
+*.lnk
+$RECYCLE.BIN/
 
 # Editor config
 .vscode/
@@ -35,37 +45,34 @@ Thumbs.db
 # Claude Code local settings (machine-specific)
 .claude/settings.local.json
 
-# Windows OS files
-desktop.ini
-*.lnk
-$RECYCLE.BIN/
-
-# Test coverage
-coverage/
-
 # Deployment
 .vercel/
 
-node_modules/
-venv/
-.venv/
-dist/
-build/
-.next/
-.nuxt/
-coverage/
-__pycache__/
-*.log
+# Local-only dev notes and scratch folders
+mds/
+csv-corrector/
+
+# Local-only screenshots and dev artifacts
+*-screenshot.png
+*-screenshot.jpg
+
+# Archives and binary blobs that shouldn't be in the repo
 *.zip
 *.tar
 *.7z
 *.mp4
 *.mov
+*.pdf
+
+# Image files (blanket ignore — allow tracked assets under frontend/public/)
 *.png
 *.jpg
 *.jpeg
-*.pdf
+!frontend/public/**/*.png
+!frontend/public/**/*.jpg
+!frontend/public/**/*.jpeg
+
+# CSV files (blanket ignore — allow tracked templates and tooling formats)
 *.csv
-!ims-test.csv
-!pclsf.csv
 !scripts/csv-corrector/format.csv
+!templates/*.csv
