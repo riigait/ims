@@ -32,6 +32,14 @@ Thumbs.db
 .vscode/
 .idea/
 
+# Claude Code local settings (machine-specific)
+.claude/settings.local.json
+
+# Windows OS files
+desktop.ini
+*.lnk
+$RECYCLE.BIN/
+
 # Test coverage
 coverage/
 
