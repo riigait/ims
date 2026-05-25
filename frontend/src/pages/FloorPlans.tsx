@@ -29,6 +29,7 @@ export default function FloorPlans() {
   const [sortBy, setSortBy] = useState('recently-added');
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
+  const [locationLookupFailed, setLocationLookupFailed] = useState(false);
 
   const fetchFloorPlans = async () => {
     try {
@@ -47,23 +48,30 @@ export default function FloorPlans() {
       fetchFloorPlans();
     };
 
-    setLoading(true);
-    fetchFloorPlans();
+    if (locationId) {
+      setLoading(true);
+      setLocationLookupFailed(false);
+      floorPlansApi.getByLocation(locationId)
+        .then(response => navigate(`/floor-plans/${response.data.id}/edit`))
+        .catch(error => {
+          if (error.response?.status === 404) {
+            setLocationLookupFailed(true);
+          } else {
+            console.error('Failed to locate floor plan:', error);
+          }
+        })
+        .finally(() => setLoading(false));
+    } else {
+      setLoading(true);
+      fetchFloorPlans();
+    }
+
     if (user.role === 'superadmin') {
       departmentsApi.getAll().then(res => setDepartments(res.data)).catch(err => console.error('Failed to fetch departments:', err));
     }
     window.addEventListener('storage', handleStorageChange);
     return () => window.removeEventListener('storage', handleStorageChange);
-  }, []);
-
-  // Auto-navigate to the floor plan that contains the locationId
-  useEffect(() => {
-    if (!locationId || floorPlans.length === 0) return;
-    const match = floorPlans.find(plan =>
-      plan.objects?.some(obj => obj.linkedLocationId === locationId)
-    );
-    if (match) navigate(`/floor-plans/${match.id}/edit`);
-  }, [locationId, floorPlans]);
+  }, [locationId, navigate]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -121,6 +129,13 @@ export default function FloorPlans() {
   };
 
   if (loading) return <div className="text-center py-12 text-[var(--text-muted)]">Loading...</div>;
+  if (locationId && locationLookupFailed) {
+    return (
+      <div className="text-center py-12 text-[var(--text-muted)]">
+        No floor plan found for this linked location.
+      </div>
+    );
+  }
 
   return (
     <>
@@ -276,8 +291,6 @@ export default function FloorPlans() {
             </div>
           ) : filteredAndSortedPlans.map((plan) => {
             const hasLocation = locationId && plan.objects?.some(o => o.linkedLocationId === locationId);
-            const departmentsMap = departments.reduce((map, dept) => ({ ...map, [dept.id]: dept.name }), {} as Record<string, string>);
-            const departmentName = plan.departmentId ? departmentsMap[plan.departmentId] : null;
             return (
               <div key={plan.id}
                 onClick={() => navigate(`/floor-plans/${plan.id}/edit`)}

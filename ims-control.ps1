@@ -5,8 +5,6 @@ param(
 
 $backendPort = 3001
 $frontendPort = 5173
-$backendPath = 'd:\vs\ims\backend'
-$frontendPath = 'd:\vs\ims\frontend'
 
 function Get-PortProcess {
     param([int]$port)
@@ -88,7 +86,6 @@ function Stop-IMSApp {
 function Start-IMSApp {
     Write-Host "`nStarting IMS app..." -ForegroundColor Yellow
 
-    # Check if already running
     $backendPid = Get-PortProcess $backendPort
     $frontendPid = Get-PortProcess $frontendPort
 
@@ -98,37 +95,12 @@ function Start-IMSApp {
         return
     }
 
-    # Start Docker containers
-    Write-Host "Starting Docker containers..." -ForegroundColor Cyan
     try {
-        Push-Location (Split-Path -Parent $MyInvocation.MyCommand.Path)
-        docker-compose up -d 2>$null
-        if ($LASTEXITCODE -eq 0) {
-            Write-Host "Waiting for database to be ready (10 seconds)..." -ForegroundColor Yellow
-            Start-Sleep -Seconds 10
-        } else {
-            Write-Host "WARNING: Docker containers could not be started (Docker may not be running)" -ForegroundColor Yellow
-        }
-        Pop-Location
-    } catch {
-        Write-Host "WARNING: Docker containers could not be started (Docker may not be running)" -ForegroundColor Yellow
+        Push-Location $PSScriptRoot
+        npm run dev
+    } finally {
         Pop-Location
     }
-
-    # Start backend in current terminal
-    Write-Host "Starting backend..." -ForegroundColor Cyan
-    Start-Process cmd -ArgumentList "/c", "cd /d $backendPath && npm run dev" -NoNewWindow
-
-    Start-Sleep -Seconds 5
-
-    # Start frontend in current terminal
-    Write-Host "Starting frontend..." -ForegroundColor Cyan
-    Start-Process cmd -ArgumentList "/c", "cd /d $frontendPath && npm run dev" -NoNewWindow
-
-    Write-Host "`nWaiting for services to start..." -ForegroundColor Yellow
-    Start-Sleep -Seconds 8
-
-    Show-Status
 }
 
 # Main execution

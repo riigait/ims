@@ -106,6 +106,7 @@ export const stockDetailsApi = {
 // Floor Plans
 export const floorPlansApi = {
   getAll: () => api.get('/floor-plans'),
+  getByLocation: (locationId: string) => api.get(`/floor-plans/by-location/${locationId}`),
   getById: (id: string) => api.get(`/floor-plans/${id}`),
   create: (data: any) => api.post('/floor-plans', data),
   update: (id: string, data: any) => api.put(`/floor-plans/${id}`, data),

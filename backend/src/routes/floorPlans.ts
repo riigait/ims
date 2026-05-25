@@ -4,21 +4,27 @@ import { AuthRequest } from '../middleware/auth';
 
 const router = Router();
 
+function getDepartmentFilter(req: AuthRequest) {
+  if (req.departmentIds && req.departmentIds.length > 0) {
+    return {
+      OR: [
+        { departmentId: { in: req.departmentIds } },
+        { departmentId: null }
+      ]
+    };
+  }
+
+  if ((req.userRole === 'staff' || req.userRole === 'admin') && req.departmentId) {
+    return { departmentId: req.departmentId };
+  }
+
+  return {};
+}
+
 // Get all floor plans
 router.get('/', async (req: AuthRequest, res: Response) => {
   try {
-    let departmentFilter: any = {};
-    if (req.departmentIds && req.departmentIds.length > 0) {
-      // Include floor plans with null departmentId
-      departmentFilter = {
-        OR: [
-          { departmentId: { in: req.departmentIds } },
-          { departmentId: null }
-        ]
-      };
-    } else if ((req.userRole === 'staff' || req.userRole === 'admin') && req.departmentId) {
-      departmentFilter = { departmentId: req.departmentId };
-    }
+    const departmentFilter = getDepartmentFilter(req);
     const floorPlans = await prisma.floorPlan.findMany({
       where: departmentFilter,
       include: { location: true },
@@ -31,6 +37,34 @@ router.get('/', async (req: AuthRequest, res: Response) => {
     }));
 
     res.json(parsed);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Find the first floor plan containing a linked location
+router.get('/by-location/:locationId', async (req: AuthRequest, res: Response) => {
+  try {
+    const floorPlans = await prisma.floorPlan.findMany({
+      where: getDepartmentFilter(req),
+      include: { location: true },
+    });
+
+    for (const plan of floorPlans) {
+      const objects = JSON.parse(plan.planJson || '[]');
+      const matchingObject = objects.find((obj: any) => obj.linkedLocationId === req.params.locationId);
+
+      if (matchingObject) {
+        return res.json({
+          ...plan,
+          objects,
+          matchingObjectId: matchingObject.id,
+        });
+      }
+    }
+
+    return res.status(404).json({ error: 'Floor plan not found for location' });
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: 'Internal server error' });
