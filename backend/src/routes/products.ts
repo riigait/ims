@@ -1,12 +1,11 @@
 import { Router, Response } from 'express';
-import { PrismaClient } from '@prisma/client';
+import prisma from '../utils/prisma';
 import { AuthRequest } from '../middleware/auth';
 import { logAudit } from '../utils/audit';
 import { csvToJson, jsonToCsv } from '../utils/csv';
 import { generateStockId, generateMovementNo } from '../utils/idGenerator';
 
 const router = Router();
-const prisma = new PrismaClient();
 
 // Get all products
 router.get('/', async (req: AuthRequest, res: Response) => {
@@ -167,21 +166,15 @@ router.post('/', async (req: AuthRequest, res: Response) => {
 
         console.log(`[OPENING STOCK] Creating opening stock for product ${product.id} with ${stockValue} units`);
 
-        // Generate all IDs
-        const stockIds: string[] = [];
-        for (let i = 0; i < stockValue; i++) {
-          stockIds.push(await generateStockId());
-        }
         const movementNo = await generateMovementNo();
 
-        console.log(`[OPENING STOCK] Generated IDs - stocks: ${stockIds.join(',')}, movement: ${movementNo}`);
-
-        // Create StockDetail entries
+        // Create StockDetail entries one at a time so each generateStockId sees the previous record
         const stockDetails = [];
-        for (let i = 0; i < stockIds.length; i++) {
+        for (let i = 0; i < stockValue; i++) {
+          const stockId = await generateStockId();
           const detail = await prisma.stockDetail.create({
             data: {
-              stockId: stockIds[i],
+              stockId,
               productId: product.id,
               currentStatus: 'active',
               currentLocationId: locationId || null,
@@ -195,7 +188,7 @@ router.post('/', async (req: AuthRequest, res: Response) => {
         const movement = await prisma.stockMovement.create({
           data: {
             movementNo,
-            movementType: 'adjustment',
+            movementType: 'opening_stock',
             status: 'pending',
             remarks: 'Opening stock',
             departmentId: req.departmentId || null,
@@ -222,10 +215,9 @@ router.post('/', async (req: AuthRequest, res: Response) => {
 
     await logAudit({ userId: req.userId, action: 'CREATE', entityType: 'product', entityId: product.id, changes: { name, sku, currentStock } });
 
-    // Return product with flag indicating opening stock needs to be created
     res.status(201).json({
       ...product,
-      _needsOpeningStock: stockValue > 0
+      _needsOpeningStock: false,
     });
   } catch (error) {
     console.error(error);

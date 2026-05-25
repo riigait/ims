@@ -50,7 +50,7 @@ export interface Location {
   updatedAt: string;
 }
 
-export type MovementType = 'stock_in' | 'stock_out' | 'adjustment' | 'transfer' | 'damaged' | 'returned';
+export type MovementType = 'stock_in' | 'stock_out' | 'adjustment' | 'transfer' | 'damaged' | 'returned' | 'opening_stock' | 'deployment' | 'repair' | 'disposal' | 'borrowed' | 'lost';
 
 export interface StockMovement {
   id: string;

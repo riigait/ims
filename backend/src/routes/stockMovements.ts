@@ -1,23 +1,22 @@
 import { Router, Response } from 'express';
-import { PrismaClient } from '@prisma/client';
+import prisma from '../utils/prisma';
 import { AuthRequest } from '../middleware/auth';
 import { logAudit } from '../utils/audit';
 import { csvToJson, jsonToCsv } from '../utils/csv';
 import { generateStockId, generateMovementNo } from '../utils/idGenerator';
 
 const router = Router();
-const prisma = new PrismaClient();
 
-const VALID_MOVEMENT_TYPES = ['stock_in', 'stock_out', 'adjustment', 'transfer', 'damaged', 'returned'] as const;
+const VALID_MOVEMENT_TYPES = ['stock_in', 'stock_out', 'adjustment', 'transfer', 'damaged', 'returned', 'opening_stock', 'deployment', 'repair', 'disposal', 'borrowed', 'lost'] as const;
 type MovementType = typeof VALID_MOVEMENT_TYPES[number];
 
-// Types that reduce stock (require stock validation)
-const DEDUCTING_TYPES: MovementType[] = ['stock_out', 'transfer', 'damaged'];
-// Types that increase stock
-const ADDING_TYPES: MovementType[] = ['stock_in', 'returned', 'adjustment'];
+const DEDUCTING_TYPES: MovementType[] = ['stock_out', 'transfer', 'damaged', 'disposal', 'borrowed', 'lost'];
+const ADDING_TYPES: MovementType[] = ['stock_in', 'returned', 'adjustment', 'opening_stock'];
+const NEUTRAL_TYPES: MovementType[] = ['deployment', 'repair'];
 
 function stockDelta(type: MovementType, quantity: number): number {
   if (DEDUCTING_TYPES.includes(type)) return -quantity;
+  if (NEUTRAL_TYPES.includes(type)) return 0;
   return quantity; // ADDING_TYPES
 }
 
@@ -143,6 +142,21 @@ router.post('/', async (req: AuthRequest, res: Response) => {
         include: { items: { include: { product: true, stockDetail: true } }, user: true, department: true },
       });
 
+      // Update currentStock for each affected product
+      const productTotals = new Map<string, number>();
+      for (const item of processedItems) {
+        if (item.productId) {
+          productTotals.set(item.productId, (productTotals.get(item.productId) ?? 0) + (item.quantity || 0));
+        }
+      }
+      for (const [productId, totalQty] of productTotals) {
+        const delta = stockDelta(movementType as MovementType, totalQty);
+        await tx.product.update({
+          where: { id: productId },
+          data: { currentStock: { increment: delta } },
+        });
+      }
+
       return movement;
     });
 
@@ -208,7 +222,16 @@ router.delete('/:id', async (req: AuthRequest, res: Response) => {
   try {
     const movement = await prisma.stockMovement.findUnique({
       where: { id: req.params.id },
-      include: { department: true },
+      include: {
+        items: {
+          include: {
+            stockDetail: {
+              include: { _count: { select: { movementItems: true } } },
+            },
+          },
+        },
+        department: true,
+      },
     });
 
     if (!movement) return res.status(404).json({ error: 'Stock movement not found' });
@@ -217,9 +240,41 @@ router.delete('/:id', async (req: AuthRequest, res: Response) => {
       return res.status(403).json({ error: 'Access denied' });
     }
 
-    // Delete cascade will handle items deletion
-    await prisma.stockMovement.delete({
-      where: { id: req.params.id },
+    const movementType = movement.movementType as MovementType;
+
+    // Sum quantities per product across all items
+    const productTotals = new Map<string, number>();
+    for (const item of movement.items) {
+      if (item.productId) {
+        productTotals.set(item.productId, (productTotals.get(item.productId) ?? 0) + item.quantity);
+      }
+    }
+
+    // StockDetails that only exist for this movement (count = 1) should be removed.
+    // Those with other movement links existed before — keep them.
+    const stockDetailIdsToDelete = movement.items
+      .filter(item => item.stockDetail?._count?.movementItems === 1)
+      .map(item => item.stockDetailId);
+
+    await prisma.$transaction(async (tx) => {
+      // Reverse the stock delta for each affected product
+      for (const [productId, totalQty] of productTotals) {
+        const reverseDelta = -stockDelta(movementType, totalQty);
+        await tx.product.update({
+          where: { id: productId },
+          data: { currentStock: { increment: reverseDelta } },
+        });
+      }
+
+      // Delete orphaned StockDetails (cascade removes their StockMovementItems too)
+      if (stockDetailIdsToDelete.length > 0) {
+        await tx.stockDetail.deleteMany({
+          where: { id: { in: stockDetailIdsToDelete } },
+        });
+      }
+
+      // Delete the movement (cascade removes any remaining StockMovementItems)
+      await tx.stockMovement.delete({ where: { id: req.params.id } });
     });
 
     await logAudit({
@@ -227,7 +282,7 @@ router.delete('/:id', async (req: AuthRequest, res: Response) => {
       action: 'DELETE',
       entityType: 'stock_movement',
       entityId: req.params.id,
-      changes: { reason: 'Stock movement deleted' },
+      changes: { reason: 'Stock movement deleted', movementType, affectedProducts: productTotals.size, removedStockDetails: stockDetailIdsToDelete.length },
     });
 
     res.json({ message: 'Stock movement deleted successfully' });

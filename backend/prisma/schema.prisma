@@ -110,7 +110,7 @@ model Location {
 model StockMovement {
   id              String     @id @default(cuid())
   movementNo      String?    @unique  // e.g., MVT-000001 (auto-generated)
-  movementType    String     // stock_in, stock_out, adjustment, transfer, damaged, returned
+  movementType    String     // stock_in, stock_out, adjustment, transfer, damaged, returned, opening_stock
   status          String     @default("pending") // pending, committed, cancelled
   remarks         String?
   departmentId    String?
@@ -142,21 +142,26 @@ model StockMovementItem {
 }
 
 model StockDetail {
-  id              String     @id @default(cuid())
-  stockId         String?    @unique  // e.g., STK-000001 (auto-generated)
-  productId       String
-  product         Product    @relation(fields: [productId], references: [id], onDelete: Cascade)
-  modelNumber     String?    // e.g., Dell XPS 15-9500
-  serialNumber    String?    // e.g., SERIAL123456
-  macId           String?    // e.g., 00:1A:2B:3C:4D:5E
-  dateStock       DateTime?  // When this item was received
-  currentStatus   String     @default("active") // active, damaged, sold, lost, returned
+  id                String     @id @default(cuid())
+  stockId           String?    @unique  // e.g., STK-000001 (auto-generated)
+  assetTag          String?    @unique  // custom internal tag e.g. IMS-2026-000001
+  barcode           String?
+  productId         String
+  product           Product    @relation(fields: [productId], references: [id], onDelete: Cascade)
+  modelNumber       String?
+  serialNumber      String?
+  macId             String?
+  dateStock         DateTime?
+  condition         String?    @default("new") // new, good, fair, poor
+  warrantyExpiry    DateTime?
+  warrantyNotes     String?
+  currentStatus     String     @default("active") // active, damaged, sold, lost, returned, deployed, borrowed, disposed, repair
   currentLocationId String?
-  currentLocation Location?  @relation(fields: [currentLocationId], references: [id], onDelete: SetNull)
-  notes           String?    // Additional information about this specific unit
-  movementItems   StockMovementItem[] // All movements involving this stock
-  createdAt       DateTime   @default(now())
-  updatedAt       DateTime   @updatedAt
+  currentLocation   Location?  @relation(fields: [currentLocationId], references: [id], onDelete: SetNull)
+  notes             String?
+  movementItems     StockMovementItem[]
+  createdAt         DateTime   @default(now())
+  updatedAt         DateTime   @updatedAt
 
   @@index([stockId])
 }

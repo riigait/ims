@@ -45,7 +45,6 @@ export default function Products() {
   const [sort, setSort] = useState<ProductSort>({ field: 'date', order: 'desc' });
   const [formData, setFormData] = useState(emptyForm);
   const [error, setError] = useState('');
-  const [wasInAllDepartmentsMode, setWasInAllDepartmentsMode] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
@@ -76,6 +75,46 @@ export default function Products() {
     return () => window.removeEventListener('storage', handleStorageChange);
   }, []);
 
+  useEffect(() => {
+    if (loading) return;
+
+    const pendingEditId = sessionStorage.getItem('pendingEditProductId');
+    if (pendingEditId) {
+      sessionStorage.removeItem('pendingEditProductId');
+      const product = products.find(p => p.id === pendingEditId);
+      if (product) {
+        const expiryDateValue = product.expiryDate
+          ? new Date(product.expiryDate).toISOString().split('T')[0]
+          : '';
+        setFormData({
+          sku: product.sku,
+          name: product.name,
+          description: product.description || '',
+          categoryId: product.categoryId,
+          locationId: product.locationId || '',
+          unit: product.unit,
+          currentStock: product.currentStock,
+          lowStockThreshold: product.lowStockThreshold,
+          supplier: product.supplier || '',
+          unitPrice: product.unitPrice ? parseFloat(product.unitPrice.toString()) : 0,
+          status: product.status || 'active',
+          expiryDate: expiryDateValue,
+          leadTimeDays: product.leadTimeDays ? parseInt(product.leadTimeDays.toString()) : 0,
+          notes: product.notes || '',
+        });
+        setEditingId(product.id);
+        setShowForm(true);
+      }
+      return;
+    }
+
+    const pendingDeleteId = sessionStorage.getItem('pendingDeleteProductId');
+    if (pendingDeleteId) {
+      sessionStorage.removeItem('pendingDeleteProductId');
+      setDeleteConfirm(pendingDeleteId);
+    }
+  }, [loading]);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!validateProductName(formData.name)) { setError('Invalid product name'); return; }
@@ -91,37 +130,15 @@ export default function Products() {
         response = await productsApi.create(payload);
       }
 
-      // If product was created with opening stock, create the opening stock movement
-      if (!editingId && response?._needsOpeningStock && formData.currentStock > 0) {
-        try {
-          // Fetch stock movements API
-          const stockMovementsApi = (await import('@/services/api')).stockMovementsApi;
-          await stockMovementsApi.create({
-            movementType: 'adjustment',
-            remarks: 'Opening stock',
-            items: Array(formData.currentStock).fill(null).map(() => ({
-              productId: response.id,
-              stockDetailId: '',
-              quantity: 1,
-              fromLocationId: null,
-              toLocationId: formData.locationId || null,
-              reason: 'Opening stock',
-            })),
-          });
-          console.log('Opening stock movement created automatically');
-        } catch (movementError) {
-          console.warn('Failed to create opening stock movement:', movementError);
-          // Don't fail the product creation if movement creation fails
-        }
-      }
-
       await fetchData();
       setShowForm(false);
       setEditingId(null);
       setFormData(emptyForm);
       setError('');
-      if (wasInAllDepartmentsMode) {
-        localStorage.setItem('currentDepartmentId', ALL_DEPARTMENTS_ID);
+      const returnToDept = sessionStorage.getItem('returnToDeptAfterEdit');
+      if (returnToDept) {
+        sessionStorage.removeItem('returnToDeptAfterEdit');
+        localStorage.setItem('currentDepartmentId', returnToDept);
         window.location.reload();
       }
     } catch (error: any) {
@@ -135,7 +152,8 @@ export default function Products() {
     const currentDeptId = localStorage.getItem('currentDepartmentId');
     const isInAllDepartmentsMode = currentDeptId === ALL_DEPARTMENTS_ID;
     if (isInAllDepartmentsMode && product.departmentId) {
-      setWasInAllDepartmentsMode(true);
+      sessionStorage.setItem('pendingEditProductId', product.id);
+      sessionStorage.setItem('returnToDeptAfterEdit', ALL_DEPARTMENTS_ID);
       localStorage.setItem('currentDepartmentId', product.departmentId);
       window.location.reload();
       return;
@@ -164,7 +182,14 @@ export default function Products() {
     setShowForm(true);
   };
 
-  const handleDelete = (id: string) => {
+  const handleDelete = (id: string, product?: Product) => {
+    const currentDeptId = localStorage.getItem('currentDepartmentId');
+    if (currentDeptId === ALL_DEPARTMENTS_ID && product?.departmentId) {
+      sessionStorage.setItem('pendingDeleteProductId', id);
+      localStorage.setItem('currentDepartmentId', product.departmentId);
+      window.location.reload();
+      return;
+    }
     setDeleteConfirm(id);
   };
 
@@ -197,6 +222,12 @@ export default function Products() {
     setShowForm(false);
     setEditingId(null);
     setFormData(emptyForm);
+    const returnToDept = sessionStorage.getItem('returnToDeptAfterEdit');
+    if (returnToDept) {
+      sessionStorage.removeItem('returnToDeptAfterEdit');
+      localStorage.setItem('currentDepartmentId', returnToDept);
+      window.location.reload();
+    }
   };
 
   const toggleRowExpansion = (productId: string) => {
@@ -224,8 +255,9 @@ export default function Products() {
     setCurrentPage(1);
   };
 
-  const lowStockCount = products.filter(p => p.currentStock > 0 && p.currentStock <= p.lowStockThreshold).length;
+  const negativeStockCount = products.filter(p => p.currentStock < 0).length;
   const outOfStockCount = products.filter(p => p.currentStock === 0).length;
+  const lowStockCount = products.filter(p => p.currentStock > 0 && p.currentStock <= p.lowStockThreshold).length;
 
   const filteredProducts = filterAndSortProducts(products, filters, sort);
   const paginatedProducts = filteredProducts.slice((currentPage - 1) * pageSize, currentPage * pageSize);
@@ -509,7 +541,7 @@ export default function Products() {
         <div>
           <h1 className="text-3xl font-bold text-[var(--text)]">Products</h1>
           <p className="text-sm text-[var(--text-muted)] mt-2">
-            {products.length} products • <span className="text-yellow-600">{lowStockCount} low stock</span> • <span className="text-red-600">{outOfStockCount} out of stock</span>
+            {products.length} products • <span className="text-yellow-600">{lowStockCount} low stock</span> • <span className="text-red-600">{outOfStockCount} out of stock</span>{negativeStockCount > 0 && <> • <span className="text-purple-600">{negativeStockCount} negative</span></>}
           </p>
         </div>
         {user.role !== 'superadmin' && localStorage.getItem('currentDepartmentId') !== ALL_DEPARTMENTS_ID && (
@@ -538,8 +570,9 @@ export default function Products() {
           <div className="space-y-0 border border-[var(--border)] rounded-lg overflow-hidden">
             {paginatedProducts.map((product, index) => {
               const category = product.category ?? categoriesMap.get(product.categoryId);
-              const isLowStock = product.currentStock > 0 && product.currentStock <= product.lowStockThreshold;
+              const isNegativeStock = product.currentStock < 0;
               const isOutOfStock = product.currentStock === 0;
+              const isLowStock = product.currentStock > 0 && product.currentStock <= product.lowStockThreshold;
               const isExpanded = expandedRows.has(product.id);
               const totalValue = (product.unitPrice || 0) * product.currentStock;
               const lastMovementDate = getLastMovementDate(product.id);
@@ -588,9 +621,10 @@ export default function Products() {
                         <button
                           onClick={() => navigate('/stock-movements')}
                           className={`px-2 py-1 rounded text-xs font-semibold transition-colors ${
-                            isOutOfStock ? 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-100 hover:bg-red-200' :
-                            isLowStock   ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-100 hover:bg-yellow-200' :
-                                           'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-100 hover:bg-green-200'
+                            isNegativeStock ? 'bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-100 hover:bg-purple-200' :
+                            isOutOfStock    ? 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-100 hover:bg-red-200' :
+                            isLowStock      ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-100 hover:bg-yellow-200' :
+                                              'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-100 hover:bg-green-200'
                           }`}>
                           {product.currentStock} {product.unit}
                         </button>
@@ -628,7 +662,7 @@ export default function Products() {
                               Edit
                             </button>
                             {user.role === 'admin' ? (
-                              <button onClick={() => handleDelete(product.id)} className="px-3 py-1 bg-red-100 text-red-600 text-xs rounded hover:bg-red-200">
+                              <button onClick={() => handleDelete(product.id, product)} className="px-3 py-1 bg-red-100 text-red-600 text-xs rounded hover:bg-red-200">
                                 Delete
                               </button>
                             ) : (

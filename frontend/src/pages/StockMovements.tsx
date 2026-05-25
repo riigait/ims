@@ -17,27 +17,28 @@ interface Department {
 }
 
 const MOVEMENT_OPTIONS: { value: MovementType; label: string; color: string }[] = [
-  { value: 'stock_in',   label: 'Stock In',    color: 'bg-green-100 text-green-800' },
-  { value: 'stock_out',  label: 'Stock Out',   color: 'bg-red-100 text-red-800' },
-  { value: 'adjustment', label: 'Adjustment',  color: 'bg-blue-100 text-blue-800' },
-  { value: 'returned',   label: 'Returned',    color: 'bg-teal-100 text-teal-800' },
-  { value: 'damaged',    label: 'Damaged',     color: 'bg-orange-100 text-orange-800' },
-  { value: 'transfer',   label: 'Transfer',    color: 'bg-purple-100 text-purple-800' },
+  { value: 'stock_in',      label: 'Stock In',      color: 'bg-green-100 text-green-800' },
+  { value: 'stock_out',     label: 'Stock Out',     color: 'bg-red-100 text-red-800' },
+  { value: 'adjustment',    label: 'Adjustment',    color: 'bg-blue-100 text-blue-800' },
+  { value: 'returned',      label: 'Returned',      color: 'bg-teal-100 text-teal-800' },
+  { value: 'damaged',       label: 'Damaged',       color: 'bg-orange-100 text-orange-800' },
+  { value: 'transfer',      label: 'Transfer',      color: 'bg-purple-100 text-purple-800' },
+  { value: 'opening_stock', label: 'Opening Stock', color: 'bg-indigo-100 text-indigo-800' },
+  { value: 'deployment',    label: 'Deployment',    color: 'bg-cyan-100 text-cyan-800' },
+  { value: 'repair',        label: 'Repair',        color: 'bg-yellow-100 text-yellow-800' },
+  { value: 'disposal',      label: 'Disposal',      color: 'bg-gray-100 text-gray-800' },
+  { value: 'borrowed',      label: 'Borrowed',      color: 'bg-violet-100 text-violet-800' },
+  { value: 'lost',          label: 'Lost',          color: 'bg-rose-100 text-rose-800' },
 ];
 
-const movementColor = (type: MovementType, reason?: string) => {
-  if (type === 'adjustment' && reason === 'Opening stock') {
-    return 'bg-indigo-100 text-indigo-800';
-  }
-  return MOVEMENT_OPTIONS.find(o => o.value === type)?.color ?? 'bg-gray-100 text-gray-800';
-};
+// Options shown in the create form — opening_stock is system-generated, not manually selectable
+const FORM_MOVEMENT_OPTIONS = MOVEMENT_OPTIONS.filter(o => o.value !== 'opening_stock');
 
-const movementLabel = (type: MovementType, reason?: string) => {
-  if (type === 'adjustment' && reason === 'Opening stock') {
-    return 'Opening Stock';
-  }
-  return MOVEMENT_OPTIONS.find(o => o.value === type)?.label ?? type;
-};
+const movementColor = (type: MovementType) =>
+  MOVEMENT_OPTIONS.find(o => o.value === type)?.color ?? 'bg-gray-100 text-gray-800';
+
+const movementLabel = (type: MovementType) =>
+  MOVEMENT_OPTIONS.find(o => o.value === type)?.label ?? type;
 
 const emptyForm = {
   movementType: 'stock_in' as MovementType,
@@ -187,7 +188,7 @@ export default function StockMovements() {
             <select id="movement-type" value={formData.movementType}
               onChange={e => setFormData({ ...formData, movementType: e.target.value as MovementType })}
               className="w-full px-4 py-2 border border-[var(--border)] rounded-lg bg-[var(--surface)] text-[var(--text)]">
-              {MOVEMENT_OPTIONS.map(o => (
+              {FORM_MOVEMENT_OPTIONS.map(o => (
                 <option key={o.value} value={o.value}>{o.label}</option>
               ))}
             </select>

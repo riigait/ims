@@ -1,9 +1,8 @@
 import express, { Router, Request, Response } from 'express';
-import { PrismaClient } from '@prisma/client';
+import prisma from '../utils/prisma';
 import { authMiddleware, AuthRequest } from '../middleware/auth';
 
 const router = Router();
-const prisma = new PrismaClient();
 
 // Get dashboard stats
 router.get('/stats', authMiddleware, async (req: AuthRequest, res: Response) => {
@@ -30,7 +29,7 @@ router.get('/stats', authMiddleware, async (req: AuthRequest, res: Response) => 
     }
     // For superadmin or admin/staff with "all-departments": no filter, show all
 
-    const [totalProducts, totalStock, totalLocations, totalFloorPlans, lowStockProducts] =
+    const [totalProducts, totalStock, totalLocations, totalFloorPlans, allProducts, totalInventoryItems] =
       await Promise.all([
         prisma.product.count({ where: departmentFilter }),
         prisma.product.aggregate({
@@ -43,16 +42,26 @@ router.get('/stats', authMiddleware, async (req: AuthRequest, res: Response) => 
           where: departmentFilter,
           select: { currentStock: true, lowStockThreshold: true },
         }),
+        prisma.stockDetail.count({
+          where: Object.keys(departmentFilter).length > 0
+            ? { product: departmentFilter }
+            : {},
+        }),
       ]);
 
-    const lowStockItems = lowStockProducts.filter(
-      (p) => p.currentStock <= p.lowStockThreshold
-    ).length;
+    const lowStockCount  = allProducts.filter(p => p.currentStock > 0 && p.currentStock <= p.lowStockThreshold).length;
+    const outOfStockCount    = allProducts.filter(p => p.currentStock === 0).length;
+    const negativeStockCount = allProducts.filter(p => p.currentStock < 0).length;
+    const goodStockCount     = allProducts.filter(p => p.currentStock > p.lowStockThreshold).length;
 
     res.json({
       totalProducts,
       totalStock: totalStock._sum.currentStock || 0,
-      lowStockCount: lowStockItems,
+      totalInventoryItems,
+      lowStockCount,
+      outOfStockCount,
+      negativeStockCount,
+      goodStockCount,
       totalLocations,
       totalFloorPlans,
     });

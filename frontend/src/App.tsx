@@ -10,6 +10,7 @@ import Products from '@/pages/Products';
 import Categories from '@/pages/Categories';
 import Locations from '@/pages/Locations';
 import StockMovements from '@/pages/StockMovements';
+import InventoryItems from '@/pages/InventoryItems';
 import FloorPlans from '@/pages/FloorPlans';
 import ImportPCLSF from '@/pages/ImportPCLSF';
 import FloorPlanEditor from '@/pages/FloorPlanEditor';
@@ -108,6 +109,18 @@ function App() {
               <DepartmentGuard>
                 <Layout>
                   <Locations />
+                </Layout>
+              </DepartmentGuard>
+            </PrivateRoute>
+          }
+        />
+        <Route
+          path="/inventory-items"
+          element={
+            <PrivateRoute>
+              <DepartmentGuard>
+                <Layout>
+                  <InventoryItems />
                 </Layout>
               </DepartmentGuard>
             </PrivateRoute>

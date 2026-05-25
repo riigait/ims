@@ -8,7 +8,7 @@ const prisma = new PrismaClient();
 export async function generateStockId(): Promise<string> {
   const lastStock = await prisma.stockDetail.findFirst({
     where: { stockId: { not: null } },
-    orderBy: { createdAt: 'desc' },
+    orderBy: { stockId: 'desc' },
   });
 
   if (!lastStock || !lastStock.stockId) {
