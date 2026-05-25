@@ -99,21 +99,26 @@ export default function AdminUsers() {
   };
 
   const generateInvite = async () => {
+    if (!currentUser) return;
     try {
+      const roleToGenerate = currentUser.role === 'superadmin' ? generateRole : 'staff';
       const response = await fetch('/api/invites/generate', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${localStorage.getItem('token')}`,
         },
-        body: JSON.stringify({ role: generateRole }),
+        body: JSON.stringify({ role: roleToGenerate }),
       });
-      if (!response.ok) throw new Error();
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        throw new Error(data.error || 'Failed to generate invite');
+      }
       const newInvite = await response.json();
       setInvites([newInvite, ...invites]);
       setError('');
-    } catch {
-      setError('Failed to generate invite');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to generate invite');
     }
   };
 
@@ -291,7 +296,9 @@ export default function AdminUsers() {
                   onChange={e => setGenerateRole(e.target.value as 'superadmin' | 'admin' | 'staff')}
                   className="px-4 py-2 border border-[var(--border)] rounded-lg font-medium text-sm bg-[var(--surface)] text-[var(--text)]">
                   <option value="staff">Staff User</option>
-                  <option value="admin">Admin User</option>
+                  {currentUser.role === 'superadmin' && (
+                    <option value="admin">Admin User</option>
+                  )}
                   {currentUser.role === 'superadmin' && (
                     <option value="superadmin">Super Admin User</option>
                   )}

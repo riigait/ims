@@ -14,7 +14,8 @@ import DataPageLayout from '@/components/layout/DataPageLayout';
 type ImportType = 'products' | 'categories' | 'locations' | 'floor-plans' | 'unknown';
 type ExportType = 'products' | 'categories' | 'locations' | 'floor-plans' | 'stock-movements' | 'inventory-items';
 type UnifiedType = 'products' | 'categories' | 'locations' | 'floor-plans';
-type Tab = 'import' | 'export';
+type Tab = 'import' | 'export' | 'corrector';
+type CsvRow = Record<string, string>;
 
 interface ImportResult {
   type: ImportType | 'unified';
@@ -43,9 +44,12 @@ export default function ImportPCLSF() {
   const [file, setFile] = useState<File | null>(null);
   const [loading, setLoading] = useState(false);
   const [exportLoading, setExportLoading] = useState<ExportType | 'unified' | null>(null);
+  const [correctorFile, setCorrectorFile] = useState<File | null>(null);
+  const [correctorLoading, setCorrectorLoading] = useState(false);
   const [result, setResult] = useState<ImportResult | null>(null);
   const [error, setError] = useState('');
   const [exportMessage, setExportMessage] = useState('');
+  const [correctorMessage, setCorrectorMessage] = useState('');
 
   const detectImportType = (headers: string[]): ImportType => {
     const headerSet = new Set(headers.map(h => h.trim().toLowerCase()));
@@ -103,6 +107,25 @@ export default function ImportPCLSF() {
     window.URL.revokeObjectURL(url);
   };
 
+  const randomCode = (length = 5) => {
+    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+    return Array.from({ length }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
+  };
+
+  const timestampForFilename = () => {
+    const now = new Date();
+    const pad = (value: number) => String(value).padStart(2, '0');
+    return [
+      now.getFullYear(),
+      pad(now.getMonth() + 1),
+      pad(now.getDate()),
+      '-',
+      pad(now.getHours()),
+      pad(now.getMinutes()),
+      pad(now.getSeconds()),
+    ].join('');
+  };
+
   const buildUnifiedCsv = async () => {
     const sections: string[] = [];
     for (const type of UNIFIED_TYPES) {
@@ -135,10 +158,171 @@ export default function ImportPCLSF() {
       .map(type => ({ type, csv: sections[type]!.join('\n') }));
   };
 
+  const parseCsvRows = (csvContent: string): CsvRow[] => {
+    const rows: string[][] = [];
+    let field = '';
+    let row: string[] = [];
+    let inQuotes = false;
+
+    for (let i = 0; i < csvContent.length; i++) {
+      const char = csvContent[i];
+      const next = csvContent[i + 1];
+
+      if (char === '"' && inQuotes && next === '"') {
+        field += '"';
+        i++;
+      } else if (char === '"') {
+        inQuotes = !inQuotes;
+      } else if (char === ',' && !inQuotes) {
+        row.push(field);
+        field = '';
+      } else if ((char === '\n' || char === '\r') && !inQuotes) {
+        if (char === '\r' && next === '\n') i++;
+        row.push(field);
+        if (row.some(value => value.trim())) rows.push(row);
+        row = [];
+        field = '';
+      } else {
+        field += char;
+      }
+    }
+
+    row.push(field);
+    if (row.some(value => value.trim())) rows.push(row);
+
+    const headers = rows[0]?.map(header => header.trim()) || [];
+    return rows.slice(1).map(values => {
+      const item: CsvRow = {};
+      headers.forEach((header, index) => {
+        item[header] = (values[index] || '').trim();
+      });
+      return item;
+    });
+  };
+
+  const slug = (value: string, fallback: string) => {
+    const cleaned = value
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 48);
+    return cleaned || fallback;
+  };
+
+  const isInventoryListCsv = (csvContent: string) => {
+    const headers = csvContent.split(/\r?\n/)[0]?.split(',').map(header => header.trim().toLowerCase()) || [];
+    return ['description', 'model number', 'serial number', 'mac id', 'location'].every(header => headers.includes(header));
+  };
+
+  const convertInventoryListToUnifiedCsv = (csvContent: string) => {
+    const rows = parseCsvRows(csvContent);
+    const now = new Date().toISOString();
+    const categoryId = 'csv-cat-imported-items';
+    const locations = new Map<string, CsvRow>();
+    const products: CsvRow[] = [];
+
+    rows.forEach((row, index) => {
+      const description = row.Description || '';
+      if (!description.trim()) return;
+
+      const locationName = row.Location || 'Unassigned';
+      const locationId = `csv-loc-${slug(locationName, `location-${index + 1}`)}`;
+      locations.set(locationId, {
+        id: locationId,
+        name: locationName,
+        type: 'room',
+        parentId: '',
+        departmentId: '',
+        notes: '',
+        createdAt: now,
+        updatedAt: now,
+        parent: '',
+        children: '[]',
+      });
+
+      const notes = [
+        row['Model Number'] ? `Model: ${row['Model Number']}` : '',
+        row['Serial Number'] ? `Serial: ${row['Serial Number']}` : '',
+        row['MAC ID'] ? `MAC: ${row['MAC ID']}` : '',
+      ].filter(Boolean).join('; ');
+      const count = Number.parseInt(row.Count || '', 10);
+      const stock = Number.isFinite(count) && count > 0 ? count : 1;
+      const rowNo = String(products.length + 1).padStart(4, '0');
+
+      products.push({
+        id: `csv-${rowNo}`,
+        sku: `CSV-${rowNo}`,
+        name: description.slice(0, 80),
+        description,
+        categoryId,
+        category: '',
+        departmentId: '',
+        department: '',
+        unit: 'pcs',
+        currentStock: String(stock),
+        lowStockThreshold: '1',
+        locationId,
+        location: '',
+        supplier: '',
+        unitPrice: '',
+        status: 'active',
+        expiryDate: '',
+        leadTimeDays: '',
+        notes,
+        createdAt: now,
+        updatedAt: now,
+      });
+    });
+
+    return [
+      '#IMS_SECTION,categories',
+      convertToCSV([{ id: categoryId, name: 'Imported Items', description: 'Items converted from inventory CSV', departmentId: '', createdAt: now, updatedAt: now }]),
+      '#IMS_SECTION,locations',
+      convertToCSV([...locations.values()]),
+      '#IMS_SECTION,products',
+      convertToCSV(products),
+      '#IMS_SECTION,floor-plans',
+      'id,name,locationId,departmentId,width,height,planJson,createdAt,updatedAt,location',
+      '',
+    ].join('\n\n');
+  };
+
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     setFile(e.target.files?.[0] || null);
     setResult(null);
     setError('');
+  };
+
+  const handleCorrectorFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setCorrectorFile(e.target.files?.[0] || null);
+    setCorrectorMessage('');
+    setError('');
+  };
+
+  const handleCorrectCsv = async () => {
+    if (!correctorFile) {
+      setError('Please select a CSV file to correct');
+      return;
+    }
+
+    try {
+      setCorrectorLoading(true);
+      const csvContent = await parseCSV(correctorFile);
+      if (!isInventoryListCsv(csvContent)) {
+        setError('CSV Corrector expects columns: Description, Model Number, Serial Number, MAC ID, Location.');
+        return;
+      }
+
+      const corrected = convertInventoryListToUnifiedCsv(csvContent);
+      downloadTextFile(corrected, `corrected-${randomCode()}-${timestampForFilename()}.csv`);
+      setCorrectorMessage('Corrected CSV downloaded. Review it, then import it from the Import tab.');
+    } catch (err) {
+      console.error('CSV corrector error:', err);
+      setError('Failed to correct CSV file.');
+    } finally {
+      setCorrectorLoading(false);
+    }
   };
 
   const handleImport = async () => {
@@ -249,13 +433,13 @@ export default function ImportPCLSF() {
   const formContent = (
     <div className="space-y-6">
       <div className="inline-flex rounded-lg border border-[var(--border)] overflow-hidden">
-        {(['import', 'export'] as Tab[]).map(tab => (
+        {(['import', 'export', 'corrector'] as Tab[]).map(tab => (
           <button
             key={tab}
-            onClick={() => { setActiveTab(tab); setError(''); setExportMessage(''); }}
+            onClick={() => { setActiveTab(tab); setError(''); setExportMessage(''); setCorrectorMessage(''); }}
             className={`px-4 py-2 text-sm font-medium capitalize ${activeTab === tab ? 'bg-[var(--primary)] text-white' : 'bg-[var(--surface)] text-[var(--text)] hover:bg-[var(--surface-2)]'}`}
           >
-            {tab}
+            {tab === 'corrector' ? 'CSV Corrector' : tab}
           </button>
         ))}
       </div>
@@ -304,7 +488,7 @@ export default function ImportPCLSF() {
             {loading ? 'Importing...' : 'Import CSV'}
           </button>
         </>
-      ) : (
+      ) : activeTab === 'export' ? (
         <>
           <div>
             <h2 className="text-xl font-semibold mb-2 text-[var(--text)]">Export Data</h2>
@@ -335,10 +519,45 @@ export default function ImportPCLSF() {
             ))}
           </div>
         </>
+      ) : (
+        <>
+          <div>
+            <h2 className="text-xl font-semibold mb-2 text-[var(--text)]">CSV Corrector</h2>
+            <p className="text-sm text-[var(--text-muted)]">
+              Upload a raw inventory CSV. The app will convert it to the unified IMS CSV format, then download the corrected file.
+            </p>
+          </div>
+
+          <div className="bg-[var(--surface-2)] rounded-lg p-4 border border-[var(--border)] text-sm text-[var(--text-muted)] space-y-2">
+            <p className="font-medium text-[var(--text)]">Expected columns</p>
+            <p>Count, Description, Model Number, Serial Number, MAC ID, Location</p>
+            <p>Rows without Description are skipped. Count defaults to 1 when blank.</p>
+          </div>
+
+          <div className="border-2 border-dashed border-[var(--border)] rounded-lg p-8 text-center">
+            <Upload size={48} className="mx-auto mb-4 text-[var(--text-muted)]" />
+            <label className="cursor-pointer">
+              <span className="text-[var(--primary)] hover:text-[var(--primary-hover)] font-semibold">
+                Click to select raw CSV file
+              </span>
+              <input type="file" accept=".csv" onChange={handleCorrectorFileSelect} disabled={correctorLoading} className="hidden" />
+            </label>
+            {correctorFile && <p className="mt-2 text-sm text-[var(--text-muted)]">Selected: {correctorFile.name}</p>}
+          </div>
+
+          <button
+            onClick={handleCorrectCsv}
+            disabled={!correctorFile || correctorLoading}
+            className="w-full px-4 py-3 bg-[var(--primary)] text-white rounded-lg hover:bg-[var(--primary-hover)] disabled:opacity-50 font-semibold"
+          >
+            {correctorLoading ? 'Correcting...' : 'Correct and Download CSV'}
+          </button>
+        </>
       )}
 
       {error && <div className="p-4 bg-red-100 text-red-800 rounded-lg">Error: {error}</div>}
       {exportMessage && <div className="p-4 bg-green-100 text-green-800 rounded-lg">{exportMessage}</div>}
+      {correctorMessage && <div className="p-4 bg-green-100 text-green-800 rounded-lg">{correctorMessage}</div>}
 
       {result && (
         <div className={`p-4 rounded-lg ${result.errors.length === 0 ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'}`}>

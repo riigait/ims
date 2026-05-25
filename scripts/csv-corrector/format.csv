@@ -1,0 +1,12 @@
+#IMS_SECTION,categories                                         #IMS_SECTION,locations                                                                  #IMS_SECTION,products                                                                                                                                                                                   #IMS_SECTION,floor-plans
+id,name,description,departmentId,createdAt,updatedAt,department id,name,type,parentId,departmentId,notes,createdAt,updatedAt,parent,children,department id,sku,name,description,categoryId,category,departmentId,department,unit,currentStock,lowStockThreshold,locationId,location,supplier,unitPrice,status,expiryDate,leadTimeDays,notes,createdAt,updatedAt id,name,locationId,departmentId,width,height,planJson,createdAt,updatedAt,location
+
+
+
+
+
+
+
+
+
+

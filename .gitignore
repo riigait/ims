@@ -67,3 +67,5 @@ __pycache__/
 *.pdf
 *.csv
 !ims-test.csv
+!pclsf.csv
+!scripts/csv-corrector/format.csv

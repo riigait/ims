@@ -11,7 +11,7 @@ Auto-detects section type (products / categories / locations /
 stock-movements / floor-plans) from column names, maps columns to
 the correct IMS import format, and writes:
 
-    corrected-XXXXX-YYYYMMDD.csv
+    corrected-XXXXX-YYYYMMDD-HHMMSS.csv
 
 No external libraries required.
 """
@@ -160,14 +160,15 @@ def norm(h: str) -> str:
 
 def map_column(header: str, all_fields: list) -> str | None:
     h = norm(header)
-    # 1. exact match against standard field names (case-insensitive)
-    for f in all_fields:
-        if h == f.lower():
-            return f
-    # 2. alias table
+    # 1. alias table first — aliases encode user intent more precisely
+    #    (e.g. "category" → categoryId, not the computed JSON "category" field)
     candidate = ALIASES.get(h)
     if candidate and candidate in all_fields:
         return candidate
+    # 2. exact match against standard field names (case-insensitive)
+    for f in all_fields:
+        if h == f.lower():
+            return f
     # 3. fuzzy match against standard field names
     lower_fields = [f.lower() for f in all_fields]
     hits = get_close_matches(h, lower_fields, n=1, cutoff=0.75)
@@ -248,11 +249,168 @@ def correct_rows(rows: list, section: str) -> tuple:
     return corrected, report
 
 
+UNIQUE_FIELDS = {
+    'categories':      ['name'],
+    'locations':       ['name'],
+    'products':        ['sku'],
+    'stock-movements': [],
+    'floor-plans':     ['name'],
+}
+
+
+def validate_and_clean(rows: list, section: str) -> tuple:
+    """
+    After correction:
+    - Skip rows where every required field is empty.
+    - Warn when a required field has empty values.
+    - Warn when a unique key field has duplicates.
+    - Strip optional columns that are entirely empty (keeps output lean).
+    Returns (cleaned_rows, output_fieldnames).
+    """
+    schema   = SCHEMAS[section]
+    required = schema['required']
+    all_fields = schema['all']
+    # Drop rows where ALL required fields are empty
+    valid, skipped = [], 0
+    for row in rows:
+        if all(not row.get(f, '').strip() for f in required):
+            skipped += 1
+        else:
+            valid.append(row)
+    if skipped:
+        print(f"  SKIPPED : {skipped} row(s) — all required fields empty")
+
+    # Warn: required fields with any empty value
+    for field in required:
+        n_empty = sum(1 for r in valid if not r.get(field, '').strip())
+        if n_empty:
+            print(f"  WARNING : '{field}' empty in {n_empty}/{len(valid)} row(s) — fill manually")
+
+    # Keep: required columns always + optional columns with at least one value
+    has_data = {f for f in all_fields if any(r.get(f, '').strip() for r in valid)}
+    keep = [f for f in all_fields if f in required or f in has_data]
+
+    cleaned = [{f: r.get(f, '') for f in keep} for r in valid]
+    return cleaned, keep
+
+
 def write_csv(path: str, rows: list, fieldnames: list):
     with open(path, 'w', newline='', encoding='utf-8') as f:
         w = csv.DictWriter(f, fieldnames=fieldnames)
         w.writeheader()
         w.writerows(rows)
+
+
+def slug(value: str, fallback: str) -> str:
+    cleaned = ''.join(ch.lower() if ch.isalnum() else '-' for ch in value.strip())
+    cleaned = '-'.join(part for part in cleaned.split('-') if part)
+    return cleaned[:48] or fallback
+
+
+def is_inventory_list(headers: list) -> bool:
+    normed = {norm(h) for h in headers}
+    return {'description', 'model number', 'serial number', 'mac id', 'location'} <= normed
+
+
+def write_unified_csv(path: str, sections: dict):
+    with open(path, 'w', newline='', encoding='utf-8') as f:
+        for section, payload in sections.items():
+            f.write(f"#IMS_SECTION,{section}\n")
+            writer = csv.DictWriter(f, fieldnames=payload['fieldnames'])
+            writer.writeheader()
+            writer.writerows(payload['rows'])
+            f.write("\n")
+
+
+def convert_inventory_list(rows: list) -> dict:
+    now = datetime.now().isoformat(timespec='milliseconds') + 'Z'
+    category_id = 'csv-cat-imported-items'
+    dept_id = ''
+    locations = {}
+    products = []
+
+    for idx, row in enumerate(rows, start=1):
+        description = (row.get('Description') or '').strip()
+        if not description:
+            continue
+
+        raw_location = (row.get('Location') or '').strip()
+        location_name = raw_location or 'Unassigned'
+        location_id = f"csv-loc-{slug(location_name, f'location-{idx}')}"
+        locations[location_id] = {
+            'id': location_id,
+            'name': location_name,
+            'type': 'room',
+            'parentId': '',
+            'departmentId': dept_id,
+            'notes': '',
+            'createdAt': now,
+            'updatedAt': now,
+            'parent': '',
+            'children': '[]',
+        }
+
+        count_raw = (row.get('Count') or '').strip()
+        stock = int(count_raw) if count_raw.isdigit() else 1
+        model = (row.get('Model Number') or '').strip()
+        serial = (row.get('Serial Number') or '').strip()
+        mac = (row.get('MAC ID') or '').strip()
+        notes = '; '.join(part for part in [
+            f"Model: {model}" if model else '',
+            f"Serial: {serial}" if serial else '',
+            f"MAC: {mac}" if mac else '',
+        ] if part)
+
+        product_no = len(products) + 1
+        products.append({
+            'id': f"csv-{product_no:04d}",
+            'sku': f"CSV-{product_no:04d}",
+            'name': description[:80],
+            'description': description,
+            'categoryId': category_id,
+            'category': '',
+            'departmentId': dept_id,
+            'department': '',
+            'unit': 'pcs',
+            'currentStock': str(stock),
+            'lowStockThreshold': '1',
+            'locationId': location_id,
+            'location': '',
+            'supplier': '',
+            'unitPrice': '',
+            'status': 'active',
+            'expiryDate': '',
+            'leadTimeDays': '',
+            'notes': notes,
+            'createdAt': now,
+            'updatedAt': now,
+        })
+
+    return {
+        'categories': {
+            'fieldnames': ['id', 'name', 'description', 'departmentId', 'createdAt', 'updatedAt'],
+            'rows': [{
+                'id': category_id,
+                'name': 'Imported Items',
+                'description': 'Items converted from inventory CSV',
+                'departmentId': dept_id,
+                'createdAt': now,
+                'updatedAt': now,
+            }],
+        },
+        'locations': {
+            'fieldnames': ['id', 'name', 'type', 'parentId', 'departmentId', 'notes', 'createdAt', 'updatedAt', 'parent', 'children'],
+            'rows': list(locations.values()),
+        },
+        'products': {
+            'fieldnames': ['id', 'sku', 'name', 'description', 'categoryId', 'category', 'departmentId', 'department', 'unit', 'currentStock', 'lowStockThreshold', 'locationId', 'location', 'supplier', 'unitPrice', 'status', 'expiryDate', 'leadTimeDays', 'notes', 'createdAt', 'updatedAt'],
+            'rows': products,
+        },
+        'floor-plans': {
+            'fieldnames': ['id', 'name', 'locationId', 'departmentId', 'width', 'height', 'planJson', 'createdAt', 'updatedAt', 'location'],
+            'rows': [],
+        },
+    }
 
 
 def print_report(section: str, report: dict, out_name: str):
@@ -354,7 +512,7 @@ def apply_format(format_path: str):
 def process_file(input_path: str):
     filename  = os.path.basename(input_path)
     out_dir   = os.path.dirname(input_path)
-    date_str  = datetime.now().strftime('%Y%m%d')
+    date_str  = datetime.now().strftime('%Y%m%d-%H%M%S')
 
     print(f"\n{'-'*55}")
     print(f"  File : {filename}")
@@ -377,8 +535,9 @@ def process_file(input_path: str):
             uid      = rand_id(5)
             out_name = f"corrected-{uid}-{date_str}.csv"
             out_path = os.path.join(out_dir, out_name)
-            write_csv(out_path, corrected, SCHEMAS[sec_name]['all'])
             print_report(sec_name, report, out_name)
+            cleaned, fieldnames = validate_and_clean(corrected, sec_name)
+            write_csv(out_path, cleaned, fieldnames)
     else:
         # Plain CSV
         with open(input_path, newline='', encoding='utf-8-sig') as f:
@@ -386,14 +545,26 @@ def process_file(input_path: str):
             headers = list(reader.fieldnames or [])
             rows    = list(reader)
 
+        if is_inventory_list(headers):
+            uid = rand_id(5)
+            out_name = f"corrected-{uid}-{date_str}.csv"
+            out_path = os.path.join(out_dir, out_name)
+            sections = convert_inventory_list(rows)
+            write_unified_csv(out_path, sections)
+            print("  Format: Inventory list")
+            print(f"  Rows   : {len(sections['products']['rows'])} product(s)")
+            print(f"  Output : {out_name}")
+            return
+
         section = detect_section(headers)
         print(f"  Format: Plain CSV")
         corrected, report = correct_rows(rows, section)
         uid      = rand_id(5)
         out_name = f"corrected-{uid}-{date_str}.csv"
         out_path = os.path.join(out_dir, out_name)
-        write_csv(out_path, corrected, SCHEMAS[section]['all'])
         print_report(section, report, out_name)
+        cleaned, fieldnames = validate_and_clean(corrected, section)
+        write_csv(out_path, cleaned, fieldnames)
 
 
 # ---------------------------------------------------------------------------
