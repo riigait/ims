@@ -12,7 +12,6 @@ Full-stack inventory app for multi-department teams. PostgreSQL-backed, with per
 ### Dashboard
 KPIs, stock health, category and location breakdowns, recent movements — all department-scoped.
 
-![Dashboard — full inventory view](docs/screenshots/02-dashboard.png)
 ![Dashboard — department-filtered view](docs/screenshots/03-dashboard-alt.png)
 
 ### Categories
