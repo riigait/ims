@@ -163,15 +163,20 @@ router.post('/import/csv', async (req: AuthRequest, res: Response) => {
     for (let i = 0; i < rows.length; i++) {
       try {
         const row = rows[i];
-        const location = await prisma.location.create({
-          data: {
+        const data = {
             name: row.name,
             type: row.type || 'room',
             parentId: row.parentId || null,
             notes: row.notes || null,
             departmentId: req.departmentId,
-          },
-        });
+          };
+        const location = row.id
+          ? await prisma.location.upsert({
+              where: { id: row.id },
+              update: data,
+              create: { id: row.id, ...data },
+            })
+          : await prisma.location.create({ data });
         created.push(location);
       } catch (err: any) {
         errors.push({ row: i + 1, error: err.message });

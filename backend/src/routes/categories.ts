@@ -22,8 +22,14 @@ router.get('/', async (req: AuthRequest, res: Response) => {
     }
     const categories = await prisma.category.findMany({ where: whereFilter });
     res.json(categories);
-  } catch (error) {
+  } catch (error: any) {
     console.error(error);
+    if (error.code === 'P2025') {
+      return res.json({ message: 'Category already deleted' });
+    }
+    if (error.code === 'P2003') {
+      return res.status(400).json({ error: 'Category is still referenced by other records' });
+    }
     res.status(500).json({ error: 'Internal server error' });
   }
 });
@@ -44,8 +50,14 @@ router.get('/:id', async (req: AuthRequest, res: Response) => {
     }
 
     res.json(category);
-  } catch (error) {
+  } catch (error: any) {
     console.error(error);
+    if (error.code === 'P2025') {
+      return res.json({ message: 'Category already deleted' });
+    }
+    if (error.code === 'P2003') {
+      return res.status(400).json({ error: 'Category is still referenced by other records' });
+    }
     res.status(500).json({ error: 'Internal server error' });
   }
 });
@@ -153,13 +165,18 @@ router.post('/import/csv', async (req: AuthRequest, res: Response) => {
     for (let i = 0; i < rows.length; i++) {
       try {
         const row = rows[i];
-        const category = await prisma.category.create({
-          data: {
+        const data = {
             name: row.name,
             description: row.description || null,
             departmentId: req.departmentId,
-          },
-        });
+          };
+        const category = row.id
+          ? await prisma.category.upsert({
+              where: { id: row.id },
+              update: data,
+              create: { id: row.id, ...data },
+            })
+          : await prisma.category.create({ data });
         created.push(category);
       } catch (err: any) {
         errors.push({ row: i + 1, error: err.message });

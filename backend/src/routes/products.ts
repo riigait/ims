@@ -352,8 +352,7 @@ router.post('/import/csv', async (req: AuthRequest, res: Response) => {
     for (let i = 0; i < rows.length; i++) {
       try {
         const row = rows[i];
-        const product = await prisma.product.create({
-          data: {
+        const data = {
             sku: row.sku,
             name: row.name,
             description: row.description || null,
@@ -369,8 +368,13 @@ router.post('/import/csv', async (req: AuthRequest, res: Response) => {
             expiryDate: row.expiryDate ? new Date(row.expiryDate) : null,
             leadTimeDays: row.leadTimeDays ? parseInt(row.leadTimeDays) : null,
             notes: row.notes || null,
-          },
-        });
+          };
+        const existing = row.id
+          ? await prisma.product.findUnique({ where: { id: row.id } })
+          : await prisma.product.findUnique({ where: { sku: row.sku } });
+        const product = existing
+          ? await prisma.product.update({ where: { id: existing.id }, data })
+          : await prisma.product.create({ data: { ...(row.id ? { id: row.id } : {}), ...data } });
         created.push(product);
       } catch (err: any) {
         errors.push({ row: i + 1, error: err.message });

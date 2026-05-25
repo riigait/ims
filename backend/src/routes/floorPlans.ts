@@ -1,6 +1,7 @@
 import express, { Router, Request, Response } from 'express';
 import prisma from '../utils/prisma';
 import { AuthRequest } from '../middleware/auth';
+import { csvToJson } from '../utils/csv';
 
 const router = Router();
 
@@ -68,6 +69,59 @@ router.get('/by-location/:locationId', async (req: AuthRequest, res: Response) =
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Import floor plans from CSV
+router.post('/import/csv', async (req: AuthRequest, res: Response) => {
+  try {
+    if (!req.body.csv) {
+      return res.status(400).json({ error: 'CSV data required' });
+    }
+
+    const rows = csvToJson<any>(req.body.csv);
+    const created = [];
+    const errors = [];
+
+    for (let i = 0; i < rows.length; i++) {
+      try {
+        const row = rows[i];
+        const width = parseInt(row.width, 10);
+        const height = parseInt(row.height, 10);
+
+        if (!row.name || !width || !height) {
+          throw new Error('name, width, and height are required');
+        }
+
+        const data = {
+            name: row.name,
+            width,
+            height,
+            locationId: row.locationId || null,
+            departmentId: req.departmentId,
+            planJson: row.planJson || '[]',
+          };
+        const floorPlan = row.id
+          ? await prisma.floorPlan.upsert({
+              where: { id: row.id },
+              update: data,
+              create: { id: row.id, ...data },
+            })
+          : await prisma.floorPlan.create({ data });
+        created.push(floorPlan);
+      } catch (err: any) {
+        errors.push({ row: i + 1, error: err.message });
+      }
+    }
+
+    res.json({
+      created: created.length,
+      errors,
+      message: `Imported ${created.length} floor plans${errors.length > 0 ? ` with ${errors.length} errors` : ''}`,
+    });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Failed to import floor plans' });
   }
 });
 
