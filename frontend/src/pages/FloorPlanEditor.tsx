@@ -1570,18 +1570,18 @@ export default function FloorPlanEditor() {
     unlinked: { label: 'Unlinked',    className: 'text-gray-400 bg-gray-50',     icon: <MapPin size={12} /> },
   };
 
-  if (loading) return <div className="text-center py-12 text-gray-500">Loading...</div>;
-  if (!currentFloorPlan) return <div className="text-center py-12 text-gray-500">Floor plan not found</div>;
+  if (loading) return <div className="text-center py-12 text-[var(--text-muted)]">Loading...</div>;
+  if (!currentFloorPlan) return <div className="text-center py-12 text-[var(--text-muted)]">Floor plan not found</div>;
 
   return (
-    <div className="h-screen flex flex-col bg-slate-100">
+    <div className="h-screen flex flex-col bg-[var(--bg)] text-[var(--text)]">
       {/* Top Bar */}
-      <div className="bg-white border-b px-6 py-3 flex justify-between items-center shadow-sm">
+      <div className="bg-[var(--surface)] border-b border-[var(--border)] px-6 py-3 flex justify-between items-center shadow-sm">
         <div className="flex items-center gap-4">
-          <button onClick={() => navigate('/floor-plans')} className="flex items-center gap-1.5 text-blue-600 hover:text-blue-800 text-sm font-medium">
+          <button onClick={() => navigate('/floor-plans')} className="flex items-center gap-1.5 text-[var(--primary)] hover:text-[var(--primary-hover)] text-sm font-medium">
             <ArrowLeft size={16} /> Back
           </button>
-          <div className="h-5 w-px bg-gray-300" />
+          <div className="h-5 w-px bg-[var(--border)]" />
           {editingTitle && !isReadOnly ? (
             <input
               autoFocus
@@ -1601,21 +1601,21 @@ export default function FloorPlanEditor() {
                   setEditingTitle(false);
                 }
               }}
-              className="text-lg font-bold text-gray-900 border-b-2 border-blue-500 bg-transparent outline-none min-w-48"
+              className="text-lg font-bold text-[var(--text)] border-b-2 border-[var(--primary)] bg-transparent outline-none min-w-48"
             />
           ) : (
             <h1
-              className={`text-lg font-bold text-gray-900 border-b-2 border-transparent ${!isReadOnly ? 'cursor-pointer hover:text-blue-600 hover:border-blue-300' : ''} transition`}
+              className={`text-lg font-bold text-[var(--text)] border-b-2 border-transparent ${!isReadOnly ? 'cursor-pointer hover:text-[var(--primary)] hover:border-[var(--primary)]' : ''} transition`}
               title={isReadOnly ? '' : 'Click to rename'}
               onClick={() => !isReadOnly && (setTitleDraft(currentFloorPlan.name), setEditingTitle(true))}
             >
               {currentFloorPlan.name}
             </h1>
           )}
-          <span className="text-xs text-gray-400">{currentFloorPlan.width} × {currentFloorPlan.height} px</span>
+          <span className="text-xs text-[var(--text-muted)]">{currentFloorPlan.width} × {currentFloorPlan.height} px</span>
         </div>
         {/* Legend */}
-        <div className="hidden md:flex items-center gap-4 text-xs text-gray-500">
+        <div className="hidden md:flex items-center gap-4 text-xs text-[var(--text-muted)]">
           {(['ok','low','out','empty'] as StockStatus[]).map(s => (
             <span key={s} className="flex items-center gap-1">
               <span className="w-3 h-3 rounded-full inline-block" style={{ background: STATUS_COLORS[s].badge }} />
@@ -1625,12 +1625,12 @@ export default function FloorPlanEditor() {
         </div>
         {!isReadOnly && (
           <button onClick={handleSave} disabled={saving}
-            className="flex items-center gap-2 bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 disabled:opacity-50 text-sm font-medium">
+            className="flex items-center gap-2 bg-[var(--primary)] text-white px-4 py-2 rounded-lg hover:bg-[var(--primary-hover)] disabled:opacity-50 text-sm font-medium">
             <Save size={16} /> {saving ? 'Saving…' : 'Save'}
           </button>
         )}
         {isReadOnly && (
-          <span className="text-xs font-medium text-gray-500 bg-gray-50 px-3 py-2 rounded-lg">
+          <span className="text-xs font-medium text-[var(--text-muted)] bg-[var(--surface-2)] px-3 py-2 rounded-lg">
             Read-only view
           </span>
         )}
@@ -1639,16 +1639,16 @@ export default function FloorPlanEditor() {
       <div className="flex flex-1 overflow-hidden">
         {/* Toolbar - hidden for read-only */}
         {!isReadOnly && (
-          <div className="w-14 bg-white border-r flex flex-col items-center py-3 gap-1 shadow-sm">
+          <div className="w-14 bg-[var(--surface)] border-r border-[var(--border)] flex flex-col items-center py-3 gap-1 shadow-sm">
             {([
               { tool: 'select', icon: <Move size={18} />, title: 'Select / Move' },
             ] as const).map(({ tool, icon, title }) => (
               <button key={tool} onClick={() => setTool(tool)} title={title}
-                className={`p-2.5 rounded-lg w-10 flex justify-center ${editorState.tool === tool ? 'bg-blue-600 text-white' : 'text-gray-500 hover:bg-gray-100'}`}>
+                className={`p-2.5 rounded-lg w-10 flex justify-center ${editorState.tool === tool ? 'bg-[var(--primary)] text-white' : 'text-[var(--text-muted)] hover:bg-[var(--surface-2)]'}`}>
                 {icon}
               </button>
             ))}
-            <div className="w-8 border-t border-gray-200 my-0.5" />
+            <div className="w-8 border-t border-[var(--border)] my-0.5" />
             {([
               { tool: 'wall',  icon: <Layers size={18} />,  title: 'Wall' },
               { tool: 'room',  icon: <Square size={18} />,  title: 'Room/Area' },
@@ -1661,30 +1661,30 @@ export default function FloorPlanEditor() {
               { tool: 'marker', icon: <MapPin size={18} />,  title: 'Inventory Marker' },
             ] as const).map(({ tool, icon, title }) => (
               <button key={tool} onClick={() => setTool(tool)} title={title}
-                className={`p-2.5 rounded-lg w-10 flex justify-center ${editorState.tool === tool ? 'bg-blue-600 text-white' : 'text-gray-500 hover:bg-gray-100'}`}>
+                className={`p-2.5 rounded-lg w-10 flex justify-center ${editorState.tool === tool ? 'bg-[var(--primary)] text-white' : 'text-[var(--text-muted)] hover:bg-[var(--surface-2)]'}`}>
                 {icon}
               </button>
             ))}
-            <div className="w-8 border-t border-gray-200 my-0.5" />
+            <div className="w-8 border-t border-[var(--border)] my-0.5" />
             <button onClick={() => setTool('delete')} title="Delete"
               className={`p-2.5 rounded-lg w-10 flex justify-center ${editorState.tool === 'delete' ? 'bg-red-600 text-white' : 'text-red-500 hover:bg-red-50'}`}>
               <Trash2 size={18} />
             </button>
-            <div className="w-8 border-t border-gray-200 my-0.5" />
+            <div className="w-8 border-t border-[var(--border)] my-0.5" />
             <button onClick={() => setZoomLevel(Math.min(editorState.zoomLevel + 0.2, 3))} title="Zoom In"
-              className="p-2.5 rounded-lg w-10 flex justify-center text-gray-500 hover:bg-gray-100">
+              className="p-2.5 rounded-lg w-10 flex justify-center text-[var(--text-muted)] hover:bg-[var(--surface-2)]">
               <ZoomIn size={18} />
             </button>
             <button onClick={() => setZoomLevel(Math.max(editorState.zoomLevel - 0.2, 0.3))} title="Zoom Out"
-              className="p-2.5 rounded-lg w-10 flex justify-center text-gray-500 hover:bg-gray-100">
+              className="p-2.5 rounded-lg w-10 flex justify-center text-[var(--text-muted)] hover:bg-[var(--surface-2)]">
               <ZoomOut size={18} />
             </button>
-            <div className="text-xs text-gray-400 mt-1">{Math.round(editorState.zoomLevel * 100)}%</div>
+            <div className="text-xs text-[var(--text-muted)] mt-1">{Math.round(editorState.zoomLevel * 100)}%</div>
           </div>
         )}
 
         {/* Canvas area */}
-        <div className="flex-1 overflow-auto bg-slate-200 p-4">
+        <div className="flex-1 overflow-auto bg-[var(--surface-2)] p-4">
           <canvas
             ref={canvasRef}
             width={currentFloorPlan.width}
@@ -1697,13 +1697,13 @@ export default function FloorPlanEditor() {
               (e.currentTarget as HTMLCanvasElement).releasePointerCapture(e.pointerId);
               if (!isDragging) { setStartPos(null); setCurrentMousePos(null); }
             }}
-            className={`bg-white border border-gray-300 shadow-lg block ${getCursor()}`}
+            className={`bg-white border border-[var(--border)] shadow-lg block ${getCursor()}`}
             style={{ margin: '16px' }}
           />
         </div>
 
         {/* Right panel */}
-        <div className="w-80 bg-white border-l flex flex-col overflow-hidden shadow-sm flex-shrink-0">
+        <div className="w-80 bg-[var(--surface)] border-l border-[var(--border)] flex flex-col overflow-hidden shadow-sm flex-shrink-0">
           {selectedObjectIds.length > 0 ? (
             <div className="flex flex-col h-full overflow-y-auto">
               {(() => {
@@ -1717,7 +1717,7 @@ export default function FloorPlanEditor() {
                     {selectedObjectIds.length > 1 ? (
                       <div className="p-4 border-b space-y-3">
                         <div className="flex items-center justify-between mb-2">
-                          <h3 className="font-semibold text-gray-900">
+                          <h3 className="font-semibold text-[var(--text)]">
                             {allSameType ? `${selectedObjs[0]?.type} (Multiple)` : 'Multi-Select'}
                           </h3>
                           <span className="text-xs font-medium uppercase tracking-wide text-white bg-purple-500 px-2 py-0.5 rounded">
@@ -1726,8 +1726,8 @@ export default function FloorPlanEditor() {
                         </div>
 
                         {/* Selected objects list */}
-                        <div className="max-h-32 overflow-y-auto bg-gray-50 rounded border border-gray-200 p-2">
-                          <div className="text-xs font-medium text-gray-600 mb-2">Selected:</div>
+                        <div className="max-h-32 overflow-y-auto bg-[var(--surface-2)] rounded border border-[var(--border)] p-2">
+                          <div className="text-xs font-medium text-[var(--text-muted)] mb-2">Selected:</div>
                           <div className="space-y-1">
                             {selectedObjectIds.map((objId, idx) => {
                               const obj = currentFloorPlan?.objects.find(o => o.id === objId);
@@ -1738,8 +1738,8 @@ export default function FloorPlanEditor() {
                                   onClick={() => setSelectedObject(objId)}
                                   className={`w-full text-left px-2 py-1 rounded text-xs transition ${
                                     isActive
-                                      ? 'bg-blue-500 text-white font-medium'
-                                      : 'bg-white border border-gray-200 text-gray-700 hover:bg-gray-100'
+                                      ? 'bg-[var(--primary)] text-white font-medium'
+                                      : 'bg-[var(--surface)] border border-[var(--border)] text-[var(--text)] hover:bg-[var(--surface-2)]'
                                   }`}
                                 >
                                   {idx + 1}. {obj.type} {obj.label ? `"${obj.label}"` : ''}
@@ -1751,24 +1751,24 @@ export default function FloorPlanEditor() {
 
                         {/* Layer Order - Universal */}
                         <div>
-                          <label className="block text-xs font-medium text-gray-600 mb-1">Layer Order</label>
+                          <label className="block text-xs font-medium text-[var(--text-muted)] mb-1">Layer Order</label>
                           <div className="flex gap-2">
                             <button onClick={() => selectedObjectIds.forEach(id => bringToFront(id))}
-                              className="flex-1 px-2 py-1.5 rounded text-xs font-medium bg-gray-100 hover:bg-gray-200">
+                              className="flex-1 px-2 py-1.5 rounded text-xs font-medium bg-[var(--surface-2)] hover:bg-[var(--border)]">
                               <ChevronsUp size={14} className="inline mr-1" /> Front
                             </button>
                             <button onClick={() => selectedObjectIds.forEach(id => moveForward(id))}
-                              className="flex-1 px-2 py-1.5 rounded text-xs font-medium bg-gray-100 hover:bg-gray-200">
+                              className="flex-1 px-2 py-1.5 rounded text-xs font-medium bg-[var(--surface-2)] hover:bg-[var(--border)]">
                               <ChevronUp size={14} className="inline mr-1" /> Up
                             </button>
                           </div>
                           <div className="flex gap-2 mt-2">
                             <button onClick={() => selectedObjectIds.forEach(id => moveBackward(id))}
-                              className="flex-1 px-2 py-1.5 rounded text-xs font-medium bg-gray-100 hover:bg-gray-200">
+                              className="flex-1 px-2 py-1.5 rounded text-xs font-medium bg-[var(--surface-2)] hover:bg-[var(--border)]">
                               <ChevronDown size={14} className="inline mr-1" /> Down
                             </button>
                             <button onClick={() => selectedObjectIds.forEach(id => sendToBack(id))}
-                              className="flex-1 px-2 py-1.5 rounded text-xs font-medium bg-gray-100 hover:bg-gray-200">
+                              className="flex-1 px-2 py-1.5 rounded text-xs font-medium bg-[var(--surface-2)] hover:bg-[var(--border)]">
                               <ChevronsDown size={14} className="inline mr-1" /> Back
                             </button>
                           </div>
@@ -1782,7 +1782,7 @@ export default function FloorPlanEditor() {
                               <div className="flex gap-2">
                                 {!hasCommonGroup ? (
                                   <button onClick={() => { groupObjects(selectedObjectIds); useFloorPlanStore.getState().pushHistory(); }}
-                                    className="flex-1 px-3 py-2 rounded text-xs font-medium bg-blue-50 text-blue-600 hover:bg-blue-100">
+                                    className="flex-1 px-3 py-2 rounded text-xs font-medium bg-[var(--surface-2)] text-[var(--primary)] hover:bg-[var(--border)]">
                                     <Package size={14} className="inline mr-1" /> Group
                                   </button>
                                 ) : null}
@@ -1815,23 +1815,23 @@ export default function FloorPlanEditor() {
                 return showTypeSpecificProps && selectedObject ? (
               <div className="p-4 border-b space-y-3">
                 <div className="flex items-center justify-between">
-                  <h3 className="font-semibold text-gray-900">Properties</h3>
-                  <span className="text-xs font-medium uppercase tracking-wide text-white bg-blue-500 px-2 py-0.5 rounded">
+                  <h3 className="font-semibold text-[var(--text)]">Properties</h3>
+                  <span className="text-xs font-medium uppercase tracking-wide text-white bg-[var(--primary)] px-2 py-0.5 rounded">
                     {selectedObject.type}
                   </span>
                 </div>
 
                 {/* Label */}
                 <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">Label</label>
+                  <label className="block text-xs font-medium text-[var(--text-muted)] mb-1">Label</label>
                   {isReadOnly ? (
-                    <div className="w-full px-2.5 py-1.5 border border-gray-200 rounded text-sm bg-gray-50 text-gray-700">
+                    <div className="w-full px-2.5 py-1.5 border border-[var(--border)] rounded text-sm bg-[var(--surface-2)] text-[var(--text)]">
                       {selectedObject.label || '(no label)'}
                     </div>
                   ) : (
                     <input type="text" value={selectedObject.label || ''}
                       onChange={e => updateObject(selectedObject.id, { label: e.target.value })}
-                      className="w-full px-2.5 py-1.5 border border-gray-300 rounded text-sm" placeholder="Display label…" />
+                      className="w-full px-2.5 py-1.5 border border-[var(--border)] rounded text-sm bg-[var(--surface)] text-[var(--text)]" placeholder="Display label…" />
                   )}
                 </div>
 
@@ -1840,16 +1840,16 @@ export default function FloorPlanEditor() {
                   const lbl = selectedObject as LabelObject;
                   return <>
                     <div>
-                      <label className="block text-xs font-medium text-gray-600 mb-1">Text</label>
+                      <label className="block text-xs font-medium text-[var(--text-muted)] mb-1">Text</label>
                       <input type="text" value={lbl.text}
                         onChange={e => updateObject(selectedObject.id, { text: e.target.value, label: e.target.value })}
-                        className="w-full px-2.5 py-1.5 border border-gray-300 rounded text-sm" />
+                        className="w-full px-2.5 py-1.5 border border-[var(--border)] rounded text-sm bg-[var(--surface)] text-[var(--text)]" />
                     </div>
                     <div>
-                      <label className="block text-xs font-medium text-gray-600 mb-1">Font Size</label>
+                      <label className="block text-xs font-medium text-[var(--text-muted)] mb-1">Font Size</label>
                       <input type="number" value={lbl.fontSize} min={8} max={72}
                         onChange={e => updateObject(selectedObject.id, { fontSize: parseInt(e.target.value) || 14 })}
-                        className="w-full px-2.5 py-1.5 border border-gray-300 rounded text-sm" />
+                        className="w-full px-2.5 py-1.5 border border-[var(--border)] rounded text-sm bg-[var(--surface)] text-[var(--text)]" />
                     </div>
                   </>;
                 })()}
@@ -1862,16 +1862,16 @@ export default function FloorPlanEditor() {
                   const meters = (length / pixelsPerMeter).toFixed(2);
                   return <>
                     <div>
-                      <label className="block text-xs font-medium text-gray-600 mb-1">Length</label>
-                      <div className="w-full px-2.5 py-1.5 border border-gray-300 rounded text-sm bg-gray-50 text-gray-700">
+                      <label className="block text-xs font-medium text-[var(--text-muted)] mb-1">Length</label>
+                      <div className="w-full px-2.5 py-1.5 border border-[var(--border)] rounded text-sm bg-[var(--surface-2)] text-[var(--text)]">
                         {meters}m
                       </div>
                     </div>
                     <div>
-                      <label className="block text-xs font-medium text-gray-600 mb-1">Thickness (px)</label>
+                      <label className="block text-xs font-medium text-[var(--text-muted)] mb-1">Thickness (px)</label>
                       <input type="number" value={wall.thickness} min={1} max={50} disabled={isReadOnly}
                         onChange={e => updateObject(selectedObject.id, { thickness: parseInt(e.target.value) || 8 })}
-                        className={`w-full px-2.5 py-1.5 border rounded text-sm ${isReadOnly ? 'bg-gray-50 border-gray-200' : 'border-gray-300'}`} />
+                        className={`w-full px-2.5 py-1.5 border rounded text-sm text-[var(--text)] ${isReadOnly ? 'bg-[var(--surface-2)] border-[var(--border)]' : 'bg-[var(--surface)] border-[var(--border)]'}`} />
                     </div>
                   </>;
                 })()}
@@ -1882,38 +1882,38 @@ export default function FloorPlanEditor() {
                   const rotationDegrees = (door.angle * 180) / Math.PI;
                   return <>
                     <div>
-                      <label className="block text-xs font-medium text-gray-600 mb-1">Width (px)</label>
+                      <label className="block text-xs font-medium text-[var(--text-muted)] mb-1">Width (px)</label>
                       <input type="number" value={Math.round(door.width)} min={10}
                         onChange={e => updateObject(selectedObject.id, { width: parseInt(e.target.value) || 30 })}
-                        className="w-full px-2.5 py-1.5 border border-gray-300 rounded text-sm" />
+                        className="w-full px-2.5 py-1.5 border border-[var(--border)] rounded text-sm bg-[var(--surface)] text-[var(--text)]" />
                     </div>
                     <div>
-                      <label className="block text-xs font-medium text-gray-600 mb-1">Swing Direction</label>
+                      <label className="block text-xs font-medium text-[var(--text-muted)] mb-1">Swing Direction</label>
                       <div className="flex gap-2">
                         <button onClick={() => updateObject(selectedObject.id, { swingDirection: 'left' })}
-                          className={`flex-1 px-2 py-1.5 rounded text-sm font-medium ${door.swingDirection === 'left' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700'}`}>
+                          className={`flex-1 px-2 py-1.5 rounded text-sm font-medium ${door.swingDirection === 'left' ? 'bg-[var(--primary)] text-white' : 'bg-[var(--surface-2)] text-[var(--text)]'}`}>
                           Left
                         </button>
                         <button onClick={() => updateObject(selectedObject.id, { swingDirection: 'right' })}
-                          className={`flex-1 px-2 py-1.5 rounded text-sm font-medium ${door.swingDirection === 'right' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700'}`}>
+                          className={`flex-1 px-2 py-1.5 rounded text-sm font-medium ${door.swingDirection === 'right' ? 'bg-[var(--primary)] text-white' : 'bg-[var(--surface-2)] text-[var(--text)]'}`}>
                           Right
                         </button>
                       </div>
                     </div>
                     <div>
-                      <label className="block text-xs font-medium text-gray-600 mb-1">Color</label>
+                      <label className="block text-xs font-medium text-[var(--text-muted)] mb-1">Color</label>
                       <div className="flex gap-2 items-center">
                         <input type="color" value={door.color || '#8B4513'}
                           onChange={e => updateObject(selectedObject.id, { color: e.target.value })}
-                          className="w-12 h-10 border border-gray-300 rounded cursor-pointer" />
-                        <span className="text-xs text-gray-500">{door.color || '#8B4513'}</span>
+                          className="w-12 h-10 border border-[var(--border)] rounded cursor-pointer" />
+                        <span className="text-xs text-[var(--text-muted)]">{door.color || '#8B4513'}</span>
                       </div>
                     </div>
                     <div>
-                      <label className="block text-xs font-medium text-gray-600 mb-1">Rotation (°)</label>
+                      <label className="block text-xs font-medium text-[var(--text-muted)] mb-1">Rotation (°)</label>
                       <input type="number" value={Math.round(rotationDegrees)} min={0} max={359}
                         onChange={e => updateObject(selectedObject.id, { angle: (parseInt(e.target.value) || 0) * Math.PI / 180 })}
-                        className="w-full px-2.5 py-1.5 border border-gray-300 rounded text-sm" />
+                        className="w-full px-2.5 py-1.5 border border-[var(--border)] rounded text-sm bg-[var(--surface)] text-[var(--text)]" />
                     </div>
                   </>;
                 })()}
@@ -1924,25 +1924,25 @@ export default function FloorPlanEditor() {
                   const rotationDegrees = (win.angle * 180) / Math.PI;
                   return <>
                     <div>
-                      <label className="block text-xs font-medium text-gray-600 mb-1">Width (px)</label>
+                      <label className="block text-xs font-medium text-[var(--text-muted)] mb-1">Width (px)</label>
                       <input type="number" value={Math.round(win.width)} min={10}
                         onChange={e => updateObject(selectedObject.id, { width: parseInt(e.target.value) || 40 })}
-                        className="w-full px-2.5 py-1.5 border border-gray-300 rounded text-sm" />
+                        className="w-full px-2.5 py-1.5 border border-[var(--border)] rounded text-sm bg-[var(--surface)] text-[var(--text)]" />
                     </div>
                     <div>
-                      <label className="block text-xs font-medium text-gray-600 mb-1">Color</label>
+                      <label className="block text-xs font-medium text-[var(--text-muted)] mb-1">Color</label>
                       <div className="flex gap-2 items-center">
                         <input type="color" value={win.color || '#87CEEB'}
                           onChange={e => updateObject(selectedObject.id, { color: e.target.value })}
-                          className="w-12 h-10 border border-gray-300 rounded cursor-pointer" />
-                        <span className="text-xs text-gray-500">{win.color || '#87CEEB'}</span>
+                          className="w-12 h-10 border border-[var(--border)] rounded cursor-pointer" />
+                        <span className="text-xs text-[var(--text-muted)]">{win.color || '#87CEEB'}</span>
                       </div>
                     </div>
                     <div>
-                      <label className="block text-xs font-medium text-gray-600 mb-1">Rotation (°)</label>
+                      <label className="block text-xs font-medium text-[var(--text-muted)] mb-1">Rotation (°)</label>
                       <input type="number" value={Math.round(rotationDegrees)} min={0} max={359}
                         onChange={e => updateObject(selectedObject.id, { angle: (parseInt(e.target.value) || 0) * Math.PI / 180 })}
-                        className="w-full px-2.5 py-1.5 border border-gray-300 rounded text-sm" />
+                        className="w-full px-2.5 py-1.5 border border-[var(--border)] rounded text-sm bg-[var(--surface)] text-[var(--text)]" />
                     </div>
                   </>;
                 })()}
@@ -1953,42 +1953,42 @@ export default function FloorPlanEditor() {
                   const rotationDegrees = (entrance.angle * 180) / Math.PI;
                   return <>
                     <div>
-                      <label className="block text-xs font-medium text-gray-600 mb-1">Width (px)</label>
+                      <label className="block text-xs font-medium text-[var(--text-muted)] mb-1">Width (px)</label>
                       <input type="number" value={Math.round(entrance.width)} min={10}
                         onChange={e => updateObject(selectedObject.id, { width: parseInt(e.target.value) || 40 })}
-                        className="w-full px-2.5 py-1.5 border border-gray-300 rounded text-sm" />
+                        className="w-full px-2.5 py-1.5 border border-[var(--border)] rounded text-sm bg-[var(--surface)] text-[var(--text)]" />
                     </div>
                     <div>
-                      <label className="block text-xs font-medium text-gray-600 mb-1">Entrance Style</label>
+                      <label className="block text-xs font-medium text-[var(--text-muted)] mb-1">Entrance Style</label>
                       <div className="flex gap-2">
                         <button onClick={() => updateObject(selectedObject.id, { style: 'single' })}
-                          className={`flex-1 px-2 py-1.5 rounded text-sm font-medium ${entrance.style === 'single' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700'}`}>
+                          className={`flex-1 px-2 py-1.5 rounded text-sm font-medium ${entrance.style === 'single' ? 'bg-[var(--primary)] text-white' : 'bg-[var(--surface-2)] text-[var(--text)]'}`}>
                           Single
                         </button>
                         <button onClick={() => updateObject(selectedObject.id, { style: 'double' })}
-                          className={`flex-1 px-2 py-1.5 rounded text-sm font-medium ${entrance.style === 'double' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700'}`}>
+                          className={`flex-1 px-2 py-1.5 rounded text-sm font-medium ${entrance.style === 'double' ? 'bg-[var(--primary)] text-white' : 'bg-[var(--surface-2)] text-[var(--text)]'}`}>
                           Double
                         </button>
                         <button onClick={() => updateObject(selectedObject.id, { style: 'archway' })}
-                          className={`flex-1 px-2 py-1.5 rounded text-sm font-medium ${entrance.style === 'archway' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700'}`}>
+                          className={`flex-1 px-2 py-1.5 rounded text-sm font-medium ${entrance.style === 'archway' ? 'bg-[var(--primary)] text-white' : 'bg-[var(--surface-2)] text-[var(--text)]'}`}>
                           Archway
                         </button>
                       </div>
                     </div>
                     <div>
-                      <label className="block text-xs font-medium text-gray-600 mb-1">Color</label>
+                      <label className="block text-xs font-medium text-[var(--text-muted)] mb-1">Color</label>
                       <div className="flex gap-2 items-center">
                         <input type="color" value={entrance.color || '#10b981'}
                           onChange={e => updateObject(selectedObject.id, { color: e.target.value })}
-                          className="w-12 h-10 border border-gray-300 rounded cursor-pointer" />
-                        <span className="text-xs text-gray-500">{entrance.color || '#10b981'}</span>
+                          className="w-12 h-10 border border-[var(--border)] rounded cursor-pointer" />
+                        <span className="text-xs text-[var(--text-muted)]">{entrance.color || '#10b981'}</span>
                       </div>
                     </div>
                     <div>
-                      <label className="block text-xs font-medium text-gray-600 mb-1">Rotation (°)</label>
+                      <label className="block text-xs font-medium text-[var(--text-muted)] mb-1">Rotation (°)</label>
                       <input type="number" value={Math.round(rotationDegrees)} min={0} max={359}
                         onChange={e => updateObject(selectedObject.id, { angle: (parseInt(e.target.value) || 0) * Math.PI / 180 })}
-                        className="w-full px-2.5 py-1.5 border border-gray-300 rounded text-sm" />
+                        className="w-full px-2.5 py-1.5 border border-[var(--border)] rounded text-sm bg-[var(--surface)] text-[var(--text)]" />
                     </div>
                   </>;
                 })()}
@@ -1997,10 +1997,10 @@ export default function FloorPlanEditor() {
                 {selectedObject.type === 'marker' && (() => {
                   const marker = selectedObject as InventoryMarkerObject;
                   return <div>
-                    <label className="block text-xs font-medium text-gray-600 mb-1">Linked Product</label>
+                    <label className="block text-xs font-medium text-[var(--text-muted)] mb-1">Linked Product</label>
                     <select value={marker.linkedProductId || ''}
                       onChange={e => updateObject(selectedObject.id, { linkedProductId: e.target.value || undefined })}
-                      className="w-full px-2.5 py-1.5 border border-gray-300 rounded text-sm bg-white">
+                      className="w-full px-2.5 py-1.5 border border-[var(--border)] rounded text-sm bg-[var(--surface)] text-[var(--text)]">
                       <option value="">— No product linked —</option>
                       {products.map(prod => (
                         <option key={prod.id} value={prod.id}>{prod.name} ({prod.sku})</option>
@@ -2014,16 +2014,16 @@ export default function FloorPlanEditor() {
                   const rect = selectedObject as RectangleObject;
                   return <div className="grid grid-cols-2 gap-2">
                     <div>
-                      <label className="block text-xs font-medium text-gray-600 mb-1">Width</label>
+                      <label className="block text-xs font-medium text-[var(--text-muted)] mb-1">Width</label>
                       <input type="number" value={Math.round(rect.width)} min={10} disabled={isReadOnly}
                         onChange={e => updateObject(selectedObject.id, { width: parseInt(e.target.value) || 10 })}
-                        className={`w-full px-2.5 py-1.5 border rounded text-sm ${isReadOnly ? 'bg-gray-50 border-gray-200' : 'border-gray-300'}`} />
+                        className={`w-full px-2.5 py-1.5 border rounded text-sm text-[var(--text)] ${isReadOnly ? 'bg-[var(--surface-2)] border-[var(--border)]' : 'bg-[var(--surface)] border-[var(--border)]'}`} />
                     </div>
                     <div>
-                      <label className="block text-xs font-medium text-gray-600 mb-1">Height</label>
+                      <label className="block text-xs font-medium text-[var(--text-muted)] mb-1">Height</label>
                       <input type="number" value={Math.round(rect.height)} min={10} disabled={isReadOnly}
                         onChange={e => updateObject(selectedObject.id, { height: parseInt(e.target.value) || 10 })}
-                        className={`w-full px-2.5 py-1.5 border rounded text-sm ${isReadOnly ? 'bg-gray-50 border-gray-200' : 'border-gray-300'}`} />
+                        className={`w-full px-2.5 py-1.5 border rounded text-sm text-[var(--text)] ${isReadOnly ? 'bg-[var(--surface-2)] border-[var(--border)]' : 'bg-[var(--surface)] border-[var(--border)]'}`} />
                     </div>
                   </div>;
                 })()}
@@ -2031,19 +2031,19 @@ export default function FloorPlanEditor() {
                 {/* Color */}
                 {selectedObject.type !== 'label' && selectedObject.type !== 'marker' && (
                   <div>
-                    <label className="block text-xs font-medium text-gray-600 mb-1">Color</label>
+                    <label className="block text-xs font-medium text-[var(--text-muted)] mb-1">Color</label>
                     <input type="color" value={(selectedObject as any).color || '#000000'} disabled={isReadOnly}
                       onChange={e => updateObject(selectedObject.id, { color: e.target.value })}
-                      className={`w-full h-9 border rounded ${isReadOnly ? 'cursor-not-allowed bg-gray-50 border-gray-200' : 'border-gray-300 cursor-pointer'}`} />
+                      className={`w-full h-9 border rounded ${isReadOnly ? 'cursor-not-allowed bg-[var(--surface-2)] border-[var(--border)]' : 'border-[var(--border)] cursor-pointer'}`} />
                   </div>
                 )}
 
                 {/* Location link */}
                 {(selectedObject.type === 'room' || selectedObject.type === 'rack' || selectedObject.type === 'shelf') && (
                   <div>
-                    <label className="block text-xs font-medium text-gray-600 mb-1">Linked Location</label>
+                    <label className="block text-xs font-medium text-[var(--text-muted)] mb-1">Linked Location</label>
                     {isReadOnly ? (
-                      <div className="w-full px-2.5 py-1.5 border border-gray-200 rounded text-sm bg-gray-50 text-gray-700">
+                      <div className="w-full px-2.5 py-1.5 border border-[var(--border)] rounded text-sm bg-[var(--surface-2)] text-[var(--text)]">
                         {selectedObject.linkedLocationId
                           ? locations.find(loc => loc.id === selectedObject.linkedLocationId)?.name || 'Location not found'
                           : '— No location linked —'
@@ -2052,7 +2052,7 @@ export default function FloorPlanEditor() {
                     ) : (
                       <select value={selectedObject.linkedLocationId || ''}
                         onChange={e => updateObject(selectedObject.id, { linkedLocationId: e.target.value || undefined })}
-                        className="w-full px-2.5 py-1.5 border border-gray-300 rounded text-sm bg-white">
+                        className="w-full px-2.5 py-1.5 border border-[var(--border)] rounded text-sm bg-[var(--surface)] text-[var(--text)]">
                         <option value="">— No location linked —</option>
                         {locations.map(loc => (
                           <option key={loc.id} value={loc.id}>{loc.name} ({loc.type})</option>
@@ -2065,10 +2065,10 @@ export default function FloorPlanEditor() {
                 {/* Notes */}
                 {!isReadOnly && (
                   <div>
-                    <label className="block text-xs font-medium text-gray-600 mb-1">Notes</label>
+                    <label className="block text-xs font-medium text-[var(--text-muted)] mb-1">Notes</label>
                     <textarea value={selectedObject.notes || ''}
                       onChange={e => updateObject(selectedObject.id, { notes: e.target.value })}
-                      className="w-full px-2.5 py-1.5 border border-gray-300 rounded text-sm" rows={2} placeholder="Optional notes…" />
+                      className="w-full px-2.5 py-1.5 border border-[var(--border)] rounded text-sm bg-[var(--surface)] text-[var(--text)]" rows={2} placeholder="Optional notes…" />
                   </div>
                 )}
 
@@ -2080,35 +2080,35 @@ export default function FloorPlanEditor() {
                   const layerLabel = isBack ? 'Back layer' : isFront ? 'Front layer' : `Layer ${index + 1} of ${total}`;
                   return (
                     <div>
-                      <label className="block text-xs font-medium text-gray-600 mb-1">
+                      <label className="block text-xs font-medium text-[var(--text-muted)] mb-1">
                         Layer order
-                        <span className="ml-1.5 font-normal text-gray-400">({layerLabel})</span>
+                        <span className="ml-1.5 font-normal text-[var(--text-muted)]">({layerLabel})</span>
                       </label>
                       <div className="grid grid-cols-4 gap-1">
                         <button onClick={() => sendToBack(selectedObject.id)} disabled={isBack} title="Send to Back"
-                          className="flex flex-col items-center gap-0.5 px-1 py-1.5 border border-gray-200 rounded text-xs text-gray-600 hover:bg-gray-100 disabled:opacity-30 disabled:cursor-not-allowed">
+                          className="flex flex-col items-center gap-0.5 px-1 py-1.5 border border-[var(--border)] rounded text-xs text-[var(--text-muted)] hover:bg-[var(--surface-2)] disabled:opacity-30 disabled:cursor-not-allowed">
                           <ChevronsDown size={14} />
                           <span className="text-[10px]">Back</span>
                         </button>
                         <button onClick={() => moveBackward(selectedObject.id)} disabled={isBack} title="Move Backward"
-                          className="flex flex-col items-center gap-0.5 px-1 py-1.5 border border-gray-200 rounded text-xs text-gray-600 hover:bg-gray-100 disabled:opacity-30 disabled:cursor-not-allowed">
+                          className="flex flex-col items-center gap-0.5 px-1 py-1.5 border border-[var(--border)] rounded text-xs text-[var(--text-muted)] hover:bg-[var(--surface-2)] disabled:opacity-30 disabled:cursor-not-allowed">
                           <ChevronDown size={14} />
                           <span className="text-[10px]">Backward</span>
                         </button>
                         <button onClick={() => moveForward(selectedObject.id)} disabled={isFront} title="Move Forward"
-                          className="flex flex-col items-center gap-0.5 px-1 py-1.5 border border-gray-200 rounded text-xs text-gray-600 hover:bg-gray-100 disabled:opacity-30 disabled:cursor-not-allowed">
+                          className="flex flex-col items-center gap-0.5 px-1 py-1.5 border border-[var(--border)] rounded text-xs text-[var(--text-muted)] hover:bg-[var(--surface-2)] disabled:opacity-30 disabled:cursor-not-allowed">
                           <ChevronUp size={14} />
                           <span className="text-[10px]">Forward</span>
                         </button>
                         <button onClick={() => bringToFront(selectedObject.id)} disabled={isFront} title="Bring to Front"
-                          className="flex flex-col items-center gap-0.5 px-1 py-1.5 border border-gray-200 rounded text-xs text-gray-600 hover:bg-gray-100 disabled:opacity-30 disabled:cursor-not-allowed">
+                          className="flex flex-col items-center gap-0.5 px-1 py-1.5 border border-[var(--border)] rounded text-xs text-[var(--text-muted)] hover:bg-[var(--surface-2)] disabled:opacity-30 disabled:cursor-not-allowed">
                           <ChevronsUp size={14} />
                           <span className="text-[10px]">Front</span>
                         </button>
                       </div>
                       <div className="flex items-center gap-1 mt-1.5">
                         {Array.from({ length: total }).map((_, i) => (
-                          <div key={i} className={`h-1.5 flex-1 rounded-full ${i === index ? 'bg-blue-500' : 'bg-gray-200'}`} />
+                          <div key={i} className={`h-1.5 flex-1 rounded-full ${i === index ? 'bg-[var(--primary)]' : 'bg-[var(--border)]'}`} />
                         ))}
                       </div>
                     </div>
@@ -2132,11 +2132,11 @@ export default function FloorPlanEditor() {
                   <div className="flex items-start justify-between">
                     <div>
                       <div className="flex items-center gap-1.5 mb-0.5">
-                        <MapPin size={14} className="text-blue-500" />
-                        <span className="font-semibold text-gray-900 text-sm">{linkedLoc.name}</span>
+                        <MapPin size={14} className="text-[var(--primary)]" />
+                        <span className="font-semibold text-[var(--text)] text-sm">{linkedLoc.name}</span>
                       </div>
-                      <span className="text-xs text-gray-500 capitalize">{linkedLoc.type}</span>
-                      {linkedLoc.notes && <p className="text-xs text-gray-400 mt-0.5">{linkedLoc.notes}</p>}
+                      <span className="text-xs text-[var(--text-muted)] capitalize">{linkedLoc.type}</span>
+                      {linkedLoc.notes && <p className="text-xs text-[var(--text-muted)] mt-0.5">{linkedLoc.notes}</p>}
                     </div>
                     {(() => {
                       const status = getStockStatus(linkedProducts);
@@ -2152,13 +2152,13 @@ export default function FloorPlanEditor() {
                   {/* Product list */}
                   <div>
                     <div className="flex items-center justify-between mb-2">
-                      <h4 className="text-xs font-semibold text-gray-700 uppercase tracking-wide">
+                      <h4 className="text-xs font-semibold text-[var(--text)] uppercase tracking-wide">
                         Products ({linkedProducts.length})
                       </h4>
                     </div>
 
                     {linkedProducts.length === 0 ? (
-                      <div className="text-center py-6 text-gray-400">
+                      <div className="text-center py-6 text-[var(--text-muted)]">
                         <Package size={28} className="mx-auto mb-2 opacity-40" />
                         <p className="text-xs">No products assigned to this location.</p>
                         <p className="text-xs mt-0.5">Go to Products to assign items here.</p>
@@ -2171,11 +2171,11 @@ export default function FloorPlanEditor() {
                             product.currentStock <= product.lowStockThreshold ? 'low' : 'ok';
                           const s = stockStatusLabel[status];
                           return (
-                            <div key={product.id} className="border border-gray-100 rounded-lg p-2.5 bg-gray-50 hover:bg-gray-100 transition">
+                            <div key={product.id} className="border border-[var(--border)] rounded-lg p-2.5 bg-[var(--surface-2)] hover:bg-[var(--border)] transition">
                               <div className="flex items-start justify-between gap-2">
                                 <div className="min-w-0 flex-1">
-                                  <p className="text-sm font-medium text-gray-900 truncate">{product.name}</p>
-                                  <p className="text-xs text-gray-400">{product.sku}</p>
+                                  <p className="text-sm font-medium text-[var(--text)] truncate">{product.name}</p>
+                                  <p className="text-xs text-[var(--text-muted)]">{product.sku}</p>
                                 </div>
                                 <span className={`flex items-center gap-0.5 text-xs font-medium px-1.5 py-0.5 rounded-full flex-shrink-0 ${s.className}`}>
                                   {s.icon}
@@ -2186,10 +2186,10 @@ export default function FloorPlanEditor() {
                                   <span className={`font-bold ${status === 'out' ? 'text-red-600' : status === 'low' ? 'text-amber-600' : 'text-green-700'}`}>
                                     {product.currentStock}
                                   </span>
-                                  <span className="text-gray-400 text-xs"> / {product.lowStockThreshold} min · {product.unit}</span>
+                                  <span className="text-[var(--text-muted)] text-xs"> / {product.lowStockThreshold} min · {product.unit}</span>
                                 </div>
                                 {/* Mini stock bar */}
-                                <div className="w-16 h-1.5 bg-gray-200 rounded-full overflow-hidden">
+                                <div className="w-16 h-1.5 bg-[var(--border)] rounded-full overflow-hidden">
                                   <div className={`h-full rounded-full ${status === 'out' ? 'bg-red-500' : status === 'low' ? 'bg-amber-500' : 'bg-green-500'}`}
                                     style={{ width: `${Math.min(100, (product.currentStock / Math.max(product.lowStockThreshold * 2, 1)) * 100)}%` }} />
                                 </div>
@@ -2206,29 +2206,29 @@ export default function FloorPlanEditor() {
           ) : (
             /* Empty state */
             <div className="p-4 h-full flex flex-col">
-              <h3 className="font-semibold text-gray-900 mb-3">Properties</h3>
-              <p className="text-sm text-gray-500 mb-5">Click any object to view and edit it. Click a linked rack or shelf to see its products.</p>
-              <div className="space-y-1.5 text-xs text-gray-400">
-                <p className="font-medium text-gray-500 mb-1">How to use</p>
-                <p><span className="font-medium text-gray-600">Select:</span> click to pick, drag to move</p>
-                <p><span className="font-medium text-gray-600">Resize:</span> drag corner/edge handles or wall endpoints</p>
-                <p><span className="font-medium text-gray-600">Move:</span> arrow keys (Shift for larger steps)</p>
-                <p><span className="font-medium text-gray-600">Wall:</span> drag to draw line (snaps to grid/corners)</p>
-                <p><span className="font-medium text-gray-600">Room / Rack / Shelf:</span> drag to draw boxes</p>
-                <p><span className="font-medium text-gray-600">Door:</span> drag on a wall to place (shows swing arc)</p>
-                <p><span className="font-medium text-gray-600">Window:</span> drag on a wall to place</p>
-                <p><span className="font-medium text-gray-600">Marker:</span> click to place product location</p>
-                <p><span className="font-medium text-gray-600">Label:</span> click to place text</p>
-                <p><span className="font-medium text-gray-600">Delete:</span> click an object to remove</p>
+              <h3 className="font-semibold text-[var(--text)] mb-3">Properties</h3>
+              <p className="text-sm text-[var(--text-muted)] mb-5">Click any object to view and edit it. Click a linked rack or shelf to see its products.</p>
+              <div className="space-y-1.5 text-xs text-[var(--text-muted)]">
+                <p className="font-medium text-[var(--text)] mb-1">How to use</p>
+                <p><span className="font-medium text-[var(--text)]">Select:</span> click to pick, drag to move</p>
+                <p><span className="font-medium text-[var(--text)]">Resize:</span> drag corner/edge handles or wall endpoints</p>
+                <p><span className="font-medium text-[var(--text)]">Move:</span> arrow keys (Shift for larger steps)</p>
+                <p><span className="font-medium text-[var(--text)]">Wall:</span> drag to draw line (snaps to grid/corners)</p>
+                <p><span className="font-medium text-[var(--text)]">Room / Rack / Shelf:</span> drag to draw boxes</p>
+                <p><span className="font-medium text-[var(--text)]">Door:</span> drag on a wall to place (shows swing arc)</p>
+                <p><span className="font-medium text-[var(--text)]">Window:</span> drag on a wall to place</p>
+                <p><span className="font-medium text-[var(--text)]">Marker:</span> click to place product location</p>
+                <p><span className="font-medium text-[var(--text)]">Label:</span> click to place text</p>
+                <p><span className="font-medium text-[var(--text)]">Delete:</span> click an object to remove</p>
               </div>
               <div className="mt-5 space-y-1.5">
-                <p className="font-medium text-xs text-gray-500 mb-1">Stock legend</p>
+                <p className="font-medium text-xs text-[var(--text)] mb-1">Stock legend</p>
                 {(['ok','low','out','empty'] as StockStatus[]).map(s => {
                   const info = stockStatusLabel[s];
                   return (
                     <div key={s} className="flex items-center gap-2 text-xs">
                       <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ background: STATUS_COLORS[s].badge }} />
-                      <span className="text-gray-600">{info.label}</span>
+                      <span className="text-[var(--text-muted)]">{info.label}</span>
                     </div>
                   );
                 })}

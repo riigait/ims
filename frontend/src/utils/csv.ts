@@ -23,10 +23,11 @@ export function convertToCSV(data: any[]): string {
     const values = headers.map(header => {
       const value = row[header];
       if (value === null || value === undefined) return '';
-      if (typeof value === 'string' && value.includes(',')) {
-        return `"${value}"`;
+      const text = String(value);
+      if (/[",\r\n]/.test(text)) {
+        return `"${text.replace(/"/g, '""')}"`;
       }
-      return value;
+      return text;
     });
     csv.push(values.join(','));
   }

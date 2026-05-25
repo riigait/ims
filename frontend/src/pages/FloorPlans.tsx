@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { Plus, Trash2, MapPin, LayoutGrid, List, Edit } from 'lucide-react';
+import { Plus, Trash2, MapPin, LayoutGrid, List, Edit, Sparkles } from 'lucide-react';
 import { formatDate } from '@/utils/ids';
 import { floorPlansApi, departmentsApi } from '@/services/api';
 import { FloorPlan } from '@/types/floorplan';
@@ -13,9 +13,18 @@ interface Department {
   name: string;
 }
 
+type AutoGenerateStatus = {
+  type: 'info' | 'success' | 'error';
+  message: string;
+} | null;
+
+const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
 export default function FloorPlans() {
   const navigate = useNavigate();
   const user = JSON.parse(localStorage.getItem('user') || '{}');
+  const currentDepartmentId = localStorage.getItem('currentDepartmentId');
+  const canManageFloorPlans = (user.role === 'admin' || user.role === 'superadmin') && currentDepartmentId !== ALL_DEPARTMENTS_ID;
   const [searchParams] = useSearchParams();
   const locationId = searchParams.get('locationId');
 
@@ -32,6 +41,9 @@ export default function FloorPlans() {
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
   const [locationLookupFailed, setLocationLookupFailed] = useState(false);
+  const [autoGenerating, setAutoGenerating] = useState(false);
+  const [showAutoGenerateConfirm, setShowAutoGenerateConfirm] = useState(false);
+  const [autoGenerateStatus, setAutoGenerateStatus] = useState<AutoGenerateStatus>(null);
 
   const fetchFloorPlans = async () => {
     try {
@@ -105,6 +117,39 @@ export default function FloorPlans() {
     }
   };
 
+  const openAutoGenerateConfirm = () => {
+    if (!currentDepartmentId || currentDepartmentId === ALL_DEPARTMENTS_ID) {
+      setAutoGenerateStatus({ type: 'error', message: 'Select one department before auto-generating floor plans.' });
+      return;
+    }
+
+    setShowAutoGenerateConfirm(true);
+  };
+
+  const handleAutoGenerate = async () => {
+    if (!currentDepartmentId || currentDepartmentId === ALL_DEPARTMENTS_ID) {
+      setAutoGenerateStatus({ type: 'error', message: 'Select one department before auto-generating floor plans.' });
+      return;
+    }
+
+    try {
+      setShowAutoGenerateConfirm(false);
+      setAutoGenerating(true);
+      setAutoGenerateStatus({ type: 'info', message: 'Reading locations and preparing floorplan groups...' });
+      const response = await floorPlansApi.autoGenerate();
+      setAutoGenerateStatus({ type: 'info', message: 'Finalizing generated floorplans...' });
+      await wait(700);
+      await fetchFloorPlans();
+      setAutoGenerateStatus({ type: 'success', message: response.data.message || 'Floor plans generated.' });
+      window.setTimeout(() => setAutoGenerateStatus(null), 4500);
+    } catch (error: any) {
+      console.error('Failed to auto-generate floor plans:', error);
+      setAutoGenerateStatus({ type: 'error', message: error.response?.data?.error || 'Failed to auto-generate floor plans.' });
+    } finally {
+      setAutoGenerating(false);
+    }
+  };
+
   const filteredAndSortedPlans = floorPlans
     .filter(plan => {
       const matchesSearch = plan.name.toLowerCase().includes(searchTerm.toLowerCase());
@@ -148,13 +193,73 @@ export default function FloorPlans() {
             </p>
           )}
         </div>
-        {user.role === 'admin' && localStorage.getItem('currentDepartmentId') !== ALL_DEPARTMENTS_ID && (
-          <button onClick={() => setShowForm(true)}
-            className="flex items-center gap-2 bg-[var(--primary)] text-white px-4 py-2 rounded-lg hover:bg-[var(--primary-hover)]">
-            <Plus size={20} /> New Floor Plan
-          </button>
+        {canManageFloorPlans && (
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={openAutoGenerateConfirm}
+              disabled={autoGenerating}
+              className="flex items-center gap-2 bg-[var(--surface-2)] text-[var(--text)] px-4 py-2 rounded-lg hover:bg-[var(--border)] disabled:opacity-60"
+            >
+              <Sparkles size={20} /> {autoGenerating ? 'Generating...' : 'Auto Generate'}
+            </button>
+            <button onClick={() => setShowForm(true)}
+              className="flex items-center gap-2 bg-[var(--primary)] text-white px-4 py-2 rounded-lg hover:bg-[var(--primary-hover)]">
+              <Plus size={20} /> New Floor Plan
+            </button>
+          </div>
         )}
       </div>
+
+      {autoGenerateStatus && (
+        <div
+          className={`rounded-lg border px-4 py-3 shadow-sm transition-all duration-300 ${
+            autoGenerateStatus.type === 'success'
+              ? 'border-green-500/30 bg-green-500/10 text-green-700'
+              : autoGenerateStatus.type === 'error'
+                ? 'border-red-500/30 bg-red-500/10 text-red-700'
+                : 'border-[var(--border)] bg-[var(--surface)] text-[var(--text)]'
+          }`}
+        >
+          <div className="flex items-center gap-3">
+            {autoGenerateStatus.type === 'info' && (
+              <div className="h-4 w-4 rounded-full border-2 border-[var(--primary)] border-t-transparent animate-spin" />
+            )}
+            <p className="text-sm font-medium">{autoGenerateStatus.message}</p>
+          </div>
+        </div>
+      )}
+
+      {showAutoGenerateConfirm && (
+        <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-5 shadow-lg transition-all duration-300">
+          <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+            <div>
+              <h2 className="text-lg font-semibold text-[var(--text)]">Generate floorplans now?</h2>
+              <p className="mt-1 text-sm text-[var(--text-muted)]">
+                This will replace existing auto-generated floorplans for the selected department and rebuild them from current locations.
+              </p>
+            </div>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => setShowAutoGenerateConfirm(false)}
+                disabled={autoGenerating}
+                className="px-4 py-2 rounded-lg bg-[var(--surface-2)] text-[var(--text)] hover:bg-[var(--border)] disabled:opacity-60"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleAutoGenerate}
+                disabled={autoGenerating}
+                className="px-4 py-2 rounded-lg bg-[var(--primary)] text-white hover:bg-[var(--primary-hover)] disabled:opacity-60"
+              >
+                Begin Generate
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {showForm && (
         <div className="bg-[var(--surface)] p-6 rounded-lg shadow-lg">

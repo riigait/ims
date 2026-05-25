@@ -50,10 +50,14 @@ export default function FloorPlanThumbnail({ plan, width = 280, height = 160, hi
     plan.objects.forEach(obj => {
       if (obj.type === 'wall') {
         const w = obj as WallObject;
-        minX = Math.min(minX, w.startX, w.endX);
-        minY = Math.min(minY, w.startY, w.endY);
-        maxX = Math.max(maxX, w.startX, w.endX);
-        maxY = Math.max(maxY, w.startY, w.endY);
+        const startX = w.startX ?? (w as any).x ?? 0;
+        const startY = w.startY ?? (w as any).y ?? 0;
+        const endX = w.endX ?? startX + ((w as any).width ?? 0);
+        const endY = w.endY ?? startY + ((w as any).height ?? 0);
+        minX = Math.min(minX, startX, endX);
+        minY = Math.min(minY, startY, endY);
+        maxX = Math.max(maxX, startX, endX);
+        maxY = Math.max(maxY, startY, endY);
       } else if (obj.type === 'room' || obj.type === 'rack' || obj.type === 'shelf') {
         const r = obj as RectangleObject;
         minX = Math.min(minX, r.x);
@@ -86,11 +90,15 @@ export default function FloorPlanThumbnail({ plan, width = 280, height = 160, hi
 
       if (obj.type === 'wall') {
         const w = obj as WallObject;
+        const startX = w.startX ?? (w as any).x ?? 0;
+        const startY = w.startY ?? (w as any).y ?? 0;
+        const endX = w.endX ?? startX + ((w as any).width ?? 0);
+        const endY = w.endY ?? startY + ((w as any).height ?? 0);
         ctx.beginPath();
-        ctx.moveTo(tx(w.startX), ty(w.startY));
-        ctx.lineTo(tx(w.endX), ty(w.endY));
+        ctx.moveTo(tx(startX), ty(startY));
+        ctx.lineTo(tx(endX), ty(endY));
         ctx.strokeStyle = isHighlighted ? '#2563eb' : (obj.color ?? '#1e293b');
-        ctx.lineWidth = Math.max(1, w.thickness * scale);
+        ctx.lineWidth = Math.max(1, (w.thickness ?? (w as any).height ?? 4) * scale);
         ctx.stroke();
       } else if (obj.type === 'room' || obj.type === 'rack' || obj.type === 'shelf') {
         const r = obj as RectangleObject;
@@ -113,10 +121,11 @@ export default function FloorPlanThumbnail({ plan, width = 280, height = 160, hi
         }
       } else if (obj.type === 'label') {
         const l = obj as LabelObject;
+        const text = l.text ?? obj.label ?? '';
         ctx.fillStyle = obj.color ?? '#475569';
-        ctx.font = `${Math.max(7, l.fontSize * scale)}px Inter, Arial, sans-serif`;
+        ctx.font = `${Math.max(7, (l.fontSize ?? 14) * scale)}px Inter, Arial, sans-serif`;
         ctx.textAlign = 'left';
-        ctx.fillText(l.text.slice(0, 20), tx(l.x), ty(l.y));
+        ctx.fillText(text.slice(0, 20), tx(l.x), ty(l.y));
       }
     });
 

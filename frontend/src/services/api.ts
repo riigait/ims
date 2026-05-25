@@ -108,6 +108,7 @@ export const floorPlansApi = {
   getAll: () => api.get('/floor-plans'),
   getByLocation: (locationId: string) => api.get(`/floor-plans/by-location/${locationId}`),
   getById: (id: string) => api.get(`/floor-plans/${id}`),
+  autoGenerate: () => api.post('/floor-plans/auto-generate'),
   create: (data: any) => api.post('/floor-plans', data),
   update: (id: string, data: any) => api.put(`/floor-plans/${id}`, data),
   delete: (id: string) => api.delete(`/floor-plans/${id}`),
