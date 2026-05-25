@@ -1,5 +1,67 @@
 # Future Plan & Roadmap
 
+---
+
+## UI Normalization — Right-Side Drawer Pattern
+
+All pages should follow the same edit/add UX as Inventory Items.
+Clicking a row or add button opens a right-side drawer instead of an inline form.
+
+Use **Sonnet in one sweep** for all pages below.
+
+### Pages to Convert
+
+| Page | File | Complexity |
+|---|---|---|
+| Categories | `frontend/src/pages/Categories.tsx` | Low |
+| Locations | `frontend/src/pages/Locations.tsx` | Low |
+| Admin Departments | `frontend/src/pages/AdminDepartments.tsx` | Low |
+| Admin Users | `frontend/src/pages/AdminUsers.tsx` | Medium |
+| Products | `frontend/src/pages/Products.tsx` | High |
+| Stock Movements | `frontend/src/pages/StockMovements.tsx` | High |
+
+### Pages to Skip
+
+| Page | Reason |
+|---|---|
+| Dashboard | Read-only |
+| Floor Plans | Visual canvas builder |
+| Import PCLSF | File upload UX |
+| Inventory Items | Already done ✅ |
+
+### Drawer Pattern Reference
+
+Use `InventoryItems.tsx` as the template:
+- Overlay: `fixed inset-0 z-50 flex` with `bg-black/30` backdrop
+- Panel: `w-full max-w-lg` sliding in from the right
+- Header: title + status badge + X close button
+- Body: scrollable sections
+- Footer: Save / Cancel / Delete buttons
+- Edit form renders **inside** the drawer, not a separate page
+
+---
+
+## Other Planned Features
+
+### Inventory Items — Full Profile Page
+- Route: `/inventory-items/:id`
+- Full movement history, all fields, product/location/floorplan links
+- Print / export QR code
+
+### Stock Movements — Pre-fill from Inventory Item
+- "Move Item" on Inventory Items drawer pre-fills Stock Movement form via `sessionStorage`
+
+### Audit Log Page
+- Frontend page for `/audit-logs` (backend already exists)
+- Filter by user, entity type, date range
+
+### Reports / Export
+- Export inventory items to CSV
+- Export stock movement history per product
+- Low stock report
+
+---
+
 ## User Management Security & Rate Limiting
 
 ### Phase 1: Admin User Creation Limits (High Priority)
