@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { LayoutDashboard, Package, Tag, MapPin, ArrowLeftRight, Map, Building2, Users, UserCheck, Sun, Moon, LogOut, ChevronDown, Upload, Boxes, ChevronLeft, ChevronRight } from 'lucide-react';
+import { LayoutDashboard, Package, Tag, MapPin, ArrowLeftRight, Map, Building2, Users, UserCheck, Sun, Moon, LogOut, ChevronDown, Upload, Boxes, ChevronLeft, ChevronRight, Settings } from 'lucide-react';
 import { useTheme } from '@/contexts/ThemeContext';
 import { ALL_DEPARTMENTS_ID } from '@/constants/app';
 import ConfirmDialog from '../ConfirmDialog';
@@ -54,6 +54,7 @@ export default function Sidebar({ collapsed, onToggle }: { collapsed: boolean; o
     { path: '/admin/departments', icon: Building2, label: 'Departments', roles: ['superadmin', 'admin'], section: 'admin' },
     { path: '/admin/users', icon: Users, label: 'Users', roles: ['superadmin', 'admin'], section: 'admin' },
     { path: '/admin/assignment', icon: UserCheck, label: 'Role Assignments', roles: ['superadmin'], section: 'admin' },
+    { path: '/admin/settings', icon: Settings, label: 'Settings', roles: ['superadmin'], section: 'admin' },
   ];
 
   const filteredNavItems = navItems.filter(item => item.roles.includes(user.role));
@@ -232,6 +233,19 @@ export default function Sidebar({ collapsed, onToggle }: { collapsed: boolean; o
             >
               {theme === 'light' ? <Moon size={16} /> : <Sun size={16} />}
             </button>
+            {user.role === 'superadmin' && (
+              <button
+                onClick={() => navigate('/admin/settings')}
+                title="Settings"
+                className={`w-full flex items-center justify-center p-2 rounded-lg transition-colors ${
+                  isActive('/admin/settings')
+                    ? 'bg-[var(--primary)] text-white'
+                    : 'text-[var(--text-muted)] hover:bg-[var(--surface-2)]'
+                }`}
+              >
+                <Settings size={16} />
+              </button>
+            )}
             <button
               onClick={handleLogout}
               title="Logout"
@@ -275,6 +289,20 @@ export default function Sidebar({ collapsed, onToggle }: { collapsed: boolean; o
               >
                 {theme === 'light' ? <Moon size={16} /> : <Sun size={16} />}
               </button>
+              {user.role === 'superadmin' && (
+                <button
+                  onClick={() => navigate('/admin/settings')}
+                  aria-label="Settings"
+                  className={`flex-1 flex items-center justify-center px-3 py-2 rounded-lg transition-colors ${
+                    isActive('/admin/settings')
+                      ? 'bg-[var(--primary)] text-white'
+                      : 'text-[var(--text-muted)] hover:bg-[var(--surface-2)]'
+                  }`}
+                  title="Settings"
+                >
+                  <Settings size={16} />
+                </button>
+              )}
               <button
                 onClick={handleLogout}
                 aria-label="Logout"

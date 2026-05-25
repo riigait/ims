@@ -32,7 +32,7 @@ router.get('/stats', authMiddleware, async (req: AuthRequest, res: Response) => 
       totalProducts, totalStock, totalLocations, totalFloorPlans,
       allProducts, totalInventoryItems,
       itemStatusGroups, warrantyExpiringSoon,
-      categoryGroups, locationGroups,
+      categoryGroups, locationGroups, unassignedLocationCount,
     ] = await Promise.all([
       prisma.product.count({ where: departmentFilter }),
       prisma.product.aggregate({ _sum: { currentStock: true }, where: departmentFilter }),
@@ -70,6 +70,7 @@ router.get('/stats', authMiddleware, async (req: AuthRequest, res: Response) => 
         orderBy: { _count: { id: 'desc' } },
         take: 6,
       }),
+      prisma.product.count({ where: { ...departmentFilter, locationId: null } }),
     ]);
 
     const lowStockCount     = allProducts.filter(p => p.currentStock > 0 && p.currentStock <= p.lowStockThreshold).length;
@@ -119,6 +120,7 @@ router.get('/stats', authMiddleware, async (req: AuthRequest, res: Response) => 
       totalInventoryItems,
       lowStockCount, outOfStockCount, negativeStockCount, goodStockCount,
       totalLocations, totalFloorPlans,
+      unassignedLocationCount,
       totalInventoryValue,
       itemsAvailable, itemsInUse, itemsForRepair, itemsLost,
       warrantyExpiringSoon,

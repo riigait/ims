@@ -19,6 +19,7 @@ import deleteRequestsRoutes from './routes/deleteRequests';
 import adminDepartmentsRoutes from './routes/adminDepartments';
 import staffDepartmentsRoutes from './routes/staffDepartments';
 import passwordRequestsRoutes from './routes/passwordRequests';
+import settingsRoutes from './routes/settings';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -51,6 +52,7 @@ app.use('/api/delete-requests', authMiddleware, deleteRequestsRoutes);
 app.use('/api/admin-departments', authMiddleware, adminDepartmentsRoutes);
 app.use('/api/staff-departments', authMiddleware, staffDepartmentsRoutes);
 app.use('/api/password-requests', authMiddleware, passwordRequestsRoutes);
+app.use('/api/settings', authMiddleware, settingsRoutes);
 
 // Health check
 app.get('/api/health', (req, res) => {

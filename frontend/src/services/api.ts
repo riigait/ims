@@ -147,4 +147,10 @@ export const passwordRequestsApi = {
     api.patch(`/password-requests/${id}/reject`),
 };
 
+// Settings
+export const settingsApi = {
+  deleteOperationalData: (confirmPhrase: string) =>
+    api.post('/settings/danger/delete-data', { confirmPhrase }),
+};
+
 export default api;

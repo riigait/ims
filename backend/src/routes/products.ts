@@ -48,6 +48,54 @@ async function createOpeningStockForProduct(product: any, quantity: number, loca
   });
 }
 
+async function resolveImportLocationId(row: any, req: AuthRequest) {
+  const rawLocation = row.locationId || row.LocationID || row.locationID || row.location || row.Location;
+  const locationValue = typeof rawLocation === 'string' ? rawLocation.trim() : rawLocation;
+
+  if (!locationValue) return null;
+
+  const location = await prisma.location.findFirst({
+    where: {
+      OR: [
+        { id: locationValue },
+        { name: { equals: locationValue, mode: 'insensitive' } },
+      ],
+      ...(req.departmentId ? { departmentId: req.departmentId } : {}),
+    },
+  });
+
+  if (!location) {
+    throw new Error(`Location not found: ${locationValue}`);
+  }
+
+  return location.id;
+}
+
+async function resolveImportCategoryId(row: any, req: AuthRequest) {
+  const rawCategory = row.categoryId || row.CategoryID || row.categoryID || row.category || row.Category;
+  const categoryValue = typeof rawCategory === 'string' ? rawCategory.trim() : rawCategory;
+
+  if (!categoryValue) {
+    throw new Error('Category is required');
+  }
+
+  const category = await prisma.category.findFirst({
+    where: {
+      OR: [
+        { id: categoryValue },
+        { name: { equals: categoryValue, mode: 'insensitive' } },
+      ],
+      ...(req.departmentId ? { departmentId: req.departmentId } : {}),
+    },
+  });
+
+  if (!category) {
+    throw new Error(`Category not found: ${categoryValue}`);
+  }
+
+  return category.id;
+}
+
 // Get all products
 router.get('/', async (req: AuthRequest, res: Response) => {
   try {
@@ -353,12 +401,14 @@ router.post('/import/csv', async (req: AuthRequest, res: Response) => {
     for (let i = 0; i < rows.length; i++) {
       try {
         const row = rows[i];
+        const locationId = await resolveImportLocationId(row, req);
+        const categoryId = await resolveImportCategoryId(row, req);
         const data = {
             sku: row.sku,
             name: row.name,
             description: row.description || null,
-            categoryId: row.categoryId,
-            locationId: row.locationId || null,
+            categoryId,
+            locationId,
             departmentId: req.departmentId,
             unit: row.unit || 'pcs',
             currentStock: parseInt(row.currentStock) || 0,

@@ -21,6 +21,7 @@ import DeleteRequests from '@/pages/DeleteRequests';
 import AdminAssignment from '@/pages/AdminAssignment';
 import ChangePassword from '@/pages/ChangePassword';
 import PasswordRequests from '@/pages/PasswordRequests';
+import SuperadminSettings from '@/pages/SuperadminSettings';
 import NotFound from '@/pages/NotFound';
 import ErrorBoundary from '@/components/ErrorBoundary';
 
@@ -44,6 +45,18 @@ function AdminRoute({ children }: { children: React.ReactNode }) {
 
   if (!isLoggedIn) return <Navigate to="/login" />;
   if (!['admin', 'superadmin'].includes(userObj?.role)) {
+    return <Navigate to="/dashboard" />;
+  }
+  return children;
+}
+
+function SuperadminRoute({ children }: { children: React.ReactNode }) {
+  const isLoggedIn = !!localStorage.getItem('token');
+  const user = localStorage.getItem('user');
+  const userObj = user ? JSON.parse(user) : null;
+
+  if (!isLoggedIn) return <Navigate to="/login" />;
+  if (userObj?.role !== 'superadmin') {
     return <Navigate to="/dashboard" />;
   }
   return children;
@@ -222,6 +235,16 @@ function App() {
                 <AdminAssignment />
               </Layout>
             </AdminRoute>
+          }
+        />
+        <Route
+          path="/admin/settings"
+          element={
+            <SuperadminRoute>
+              <Layout>
+                <SuperadminSettings />
+              </Layout>
+            </SuperadminRoute>
           }
         />
         <Route

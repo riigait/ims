@@ -17,6 +17,7 @@ interface Stats {
   negativeStockCount: number;
   goodStockCount: number;
   totalLocations: number;
+  unassignedLocationCount: number;
   totalFloorPlans: number;
   totalInventoryValue: number;
   itemsAvailable: number;
@@ -139,7 +140,7 @@ export default function Dashboard() {
   const [stats, setStats] = useState<Stats>({
     totalProducts: 0, totalStock: 0, totalInventoryItems: 0,
     lowStockCount: 0, outOfStockCount: 0, negativeStockCount: 0, goodStockCount: 0,
-    totalLocations: 0, totalFloorPlans: 0,
+    totalLocations: 0, unassignedLocationCount: 0, totalFloorPlans: 0,
     totalInventoryValue: 0,
     itemsAvailable: 0, itemsInUse: 0, itemsForRepair: 0, itemsLost: 0,
     warrantyExpiringSoon: 0,
@@ -258,13 +259,14 @@ export default function Dashboard() {
       </div>
 
       {/* Main Stat Cards */}
-      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-4">
         <StatCard label="Products"        value={stats.totalProducts}       icon={Package}     accent="bg-blue-100 text-blue-600 dark:bg-blue-950 dark:text-blue-400"         onClick={() => navigate('/products')} />
         <StatCard label="Inventory Items" value={stats.totalInventoryItems}  icon={Boxes}       accent="bg-indigo-100 text-indigo-600 dark:bg-indigo-950 dark:text-indigo-400" onClick={() => navigate('/inventory-items')} />
         <StatCard label="Total Stock"     value={stats.totalStock}           icon={CheckCircle} accent="bg-green-100 text-green-600 dark:bg-green-950 dark:text-green-400"     onClick={() => navigate('/products')} />
         <StatCard label="Inventory Value" value={formatValue(stats.totalInventoryValue)} icon={DollarSign} accent="bg-emerald-100 text-emerald-600 dark:bg-emerald-950 dark:text-emerald-400" />
         <StatCard label="Low Stock"       value={stats.lowStockCount}        icon={TrendingDown} accent={stats.lowStockCount > 0 ? 'bg-yellow-100 text-yellow-600 dark:bg-yellow-950 dark:text-yellow-400' : 'bg-gray-100 text-gray-400'} onClick={() => navigate('/products')} />
         <StatCard label="Locations"       value={stats.totalLocations}       icon={MapPin}      accent="bg-purple-100 text-purple-600 dark:bg-purple-950 dark:text-purple-400" onClick={() => navigate('/locations')} />
+        <StatCard label="Unassigned Location" value={stats.unassignedLocationCount} icon={AlertCircle} accent={stats.unassignedLocationCount > 0 ? 'bg-red-100 text-red-600 dark:bg-red-950 dark:text-red-400' : 'bg-gray-100 text-gray-400'} onClick={() => navigate('/products')} />
         <StatCard label="Floor Plans"     value={stats.totalFloorPlans}      icon={Map}         accent="bg-rose-100 text-rose-600 dark:bg-rose-950 dark:text-rose-400"         onClick={() => navigate('/floor-plans')} />
       </div>
 
