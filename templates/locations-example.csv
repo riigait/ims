@@ -1,7 +1,0 @@
-name,type,parentId,notes
-Main Warehouse,building,,"Central storage facility for all inventory"
-Warehouse Floor 1,floor,,"First floor of main warehouse"
-Shelf A,shelf,,"High value electronics storage"
-Shelf B,shelf,,"Office supplies storage"
-Shelf C,shelf,,"Accessories storage"
-Loading Dock,room,,"Receiving and shipping area"

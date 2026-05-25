@@ -1,8 +1,0 @@
-productId,quantity,movementType,reason,locationId,modelNumber,serialNumber,macId
-prod-001,50,stock_in,Initial stock receipt,loc-001,XPS 15-9500,DELL2024ABC,
-prod-002,30,stock_in,Supplier delivery,loc-001,MX Master 3S,LOG2024XYZ,00:1A:2B:3C:4D:5E
-prod-003,100,stock_in,Purchase order,loc-002,USB-C 3.1,CABLE001,
-prod-001,5,stock_out,Customer order,loc-001,XPS 15-9500,DELL2024ABC,
-prod-002,2,stock_out,Office use,loc-001,MX Master 3S,LOG2024XYZ,00:1A:2B:3C:4D:5E
-prod-004,10,adjustment,Physical count correction,loc-003,,ADJUST001,
-prod-005,3,damaged,Damaged during transport,loc-001,USB-C 3.1,CABLE002,
