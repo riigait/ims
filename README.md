@@ -4,6 +4,52 @@ Full-stack inventory app for multi-department teams. PostgreSQL-backed, with per
 
 ---
 
+## Screenshots
+
+### Login
+![Login screen](docs/screenshots/01-login.png)
+
+### Dashboard
+KPIs, stock health, category and location breakdowns, recent movements — all department-scoped.
+
+![Dashboard — full inventory view](docs/screenshots/02-dashboard.png)
+![Dashboard — department-filtered view](docs/screenshots/03-dashboard-alt.png)
+
+### Categories
+![Categories page](docs/screenshots/04-categories.png)
+
+### Products
+SKU catalog with filters (category, location including Unassigned, stock status, unit, date range), search across name / SKU / location.
+
+![Products page](docs/screenshots/05-products.png)
+
+### Locations
+Hierarchical location tree (Branch → Building → Floor → Room → Rack → Shelf), per-department.
+
+![Locations page](docs/screenshots/06-locations.png)
+
+### Inventory items (per-unit tracking)
+Asset tag, serial number, MAC ID, barcode, model, condition, status, custodian, warranty.
+
+![Inventory Items list](docs/screenshots/07-inventory-items.png)
+![Inventory Item detail drawer](docs/screenshots/08-inventory-item-detail.png)
+
+### Stock movements
+Multi-line movements — one operation can shift many `StockDetail` units, each with its own from/to location and reason. Twelve movement types.
+
+![Stock Movements list](docs/screenshots/09-stock-movements.png)
+![Stock Movement detail drawer](docs/screenshots/10-stock-movement-detail.png)
+
+### Floor plans
+Auto-generate a starter layout from the current locations, or build one by hand in the canvas editor.
+
+![Floor Plans — Auto Generate prompt](docs/screenshots/11-floor-plans-auto-generate.png)
+![Floor Plans — generated list with thumbnails](docs/screenshots/12-floor-plans-list.png)
+![Floor Plan Editor — canvas](docs/screenshots/13-floor-plan-editor.png)
+![Floor Plan Editor — object properties panel](docs/screenshots/14-floor-plan-editor-properties.png)
+
+---
+
 ## What it does
 
 ### Auth and roles

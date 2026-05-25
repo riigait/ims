@@ -64,13 +64,16 @@ csv-corrector/
 *.mov
 *.pdf
 
-# Image files (blanket ignore — allow tracked assets under frontend/public/)
+# Image files (blanket ignore — allow tracked assets under frontend/public/ and docs/)
 *.png
 *.jpg
 *.jpeg
 !frontend/public/**/*.png
 !frontend/public/**/*.jpg
 !frontend/public/**/*.jpeg
+!docs/**/*.png
+!docs/**/*.jpg
+!docs/**/*.jpeg
 
 # CSV files (blanket ignore — allow tracked templates and tooling formats)
 *.csv
