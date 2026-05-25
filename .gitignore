@@ -65,3 +65,5 @@ __pycache__/
 *.jpg
 *.jpeg
 *.pdf
+*.csv
+!ims-test.csv
