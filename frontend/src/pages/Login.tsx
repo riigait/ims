@@ -56,7 +56,7 @@ export default function Login() {
   };
 
   return (
-    <div className="min-h-screen bg-[var(--bg)] flex items-center justify-center py-12 px-4">
+    <div className="min-h-screen bg-[var(--bg)] flex flex-col items-center justify-center py-12 px-4 gap-6">
       <div className="max-w-md w-full bg-[var(--surface)] rounded-lg shadow-lg p-8 border border-[var(--border)]">
         <div className="flex justify-center mb-6">
           <img src={theme === 'dark' ? '/icons/logo-img-white.svg' : '/icons/logo-img.svg'} alt="IMS" className="h-16 w-16" />
@@ -132,6 +132,28 @@ export default function Login() {
             </button>
           </p>
         </div>
+      </div>
+
+      {/* Dev notice + open-source footer */}
+      <div className="max-w-md w-full text-center text-xs text-[var(--text-muted)] space-y-2">
+        <p>
+          <span className="font-semibold text-[var(--text)]">This app is under active development.</span>{' '}
+          You can use it — please report any bugs you find.
+        </p>
+        <p>
+          Built for <span className="text-[var(--text)]">IT asset tracking, office equipment inventory, and multi-department stock management</span> in companies and government offices.
+        </p>
+        <p>
+          Open source on{' '}
+          <a
+            href="https://github.com/riigait/ims"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-[var(--primary)] hover:underline font-medium"
+          >
+            GitHub
+          </a>
+        </p>
       </div>
     </div>
   );
