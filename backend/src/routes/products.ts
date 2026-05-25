@@ -7,6 +7,47 @@ import { generateStockId, generateMovementNo } from '../utils/idGenerator';
 
 const router = Router();
 
+async function createOpeningStockForProduct(product: any, quantity: number, locationId: string | null, req: AuthRequest) {
+  if (quantity <= 0) return;
+
+  const movementNo = await generateMovementNo();
+  const stockDetails = [];
+
+  for (let i = 0; i < quantity; i++) {
+    const stockId = await generateStockId();
+    const detail = await prisma.stockDetail.create({
+      data: {
+        stockId,
+        productId: product.id,
+        currentStatus: 'active',
+        currentLocationId: locationId || null,
+      },
+    });
+    stockDetails.push(detail);
+  }
+
+  await prisma.stockMovement.create({
+    data: {
+      movementNo,
+      movementType: 'opening_stock',
+      status: 'pending',
+      remarks: 'Opening stock',
+      departmentId: req.departmentId || null,
+      userId: req.userId!,
+      items: {
+        create: stockDetails.map((detail) => ({
+          stockDetailId: detail.id,
+          productId: product.id,
+          quantity: 1,
+          fromLocationId: null,
+          toLocationId: locationId || null,
+          reason: 'Opening stock',
+        })),
+      },
+    },
+  });
+}
+
 // Get all products
 router.get('/', async (req: AuthRequest, res: Response) => {
   try {
@@ -165,47 +206,7 @@ router.post('/', async (req: AuthRequest, res: Response) => {
       try {
 
         console.log(`[OPENING STOCK] Creating opening stock for product ${product.id} with ${stockValue} units`);
-
-        const movementNo = await generateMovementNo();
-
-        // Create StockDetail entries one at a time so each generateStockId sees the previous record
-        const stockDetails = [];
-        for (let i = 0; i < stockValue; i++) {
-          const stockId = await generateStockId();
-          const detail = await prisma.stockDetail.create({
-            data: {
-              stockId,
-              productId: product.id,
-              currentStatus: 'active',
-              currentLocationId: locationId || null,
-            },
-          });
-          console.log(`[OPENING STOCK] Created stock detail: ${detail.id} with stockId ${detail.stockId}`);
-          stockDetails.push(detail);
-        }
-
-        // Create opening stock movement
-        const movement = await prisma.stockMovement.create({
-          data: {
-            movementNo,
-            movementType: 'opening_stock',
-            status: 'pending',
-            remarks: 'Opening stock',
-            departmentId: req.departmentId || null,
-            userId: req.userId!,
-            items: {
-              create: stockDetails.map((detail) => ({
-                stockDetailId: detail.id,
-                productId: product.id,
-                quantity: 1,
-                fromLocationId: null,
-                toLocationId: locationId || null,
-                reason: 'Opening stock',
-              })),
-            },
-          },
-        });
-        console.log(`[OPENING STOCK] Created opening stock movement: ${movement.id} with movementNo ${movement.movementNo}`);
+        await createOpeningStockForProduct(product, stockValue, locationId || null, req);
       } catch (error: any) {
         console.error('[OPENING STOCK] FAILED:', error.message);
         console.error('[OPENING STOCK] Error code:', error.code);
@@ -375,6 +376,19 @@ router.post('/import/csv', async (req: AuthRequest, res: Response) => {
         const product = existing
           ? await prisma.product.update({ where: { id: existing.id }, data })
           : await prisma.product.create({ data: { ...(row.id ? { id: row.id } : {}), ...data } });
+
+        if (!existing) {
+          await createOpeningStockForProduct(product, data.currentStock, data.locationId, req);
+        }
+
+        await logAudit({
+          userId: req.userId,
+          action: existing ? 'UPDATE' : 'CREATE',
+          entityType: 'product',
+          entityId: product.id,
+          changes: { name: row.name, sku: row.sku, currentStock: data.currentStock, source: 'csv_import' },
+        });
+
         created.push(product);
       } catch (err: any) {
         errors.push({ row: i + 1, error: err.message });
