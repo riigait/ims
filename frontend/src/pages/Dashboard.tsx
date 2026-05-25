@@ -266,7 +266,7 @@ export default function Dashboard() {
         <StatCard label="Inventory Value" value={formatValue(stats.totalInventoryValue)} icon={DollarSign} accent="bg-emerald-100 text-emerald-600 dark:bg-emerald-950 dark:text-emerald-400" />
         <StatCard label="Low Stock"       value={stats.lowStockCount}        icon={TrendingDown} accent={stats.lowStockCount > 0 ? 'bg-yellow-100 text-yellow-600 dark:bg-yellow-950 dark:text-yellow-400' : 'bg-gray-100 text-gray-400'} onClick={() => navigate('/products')} />
         <StatCard label="Locations"       value={stats.totalLocations}       icon={MapPin}      accent="bg-purple-100 text-purple-600 dark:bg-purple-950 dark:text-purple-400" onClick={() => navigate('/locations')} />
-        <StatCard label="Unassigned Location" value={stats.unassignedLocationCount} icon={AlertCircle} accent={stats.unassignedLocationCount > 0 ? 'bg-red-100 text-red-600 dark:bg-red-950 dark:text-red-400' : 'bg-gray-100 text-gray-400'} onClick={() => navigate('/products')} />
+        <StatCard label="Unassigned Location" value={stats.unassignedLocationCount} icon={AlertCircle} accent={stats.unassignedLocationCount > 0 ? 'bg-red-100 text-red-600 dark:bg-red-950 dark:text-red-400' : 'bg-gray-100 text-gray-400'} onClick={() => navigate('/products', { state: { search: 'unassigned' } })} />
         <StatCard label="Floor Plans"     value={stats.totalFloorPlans}      icon={Map}         accent="bg-rose-100 text-rose-600 dark:bg-rose-950 dark:text-rose-400"         onClick={() => navigate('/floor-plans')} />
       </div>
 

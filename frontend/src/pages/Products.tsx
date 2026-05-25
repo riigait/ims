@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { X, Edit, Trash2, Plus, ChevronRight } from 'lucide-react';
 import { productsApi, categoriesApi, locationsApi, deleteRequestsApi, departmentsApi } from '@/services/api';
 import Pagination from '@/components/Pagination';
@@ -26,14 +26,16 @@ const STATUS_COLOR: Record<string, string> = {
 
 export default function Products() {
   const navigate = useNavigate();
+  const routeLocation = useLocation();
   const user = JSON.parse(localStorage.getItem('user') || '{}');
   const [products, setProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [locations, setLocations] = useState<Location[]>([]);
   const [departments, setDepartments] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const initialSearch = (routeLocation.state as any)?.search ?? '';
   const [filters, setFilters] = useState<ProductFilter>({
-    search: '', categoryId: undefined, locationId: undefined, stockStatus: undefined, departmentId: undefined, unit: undefined, dateRange: 'all',
+    search: initialSearch, categoryId: undefined, locationId: undefined, stockStatus: undefined, departmentId: undefined, unit: undefined, dateRange: 'all',
   });
   const [sort, setSort] = useState<ProductSort>({ field: 'date', order: 'desc' });
   const [error, setError] = useState('');
@@ -332,10 +334,11 @@ export default function Products() {
           ) : (
             <div className="space-y-0 border border-[var(--border)] rounded-lg overflow-hidden">
               {/* Table header */}
-              <div className="hidden md:grid md:grid-cols-7 gap-4 px-4 py-2 bg-[var(--surface-2)] text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wide border-b border-[var(--border)]">
+              <div className="hidden md:grid md:grid-cols-8 gap-4 px-4 py-2 bg-[var(--surface-2)] text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wide border-b border-[var(--border)]">
                 <div>SKU</div>
                 <div>Name</div>
                 <div>Category</div>
+                <div>Location</div>
                 <div className="text-right">Unit Price</div>
                 <div className="text-right">Total Value</div>
                 <div>Status</div>
@@ -352,12 +355,13 @@ export default function Products() {
                     key={product.id}
                     onClick={() => openViewDrawer(product)}
                     className="flex items-center gap-3 px-4 py-3 bg-[var(--surface)] border-b border-[var(--border)] hover:bg-[var(--surface-2)] cursor-pointer transition-colors">
-                    <div className="flex-1 grid grid-cols-2 md:grid-cols-7 gap-4 text-sm min-w-0">
+                    <div className="flex-1 grid grid-cols-2 md:grid-cols-8 gap-4 text-sm min-w-0">
                       <div className="truncate">
                         <span className="font-mono text-xs text-[var(--text-muted)]">{product.sku}</span>
                       </div>
                       <div className="truncate font-medium text-[var(--text)]">{product.name}</div>
                       <div className="truncate text-[var(--text-muted)]">{category?.name ?? '—'}</div>
+                      <div className="truncate text-[var(--text-muted)]">{product.location?.name ?? <span className="text-red-400 text-xs">Unassigned</span>}</div>
                       <div className="text-right text-[var(--text)]">${(product.unitPrice || 0).toFixed(2)}</div>
                       <div className="text-right text-[var(--text)]">${totalValue.toFixed(2)}</div>
                       <div>

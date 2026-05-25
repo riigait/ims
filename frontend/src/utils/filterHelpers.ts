@@ -25,13 +25,15 @@ export const filterProducts = (products: Product[], filter: ProductFilter): Prod
     const matchesSearch =
       !search ||
       product.name.toLowerCase().includes(search) ||
-      product.sku.toLowerCase().includes(search);
+      product.sku.toLowerCase().includes(search) ||
+      (product.location?.name ?? 'unassigned').toLowerCase().includes(search);
 
     const matchesCategory =
       !filter.categoryId || product.categoryId === filter.categoryId;
 
     const matchesLocation =
-      !filter.locationId || product.locationId === filter.locationId;
+      !filter.locationId ||
+      (filter.locationId === 'unassigned' ? !product.locationId : product.locationId === filter.locationId);
 
     const matchesStockStatus =
       !filter.stockStatus || getStockStatus(product) === filter.stockStatus;

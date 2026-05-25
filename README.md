@@ -1,545 +1,317 @@
-# Inventory Management System (IMS) - Phase 2
+# Inventory Management System (IMS)
 
-A full-stack Web App/PWA for inventory management with **role-based private dashboards**, interactive 2D floor plan builder, and multi-department support.
+A full-stack inventory management web app with multi-department isolation, per-unit asset tracking, multi-line stock movements, a 2D floor-plan editor, barcode scanning, and a unified CSV import/export workflow.
 
-## Core Features
+---
 
-### 🔐 Authentication & Role Management
-- **Three user roles**: Superadmin, Admin, Staff
-- **Role-based access control** - Different views and permissions per role
-- **Multi-department assignments** - Users can be assigned to multiple departments
-- **Invite-based registration** - Admins invite users with invite codes
-- **Password management** - Secure password changes and reset requests
-- **Initial setup** - Secure one-time setup for default superadmin account
+## What the app can do
 
-### 📊 Dashboard & Analytics
-- **Role-specific dashboards** - Each role sees only relevant data
-- **Department-filtered views** - Data isolation per department
-- **Real-time statistics** - Product count, stock status, recent movements
-- **Stock alerts** - Low stock warnings for quick action
+### Authentication & roles
+- **Three roles** — `superadmin`, `admin`, `staff`
+- **Invite-code registration** — admins issue codes; new users sign up against them
+- **Initial setup flow** — the first superadmin login forces a profile + password reset before any other access
+- **Password change requests** — staff request password changes; admins approve or reject
+- **Forced department context** — `DepartmentGuard` blocks pages until a department (or "All Departments") is selected
 
-### 📦 Inventory Management
-- **Product Management** - Create, edit, delete products with SKU tracking
-- **31 Measurement Units** - Pieces, weights (g/kg/oz/lb/ton), volumes (ml/L/gal/cup), lengths (mm/cm/m/km/inch/ft/yard), areas (cm²/m²), and others
-- **Category Organization** - Hierarchical product categorization per department
-- **Stock Tracking** - Real-time inventory levels with audit trail
-- **Low Stock Alerts** - Automatic notifications for items below threshold
+### Inventory data model (the "Trinity")
+The system tracks inventory at three layers — keep all three in mind when reading the UI:
 
-### 📍 Location & Floor Plan Management
-- **Hierarchical Locations** - Branch → Building → Floor → Room → Rack → Shelf
-- **Interactive 2D Floor Plan Editor** - Drag-and-drop warehouse layout builder
-- **Canvas Drawing Tools** - Walls, rooms, racks, shelves, labels, and text
-- **Location Linking** - Link inventory to physical floor plan locations
+| Layer | Model | Purpose |
+|-------|-------|---------|
+| **Master catalog** | `Product` | SKU, name, category, unit, price, threshold, opening stock |
+| **Transactions** | `StockMovement` + `StockMovementItem` | Every quantity change — multi-line, with from/to locations per item |
+| **Per-unit registry** | `StockDetail` | Individual physical units — asset tag, serial, MAC, barcode, warranty, custodian, condition, status |
 
-### 📤 Stock Movement Tracking
-- **Movement Types** - Stock in, stock out, adjustment, transfer, damaged, returned
-- **Audit Trail** - Complete history of all inventory changes
-- **User Tracking** - Records who made each movement and when
-- **Reason Documentation** - Record why stock was moved
+### Products
+- SKU-based catalog with 31 measurement units (count, weight, volume, length, area, packaging)
+- Category, location, supplier, unit price, low-stock threshold, lead-time days, expiry date, status (`active` / `discontinued` / `obsolete` / `on-backorder`), free-form notes
+- Search by name, SKU, or location name
+- Filter by category, location (including **Unassigned**), stock status, department, unit, date range
 
-### 🏢 Department Management
-- **Multi-department support** - Isolated data per department
-- **Admin assignments** - Admins manage department access
-- **Staff assignments** - Staff can be assigned to one or more departments
-- **Department switching** - Easy switching between assigned departments
+### Inventory items (per-unit tracking)
+- Auto-generated `STK-` stock IDs and optional custom asset tags
+- Identity fields: serial number, MAC ID, barcode, model number, brand, item type
+- Lifecycle: condition (`new` / `good` / `fair` / `poor`) and 9 statuses (`active`, `deployed`, `borrowed`, `repair`, `returned`, `damaged`, `lost`, `disposed`, `sold`)
+- Warranty expiry + notes, custodian, last-checked date and checker
+- Search by stock ID, asset tag, product name, serial, MAC, model, or barcode
 
-### 🗑️ Request & Approval System
-- **Delete Requests** - Staff request deletions, admins approve/reject
-- **Password Change Requests** - Secure password change workflow
-- **Audit trail** - All requests logged with timestamps
+### Stock movements
+- **12 movement types** — `stock_in`, `stock_out`, `adjustment`, `returned`, `damaged`, `transfer`, `opening_stock`, `deployment`, `repair`, `disposal`, `borrowed`, `lost`
+- Auto-generated `MVT-` movement numbers
+- **Multi-line movements** — one movement can move many `StockDetail` units, each with its own from/to location and reason
+- Each line ties back to a specific `StockDetail`, keeping unit-level history intact
 
-## Tech Stack
+### Categories & locations
+- **Categories** scoped per department (unique name within a department)
+- **Hierarchical locations** — `Branch → Building → Floor → Room → Rack → Shelf` (free-form types, parent/child tree)
+- Cascading delete on parent locations
 
-### Frontend
-- **React 18** + **TypeScript** - Modern UI framework with type safety
-- **Vite** - Lightning-fast build tool and dev server
-- **Tailwind CSS** - Utility-first styling with dark mode support
-- **Zustand** - Lightweight state management
-- **Axios** - HTTP client with interceptors
-- **React Router** - Client-side routing with protected routes
-- **Canvas API** - 2D drawing for floor plans
-- **PWA Support** - Service workers for offline capability
+### Floor plans
+- Per-floor-plan canvas with width / height (in units)
+- Plan stored as serialised JSON (objects, walls, racks, shelves, labels)
+- Linkable to a location so the plan represents a real space
+- Editor at `/floor-plans/:id/edit`
 
-### Backend
-- **Node.js 18+** + **Express** + **TypeScript** - Robust API server
-- **Prisma ORM** - Type-safe database access
-- **SQLite** (dev) / **PostgreSQL** (production) - Flexible database options
-- **JWT** - Stateless authentication tokens
-- **bcryptjs** - Password hashing with salt rounds
-- **CORS** - Cross-origin request handling
-- **nodemon** - Auto-reload during development
+### Dashboard
+- KPIs — totals for products, stock, inventory items, inventory value, low / out / negative stock, locations, **unassigned-location count**, floor plans
+- Item-status breakdown — available, in use, for repair, lost
+- Warranty-expiring-soon counter (next 30 days)
+- Top categories and top locations (by item count)
+- Department-scoped — each card respects the active department filter
 
-## Project Structure
+### Barcode scanner
+- Browser `BarcodeDetector` API (camera) with keyboard-input fallback
+- Supports QR, Code 128, Code 39, EAN-13/8, UPC-A/E
+- Scans either a product (by SKU/barcode) or a location, then deep-links to the matching record
+
+### CSV import / export / corrector
+Unified at `/import-pclsf` with three tabs:
+- **Import** — auto-detects file type (Products / Categories / Locations / Floor Plans) from headers
+- **Export** — per-type CSV, or one unified file containing all sections with `#IMS_SECTION,<type>` markers
+- **Corrector** — re-uploads a previously exported file to repair / re-sync rows
+
+### Departments & assignments
+- Departments isolate Products, Categories, Locations, Movements, Floor Plans
+- `AdminDepartment` and `StaffDepartment` join tables let users belong to multiple departments
+- Department switcher in the top bar — superadmins see all, admins/staff see their assigned set, plus "All Departments" when applicable
+
+### Delete requests
+- Staff cannot hard-delete — they file a `DeleteRequest` (product / category / location / floor plan)
+- Admins/superadmins approve or reject from `/delete-requests`
+- Original entity name and reason are captured for the audit trail
+
+### Audit log
+- Backend writes audit records on key actions (CREATE / UPDATE / DELETE, stock movements, login, etc.) with user, entity, JSON change snapshot, IP address
+- Exposed via `GET /api/audit-logs` for admins/superadmins
+
+### Superadmin danger zone
+- `/admin/settings` — destructive "Delete operational data" action with typed confirmation + 5-second countdown
+- Wipes products, categories, locations, movements, stock details, floor plans, requests, invites, audit logs
+- **Preserves** users, departments, and department assignments
+
+---
+
+## Tech stack
+
+**Frontend**
+- React 18 + TypeScript, Vite
+- React Router 6, Zustand, Axios
+- Tailwind CSS (dark mode supported via `ThemeContext`)
+- Lucide icons
+- HTML5 Canvas (floor-plan editor), browser `BarcodeDetector` (scanner)
+
+**Backend**
+- Node.js + Express + TypeScript
+- Prisma ORM
+- **PostgreSQL** (required — schema uses `provider = "postgresql"`)
+- JWT auth (`jsonwebtoken`), bcryptjs password hashing
+- `csv-parse` + `json2csv` for CSV pipelines
+
+---
+
+## Project layout
 
 ```
 ims/
-├── frontend/                    # React Vite SPA
+├── frontend/                  # React + Vite SPA
 │   ├── src/
-│   │   ├── pages/              # Route pages (Dashboard, Products, etc.)
-│   │   ├── components/         # Reusable UI components
-│   │   │   ├── layout/         # Layout wrappers (Sidebar, Layout)
-│   │   │   └── floorplan/      # Floor plan editor components
-│   │   ├── services/           # API clients (api.ts, stores)
-│   │   ├── contexts/           # React contexts (ThemeContext)
-│   │   ├── types/              # TypeScript interfaces
-│   │   ├── utils/              # Helpers (validation, filters, IDs)
-│   │   ├── constants/          # App constants
-│   │   ├── App.tsx             # Route definitions
-│   │   └── main.tsx            # Entry point
-│   ├── public/icons/           # Static assets
-│   ├── index.html              # HTML template
-│   ├── vite.config.ts          # Vite configuration
-│   ├── tailwind.config.js      # Tailwind theming
-│   └── package.json
+│   │   ├── pages/             # 21 route pages (Dashboard, Products, ImportPCLSF, Scanner, ...)
+│   │   ├── components/        # Layout, floor-plan canvas, drawers, guards
+│   │   ├── services/api.ts    # Axios API clients
+│   │   ├── contexts/          # ThemeContext
+│   │   ├── types/             # Inventory and filter types
+│   │   ├── utils/             # filterHelpers, csv, ids, validation
+│   │   └── App.tsx            # Routes + role guards
+│   └── vite.config.ts
 │
-├── backend/                     # Express API server
+├── backend/                   # Express API
 │   ├── src/
-│   │   ├── routes/             # API endpoints (products, users, auth, etc.)
-│   │   ├── middleware/         # Auth & error handling
-│   │   ├── utils/              # Utilities (audit logging)
-│   │   └── index.ts            # Server entry point
-│   ├── prisma/
-│   │   └── schema.prisma       # Database schema & models
-│   ├── .env.example            # Environment template
-│   ├── tsconfig.json           # TypeScript config
-│   └── package.json
+│   │   ├── routes/            # 17 route modules
+│   │   ├── middleware/        # auth (JWT + role/department resolution)
+│   │   ├── utils/             # prisma client, audit logger
+│   │   └── index.ts
+│   └── prisma/schema.prisma   # All models
 │
-├── scripts/                     # Utility scripts (CSV import, DB setup, etc.)
-├── .env                        # Environment variables (JWT_SECRET, DATABASE_URL)
-├── start-ims.bat               # Windows: Start both frontend & backend
-├── stop-ims.bat                # Windows: Kill frontend & backend processes
-├── setup.bat                   # Windows: Initial setup (install deps, migrate DB)
-└── README.md
+├── scripts/dev-start.js       # Concurrent frontend + backend launcher
+├── start-ims.bat / stop-ims.bat
+└── ims-control.ps1            # PowerShell control script
 ```
 
-## Architecture Overview
+---
 
-### Data Flow
-```
-User → Frontend (React) → API (Express) → Database (SQLite/PostgreSQL)
-                                          ↓
-                                     Audit Logs
-```
+## Routes
 
-### Authentication Flow
-1. User logs in with email/password
-2. Backend validates credentials, issues JWT token
-3. Frontend stores token in localStorage
-4. Every API request includes `Authorization: Bearer <token>`
-5. Backend validates token via auth middleware
-6. Protected routes require valid token + proper role
+### Public
+`/login`, `/register`, `/initial-setup`
 
-### Department Isolation
-- Every entity (Product, Category, Location, etc.) has optional `departmentId`
-- Admin queries filter by department when selected
-- Staff users see only assigned departments
-- Dashboard stats are department-specific
+### Authenticated + department-scoped
+`/dashboard`, `/products`, `/categories`, `/locations`, `/inventory-items`, `/stock-movements`, `/floor-plans`, `/floor-plans/:id/edit`, `/import-pclsf`, `/scanner`
 
-### Role-Based Access (Phase 2)
-| Feature | Superadmin | Admin | Staff |
-|---------|----------|-------|-------|
-| View all departments | ✓ | ✓ (filter) | ✗ |
-| Manage users | ✓ | ✓ | ✗ |
-| Manage departments | ✓ | ✗ | ✗ |
-| View audit logs | ✓ | ✓ | ✗ |
-| Approve delete requests | ✓ | ✓ | ✗ |
-| Manage staff assignments | ✓ | ✓ | ✗ |
-| Create/edit inventory | ✓ | ✓ | ✓ (dept only) |
-| View inventory | ✓ | ✓ | ✓ (dept only) |
-| Stock movements | ✓ | ✓ | ✓ (dept only) |
+### Authenticated (any role)
+`/change-password`
 
-## Quick Start
+### Admin / superadmin
+`/admin/users`, `/admin/departments`, `/admin/assignment`, `/delete-requests`, `/password-requests`
+
+### Superadmin only
+`/admin/settings`
+
+---
+
+## API
+
+All `/api/*` routes except `/api/auth/*` and `/api/invites` require `Authorization: Bearer <JWT>`.
+
+| Mount | File | Purpose |
+|-------|------|---------|
+| `/api/auth` | `auth.ts` | login, register, me, initial setup |
+| `/api/invites` | `invites.ts` | create / list invite codes |
+| `/api/products` | `products.ts` | CRUD + CSV import/export + opening-stock helpers |
+| `/api/categories` | `categories.ts` | CRUD + CSV |
+| `/api/locations` | `locations.ts` | hierarchical CRUD + CSV |
+| `/api/stock-movements` | `stockMovements.ts` | list + create multi-line movements |
+| `/api/stock-details` | `stockDetails.ts` | per-unit inventory CRUD |
+| `/api/floor-plans` | `floorPlans.ts` | CRUD + CSV |
+| `/api/dashboard` | `dashboard.ts` | KPIs + recent movements |
+| `/api/audit-logs` | `auditLogs.ts` | list audit entries |
+| `/api/users` | `users.ts` | admin user management |
+| `/api/departments` | `departments.ts` | department CRUD |
+| `/api/admin-departments` | `adminDepartments.ts` | admin↔department links |
+| `/api/staff-departments` | `staffDepartments.ts` | staff↔department links |
+| `/api/delete-requests` | `deleteRequests.ts` | approve / reject deletes |
+| `/api/password-requests` | `passwordRequests.ts` | approve / reject password changes |
+| `/api/settings` | `settings.ts` | superadmin danger-zone actions |
+
+`GET /api/health` returns `{ status: 'ok' }` (unauthenticated).
+
+---
+
+## Quick start
 
 ### Prerequisites
-- **Node.js 18+** - Runtime
-- **npm 9+** - Package manager
-- **SQLite** - Included with Node (local dev only)
-- **PostgreSQL 14+** - Optional, for production
+- Node.js 18+ and npm 9+
+- **PostgreSQL 14+** running locally (or a reachable instance)
 
-### Database Strategy
-
-| Scenario | Database | Setup |
-|----------|----------|-------|
-| **Local development** | SQLite | Zero setup — `.db` file auto-created |
-| **Staging/Production** | PostgreSQL | Install PostgreSQL, set `DATABASE_URL` |
-
-### Installation & Setup
-
-**Option 1: Automated Setup (Windows)**
-```batch
-# From project root
-setup.bat
-```
-
-**Option 2: Manual Setup**
+### Setup
 ```bash
-# Install all dependencies
+# Install dependencies for both apps
 npm install
 
-# Setup database
+# Configure the backend
+cp backend/.env.example backend/.env
+# Edit backend/.env:
+#   DATABASE_URL=postgresql://<user>:<pass>@localhost:5432/ims
+#   JWT_SECRET=<at least 32 random chars>
+
+# Run migrations + generate client
 cd backend
-npx prisma migrate dev --name init
+npx prisma migrate dev
 cd ..
 
-# Start the app
+# Start frontend + backend together
 npm run dev
 ```
 
-Frontend will be at `http://localhost:5174` (or next available port)
-Backend API at `http://localhost:3001`
+- Frontend: `http://localhost:5173`
+- Backend: `http://localhost:3001`
 
-### Initial Login
+### Useful scripts (root `package.json`)
+```bash
+npm run dev               # both apps via scripts/dev-start.js
+npm run frontend:dev      # Vite only
+npm run backend:dev       # Express only (ts-node + nodemon)
+npm run frontend:build    # production build (tsc + vite build)
+npm run backend:build     # tsc compile
+npm run backend:db:migrate
+npm run backend:db:studio # Prisma Studio
+npm run control           # PowerShell control script (Windows)
+```
 
-The backend creates a default superadmin on first startup:
+### Windows helpers
+- `start-ims.bat` — launches both servers
+- `stop-ims.bat` — kills both
+- `ims-control.ps1` — PowerShell front-end for the same
+
+---
+
+## First-time login
+
+On first boot the backend ensures a default superadmin exists:
 
 | Field | Value |
 |-------|-------|
 | Email | `admin@ims.local` |
 | Password | `changeme123` |
 
-**⚠️ Critical**: Change these credentials immediately on first login by completing the **Initial Setup** workflow. The app will automatically redirect you to it.
+Logging in with that account triggers `/initial-setup` — set your real name, email, and a new password before anything else is reachable.
 
-## First-Time Setup Workflow
+After setup:
+1. Create departments at `/admin/departments`
+2. Generate invite codes at `/admin/users`
+3. Assign roles + departments at `/admin/assignment`
+4. Build the location tree at `/locations`
+5. Add products at `/products` (or bulk-import via `/import-pclsf`)
 
-When you first login with the default `admin@ims.local` account, the system will:
-
-1. **Detect incomplete setup** - Redirect you to `/initial-setup`
-2. **Update your profile**:
-   - Change your name
-   - Set your permanent email address
-   - Create a strong password (min 8 chars)
-3. **Secure the default account** - The default credentials become invalid
-4. **Redirect to dashboard** - You're now the superadmin with full access
-
-This is a **one-time workflow**. Future logins use your new credentials.
-
-### Next Steps After Setup
-1. **Create departments** - `/admin/departments` - Organize your organization
-2. **Invite team members** - Generate invite codes and send to staff
-3. **Assign roles & departments** - `/admin/assignment` - Link users to departments
-4. **Configure locations** - `/locations` - Set up your facility hierarchy
-5. **Add products** - `/products` - Start managing inventory
-
-## Usage Guide
-
-### 🏠 Dashboard
-- **Overview statistics**: Total products, stock status, recent movements
-- **Department-specific data**: Auto-filtered based on selected department
-- **Quick stats**: Visual indicators for low-stock items, incoming/outgoing movements
-- **Role-based view**: Superadmin sees all depts, admins see assigned, staff see theirs
-
-### 🔄 Department Switcher
-Located in the **top navigation bar**:
-
-- **Superadmin**: Switch between all departments or "All Departments" view
-- **Admin**: Switch between assigned departments
-- **Staff (single-dept)**: Shows fixed department name (read-only)
-- **Staff (multi-dept)**: Dropdown to pick one assigned department or "All Departments"
-
-Changes apply instantly across all pages (Dashboard → Products → Locations, etc.)
-
-### 📦 Product Management
-
-#### Measurement Units (31 types)
-| Category | Units |
-|----------|-------|
-| **Count** | pcs, dozen, box, pack |
-| **Weight** | g, kg, mg, oz, lb, ton |
-| **Volume** | ml, liter, gallon, cup |
-| **Length** | mm, cm, m, km, inch, ft, yard |
-| **Area** | cm², m² |
-| **Other** | roll, sheet, can, bottle, bag, carton |
-
-#### Workflow
-1. Go to `/products`
-2. Click **New Product**
-3. Fill in:
-   - **SKU** - Unique identifier
-   - **Name** - Product name
-   - **Category** - Assign to a category (create if needed)
-   - **Unit** - Select measurement type
-   - **Low Stock Threshold** - Alert level
-4. **Save** - Product created with 0 stock
-5. **Record movements** - Use `/stock-movements` to adjust stock
-
-**Bulk Import**: Use the CSV import script in `backend/scripts/` (for initial setup)
-
-### 📂 Categories & Locations
-
-#### Categories
-- Department-specific organization
-- Create at `/categories` - Each dept has its own categories
-- Products sorted by category on `/products`
-
-#### Locations (Hierarchical Tree)
-```
-Branch
- ├─ Building
- │   ├─ Floor
- │   │   ├─ Room
- │   │   │   ├─ Rack
- │   │   │   │   ├─ Shelf
-```
-Manage at `/locations` - Create the structure that matches your facility
-
-### 📊 Stock Movements
-
-Record inventory changes:
-
-| Type | Use Case | Impact |
-|------|----------|--------|
-| **stock_in** | Received goods | ⬆️ Increases stock |
-| **stock_out** | Sold/used | ⬇️ Decreases stock |
-| **adjustment** | Correction | ↔️ Manual fix |
-| **transfer** | Location to location | ↔️ Horizontal move |
-| **damaged** | Damaged items | ⬇️ Write-off |
-| **returned** | Customer return | ⬆️ Back in stock |
-
-Workflow:
-1. Go to `/stock-movements`
-2. Click **New Movement**
-3. Select product → movement type → quantity → reason
-4. Save - Stock updated, audit logged
-
-### 🎨 Floor Plan Editor (`/floor-plans`)
-
-**Create a floor plan:**
-1. Click **New Floor Plan** - Set width/height (in units)
-2. Use drawing tools:
-
-| Tool | Purpose | Hotkey |
-|------|---------|--------|
-| **Select** | Pick & move objects | `S` |
-| **Wall** | Draw barriers (doors/walls) | `W` |
-| **Room** | Define enclosed spaces | `R` |
-| **Rack** | Inventory storage units | `K` |
-| **Shelf** | Sub-divisions in racks | `H` |
-| **Label** | Text annotations | `L` |
-| **Delete** | Remove objects | `D` |
-| **Zoom In/Out** | Scale view | `+` / `-` |
-
-**Link to locations:**
-- After creating objects, name them (e.g., "Warehouse A - Rack 1")
-- Link via location tree to track inventory physically
-
-### 👥 Admin Controls (`/admin/...`)
-
-#### Users (`/admin/users`)
-- List all users by role
-- Edit user details (name, email, role)
-- Request deletion of user accounts
-
-#### Departments (`/admin/departments`)
-- Create/edit/delete departments
-- View department stats
-- Manage which users belong to each department
-
-#### Staff Assignment (`/admin/assignment`)
-- Assign staff to departments (single or multiple)
-- Set admin roles for specific departments
-- Control who sees what data
-
-#### Delete Requests (`/delete-requests`)
-- Review pending deletion requests
-- Approve (permanently delete) or reject requests
-- Audit trail of all deletions
-
-#### Password Requests (`/password-requests`)
-- Review password change requests from staff
-- Approve or reject changes
-- Track security changes
-
-### 🔒 Access Control Rules
-
-| Resource | Superadmin | Admin | Staff |
-|----------|----------|--------|-------|
-| **View all depts** | ✓ | ✗ | ✗ |
-| **Manage users** | ✓ | ✗ | ✗ |
-| **Create departments** | ✓ | ✗ | ✗ |
-| **Assign staff** | ✓ | ✓ | ✗ |
-| **View audit logs** | ✓ | ✓ | ✗ |
-| **Create products** | ✓ | ✓ | ✓ (dept only) |
-| **View products** | ✓ (all) | ✓ (assigned depts) | ✓ (assigned depts) |
-| **Stock movements** | ✓ | ✓ | ✓ (dept only) |
-| **Floor plans** | ✓ | ✓ | ✓ (dept only) |
-
-## API Endpoints
-
-All protected endpoints require: `Authorization: Bearer <JWT_TOKEN>` header
-
-### Authentication (Public)
-- `POST /api/auth/register` - Register user with invite code
-- `POST /api/auth/login` - Login, returns JWT token
-- `GET /api/auth/me` - Get current user profile
-- `POST /api/auth/complete-initial-setup` - Superadmin: Complete initial setup
-- `GET /api/auth/ensure-superadmin` - Ensure default superadmin exists
-
-### Products (Protected)
-- `GET /api/products` - List products (filtered by department)
-- `GET /api/products/:id` - Get product details
-- `POST /api/products` - Create product
-- `PUT /api/products/:id` - Update product
-- `DELETE /api/products/:id` - Request deletion (pending admin approval)
-
-### Categories (Protected)
-- `GET /api/categories` - List categories (by department)
-- `POST /api/categories` - Create category
-- `PUT /api/categories/:id` - Update category
-- `DELETE /api/categories/:id` - Request deletion
-
-### Locations (Protected)
-- `GET /api/locations` - List locations (hierarchical tree)
-- `POST /api/locations` - Create location
-- `PUT /api/locations/:id` - Update location
-- `DELETE /api/locations/:id` - Request deletion
-
-### Stock Movements (Protected)
-- `GET /api/stock-movements` - List movements with filters
-- `POST /api/stock-movements` - Record stock in/out/adjustment/transfer/etc.
-
-### Floor Plans (Protected)
-- `GET /api/floor-plans` - List floor plans
-- `GET /api/floor-plans/:id` - Get floor plan with canvas data
-- `POST /api/floor-plans` - Create floor plan
-- `PUT /api/floor-plans/:id` - Update floor plan (canvas data)
-- `DELETE /api/floor-plans/:id` - Request deletion
-
-### Dashboard (Protected)
-- `GET /api/dashboard/stats` - Get summary statistics (products, stock, locations)
-- `GET /api/dashboard/recent-movements` - Get recent stock movements
-
-### Users (Admin Only)
-- `GET /api/users` - List all users
-- `GET /api/users/:id` - Get user details
-- `PUT /api/users/:id` - Update user (name, email, role)
-- `DELETE /api/users/:id` - Request user deletion
-
-### Departments (Admin Only)
-- `GET /api/departments` - List departments
-- `POST /api/departments` - Create department
-- `PUT /api/departments/:id` - Update department
-- `DELETE /api/departments/:id` - Delete department
-- `GET /api/admin-departments` - Get admin's assigned departments
-- `GET /api/staff-departments` - Get staff's assigned departments
-
-### Delete Requests (Admin Only)
-- `GET /api/delete-requests` - List pending delete requests
-- `POST /api/delete-requests/:id/approve` - Approve deletion
-- `POST /api/delete-requests/:id/reject` - Reject deletion
-
-### Password Requests (Admin Only)
-- `GET /api/password-requests` - List pending password change requests
-- `POST /api/password-requests/:id/approve` - Approve password change
-- `POST /api/password-requests/:id/reject` - Reject password change
-
-### Invites (Admin Only)
-- `POST /api/invites` - Create invite code
-- `GET /api/invites` - List active invite codes
-
-### Audit Logs (Admin Only)
-- `GET /api/audit-logs` - List all audit log entries
+---
 
 ## Configuration
 
-### Environment Variables
-
-**Backend** (`.env`):
+`backend/.env`:
 ```env
-# Database
-DATABASE_URL=file:./dev.db          # SQLite for dev
-# DATABASE_URL=postgresql://user:pass@localhost:5432/ims  # PostgreSQL for prod
-
-# Security (REQUIRED)
-JWT_SECRET=your-secret-key-here     # Change in production!
-
-# Server
+DATABASE_URL=postgresql://user:password@localhost:5432/ims
+JWT_SECRET=replace-with-32-plus-random-chars
 PORT=3001
-NODE_ENV=development                # or 'production'
+ALLOWED_ORIGINS=http://localhost:5173,http://localhost:3000
+NODE_ENV=development
 ```
 
-**Frontend** (`.env`):
-- No sensitive vars needed (API base URL is relative)
+The frontend has no required env vars — it proxies `/api` to `http://localhost:3001` via `vite.config.ts`.
 
-### Key Settings
+---
 
-- `.env.example` - Template for all required variables
-- `JWT_SECRET` minimum 32 characters for production
-- SQLite file auto-created at `backend/dev.db` (add to `.gitignore`)
+## Role / access matrix
 
-## Security Guidelines
+| Capability | Superadmin | Admin | Staff |
+|------------|:---------:|:-----:|:-----:|
+| View all departments | ✓ | per-assignment | per-assignment |
+| Manage users | ✓ | ✓ | – |
+| Manage departments | ✓ | – | – |
+| Assign staff / admins to departments | ✓ | ✓ | – |
+| Approve delete & password requests | ✓ | ✓ | – |
+| Hard-delete inventory entities | ✓ | ✓ | – (files request) |
+| Create / edit products, items, movements | ✓ | ✓ | ✓ (own dept) |
+| Floor-plan editor | ✓ | ✓ | ✓ (own dept) |
+| CSV import / export / corrector | ✓ | ✓ | ✓ (own dept) |
+| Audit log | ✓ | ✓ | – |
+| Superadmin settings (danger zone) | ✓ | – | – |
 
-### Authentication & Authorization
-- ✓ **JWT tokens** - Stateless, signed, auto-expire
-- ✓ **Password hashing** - bcryptjs with 10 salt rounds
-- ✓ **Role-based access** - Superadmin/Admin/Staff with granular permissions
-- ✓ **Department isolation** - Data segregated by department
-- ✓ **Protected API routes** - All endpoints (except auth) require valid JWT
+---
 
-### Data Integrity
-- ✓ **Stock validation** - Prevents negative stock, overselling detected
-- ✓ **Audit trail** - All changes logged with user, timestamp, IP
-- ✓ **Soft deletes** - Delete requests require admin approval
-- ✓ **Cascading deletes** - Products deleted with categories (when allowed)
+## Security notes
 
-### Security Best Practices
-- ⚠️ **Never commit `.env`** - Use `.env.example` template only
-- ⚠️ **Change default credentials** immediately after first login
-- ⚠️ **Use HTTPS in production** - JWT tokens vulnerable over HTTP
-- ⚠️ **Rotate JWT_SECRET periodically** - Invalidates old tokens
-- ⚠️ **Limit invite codes** - Expiring codes (future enhancement)
+- JWT auth with bcrypt-hashed passwords (10 salt rounds)
+- Department-scoped queries enforced in middleware (`req.departmentId` / `req.departmentIds`)
+- Soft-delete pattern via `DeleteRequest` for staff
+- Audit log captures user, entity, JSON change snapshot, IP
+- **Never commit `backend/.env`** — use `backend/.env.example`
+- Change `admin@ims.local` / `changeme123` immediately on first login
+- Use HTTPS in production; rotate `JWT_SECRET` periodically
 
-## Development
-
-### Run Both Services
-```bash
-npm run dev          # Starts frontend + backend concurrently
-```
-
-### Run Individually
-```bash
-npm run frontend:dev # Just React dev server
-npm run backend:dev  # Just Express with auto-reload
-```
-
-### Database Migrations
-```bash
-cd backend
-npx prisma migrate dev --name <migration-name>  # Create & run
-npx prisma migrate deploy                        # Run pending (prod)
-npx prisma studio                                # Open Prisma Studio UI
-```
-
-### Reset Database
-```bash
-cd backend
-npx prisma migrate reset --force  # ⚠️ Drops and recreates
-```
+---
 
 ## Troubleshooting
 
-| Issue | Solution |
-|-------|----------|
-| **Port already in use** | Kill process on port 3001 or 5174 (use `stop-ims.bat`) |
-| **JWT_SECRET not set** | Add `JWT_SECRET=<key>` to `.env` and restart backend |
-| **Database locked** | SQLite has one writer — close other terminal windows |
-| **Login fails** | Ensure backend is running, check `.env` DATABASE_URL |
-| **CORS errors** | Backend CORS is enabled — check frontend API URL |
+| Issue | Fix |
+|-------|-----|
+| `Can't reach database server` | PostgreSQL not running, or `DATABASE_URL` is wrong |
+| Port 3001 / 5173 already in use | `stop-ims.bat`, or kill the offending process |
+| Login redirects to `/initial-setup` repeatedly | The default superadmin hasn't finished setup — complete the form |
+| CORS errors | Add the frontend origin to `ALLOWED_ORIGINS` in `backend/.env` |
+| Scanner shows "camera not supported" | Browser lacks `BarcodeDetector` — use keyboard mode or Chrome/Edge |
+| CSV import says "Unknown type" | Header row doesn't match a known schema — re-export the template |
 
-## Future Enhancements (Phase 3+)
-
-- **Barcode/QR scanning** - Mobile barcode scanner for stock movements
-- **Advanced exports** - PDF reports, Excel exports with templates
-- **Mobile app** - React Native version for warehouse floor work
-- **Asset tracking** - Serial numbers, equipment lifecycle management
-- **Predictive inventory** - Stock forecasting with usage trends
-- **Integration APIs** - Connect to accounting, ERP systems
-- **Real-time collaboration** - WebSocket support for multi-user editing
-- **Camera floor plan** - Auto-generate layouts from photos
+---
 
 ## License
 
 MIT
-
-## Support
-
-For issues or questions, please check the documentation or create an issue in the repository.
