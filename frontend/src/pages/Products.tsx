@@ -62,12 +62,14 @@ export default function Products() {
   const [isCreating, setIsCreating] = useState(false);
   const [formData, setFormData] = useState(emptyForm);
   const [formError, setFormError] = useState('');
+  const currentDepartmentId = localStorage.getItem('currentDepartmentId');
+  const showDepartmentFilter = user.role === 'superadmin' || currentDepartmentId === ALL_DEPARTMENTS_ID;
 
   const fetchData = async () => {
     try {
       const [productsRes, categoriesRes, locationsRes, deptRes] = await Promise.all([
         productsApi.getAll(), categoriesApi.getAll(), locationsApi.getAll(),
-        user.role === 'superadmin' ? departmentsApi.getAll() : Promise.resolve({ data: [] }),
+        showDepartmentFilter ? departmentsApi.getAll() : Promise.resolve({ data: [] }),
       ]);
       setProducts(productsRes.data);
       setCategories(categoriesRes.data);
@@ -213,6 +215,7 @@ export default function Products() {
   const uniqueUnits = Array.from(new Set(products.map(p => p.unit))).sort();
   const uniqueImportBatches = Array.from(new Set(products.map(p => (p as any).csvImportId).filter(Boolean))).sort();
   const categoriesMap = new Map(categories.map(c => [c.id, c]));
+  const departmentsMap = new Map(departments.map(d => [d.id, d]));
 
   if (loading) return <div className="text-center py-12">Loading...</div>;
 
@@ -248,7 +251,9 @@ export default function Products() {
           className="px-3 py-2 border border-[var(--border)] rounded text-sm bg-[var(--surface)] text-[var(--text)]">
           <option value="">All Locations</option>
           <option value={UNASSIGNED_LOCATION}>Unassigned</option>
-          {locations.map(loc => <option key={loc.id} value={loc.id}>{loc.name}</option>)}
+          {locations
+            .filter(loc => loc.name.trim().toLowerCase() !== 'unassigned')
+            .map(loc => <option key={loc.id} value={loc.id}>{loc.name}</option>)}
         </select>
         <select value={filters.stockStatus || ''} onChange={e => { setFilters({ ...filters, stockStatus: e.target.value as any || undefined }); setCurrentPage(1); }}
           className="px-3 py-2 border border-[var(--border)] rounded text-sm bg-[var(--surface)] text-[var(--text)]">
@@ -351,7 +356,7 @@ export default function Products() {
             <option value="missing-threshold">Missing Low Stock Threshold</option>
             <option value="test-data">Placeholder / Test Data</option>
           </select>
-          {user.role === 'superadmin' && (
+          {showDepartmentFilter && (
             <select value={filters.departmentId || ''} onChange={e => { setFilters({ ...filters, departmentId: e.target.value || undefined }); setCurrentPage(1); }}
               className="px-3 py-2 border border-[var(--border)] rounded text-sm bg-[var(--surface)] text-[var(--text)]">
               <option value="">All Departments</option>
@@ -402,11 +407,12 @@ export default function Products() {
           ) : (
             <div className="space-y-0 border border-[var(--border)] rounded-lg overflow-hidden">
               {/* Table header */}
-              <div className="hidden md:grid md:grid-cols-9 gap-4 px-4 py-2 bg-[var(--surface-2)] text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wide border-b border-[var(--border)]">
+              <div className="hidden md:grid md:grid-cols-10 gap-4 px-4 py-2 bg-[var(--surface-2)] text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wide border-b border-[var(--border)]">
                 <div>SKU</div>
                 <div>Name</div>
                 <div>Category</div>
                 <div>Location</div>
+                <div>Department</div>
                 <div className="text-right">Unit Price</div>
                 <div className="text-right">Total Value</div>
                 <div>Status</div>
@@ -415,6 +421,7 @@ export default function Products() {
               </div>
               {paginatedProducts.map(product => {
                 const category = product.category ?? categoriesMap.get(product.categoryId);
+                const department = product.department ?? departmentsMap.get(product.departmentId);
                 const isNegative = product.currentStock < 0;
                 const isOut = product.currentStock === 0;
                 const isLow = product.currentStock > 0 && product.currentStock <= product.lowStockThreshold;
@@ -424,13 +431,14 @@ export default function Products() {
                     key={product.id}
                     onClick={() => openViewDrawer(product)}
                     className="flex items-center gap-3 px-4 py-3 bg-[var(--surface)] border-b border-[var(--border)] hover:bg-[var(--surface-2)] cursor-pointer transition-colors">
-                    <div className="flex-1 grid grid-cols-2 md:grid-cols-9 gap-4 text-sm min-w-0">
+                    <div className="flex-1 grid grid-cols-2 md:grid-cols-10 gap-4 text-sm min-w-0">
                       <div className="truncate">
                         <span className="font-mono text-xs text-[var(--text-muted)]">{product.sku}</span>
                       </div>
                       <div className="truncate font-medium text-[var(--text)]">{product.name}</div>
                       <div className="truncate text-[var(--text-muted)]">{category?.name ?? '—'}</div>
                       <div className="truncate text-[var(--text-muted)]">{product.location?.name ?? <span className="text-red-400 text-xs">Unassigned</span>}</div>
+                      <div className="truncate text-[var(--text-muted)]">{department?.name ?? '—'}</div>
                       <div className="text-right text-[var(--text)]">${(product.unitPrice || 0).toFixed(2)}</div>
                       <div className="text-right text-[var(--text)]">${totalValue.toFixed(2)}</div>
                       <div>

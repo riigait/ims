@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import { dashboardApi, departmentsApi } from '@/services/api';
 import { ALL_DEPARTMENTS_ID } from '@/constants/app';
+import { UNASSIGNED_LOCATION } from '@/utils/filterHelpers';
 
 interface Stats {
   totalProducts: number;
@@ -322,7 +323,7 @@ export default function Dashboard() {
 
           {/* Unassigned Location */}
           <button
-            onClick={() => stats.unassignedLocationCount > 0 ? navigate('/products', { state: { locationId: stats.unassignedLocationId ?? 'unassigned' } }) : undefined}
+            onClick={() => stats.unassignedLocationCount > 0 ? navigate('/products', { state: { locationId: UNASSIGNED_LOCATION } }) : undefined}
             className={`bg-[var(--surface)] rounded-xl p-4 shadow-sm border text-left transition-all active:scale-95 ${stats.unassignedLocationCount > 0 ? 'border-red-200 dark:border-red-800 hover:shadow-md cursor-pointer' : 'border-[var(--border)] cursor-default'}`}
           >
             <div className="flex items-center gap-2 mb-2">
