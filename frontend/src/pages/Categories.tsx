@@ -29,9 +29,10 @@ export default function Categories() {
   const [pageSize, setPageSize] = useState(20);
 
   // Drawer
-  const [drawerOpen, setDrawerOpen] = useState(false);
-  const [drawerItem, setDrawerItem] = useState<Category | null>(null);
-  const [drawerEditing, setDrawerEditing] = useState(false);
+  const [isDrawerOpen, setIsDrawerOpen] = useState(false);
+  const [selectedItem, setSelectedItem] = useState<Category | null>(null);
+  const [editingItem, setEditingItem] = useState<Category | null>(null);
+  const [isCreating, setIsCreating] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [formData, setFormData] = useState({ name: '', description: '' });
   const [formError, setFormError] = useState('');
@@ -60,39 +61,45 @@ export default function Categories() {
   }, []);
 
   const openNewDrawer = () => {
-    setDrawerItem(null);
+    setSelectedItem(null);
+    setEditingItem(null);
     setFormData({ name: '', description: '' });
     setFormError('');
-    setDrawerEditing(true);
+    setIsCreating(true);
     setConfirmingDelete(false);
-    setDrawerOpen(true);
+    setIsDrawerOpen(true);
   };
 
   const openViewDrawer = (category: Category) => {
-    setDrawerItem(category);
+    setSelectedItem(category);
+    setEditingItem(null);
+    setIsCreating(false);
     setFormError('');
-    setDrawerEditing(false);
     setConfirmingDelete(false);
-    setDrawerOpen(true);
+    setIsDrawerOpen(true);
   };
 
-  const startEdit = (category: Category) => {
-    const currentDeptId = localStorage.getItem('currentDepartmentId');
-    if (currentDeptId === ALL_DEPARTMENTS_ID && category.departmentId) {
-      localStorage.setItem('currentDepartmentId', category.departmentId);
-      window.location.reload();
-      return;
-    }
+  const openEdit = (category: Category) => {
+    setSelectedItem(category);
+    setEditingItem(category);
+    setIsCreating(false);
     setFormData({ name: category.name, description: category.description || '' });
     setFormError('');
     setConfirmingDelete(false);
-    setDrawerEditing(true);
+    setIsDrawerOpen(true);
+  };
+
+  const cancelEdit = () => {
+    if (isCreating) { closeDrawer(); return; }
+    setEditingItem(null);
+    setFormError('');
   };
 
   const closeDrawer = () => {
-    setDrawerOpen(false);
-    setDrawerItem(null);
-    setDrawerEditing(false);
+    setIsDrawerOpen(false);
+    setSelectedItem(null);
+    setEditingItem(null);
+    setIsCreating(false);
     setConfirmingDelete(false);
     setFormData({ name: '', description: '' });
     setFormError('');
@@ -105,15 +112,17 @@ export default function Categories() {
       return;
     }
     try {
-      if (drawerItem) {
-        await categoriesApi.update(drawerItem.id, formData);
-        setDrawerItem({ ...drawerItem, name: formData.name, description: formData.description });
-        setDrawerEditing(false);
+      if (editingItem) {
+        await categoriesApi.update(editingItem.id, formData);
+        const updated = { ...editingItem, name: formData.name, description: formData.description };
+        setSelectedItem(updated);
+        setEditingItem(null);
+        await fetchCategories();
       } else {
         await categoriesApi.create(formData);
+        await fetchCategories();
         closeDrawer();
       }
-      await fetchCategories();
       setFormError('');
     } catch {
       setFormError('Failed to save category');
@@ -121,9 +130,9 @@ export default function Categories() {
   };
 
   const doDelete = async () => {
-    if (!drawerItem) return;
+    if (!selectedItem) return;
     try {
-      await categoriesApi.delete(drawerItem.id);
+      await categoriesApi.delete(selectedItem.id);
       await fetchCategories();
       closeDrawer();
     } catch {
@@ -188,6 +197,7 @@ export default function Categories() {
     </>
   );
 
+
   return (
     <>
       <DataPageLayout
@@ -248,7 +258,7 @@ export default function Categories() {
       </DataPageLayout>
 
       {/* Right-Side Drawer */}
-      {drawerOpen && (
+      {isDrawerOpen && (selectedItem || isCreating) && (
         <div className="fixed inset-0 z-50 flex">
           <div className="flex-1 bg-black/30" onClick={closeDrawer} />
           <div className="w-full max-w-lg bg-[var(--surface)] border-l border-[var(--border)] flex flex-col h-full overflow-hidden">
@@ -257,22 +267,22 @@ export default function Categories() {
             <div className="px-6 py-4 border-b border-[var(--border)] flex items-start justify-between flex-shrink-0">
               <div>
                 <h2 className="text-lg font-semibold text-[var(--text)]">
-                  {!drawerItem ? 'New Category' : drawerEditing ? 'Edit Category' : drawerItem.name}
+                  {isCreating ? 'New Category' : editingItem ? 'Edit Category' : selectedItem?.name}
                 </h2>
-                {drawerItem && !drawerEditing && (
+                {selectedItem && !editingItem && !isCreating && (
                   <p className="text-sm text-[var(--text-muted)] mt-0.5">
-                    {drawerItem.department?.name ?? 'No department'}
+                    {selectedItem.department?.name ?? 'No department'}
                   </p>
                 )}
               </div>
-              <button onClick={closeDrawer} className="p-1.5 rounded-lg hover:bg-[var(--surface-2)] text-[var(--text-muted)] flex-shrink-0 ml-2">
+              <button type="button" onClick={closeDrawer} className="p-1.5 rounded-lg hover:bg-[var(--surface-2)] text-[var(--text-muted)] flex-shrink-0 ml-2">
                 <X size={18} />
               </button>
             </div>
 
             {/* Body */}
             <div className="flex-1 overflow-y-auto px-6 py-4">
-              {drawerEditing ? (
+              {(editingItem || isCreating) ? (
                 <form id="category-form" onSubmit={handleSubmit} className="space-y-4">
                   <div>
                     <label className="block text-xs font-medium text-[var(--text-muted)] mb-1">Category Name *</label>
@@ -296,26 +306,26 @@ export default function Categories() {
                   </div>
                   {formError && <p className="text-red-500 text-sm">{formError}</p>}
                 </form>
-              ) : drawerItem && (
+              ) : selectedItem && (
                 <div className="space-y-6">
                   <section>
                     <h3 className="text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wider mb-3">Details</h3>
                     <div className="space-y-3">
                       <div>
                         <p className="text-xs text-[var(--text-muted)] mb-0.5">Name</p>
-                        <p className="text-sm font-medium text-[var(--text)]">{drawerItem.name}</p>
+                        <p className="text-sm font-medium text-[var(--text)]">{selectedItem.name}</p>
                       </div>
                       <div>
                         <p className="text-xs text-[var(--text-muted)] mb-0.5">Description</p>
-                        <p className="text-sm text-[var(--text)]">{drawerItem.description || '—'}</p>
+                        <p className="text-sm text-[var(--text)]">{selectedItem.description || '—'}</p>
                       </div>
                       <div>
                         <p className="text-xs text-[var(--text-muted)] mb-0.5">Department</p>
-                        <p className="text-sm text-[var(--text)]">{drawerItem.department?.name ?? '—'}</p>
+                        <p className="text-sm text-[var(--text)]">{selectedItem.department?.name ?? '—'}</p>
                       </div>
                       <div>
                         <p className="text-xs text-[var(--text-muted)] mb-0.5">Date Added</p>
-                        <p className="text-sm text-[var(--text)]">{formatDate(drawerItem.createdAt)}</p>
+                        <p className="text-sm text-[var(--text)]">{formatDate(selectedItem.createdAt)}</p>
                       </div>
                     </div>
                   </section>
@@ -325,26 +335,26 @@ export default function Categories() {
 
             {/* Footer */}
             <div className="px-6 py-4 border-t border-[var(--border)] flex-shrink-0">
-              {drawerEditing ? (
+              {(editingItem || isCreating) ? (
                 <div className="flex gap-2">
                   <button type="submit" form="category-form"
                     className="px-4 py-2 bg-[var(--primary)] text-white text-sm rounded-lg hover:bg-[var(--primary-hover)]">
                     Save
                   </button>
-                  <button type="button" onClick={() => drawerItem ? setDrawerEditing(false) : closeDrawer()}
+                  <button type="button" onClick={cancelEdit}
                     className="px-4 py-2 border border-[var(--border)] text-sm rounded-lg text-[var(--text)] hover:bg-[var(--surface-2)]">
                     Cancel
                   </button>
                 </div>
               ) : confirmingDelete ? (
                 <div className="w-full">
-                  <p className="text-sm font-medium text-[var(--text)] mb-3">Delete "{drawerItem?.name}"?</p>
+                  <p className="text-sm font-medium text-[var(--text)] mb-3">Delete "{selectedItem?.name}"?</p>
                   <div className="flex gap-2">
-                    <button onClick={doDelete}
+                    <button type="button" onClick={doDelete}
                       className="px-4 py-2 bg-red-600 text-white text-sm rounded-lg hover:bg-red-700">
                       Yes, Delete
                     </button>
-                    <button onClick={() => setConfirmingDelete(false)}
+                    <button type="button" onClick={() => setConfirmingDelete(false)}
                       className="px-4 py-2 border border-[var(--border)] text-sm rounded-lg text-[var(--text)] hover:bg-[var(--surface-2)]">
                       Cancel
                     </button>
@@ -352,11 +362,11 @@ export default function Categories() {
                 </div>
               ) : user.role === 'admin' && (
                 <div className="flex gap-2">
-                  <button onClick={() => drawerItem && startEdit(drawerItem)}
+                  <button type="button" onClick={() => selectedItem && openEdit(selectedItem)}
                     className="flex items-center gap-2 px-4 py-2 bg-[var(--primary)] text-white text-sm rounded-lg hover:bg-[var(--primary-hover)]">
                     <Edit size={14} /> Edit
                   </button>
-                  <button onClick={() => setConfirmingDelete(true)}
+                  <button type="button" onClick={() => setConfirmingDelete(true)}
                     className="flex items-center gap-2 px-4 py-2 border border-red-300 text-red-600 text-sm rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20">
                     <Trash2 size={14} /> Delete
                   </button>

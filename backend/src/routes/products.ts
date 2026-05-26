@@ -140,6 +140,7 @@ router.get('/', async (req: AuthRequest, res: Response) => {
         expiryDate: true,
         leadTimeDays: true,
         notes: true,
+        source: true,
         createdAt: true,
         updatedAt: true,
       },
@@ -176,6 +177,7 @@ router.get('/:id', async (req: AuthRequest, res: Response) => {
         expiryDate: true,
         leadTimeDays: true,
         notes: true,
+        source: true,
         createdAt: true,
         updatedAt: true,
       },
@@ -242,6 +244,7 @@ router.post('/', async (req: AuthRequest, res: Response) => {
         expiryDate: expiryDate && expiryDate !== '' ? new Date(expiryDate) : null,
         leadTimeDays: leadTimeDays !== null && leadTimeDays !== undefined && leadTimeDays !== '' ? parseInt(leadTimeDays) : null,
         notes: notes || null,
+        source: 'manual',
       },
       include: { category: true, location: true, department: true },
     });
@@ -419,6 +422,7 @@ router.post('/import/csv', async (req: AuthRequest, res: Response) => {
             expiryDate: row.expiryDate ? new Date(row.expiryDate) : null,
             leadTimeDays: row.leadTimeDays ? parseInt(row.leadTimeDays) : null,
             notes: row.notes || null,
+            source: 'csv_import',
           };
         const existing = row.id
           ? await prisma.product.findUnique({ where: { id: row.id } })

@@ -1,22 +1,34 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { X, Edit, ArrowLeftRight, ChevronRight } from 'lucide-react';
-import { stockDetailsApi, locationsApi, productsApi } from '@/services/api';
+import { X, Edit, ArrowLeftRight, ChevronRight, ChevronDown } from 'lucide-react';
+import { stockDetailsApi, locationsApi, productsApi, categoriesApi, departmentsApi } from '@/services/api';
+import { ALL_DEPARTMENTS_ID } from '@/constants/app';
 import Pagination from '@/components/Pagination';
 
-const STATUS_OPTIONS = ['active', 'deployed', 'borrowed', 'repair', 'returned', 'damaged', 'lost', 'disposed', 'sold'];
-const CONDITION_OPTIONS = ['new', 'good', 'fair', 'poor'];
+const STATUS_OPTIONS = ['active', 'available', 'deployed', 'borrowed', 'reserved', 'returned', 'under-repair', 'lost', 'disposed', 'sold', 'archived'];
+const STATUS_LABELS: Record<string, string> = {
+  active: 'Active', available: 'Available', deployed: 'Deployed', borrowed: 'Borrowed',
+  reserved: 'Reserved', returned: 'Returned', 'under-repair': 'Under Repair',
+  lost: 'Lost', disposed: 'Disposed', sold: 'Sold', archived: 'Archived',
+};
+const CONDITION_OPTIONS = ['new', 'good', 'fair', 'poor', 'damaged', 'defective', 'for-repair', 'refurbished', 'unknown'];
+const CONDITION_LABELS: Record<string, string> = {
+  new: 'New', good: 'Good', fair: 'Fair', poor: 'Poor', damaged: 'Damaged',
+  defective: 'Defective', 'for-repair': 'For Repair', refurbished: 'Refurbished', unknown: 'Unknown',
+};
 
 const STATUS_COLOR: Record<string, string> = {
-  active:   'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-100',
-  deployed: 'bg-cyan-100 text-cyan-800 dark:bg-cyan-900 dark:text-cyan-100',
-  borrowed: 'bg-violet-100 text-violet-800 dark:bg-violet-900 dark:text-violet-100',
-  repair:   'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-100',
-  returned: 'bg-teal-100 text-teal-800 dark:bg-teal-900 dark:text-teal-100',
-  damaged:  'bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-100',
-  lost:     'bg-rose-100 text-rose-800 dark:bg-rose-900 dark:text-rose-100',
-  disposed: 'bg-gray-100 text-gray-800 dark:bg-gray-900 dark:text-gray-100',
-  sold:     'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-100',
+  active:      'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-100',
+  available:   'bg-emerald-100 text-emerald-800 dark:bg-emerald-900 dark:text-emerald-100',
+  deployed:    'bg-cyan-100 text-cyan-800 dark:bg-cyan-900 dark:text-cyan-100',
+  borrowed:    'bg-violet-100 text-violet-800 dark:bg-violet-900 dark:text-violet-100',
+  reserved:    'bg-indigo-100 text-indigo-800 dark:bg-indigo-900 dark:text-indigo-100',
+  returned:    'bg-teal-100 text-teal-800 dark:bg-teal-900 dark:text-teal-100',
+  'under-repair': 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-100',
+  lost:        'bg-rose-100 text-rose-800 dark:bg-rose-900 dark:text-rose-100',
+  disposed:    'bg-gray-100 text-gray-800 dark:bg-gray-900 dark:text-gray-100',
+  sold:        'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-100',
+  archived:    'bg-slate-100 text-slate-600 dark:bg-slate-900 dark:text-slate-300',
 };
 
 const MOVEMENT_COLOR: Record<string, string> = {
@@ -42,6 +54,91 @@ const emptyForm = {
   currentLocationId: '', custodian: '', lastCheckedDate: '', checkedBy: '', notes: '',
 };
 
+function FilterDropdown({
+  label, value, onChange,
+  options, // { id: string; name: string }[]
+  pageSizeOptions = [20, 50, 100],
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  options: { id: string; name: string }[];
+  pageSizeOptions?: number[];
+}) {
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState('');
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(pageSizeOptions[0]);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
+
+  const filtered = options.filter(o => o.name.toLowerCase().includes(search.toLowerCase()));
+  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const paginated = filtered.slice((page - 1) * pageSize, page * pageSize);
+  const selectedLabel = value ? (options.find(o => o.id === value)?.name ?? label) : label;
+
+  return (
+    <div className="relative" ref={ref}>
+      <button type="button" onClick={() => setOpen(v => !v)}
+        className={`w-full flex items-center justify-between gap-2 px-3 py-2 border rounded text-sm bg-[var(--surface)] text-[var(--text)] ${value ? 'border-[var(--primary)]' : 'border-[var(--border)]'}`}>
+        <span className={`truncate ${value ? 'text-[var(--primary)] font-medium' : 'text-[var(--text-muted)]'}`}>{selectedLabel}</span>
+        <ChevronDown size={14} className="flex-shrink-0 text-[var(--text-muted)]" />
+      </button>
+      {open && (
+        <div className="absolute z-40 top-full mt-1 left-0 w-72 bg-[var(--surface)] border border-[var(--border)] rounded-lg shadow-lg flex flex-col">
+          <div className="p-2 border-b border-[var(--border)]">
+            <input autoFocus type="text" value={search}
+              onChange={e => { setSearch(e.target.value); setPage(1); }}
+              placeholder="Search…"
+              className="w-full px-2 py-1.5 text-sm border border-[var(--border)] rounded bg-[var(--surface)] text-[var(--text)]" />
+          </div>
+          <ul className="overflow-y-auto max-h-48">
+            <li>
+              <button type="button" onClick={() => { onChange(''); setOpen(false); setSearch(''); }}
+                className={`w-full text-left px-3 py-1.5 text-sm hover:bg-[var(--surface-2)] ${!value ? 'font-semibold text-[var(--primary)]' : 'text-[var(--text-muted)]'}`}>
+                All
+              </button>
+            </li>
+            {paginated.map(o => (
+              <li key={o.id}>
+                <button type="button" onClick={() => { onChange(o.id); setOpen(false); setSearch(''); }}
+                  className={`w-full text-left px-3 py-1.5 text-sm hover:bg-[var(--surface-2)] ${value === o.id ? 'font-semibold text-[var(--primary)]' : 'text-[var(--text)]'}`}>
+                  {o.name}
+                </button>
+              </li>
+            ))}
+            {filtered.length === 0 && (
+              <li className="px-3 py-2 text-xs text-[var(--text-muted)]">No results</li>
+            )}
+          </ul>
+          {filtered.length > pageSize && (
+            <div className="p-2 border-t border-[var(--border)] flex items-center justify-between gap-2">
+              <div className="flex gap-1">
+                <button type="button" disabled={page === 1} onClick={() => setPage(p => p - 1)}
+                  className="px-2 py-0.5 text-xs border border-[var(--border)] rounded disabled:opacity-40">‹</button>
+                <span className="text-xs text-[var(--text-muted)] px-1 self-center">{page}/{totalPages}</span>
+                <button type="button" disabled={page === totalPages} onClick={() => setPage(p => p + 1)}
+                  className="px-2 py-0.5 text-xs border border-[var(--border)] rounded disabled:opacity-40">›</button>
+              </div>
+              <select value={pageSize} onChange={e => { setPageSize(Number(e.target.value)); setPage(1); }}
+                className="text-xs px-1 py-0.5 border border-[var(--border)] rounded bg-[var(--surface)] text-[var(--text)]">
+                {pageSizeOptions.map(n => <option key={n} value={n}>{n}</option>)}
+              </select>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function Field({ label, value }: { label: string; value?: string | null }) {
   return (
     <div>
@@ -57,7 +154,10 @@ export default function InventoryItems() {
   const [items, setItems] = useState<any[]>([]);
   const [locations, setLocations] = useState<any[]>([]);
   const [allProducts, setAllProducts] = useState<any[]>([]);
+  const [allCategories, setAllCategories] = useState<any[]>([]);
+  const [allDepartments, setAllDepartments] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [showAdvanced, setShowAdvanced] = useState(false);
 
   // Drawer
   const [drawerItem, setDrawerItem] = useState<any | null>(null);
@@ -69,24 +169,47 @@ export default function InventoryItems() {
   const [formData, setFormData] = useState(emptyForm);
   const [formError, setFormError] = useState('');
 
-  // Filters
+  // Filters — main
   const [search, setSearch] = useState('');
+  const [filterCategory, setFilterCategory] = useState('');
   const [filterProduct, setFilterProduct] = useState('');
   const [filterStatus, setFilterStatus] = useState('');
+  const [filterCondition, setFilterCondition] = useState('');
   const [filterLocation, setFilterLocation] = useState('');
+  const [filterWarranty, setFilterWarranty] = useState('');
+  // Filters — advanced
+  const [filterDepartment, setFilterDepartment] = useState('');
+  const [filterAssignment, setFilterAssignment] = useState('');
+  const [filterStockLevel, setFilterStockLevel] = useState('');
+  const [filterDateRange, setFilterDateRange] = useState('');
+  const [filterIdentifier, setFilterIdentifier] = useState('');
+  const [filterCustodian, setFilterCustodian] = useState('');
+  const [filterItemType, setFilterItemType] = useState('');
+  const [filterBrand, setFilterBrand] = useState('');
+  const [filterSupplier, setFilterSupplier] = useState('');
+  const [filterAuditStatus, setFilterAuditStatus] = useState('');
+  const [filterDateAdded, setFilterDateAdded] = useState('');
+  const [filterMovementType, setFilterMovementType] = useState('');
+  const [filterCostStatus, setFilterCostStatus] = useState('');
+  const [filterDataQuality, setFilterDataQuality] = useState('');
+  const [sortBy, setSortBy] = useState('recently-added');
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
 
   const fetchData = async () => {
     try {
-      const [itemsRes, productsRes, locationsRes] = await Promise.all([
+      const [itemsRes, productsRes, locationsRes, categoriesRes, deptsRes] = await Promise.all([
         stockDetailsApi.getAll(),
         productsApi.getAll(),
         locationsApi.getAll(),
+        categoriesApi.getAll(),
+        (user.role === 'superadmin' || localStorage.getItem('currentDepartmentId') === ALL_DEPARTMENTS_ID) ? departmentsApi.getAll() : Promise.resolve({ data: [] }),
       ]);
       setItems(itemsRes.data);
       setAllProducts(productsRes.data);
       setLocations(locationsRes.data);
+      setAllCategories(categoriesRes.data);
+      setAllDepartments(deptsRes.data);
     } catch (err) {
       console.error(err);
     } finally {
@@ -166,9 +289,142 @@ export default function InventoryItems() {
   };
 
   const filtered = items.filter(item => {
+    if (filterCategory && item.product?.categoryId !== filterCategory) return false;
     if (filterProduct && item.productId !== filterProduct) return false;
     if (filterStatus && item.currentStatus !== filterStatus) return false;
+    if (filterCondition && item.condition !== filterCondition) return false;
     if (filterLocation && item.currentLocationId !== filterLocation) return false;
+    if (filterDepartment && item.product?.departmentId !== filterDepartment) return false;
+
+    if (filterStockLevel) {
+      const inStock = ['active', 'available'].includes(item.currentStatus);
+      const outStock = ['disposed', 'sold', 'lost'].includes(item.currentStatus);
+      if (filterStockLevel === 'in-stock' && !inStock) return false;
+      if (filterStockLevel === 'out-of-stock' && !outStock) return false;
+      if (filterStockLevel === 'low-stock' && (inStock || outStock)) return false;
+      if (filterStockLevel === 'overstock' && item.currentStatus !== 'available') return false;
+      if (filterStockLevel === 'negative-stock' && (item.quantity ?? 1) >= 0) return false;
+    }
+
+    if (filterWarranty) {
+      const now = Date.now();
+      const soon = now + 90 * 24 * 60 * 60 * 1000;
+      const exp = item.warrantyExpiry ? new Date(item.warrantyExpiry).getTime() : null;
+      if (filterWarranty === 'under-warranty' && !(exp && exp > now)) return false;
+      if (filterWarranty === 'expiring-soon' && !(exp && exp > now && exp <= soon)) return false;
+      if (filterWarranty === 'expired' && !(exp && exp <= now)) return false;
+      if (filterWarranty === 'no-date' && exp !== null) return false;
+    }
+
+    if (filterAssignment) {
+      if (filterAssignment === 'unassigned' && item.custodian) return false;
+      if (filterAssignment === 'assigned-person' && !item.custodian) return false;
+      if (filterAssignment === 'assigned-location' && !item.currentLocationId) return false;
+      if (filterAssignment === 'borrowed' && item.currentStatus !== 'borrowed') return false;
+      if (filterAssignment === 'returned' && item.currentStatus !== 'returned') return false;
+    }
+
+    if (filterDateRange) {
+      const received = item.dateStock ? new Date(item.dateStock).getTime() : null;
+      const now = Date.now();
+      if (filterDateRange === 'today' && !(received && now - received < 86400000)) return false;
+      if (filterDateRange === 'this-week' && !(received && now - received < 7 * 86400000)) return false;
+      if (filterDateRange === 'this-month' && !(received && now - received < 30 * 86400000)) return false;
+      if (filterDateRange === 'last-3-months' && !(received && now - received < 90 * 86400000)) return false;
+      if (filterDateRange === 'this-year' && !(received && now - received < 365 * 86400000)) return false;
+      if (filterDateRange === 'older-1-year' && !(received && now - received >= 365 * 86400000)) return false;
+      if (filterDateRange === 'no-date' && received !== null) return false;
+    }
+
+    if (filterIdentifier) {
+      if (filterIdentifier === 'has-asset-tag' && !item.assetTag) return false;
+      if (filterIdentifier === 'no-asset-tag' && item.assetTag) return false;
+      if (filterIdentifier === 'has-barcode' && !item.barcode) return false;
+      if (filterIdentifier === 'no-barcode' && item.barcode) return false;
+      if (filterIdentifier === 'has-serial' && !item.serialNumber) return false;
+      if (filterIdentifier === 'no-serial' && item.serialNumber) return false;
+      if (filterIdentifier === 'has-mac' && !item.macId) return false;
+      if (filterIdentifier === 'no-mac' && item.macId) return false;
+    }
+
+    if (filterCustodian) {
+      if (filterCustodian === 'unassigned' && item.custodian) return false;
+      if (filterCustodian === 'assigned' && !item.custodian) return false;
+      if (filterCustodian === 'assigned-person' && !item.custodian) return false;
+      if (filterCustodian === 'assigned-department' && !item.departmentId) return false;
+      if (filterCustodian === 'assigned-location' && !item.currentLocationId) return false;
+    }
+
+    if (filterItemType && (item.itemType || '').toLowerCase() !== filterItemType) return false;
+
+    if (filterBrand) {
+      if (filterBrand === 'no-brand' && item.brand) return false;
+      else if (filterBrand !== 'no-brand' && (item.brand || '').toLowerCase() !== filterBrand) return false;
+    }
+
+    if (filterSupplier) {
+      if (filterSupplier === 'with-supplier' && !item.supplier) return false;
+      if (filterSupplier === 'no-supplier' && item.supplier) return false;
+    }
+
+    if (filterAuditStatus) {
+      const now = Date.now();
+      const checked = item.lastCheckedDate ? new Date(item.lastCheckedDate).getTime() : null;
+      if (filterAuditStatus === 'checked-today' && !(checked && now - checked < 86400000)) return false;
+      if (filterAuditStatus === 'checked-week' && !(checked && now - checked < 7 * 86400000)) return false;
+      if (filterAuditStatus === 'checked-month' && !(checked && now - checked < 30 * 86400000)) return false;
+      if (filterAuditStatus === 'not-checked-month' && checked && now - checked < 30 * 86400000) return false;
+      if (filterAuditStatus === 'not-checked-3months' && checked && now - checked < 90 * 86400000) return false;
+      if (filterAuditStatus === 'never-checked' && checked !== null) return false;
+      if (filterAuditStatus === 'missing-checked-by' && item.checkedBy) return false;
+    }
+
+    if (filterDateAdded) {
+      const now = Date.now();
+      const added = item.createdAt ? new Date(item.createdAt).getTime() : null;
+      if (filterDateAdded === 'today' && !(added && now - added < 86400000)) return false;
+      if (filterDateAdded === 'this-week' && !(added && now - added < 7 * 86400000)) return false;
+      if (filterDateAdded === 'this-month' && !(added && now - added < 30 * 86400000)) return false;
+      if (filterDateAdded === 'last-3-months' && !(added && now - added < 90 * 86400000)) return false;
+      if (filterDateAdded === 'this-year' && !(added && now - added < 365 * 86400000)) return false;
+      if (filterDateAdded === 'older-1-year' && !(added && now - added >= 365 * 86400000)) return false;
+    }
+
+    if (filterMovementType) {
+      if (filterMovementType === 'no-movement' && item.movements?.length > 0) return false;
+      if (filterMovementType !== 'no-movement') {
+        const hasType = item.movements?.some((m: any) => m.type === filterMovementType);
+        if (!hasType) return false;
+      }
+    }
+
+    if (filterCostStatus) {
+      const cost = parseFloat(item.unitCost ?? item.cost ?? 0);
+      if (filterCostStatus === 'with-cost' && !(cost > 0)) return false;
+      if (filterCostStatus === 'missing-cost' && item.unitCost != null) return false;
+      if (filterCostStatus === 'zero-cost' && cost !== 0) return false;
+      if (filterCostStatus === 'high-value' && cost < 10000) return false;
+      if (filterCostStatus === 'low-value' && cost >= 10000) return false;
+    }
+
+    if (filterDataQuality) {
+      const mac = item.macId || '';
+      const isTestData = ['test', 'n/a', 'none', 'unknown', '-', '—'].includes((item.assetTag || '').toLowerCase()) ||
+        ['test', 'n/a', 'none'].includes((item.brand || '').toLowerCase());
+      const isInvalidMac = mac && mac === '00:00:00:00:00:00';
+      if (filterDataQuality === 'complete' && (!item.assetTag || !item.serialNumber || !item.currentLocationId)) return false;
+      if (filterDataQuality === 'incomplete' && item.assetTag && item.serialNumber && item.currentLocationId) return false;
+      if (filterDataQuality === 'no-asset-tag' && item.assetTag) return false;
+      if (filterDataQuality === 'no-barcode' && item.barcode) return false;
+      if (filterDataQuality === 'no-serial' && item.serialNumber) return false;
+      if (filterDataQuality === 'no-mac' && item.macId) return false;
+      if (filterDataQuality === 'invalid-mac' && !isInvalidMac) return false;
+      if (filterDataQuality === 'no-supplier' && item.supplier) return false;
+      if (filterDataQuality === 'no-cost' && (item.unitCost != null && parseFloat(item.unitCost) > 0)) return false;
+      if (filterDataQuality === 'no-location' && item.currentLocationId) return false;
+      if (filterDataQuality === 'test-data' && !isTestData) return false;
+    }
+
     if (search) {
       const q = search.toLowerCase();
       return (
@@ -184,12 +440,21 @@ export default function InventoryItems() {
     return true;
   });
 
-  const paginated = filtered.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+  const sorted = [...filtered].sort((a, b) => {
+    if (sortBy === 'name') return (a.product?.name || '').localeCompare(b.product?.name || '');
+    if (sortBy === 'asset-tag') return (a.assetTag || '').localeCompare(b.assetTag || '');
+    if (sortBy === 'status') return (a.currentStatus || '').localeCompare(b.currentStatus || '');
+    return new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime();
+  });
+
+  const paginated = sorted.slice((currentPage - 1) * pageSize, currentPage * pageSize);
 
   const statusCounts = STATUS_OPTIONS.reduce((acc, s) => {
     acc[s] = items.filter(i => i.currentStatus === s).length;
     return acc;
   }, {} as Record<string, number>);
+
+  const showDept = localStorage.getItem('currentDepartmentId') === ALL_DEPARTMENTS_ID;
 
   if (loading) return <div className="text-center py-12 text-[var(--text-muted)]">Loading...</div>;
 
@@ -202,7 +467,7 @@ export default function InventoryItems() {
           {items.length} total ·{' '}
           <span className="text-green-600">{statusCounts.active} active</span> ·{' '}
           <span className="text-cyan-600">{statusCounts.deployed} deployed</span> ·{' '}
-          <span className="text-orange-600">{statusCounts.damaged} damaged</span> ·{' '}
+          <span className="text-yellow-600">{statusCounts['under-repair']} under repair</span> ·{' '}
           <span className="text-rose-600">{statusCounts.lost} lost</span>
         </p>
         <p className="text-xs text-[var(--text-muted)] mt-1">
@@ -211,30 +476,234 @@ export default function InventoryItems() {
       </div>
 
       {/* Filters */}
-      <div className="flex gap-2 flex-wrap mb-4">
-        <input type="text" value={search} onChange={e => { setSearch(e.target.value); setCurrentPage(1); }}
-          placeholder="Search ID, asset tag, serial, MAC, barcode..."
-          className="px-3 py-2 border border-[var(--border)] rounded text-sm bg-[var(--surface)] text-[var(--text)] min-w-[260px]" />
-        <select value={filterProduct} onChange={e => { setFilterProduct(e.target.value); setCurrentPage(1); }}
-          className="px-3 py-2 border border-[var(--border)] rounded text-sm bg-[var(--surface)] text-[var(--text)]">
-          <option value="">All Products</option>
-          {allProducts.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-        </select>
-        <select value={filterStatus} onChange={e => { setFilterStatus(e.target.value); setCurrentPage(1); }}
-          className="px-3 py-2 border border-[var(--border)] rounded text-sm bg-[var(--surface)] text-[var(--text)]">
-          <option value="">All Statuses</option>
-          {STATUS_OPTIONS.map(s => <option key={s} value={s}>{s.charAt(0).toUpperCase() + s.slice(1)}</option>)}
-        </select>
-        <select value={filterLocation} onChange={e => { setFilterLocation(e.target.value); setCurrentPage(1); }}
-          className="px-3 py-2 border border-[var(--border)] rounded text-sm bg-[var(--surface)] text-[var(--text)]">
-          <option value="">All Locations</option>
-          {locations.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
-        </select>
-        {(search || filterProduct || filterStatus || filterLocation) && (
-          <button onClick={() => { setSearch(''); setFilterProduct(''); setFilterStatus(''); setFilterLocation(''); setCurrentPage(1); }}
-            className="px-3 py-2 text-sm border border-[var(--border)] rounded hover:bg-[var(--surface-2)] text-[var(--text-muted)]">
+      <div className="flex flex-col gap-2 mb-4">
+        {/* Row 1: Search + Sort + Clear */}
+        <div className="flex gap-2">
+          <input type="text" value={search} onChange={e => { setSearch(e.target.value); setCurrentPage(1); }}
+            placeholder="Search ID, asset tag, serial, MAC, barcode..."
+            className="flex-1 px-3 py-2 border border-[var(--border)] rounded text-sm bg-[var(--surface)] text-[var(--text)]" />
+          <select value={sortBy} onChange={e => { setSortBy(e.target.value); setCurrentPage(1); }}
+            className="px-3 py-2 border border-[var(--border)] rounded text-sm font-medium bg-[var(--surface-2)] text-[var(--text)]">
+            <option value="recently-added">Sort: Recently Added</option>
+            <option value="name">Sort: Product Name</option>
+            <option value="asset-tag">Sort: Asset Tag</option>
+            <option value="status">Sort: Status</option>
+          </select>
+          <button type="button" onClick={() => {
+            setSearch(''); setFilterCategory(''); setFilterProduct(''); setFilterStatus('');
+            setFilterCondition(''); setFilterLocation(''); setFilterWarranty('');
+            setFilterDepartment(''); setFilterAssignment(''); setFilterStockLevel('');
+            setFilterDateRange(''); setFilterIdentifier('');
+            setFilterCustodian(''); setFilterItemType(''); setFilterBrand(''); setFilterSupplier('');
+            setFilterAuditStatus(''); setFilterDateAdded(''); setFilterMovementType('');
+            setFilterCostStatus(''); setFilterDataQuality('');
+            setSortBy('recently-added'); setCurrentPage(1);
+          }} className="px-3 py-2 text-xs border border-[var(--border)] rounded hover:bg-[var(--border)] bg-[var(--surface-2)] text-[var(--text-muted)] font-medium whitespace-nowrap">
             Clear
           </button>
+        </div>
+
+        {/* Main filters — 3 columns, 2 rows */}
+        <div className="grid grid-cols-3 gap-2">
+          {/* Row 1 */}
+          <select value={filterCategory} onChange={e => { setFilterCategory(e.target.value); setCurrentPage(1); }}
+            className="px-3 py-2 border border-[var(--border)] rounded text-sm bg-[var(--surface)] text-[var(--text)]">
+            <option value="">All Categories</option>
+            {allCategories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+          </select>
+          <FilterDropdown
+            label="All Products"
+            value={filterProduct}
+            onChange={v => { setFilterProduct(v); setCurrentPage(1); }}
+            options={allProducts.map(p => ({ id: p.id, name: p.name }))}
+          />
+          <FilterDropdown
+            label="All Locations"
+            value={filterLocation}
+            onChange={v => { setFilterLocation(v); setCurrentPage(1); }}
+            options={locations.map(l => ({ id: l.id, name: l.name }))}
+          />
+          {/* Row 2 */}
+          <select value={filterStatus} onChange={e => { setFilterStatus(e.target.value); setCurrentPage(1); }}
+            className="px-3 py-2 border border-[var(--border)] rounded text-sm bg-[var(--surface)] text-[var(--text)]">
+            <option value="">All Statuses</option>
+            {STATUS_OPTIONS.map(s => <option key={s} value={s}>{STATUS_LABELS[s]}</option>)}
+          </select>
+          <select value={filterCondition} onChange={e => { setFilterCondition(e.target.value); setCurrentPage(1); }}
+            className="px-3 py-2 border border-[var(--border)] rounded text-sm bg-[var(--surface)] text-[var(--text)]">
+            <option value="">All Conditions</option>
+            {CONDITION_OPTIONS.map(c => <option key={c} value={c}>{CONDITION_LABELS[c]}</option>)}
+          </select>
+          <select value={filterWarranty} onChange={e => { setFilterWarranty(e.target.value); setCurrentPage(1); }}
+            className="px-3 py-2 border border-[var(--border)] rounded text-sm bg-[var(--surface)] text-[var(--text)]">
+            <option value="">All Warranty</option>
+            <option value="under-warranty">Under Warranty</option>
+            <option value="expiring-soon">Expiring Soon (90 days)</option>
+            <option value="expired">Expired Warranty</option>
+            <option value="no-date">No Warranty Date</option>
+          </select>
+        </div>
+
+        {/* Advanced filters toggle */}
+        <button type="button" onClick={() => setShowAdvanced(v => !v)}
+          className="text-xs text-[var(--primary)] hover:underline text-left font-medium w-fit">
+          {showAdvanced ? '▲ Hide Advanced Filters' : '▼ Advanced Filters'}
+        </button>
+
+        {showAdvanced && (
+          <div className="grid grid-cols-2 gap-2 pt-1 border-t border-[var(--border)]">
+            <select value={filterAssignment} onChange={e => { setFilterAssignment(e.target.value); setCurrentPage(1); }}
+              className="px-3 py-2 border border-[var(--border)] rounded text-sm bg-[var(--surface)] text-[var(--text)]">
+              <option value="">All Assignment</option>
+              <option value="unassigned">Unassigned</option>
+              <option value="assigned-person">Assigned to Person</option>
+              <option value="assigned-location">Assigned to Location</option>
+              <option value="borrowed">Borrowed</option>
+              <option value="returned">Returned</option>
+            </select>
+            <select value={filterStockLevel} onChange={e => { setFilterStockLevel(e.target.value); setCurrentPage(1); }}
+              className="px-3 py-2 border border-[var(--border)] rounded text-sm bg-[var(--surface)] text-[var(--text)]">
+              <option value="">All Stock Levels</option>
+              <option value="in-stock">In Stock</option>
+              <option value="low-stock">Low Stock</option>
+              <option value="out-of-stock">Out of Stock</option>
+              <option value="overstock">Overstock</option>
+              <option value="negative-stock">Negative Stock</option>
+            </select>
+            <select value={filterDateRange} onChange={e => { setFilterDateRange(e.target.value); setCurrentPage(1); }}
+              className="px-3 py-2 border border-[var(--border)] rounded text-sm bg-[var(--surface)] text-[var(--text)]">
+              <option value="">All Date Received</option>
+              <option value="today">Received Today</option>
+              <option value="this-week">Received This Week</option>
+              <option value="this-month">Received This Month</option>
+              <option value="last-3-months">Last 3 Months</option>
+              <option value="this-year">This Year</option>
+              <option value="older-1-year">Older Than 1 Year</option>
+              <option value="no-date">No Date Received</option>
+            </select>
+            <select value={filterIdentifier} onChange={e => { setFilterIdentifier(e.target.value); setCurrentPage(1); }}
+              className="px-3 py-2 border border-[var(--border)] rounded text-sm bg-[var(--surface)] text-[var(--text)]">
+              <option value="">All Identifiers</option>
+              <option value="has-asset-tag">Has Asset Tag</option>
+              <option value="no-asset-tag">Missing Asset Tag</option>
+              <option value="has-barcode">Has Barcode</option>
+              <option value="no-barcode">Missing Barcode</option>
+              <option value="has-serial">Has Serial Number</option>
+              <option value="no-serial">Missing Serial Number</option>
+              <option value="has-mac">Has MAC Address</option>
+              <option value="no-mac">Missing MAC Address</option>
+            </select>
+            <select value={filterCustodian} onChange={e => { setFilterCustodian(e.target.value); setCurrentPage(1); }}
+              className="px-3 py-2 border border-[var(--border)] rounded text-sm bg-[var(--surface)] text-[var(--text)]">
+              <option value="">All Custodians</option>
+              <option value="unassigned">Unassigned</option>
+              <option value="assigned">Assigned</option>
+              <option value="assigned-person">Assigned to Person</option>
+              <option value="assigned-department">Assigned to Department</option>
+              <option value="assigned-location">Assigned to Location</option>
+            </select>
+            <select value={filterItemType} onChange={e => { setFilterItemType(e.target.value); setCurrentPage(1); }}
+              className="px-3 py-2 border border-[var(--border)] rounded text-sm bg-[var(--surface)] text-[var(--text)]">
+              <option value="">All Item Types</option>
+              <option value="equipment">Equipment</option>
+              <option value="consumable">Consumable</option>
+              <option value="tool">Tool</option>
+              <option value="furniture">Furniture</option>
+              <option value="network device">Network Device</option>
+              <option value="computer device">Computer Device</option>
+              <option value="accessory">Accessory</option>
+              <option value="spare part">Spare Part</option>
+              <option value="others">Others</option>
+            </select>
+            <select value={filterBrand} onChange={e => { setFilterBrand(e.target.value); setCurrentPage(1); }}
+              className="px-3 py-2 border border-[var(--border)] rounded text-sm bg-[var(--surface)] text-[var(--text)]">
+              <option value="">All Brands</option>
+              <option value="tp-link">TP-Link</option>
+              <option value="ubiquiti">Ubiquiti</option>
+              <option value="mikrotik">MikroTik</option>
+              <option value="vsol">VSOL</option>
+              <option value="dell">Dell</option>
+              <option value="hp">HP</option>
+              <option value="lenovo">Lenovo</option>
+              <option value="samsung">Samsung</option>
+              <option value="generic">Generic</option>
+              <option value="no-brand">No Brand</option>
+              <option value="others">Others</option>
+            </select>
+            <select value={filterSupplier} onChange={e => { setFilterSupplier(e.target.value); setCurrentPage(1); }}
+              className="px-3 py-2 border border-[var(--border)] rounded text-sm bg-[var(--surface)] text-[var(--text)]">
+              <option value="">All Suppliers</option>
+              <option value="with-supplier">With Supplier</option>
+              <option value="no-supplier">No Supplier</option>
+            </select>
+            <select value={filterAuditStatus} onChange={e => { setFilterAuditStatus(e.target.value); setCurrentPage(1); }}
+              className="px-3 py-2 border border-[var(--border)] rounded text-sm bg-[var(--surface)] text-[var(--text)]">
+              <option value="">All Audit Status</option>
+              <option value="checked-today">Checked Today</option>
+              <option value="checked-week">Checked This Week</option>
+              <option value="checked-month">Checked This Month</option>
+              <option value="not-checked-month">Not Checked This Month</option>
+              <option value="not-checked-3months">Not Checked Last 3 Months</option>
+              <option value="never-checked">Never Checked</option>
+              <option value="missing-checked-by">Missing Checked By</option>
+            </select>
+            <select value={filterDateAdded} onChange={e => { setFilterDateAdded(e.target.value); setCurrentPage(1); }}
+              className="px-3 py-2 border border-[var(--border)] rounded text-sm bg-[var(--surface)] text-[var(--text)]">
+              <option value="">All Date Added</option>
+              <option value="today">Added Today</option>
+              <option value="this-week">Added This Week</option>
+              <option value="this-month">Added This Month</option>
+              <option value="last-3-months">Added Last 3 Months</option>
+              <option value="this-year">Added This Year</option>
+              <option value="older-1-year">Older Than 1 Year</option>
+            </select>
+            <select value={filterMovementType} onChange={e => { setFilterMovementType(e.target.value); setCurrentPage(1); }}
+              className="px-3 py-2 border border-[var(--border)] rounded text-sm bg-[var(--surface)] text-[var(--text)]">
+              <option value="">All Movement Types</option>
+              <option value="opening_stock">Opening Stock</option>
+              <option value="stock_in">Received</option>
+              <option value="deployment">Deployed</option>
+              <option value="transfer">Transferred</option>
+              <option value="borrowed">Borrowed</option>
+              <option value="returned">Returned</option>
+              <option value="repair">Repair</option>
+              <option value="disposal">Disposed</option>
+              <option value="stock_out">Sold</option>
+              <option value="adjustment">Adjustment</option>
+              <option value="no-movement">No Movement History</option>
+            </select>
+            <select value={filterCostStatus} onChange={e => { setFilterCostStatus(e.target.value); setCurrentPage(1); }}
+              className="px-3 py-2 border border-[var(--border)] rounded text-sm bg-[var(--surface)] text-[var(--text)]">
+              <option value="">All Cost Status</option>
+              <option value="with-cost">With Cost</option>
+              <option value="missing-cost">Missing Cost</option>
+              <option value="zero-cost">Zero Cost</option>
+              <option value="high-value">High Value (≥ ₱10,000)</option>
+              <option value="low-value">Low Value (&lt; ₱10,000)</option>
+            </select>
+            <select value={filterDataQuality} onChange={e => { setFilterDataQuality(e.target.value); setCurrentPage(1); }}
+              className="px-3 py-2 border border-[var(--border)] rounded text-sm bg-[var(--surface)] text-[var(--text)]">
+              <option value="">All Data Quality</option>
+              <option value="complete">Complete Records</option>
+              <option value="incomplete">Incomplete Records</option>
+              <option value="no-asset-tag">Missing Asset Tag</option>
+              <option value="no-barcode">Missing Barcode</option>
+              <option value="no-serial">Missing Serial Number</option>
+              <option value="no-mac">Missing MAC Address</option>
+              <option value="invalid-mac">Invalid MAC Address</option>
+              <option value="no-supplier">Missing Supplier</option>
+              <option value="no-cost">Missing Cost</option>
+              <option value="no-location">Missing Location</option>
+              <option value="test-data">Test / Placeholder Data</option>
+            </select>
+            {showDept && (
+              <select value={filterDepartment} onChange={e => { setFilterDepartment(e.target.value); setCurrentPage(1); }}
+                className="px-3 py-2 border border-[var(--border)] rounded text-sm bg-[var(--surface)] text-[var(--text)]">
+                <option value="">All Departments</option>
+                {allDepartments.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
+              </select>
+            )}
+          </div>
         )}
       </div>
 
@@ -245,7 +714,7 @@ export default function InventoryItems() {
         </div>
       ) : (
         <div className="border border-[var(--border)] rounded-lg overflow-hidden">
-          <div className="hidden md:grid md:grid-cols-7 gap-4 px-4 py-2 bg-[var(--surface-2)] text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wide border-b border-[var(--border)]">
+          <div className={`hidden md:grid gap-4 px-4 py-2 bg-[var(--surface-2)] text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wide border-b border-[var(--border)] ${showDept ? 'md:grid-cols-8' : 'md:grid-cols-7'}`}>
             <div>Asset ID</div>
             <div>Product</div>
             <div>Serial No.</div>
@@ -253,6 +722,7 @@ export default function InventoryItems() {
             <div>Condition</div>
             <div>Status</div>
             <div>Location</div>
+            {showDept && <div>Department</div>}
           </div>
           {paginated.map(item => (
             <div
@@ -260,7 +730,7 @@ export default function InventoryItems() {
               onClick={() => openDrawer(item)}
               className="flex items-center gap-3 px-4 py-3 bg-[var(--surface)] border-b border-[var(--border)] hover:bg-[var(--surface-2)] cursor-pointer transition-colors"
             >
-              <div className="flex-1 grid grid-cols-2 md:grid-cols-7 gap-4 text-sm min-w-0">
+              <div className={`flex-1 grid grid-cols-2 gap-4 text-sm min-w-0 ${showDept ? 'md:grid-cols-8' : 'md:grid-cols-7'}`}>
                 <div>
                   <span className="font-mono text-xs text-[var(--primary)] font-semibold">{item.stockId || '—'}</span>
                   {item.assetTag && <p className="text-xs text-[var(--text-muted)] font-mono mt-0.5">{item.assetTag}</p>}
@@ -271,10 +741,11 @@ export default function InventoryItems() {
                 <div className="capitalize text-[var(--text-muted)] text-xs">{item.condition || '—'}</div>
                 <div>
                   <span className={`px-2 py-0.5 rounded text-xs font-semibold ${STATUS_COLOR[item.currentStatus] ?? 'bg-gray-100 text-gray-800'}`}>
-                    {item.currentStatus}
+                    {STATUS_LABELS[item.currentStatus] ?? item.currentStatus}
                   </span>
                 </div>
                 <div className="truncate text-[var(--text-muted)]">{item.currentLocation?.name || '—'}</div>
+                {showDept && <div className="truncate text-[var(--text-muted)]">{item.department?.name || item.product?.department?.name || '—'}</div>}
               </div>
               <ChevronRight size={16} className="text-[var(--text-muted)] flex-shrink-0" />
             </div>
@@ -349,14 +820,14 @@ export default function InventoryItems() {
                         <label className="block text-xs font-medium text-[var(--text-muted)] mb-1">Condition</label>
                         <select value={formData.condition} onChange={e => setFormData({ ...formData, condition: e.target.value })}
                           className="w-full px-3 py-1.5 text-sm border border-[var(--border)] rounded-lg bg-[var(--surface)] text-[var(--text)]">
-                          {CONDITION_OPTIONS.map(c => <option key={c} value={c}>{c.charAt(0).toUpperCase() + c.slice(1)}</option>)}
+                          {CONDITION_OPTIONS.map(c => <option key={c} value={c}>{CONDITION_LABELS[c]}</option>)}
                         </select>
                       </div>
                       <div>
                         <label className="block text-xs font-medium text-[var(--text-muted)] mb-1">Status</label>
                         <select value={formData.currentStatus} onChange={e => setFormData({ ...formData, currentStatus: e.target.value })}
                           className="w-full px-3 py-1.5 text-sm border border-[var(--border)] rounded-lg bg-[var(--surface)] text-[var(--text)]">
-                          {STATUS_OPTIONS.map(s => <option key={s} value={s}>{s.charAt(0).toUpperCase() + s.slice(1)}</option>)}
+                          {STATUS_OPTIONS.map(s => <option key={s} value={s}>{STATUS_LABELS[s]}</option>)}
                         </select>
                       </div>
                     </div>

@@ -1,5 +1,5 @@
 export type SortOrder = 'asc' | 'desc';
-export type StockStatus = 'in-stock' | 'low-stock' | 'out-of-stock';
+export type StockStatus = 'in-stock' | 'low-stock' | 'out-of-stock' | 'overstock' | 'negative-stock' | 'no-stock-data';
 export type DateRange = 'all' | '7days' | '30days' | '90days';
 
 export interface ProductFilter {
@@ -10,6 +10,14 @@ export interface ProductFilter {
   departmentId?: string;
   unit?: string;
   dateRange: DateRange;
+  // advanced
+  productStatus?: string;
+  priceStatus?: string;
+  valueStatus?: string;
+  source?: string;
+  dateAdded?: string;
+  lastMovement?: string;
+  dataQuality?: string;
 }
 
 export interface ProductSort {

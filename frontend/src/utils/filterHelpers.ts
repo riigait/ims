@@ -1,9 +1,28 @@
 import { Product, Category, Location } from '@/types/inventory';
 import { ProductFilter, ProductSort, StockStatus } from '@/types/filters';
 
+export const UNASSIGNED_LOCATION = '__UNASSIGNED__';
+
+export function getProductLocationFilterValue(product: any): string {
+  const locationId = product.locationId;
+  const locationName = product.location?.name?.trim();
+
+  const hasNoLocationId = locationId === null || locationId === undefined || locationId === '';
+  const hasNoLocationName = !locationName;
+  const isNamedUnassigned = locationName?.toLowerCase() === 'unassigned';
+
+  if (hasNoLocationId || hasNoLocationName || isNamedUnassigned) {
+    return UNASSIGNED_LOCATION;
+  }
+
+  return String(locationId);
+}
+
 export const getStockStatus = (product: Product): StockStatus => {
+  if (product.currentStock < 0) return 'negative-stock';
   if (product.currentStock === 0) return 'out-of-stock';
   if (product.currentStock > 0 && product.currentStock <= product.lowStockThreshold) return 'low-stock';
+  if (product.currentStock > product.lowStockThreshold * 3) return 'overstock';
   return 'in-stock';
 };
 
@@ -33,7 +52,7 @@ export const filterProducts = (products: Product[], filter: ProductFilter): Prod
 
     const matchesLocation =
       !filter.locationId ||
-      (filter.locationId === 'unassigned' ? !product.locationId : product.locationId === filter.locationId);
+      getProductLocationFilterValue(product) === filter.locationId;
 
     const matchesStockStatus =
       !filter.stockStatus || getStockStatus(product) === filter.stockStatus;
@@ -49,6 +68,74 @@ export const filterProducts = (products: Product[], filter: ProductFilter): Prod
       filter.dateRange
     );
 
+    const matchesSource = !filter.source || (() => {
+      const src = (product as any).source;
+      if (filter.source === 'manual') return src === 'manual';
+      if (filter.source === 'csv_import') return src === 'csv_import';
+      if (filter.source === 'unknown') return !src || src === 'unknown';
+      return true;
+    })();
+
+    const matchesProductStatus = !filter.productStatus || (product as any).status === filter.productStatus;
+
+    const unitPrice = parseFloat((product as any).unitPrice ?? 0);
+    const matchesPriceStatus = !filter.priceStatus || (() => {
+      if (filter.priceStatus === 'with-price') return unitPrice > 0;
+      if (filter.priceStatus === 'zero-price') return unitPrice === 0;
+      if (filter.priceStatus === 'missing-price') return (product as any).unitPrice == null;
+      if (filter.priceStatus === 'high-price') return unitPrice >= 10000;
+      if (filter.priceStatus === 'low-price') return unitPrice > 0 && unitPrice < 10000;
+      return true;
+    })();
+
+    const totalValue = unitPrice * (product.currentStock ?? 0);
+    const matchesValueStatus = !filter.valueStatus || (() => {
+      if (filter.valueStatus === 'with-value') return totalValue > 0;
+      if (filter.valueStatus === 'zero-value') return totalValue === 0;
+      if (filter.valueStatus === 'high-value') return totalValue >= 50000;
+      if (filter.valueStatus === 'low-value') return totalValue > 0 && totalValue < 50000;
+      if (filter.valueStatus === 'missing') return (product as any).unitPrice == null;
+      return true;
+    })();
+
+
+    const now = Date.now();
+    const added = product.createdAt ? new Date(product.createdAt).getTime() : null;
+    const matchesDateAdded = !filter.dateAdded || (() => {
+      if (filter.dateAdded === 'today') return !!added && now - added < 86400000;
+      if (filter.dateAdded === 'this-week') return !!added && now - added < 7 * 86400000;
+      if (filter.dateAdded === 'this-month') return !!added && now - added < 30 * 86400000;
+      if (filter.dateAdded === 'last-3-months') return !!added && now - added < 90 * 86400000;
+      if (filter.dateAdded === 'this-year') return !!added && now - added < 365 * 86400000;
+      if (filter.dateAdded === 'older-1-year') return !!added && now - added >= 365 * 86400000;
+      return true;
+    })();
+
+    const lastMoved = (product as any).lastMovementAt ? new Date((product as any).lastMovementAt).getTime() : null;
+    const matchesLastMovement = !filter.lastMovement || (() => {
+      if (filter.lastMovement === 'no-movement') return !lastMoved;
+      if (filter.lastMovement === 'moved-today') return !!lastMoved && now - lastMoved < 86400000;
+      if (filter.lastMovement === 'moved-week') return !!lastMoved && now - lastMoved < 7 * 86400000;
+      if (filter.lastMovement === 'moved-month') return !!lastMoved && now - lastMoved < 30 * 86400000;
+      if (filter.lastMovement === 'moved-3months') return !!lastMoved && now - lastMoved < 90 * 86400000;
+      return true;
+    })();
+
+    const matchesDataQuality = !filter.dataQuality || (() => {
+      const isTest = ['test', 'n/a', 'none', 'sample'].includes((product.name || '').toLowerCase());
+      if (filter.dataQuality === 'complete') return !!product.sku && !!product.categoryId && !!product.locationId && !!product.unit && unitPrice > 0;
+      if (filter.dataQuality === 'incomplete') return !product.sku || !product.categoryId || !product.locationId || !product.unit;
+      if (filter.dataQuality === 'missing-sku') return !product.sku;
+      if (filter.dataQuality === 'missing-category') return !product.categoryId;
+      if (filter.dataQuality === 'missing-location') return !product.locationId;
+      if (filter.dataQuality === 'missing-unit') return !product.unit;
+      if (filter.dataQuality === 'missing-price') return (product as any).unitPrice == null;
+      if (filter.dataQuality === 'zero-price') return unitPrice === 0;
+      if (filter.dataQuality === 'missing-threshold') return !product.lowStockThreshold && product.lowStockThreshold !== 0;
+      if (filter.dataQuality === 'test-data') return isTest;
+      return true;
+    })();
+
     return (
       matchesSearch &&
       matchesCategory &&
@@ -56,7 +143,14 @@ export const filterProducts = (products: Product[], filter: ProductFilter): Prod
       matchesStockStatus &&
       matchesDepartment &&
       matchesUnit &&
-      matchesDateRange
+      matchesDateRange &&
+      matchesSource &&
+      matchesProductStatus &&
+      matchesPriceStatus &&
+      matchesValueStatus &&
+      matchesDateAdded &&
+      matchesLastMovement &&
+      matchesDataQuality
     );
   });
 };
@@ -135,6 +229,13 @@ export const clearProductFilters = (): ProductFilter => ({
   departmentId: undefined,
   unit: undefined,
   dateRange: 'all',
+  productStatus: undefined,
+  priceStatus: undefined,
+  valueStatus: undefined,
+  source: undefined,
+  dateAdded: undefined,
+  lastMovement: undefined,
+  dataQuality: undefined,
 });
 
 export const filterStockMovements = (

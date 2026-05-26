@@ -26,9 +26,10 @@ export default function Locations() {
   const [pageSize, setPageSize] = useState(20);
 
   // Drawer
-  const [drawerOpen, setDrawerOpen] = useState(false);
-  const [drawerItem, setDrawerItem] = useState<Location | null>(null);
-  const [drawerEditing, setDrawerEditing] = useState(false);
+  const [isDrawerOpen, setIsDrawerOpen] = useState(false);
+  const [selectedItem, setSelectedItem] = useState<Location | null>(null);
+  const [editingItem, setEditingItem] = useState<Location | null>(null);
+  const [isCreating, setIsCreating] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [formData, setFormData] = useState({
     name: '', type: 'room' as Location['type'], parentId: '', notes: '',
@@ -59,29 +60,28 @@ export default function Locations() {
   }, []);
 
   const openNewDrawer = () => {
-    setDrawerItem(null);
+    setSelectedItem(null);
+    setEditingItem(null);
     setFormData({ name: '', type: 'room', parentId: '', notes: '' });
     setFormError('');
-    setDrawerEditing(true);
+    setIsCreating(true);
     setConfirmingDelete(false);
-    setDrawerOpen(true);
+    setIsDrawerOpen(true);
   };
 
   const openViewDrawer = (location: Location) => {
-    setDrawerItem(location);
+    setSelectedItem(location);
+    setEditingItem(null);
+    setIsCreating(false);
     setFormError('');
-    setDrawerEditing(false);
     setConfirmingDelete(false);
-    setDrawerOpen(true);
+    setIsDrawerOpen(true);
   };
 
-  const startEdit = (location: Location) => {
-    const currentDeptId = localStorage.getItem('currentDepartmentId');
-    if (currentDeptId === ALL_DEPARTMENTS_ID && location.departmentId) {
-      localStorage.setItem('currentDepartmentId', location.departmentId);
-      window.location.reload();
-      return;
-    }
+  const openEdit = (location: Location) => {
+    setSelectedItem(location);
+    setEditingItem(location);
+    setIsCreating(false);
     setFormData({
       name: location.name,
       type: location.type,
@@ -90,13 +90,20 @@ export default function Locations() {
     });
     setFormError('');
     setConfirmingDelete(false);
-    setDrawerEditing(true);
+    setIsDrawerOpen(true);
+  };
+
+  const cancelEdit = () => {
+    if (isCreating) { closeDrawer(); return; }
+    setEditingItem(null);
+    setFormError('');
   };
 
   const closeDrawer = () => {
-    setDrawerOpen(false);
-    setDrawerItem(null);
-    setDrawerEditing(false);
+    setIsDrawerOpen(false);
+    setSelectedItem(null);
+    setEditingItem(null);
+    setIsCreating(false);
     setConfirmingDelete(false);
     setFormData({ name: '', type: 'room', parentId: '', notes: '' });
     setFormError('');
@@ -109,15 +116,16 @@ export default function Locations() {
       return;
     }
     try {
-      if (drawerItem) {
-        await locationsApi.update(drawerItem.id, formData);
-        setDrawerItem({ ...drawerItem, ...formData });
-        setDrawerEditing(false);
+      if (editingItem) {
+        await locationsApi.update(editingItem.id, formData);
+        setSelectedItem({ ...editingItem, ...formData });
+        setEditingItem(null);
+        await fetchLocations();
       } else {
         await locationsApi.create(formData);
+        await fetchLocations();
         closeDrawer();
       }
-      await fetchLocations();
       setFormError('');
     } catch {
       setFormError('Failed to save location');
@@ -125,9 +133,9 @@ export default function Locations() {
   };
 
   const doDelete = async () => {
-    if (!drawerItem) return;
+    if (!selectedItem) return;
     try {
-      await locationsApi.delete(drawerItem.id);
+      await locationsApi.delete(selectedItem.id);
       await fetchLocations();
       closeDrawer();
     } catch {
@@ -277,7 +285,7 @@ export default function Locations() {
       </DataPageLayout>
 
       {/* Right-Side Drawer */}
-      {drawerOpen && (
+      {isDrawerOpen && (selectedItem || isCreating) && (
         <div className="fixed inset-0 z-50 flex">
           <div className="flex-1 bg-black/30" onClick={closeDrawer} />
           <div className="w-full max-w-lg bg-[var(--surface)] border-l border-[var(--border)] flex flex-col h-full overflow-hidden">
@@ -286,20 +294,20 @@ export default function Locations() {
             <div className="px-6 py-4 border-b border-[var(--border)] flex items-start justify-between flex-shrink-0">
               <div>
                 <h2 className="text-lg font-semibold text-[var(--text)]">
-                  {!drawerItem ? 'New Location' : drawerEditing ? 'Edit Location' : drawerItem.name}
+                  {isCreating ? 'New Location' : editingItem ? 'Edit Location' : selectedItem?.name}
                 </h2>
-                {drawerItem && !drawerEditing && (
-                  <p className="text-sm text-[var(--text-muted)] mt-0.5 capitalize">{drawerItem.type}</p>
+                {selectedItem && !editingItem && !isCreating && (
+                  <p className="text-sm text-[var(--text-muted)] mt-0.5 capitalize">{selectedItem.type}</p>
                 )}
               </div>
-              <button onClick={closeDrawer} className="p-1.5 rounded-lg hover:bg-[var(--surface-2)] text-[var(--text-muted)] flex-shrink-0 ml-2">
+              <button type="button" onClick={closeDrawer} className="p-1.5 rounded-lg hover:bg-[var(--surface-2)] text-[var(--text-muted)] flex-shrink-0 ml-2">
                 <X size={18} />
               </button>
             </div>
 
             {/* Body */}
             <div className="flex-1 overflow-y-auto px-6 py-4">
-              {drawerEditing ? (
+              {(editingItem || isCreating) ? (
                 <form id="location-form" onSubmit={handleSubmit} className="space-y-4">
                   <div className="grid grid-cols-2 gap-3">
                     <div className="col-span-2">
@@ -335,7 +343,7 @@ export default function Locations() {
                         className="w-full px-3 py-2 border border-[var(--border)] rounded-lg text-sm bg-[var(--surface)] text-[var(--text)]">
                         <option value="">None (Root)</option>
                         {locations
-                          .filter(loc => loc.id !== drawerItem?.id)
+                          .filter(loc => loc.id !== selectedItem?.id)
                           .map(loc => (
                             <option key={loc.id} value={loc.id}>{loc.name} ({loc.type})</option>
                           ))}
@@ -353,36 +361,36 @@ export default function Locations() {
                   </div>
                   {formError && <p className="text-red-500 text-sm">{formError}</p>}
                 </form>
-              ) : drawerItem && (
+              ) : selectedItem && (
                 <div className="space-y-6">
                   <section>
                     <h3 className="text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wider mb-3">Details</h3>
                     <div className="space-y-3">
                       <div>
                         <p className="text-xs text-[var(--text-muted)] mb-0.5">Name</p>
-                        <p className="text-sm font-medium text-[var(--text)]">{drawerItem.name}</p>
+                        <p className="text-sm font-medium text-[var(--text)]">{selectedItem.name}</p>
                       </div>
                       <div>
                         <p className="text-xs text-[var(--text-muted)] mb-0.5">Type</p>
-                        <p className="text-sm text-[var(--text)] capitalize">{drawerItem.type}</p>
+                        <p className="text-sm text-[var(--text)] capitalize">{selectedItem.type}</p>
                       </div>
                       <div>
                         <p className="text-xs text-[var(--text-muted)] mb-0.5">Parent Location</p>
-                        <p className="text-sm text-[var(--text)]">{getParentName(drawerItem.parentId)}</p>
+                        <p className="text-sm text-[var(--text)]">{getParentName(selectedItem.parentId)}</p>
                       </div>
                       <div>
                         <p className="text-xs text-[var(--text-muted)] mb-0.5">Department</p>
-                        <p className="text-sm text-[var(--text)]">{drawerItem.department?.name ?? '—'}</p>
+                        <p className="text-sm text-[var(--text)]">{selectedItem.department?.name ?? '—'}</p>
                       </div>
-                      {drawerItem.notes && (
+                      {selectedItem.notes && (
                         <div>
                           <p className="text-xs text-[var(--text-muted)] mb-0.5">Notes</p>
-                          <p className="text-sm text-[var(--text)]">{drawerItem.notes}</p>
+                          <p className="text-sm text-[var(--text)]">{selectedItem.notes}</p>
                         </div>
                       )}
                       <div>
                         <p className="text-xs text-[var(--text-muted)] mb-0.5">Date Added</p>
-                        <p className="text-sm text-[var(--text)]">{formatDate(drawerItem.createdAt)}</p>
+                        <p className="text-sm text-[var(--text)]">{formatDate(selectedItem.createdAt)}</p>
                       </div>
                     </div>
                   </section>
@@ -392,26 +400,26 @@ export default function Locations() {
 
             {/* Footer */}
             <div className="px-6 py-4 border-t border-[var(--border)] flex-shrink-0">
-              {drawerEditing ? (
+              {(editingItem || isCreating) ? (
                 <div className="flex gap-2">
                   <button type="submit" form="location-form"
                     className="px-4 py-2 bg-[var(--primary)] text-white text-sm rounded-lg hover:bg-[var(--primary-hover)]">
                     Save
                   </button>
-                  <button type="button" onClick={() => drawerItem ? setDrawerEditing(false) : closeDrawer()}
+                  <button type="button" onClick={cancelEdit}
                     className="px-4 py-2 border border-[var(--border)] text-sm rounded-lg text-[var(--text)] hover:bg-[var(--surface-2)]">
                     Cancel
                   </button>
                 </div>
               ) : confirmingDelete ? (
                 <div className="w-full">
-                  <p className="text-sm font-medium text-[var(--text)] mb-3">Delete "{drawerItem?.name}"?</p>
+                  <p className="text-sm font-medium text-[var(--text)] mb-3">Delete "{selectedItem?.name}"?</p>
                   <div className="flex gap-2">
-                    <button onClick={doDelete}
+                    <button type="button" onClick={doDelete}
                       className="px-4 py-2 bg-red-600 text-white text-sm rounded-lg hover:bg-red-700">
                       Yes, Delete
                     </button>
-                    <button onClick={() => setConfirmingDelete(false)}
+                    <button type="button" onClick={() => setConfirmingDelete(false)}
                       className="px-4 py-2 border border-[var(--border)] text-sm rounded-lg text-[var(--text)] hover:bg-[var(--surface-2)]">
                       Cancel
                     </button>
@@ -419,11 +427,11 @@ export default function Locations() {
                 </div>
               ) : user.role === 'admin' && (
                 <div className="flex gap-2">
-                  <button onClick={() => drawerItem && startEdit(drawerItem)}
+                  <button type="button" onClick={() => selectedItem && openEdit(selectedItem)}
                     className="flex items-center gap-2 px-4 py-2 bg-[var(--primary)] text-white text-sm rounded-lg hover:bg-[var(--primary-hover)]">
                     <Edit size={14} /> Edit
                   </button>
-                  <button onClick={() => setConfirmingDelete(true)}
+                  <button type="button" onClick={() => setConfirmingDelete(true)}
                     className="flex items-center gap-2 px-4 py-2 border border-red-300 text-red-600 text-sm rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20">
                     <Trash2 size={14} /> Delete
                   </button>

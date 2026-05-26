@@ -7,7 +7,7 @@ import { Product, Category, Location } from '@/types/inventory';
 import { ProductFilter, ProductSort } from '@/types/filters';
 import { validateProductName, validateSKU, validateStock } from '@/utils/validation';
 import { generateSKU, formatDate } from '@/utils/ids';
-import { filterAndSortProducts, clearProductFilters } from '@/utils/filterHelpers';
+import { filterAndSortProducts, clearProductFilters, UNASSIGNED_LOCATION } from '@/utils/filterHelpers';
 import DataPageLayout from '@/components/layout/DataPageLayout';
 import { ALL_DEPARTMENTS_ID } from '@/constants/app';
 
@@ -40,13 +40,15 @@ export default function Products() {
   const [sort, setSort] = useState<ProductSort>({ field: 'date', order: 'desc' });
   const [error, setError] = useState('');
   const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [showAdvanced, setShowAdvanced] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
 
   // Drawer
-  const [drawerOpen, setDrawerOpen] = useState(false);
-  const [drawerItem, setDrawerItem] = useState<Product | null>(null);
-  const [drawerEditing, setDrawerEditing] = useState(false);
+  const [isDrawerOpen, setIsDrawerOpen] = useState(false);
+  const [selectedItem, setSelectedItem] = useState<Product | null>(null);
+  const [editingItem, setEditingItem] = useState<Product | null>(null);
+  const [isCreating, setIsCreating] = useState(false);
   const [formData, setFormData] = useState(emptyForm);
   const [formError, setFormError] = useState('');
 
@@ -75,24 +77,6 @@ export default function Products() {
     return () => window.removeEventListener('storage', handleStorageChange);
   }, []);
 
-  // Restore pending edit/delete from sessionStorage (after dept-switch reload)
-  useEffect(() => {
-    if (loading) return;
-    const pendingEditId = sessionStorage.getItem('pendingEditProductId');
-    if (pendingEditId) {
-      sessionStorage.removeItem('pendingEditProductId');
-      const product = products.find(p => p.id === pendingEditId);
-      if (product) openEditDrawer(product);
-      return;
-    }
-    const pendingDeleteId = sessionStorage.getItem('pendingDeleteProductId');
-    if (pendingDeleteId) {
-      sessionStorage.removeItem('pendingDeleteProductId');
-      const product = products.find(p => p.id === pendingDeleteId);
-      if (product) { openViewDrawer(product); setConfirmingDelete(true); }
-    }
-  }, [loading]);
-
   const buildFormData = (product: Product) => ({
     sku: product.sku,
     name: product.name,
@@ -111,55 +95,45 @@ export default function Products() {
   });
 
   const openNewDrawer = () => {
-    setDrawerItem(null);
+    setSelectedItem(null);
+    setEditingItem(null);
     setFormData(emptyForm);
     setFormError('');
-    setDrawerEditing(true);
-    setDrawerOpen(true);
+    setIsCreating(true);
+    setIsDrawerOpen(true);
   };
 
   const openViewDrawer = (product: Product) => {
-    setDrawerItem(product);
+    setSelectedItem(product);
+    setEditingItem(null);
+    setIsCreating(false);
     setFormError('');
-    setDrawerEditing(false);
-    setDrawerOpen(true);
+    setIsDrawerOpen(true);
   };
 
-  const openEditDrawer = (product: Product) => {
-    setDrawerItem(product);
+  const openEdit = (product: Product) => {
+    setSelectedItem(product);
+    setEditingItem(product);
+    setIsCreating(false);
     setFormData(buildFormData(product));
     setFormError('');
-    setDrawerEditing(true);
-    setDrawerOpen(true);
+    setIsDrawerOpen(true);
   };
 
-  const startEdit = (product: Product) => {
-    const currentDeptId = localStorage.getItem('currentDepartmentId');
-    if (currentDeptId === ALL_DEPARTMENTS_ID && product.departmentId) {
-      sessionStorage.setItem('pendingEditProductId', product.id);
-      sessionStorage.setItem('returnToDeptAfterEdit', ALL_DEPARTMENTS_ID);
-      localStorage.setItem('currentDepartmentId', product.departmentId);
-      window.location.reload();
-      return;
-    }
-    setFormData(buildFormData(product));
+  const cancelEdit = () => {
+    if (isCreating) { closeDrawer(); return; }
+    setEditingItem(null);
     setFormError('');
-    setDrawerEditing(true);
   };
 
   const closeDrawer = () => {
-    setDrawerOpen(false);
-    setDrawerItem(null);
-    setDrawerEditing(false);
+    setIsDrawerOpen(false);
+    setSelectedItem(null);
+    setEditingItem(null);
+    setIsCreating(false);
     setConfirmingDelete(false);
     setFormData(emptyForm);
     setFormError('');
-    const returnToDept = sessionStorage.getItem('returnToDeptAfterEdit');
-    if (returnToDept) {
-      sessionStorage.removeItem('returnToDeptAfterEdit');
-      localStorage.setItem('currentDepartmentId', returnToDept);
-      window.location.reload();
-    }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -170,45 +144,31 @@ export default function Products() {
     if (!validateStock(formData.currentStock)) { setFormError('Invalid stock quantity'); return; }
     try {
       const payload = { ...formData, locationId: formData.locationId || null };
-      if (drawerItem) {
-        await productsApi.update(drawerItem.id, payload);
+      if (editingItem) {
+        const res = await productsApi.update(editingItem.id, payload);
+        setSelectedItem(res.data ?? { ...editingItem, ...payload } as Product);
+        setEditingItem(null);
         await fetchData();
-        const updated = products.find(p => p.id === drawerItem.id);
-        if (updated) setDrawerItem({ ...updated, ...payload });
-        setDrawerEditing(false);
       } else {
         await productsApi.create(payload);
         await fetchData();
         closeDrawer();
       }
       setFormError('');
-      const returnToDept = sessionStorage.getItem('returnToDeptAfterEdit');
-      if (returnToDept) {
-        sessionStorage.removeItem('returnToDeptAfterEdit');
-        localStorage.setItem('currentDepartmentId', returnToDept);
-        window.location.reload();
-      }
     } catch (err: any) {
       setFormError(err?.response?.data?.error || 'Failed to save product');
     }
   };
 
   const handleDelete = () => {
-    if (!drawerItem) return;
-    const currentDeptId = localStorage.getItem('currentDepartmentId');
-    if (currentDeptId === ALL_DEPARTMENTS_ID && drawerItem.departmentId) {
-      sessionStorage.setItem('pendingDeleteProductId', drawerItem.id);
-      localStorage.setItem('currentDepartmentId', drawerItem.departmentId);
-      window.location.reload();
-      return;
-    }
+    if (!selectedItem) return;
     setConfirmingDelete(true);
   };
 
   const doDelete = async () => {
-    if (!drawerItem) return;
+    if (!selectedItem) return;
     try {
-      await productsApi.delete(drawerItem.id);
+      await productsApi.delete(selectedItem.id);
       await fetchData();
       closeDrawer();
     } catch {
@@ -246,6 +206,7 @@ export default function Products() {
 
   const filterContent = (
     <>
+      {/* Row 1: Search + Sort + Clear */}
       <div className="flex gap-2">
         <input type="text" placeholder="Search by name or SKU…" value={filters.search}
           onChange={e => { setFilters({ ...filters, search: e.target.value }); setCurrentPage(1); }}
@@ -263,39 +224,121 @@ export default function Products() {
         </select>
         <button onClick={clearAllFilters} className="text-xs px-3 py-1 bg-[var(--surface-2)] text-[var(--text-muted)] rounded hover:bg-[var(--border)] font-medium">Clear</button>
       </div>
-      <div className="flex gap-2 flex-wrap">
+
+      {/* Row 2: Main filters — 3 columns */}
+      <div className="grid grid-cols-3 gap-2">
         <select value={filters.categoryId || ''} onChange={e => { setFilters({ ...filters, categoryId: e.target.value || undefined }); setCurrentPage(1); }}
           className="px-3 py-2 border border-[var(--border)] rounded text-sm bg-[var(--surface)] text-[var(--text)]">
           <option value="">All Categories</option>
           {categories.map(cat => <option key={cat.id} value={cat.id}>{cat.name}</option>)}
         </select>
+        <select value={filters.locationId || ''} onChange={e => { setFilters({ ...filters, locationId: e.target.value || undefined }); setCurrentPage(1); }}
+          className="px-3 py-2 border border-[var(--border)] rounded text-sm bg-[var(--surface)] text-[var(--text)]">
+          <option value="">All Locations</option>
+          <option value={UNASSIGNED_LOCATION}>Unassigned</option>
+          {locations.map(loc => <option key={loc.id} value={loc.id}>{loc.name}</option>)}
+        </select>
         <select value={filters.stockStatus || ''} onChange={e => { setFilters({ ...filters, stockStatus: e.target.value as any || undefined }); setCurrentPage(1); }}
           className="px-3 py-2 border border-[var(--border)] rounded text-sm bg-[var(--surface)] text-[var(--text)]">
           <option value="">All Stock Status</option>
-          <option value="out-of-stock">Out of Stock</option>
-          <option value="low-stock">Low Stock</option>
           <option value="in-stock">In Stock</option>
+          <option value="low-stock">Low Stock</option>
+          <option value="out-of-stock">Out of Stock</option>
+          <option value="overstock">Overstock</option>
+          <option value="negative-stock">Negative Stock</option>
+          <option value="no-stock-data">No Stock Data</option>
         </select>
-        <select value={filters.unit || ''} onChange={e => { setFilters({ ...filters, unit: e.target.value || undefined }); setCurrentPage(1); }}
-          className="px-3 py-2 border border-[var(--border)] rounded text-sm bg-[var(--surface)] text-[var(--text)]">
-          <option value="">All Units</option>
-          {uniqueUnits.map(unit => <option key={unit} value={unit}>{unit}</option>)}
-        </select>
-        <select value={filters.dateRange} onChange={e => { setFilters({ ...filters, dateRange: e.target.value as any }); setCurrentPage(1); }}
-          className="px-3 py-2 border border-[var(--border)] rounded text-sm bg-[var(--surface)] text-[var(--text)]">
-          <option value="all">All Time</option>
-          <option value="7days">Last 7 Days</option>
-          <option value="30days">Last 30 Days</option>
-          <option value="90days">Last 90 Days</option>
-        </select>
-        {user.role === 'superadmin' && (
-          <select value={filters.departmentId || ''} onChange={e => { setFilters({ ...filters, departmentId: e.target.value || undefined }); setCurrentPage(1); }}
-            className="px-3 py-2 border border-[var(--border)] rounded text-sm bg-[var(--surface)] text-[var(--text)]">
-            <option value="">All Departments</option>
-            {departments.map(dept => <option key={dept.id} value={dept.id}>{dept.name}</option>)}
-          </select>
-        )}
       </div>
+
+      {/* Advanced filters toggle */}
+      <button type="button" onClick={() => setShowAdvanced(v => !v)}
+        className="text-xs text-[var(--primary)] hover:underline text-left font-medium w-fit">
+        {showAdvanced ? '▲ Hide Advanced Filters' : '▼ Advanced Filters'}
+      </button>
+
+      {showAdvanced && (
+        <div className="grid grid-cols-2 gap-2 pt-1 border-t border-[var(--border)]">
+          <select value={filters.unit || ''} onChange={e => { setFilters({ ...filters, unit: e.target.value || undefined }); setCurrentPage(1); }}
+            className="px-3 py-2 border border-[var(--border)] rounded text-sm bg-[var(--surface)] text-[var(--text)]">
+            <option value="">All Units</option>
+            {uniqueUnits.map(unit => <option key={unit} value={unit}>{unit}</option>)}
+          </select>
+          <select value={filters.productStatus || ''} onChange={e => { setFilters({ ...filters, productStatus: e.target.value || undefined }); setCurrentPage(1); }}
+            className="px-3 py-2 border border-[var(--border)] rounded text-sm bg-[var(--surface)] text-[var(--text)]">
+            <option value="">All Product Status</option>
+            <option value="active">Active</option>
+            <option value="inactive">Inactive</option>
+            <option value="archived">Archived</option>
+            <option value="discontinued">Discontinued</option>
+            <option value="draft">Draft</option>
+          </select>
+          <select value={filters.priceStatus || ''} onChange={e => { setFilters({ ...filters, priceStatus: e.target.value || undefined }); setCurrentPage(1); }}
+            className="px-3 py-2 border border-[var(--border)] rounded text-sm bg-[var(--surface)] text-[var(--text)]">
+            <option value="">All Price Status</option>
+            <option value="with-price">With Unit Price</option>
+            <option value="zero-price">Zero Unit Price</option>
+            <option value="missing-price">Missing Unit Price</option>
+            <option value="high-price">High Unit Price (≥ ₱10,000)</option>
+            <option value="low-price">Low Unit Price (&lt; ₱10,000)</option>
+          </select>
+          <select value={filters.valueStatus || ''} onChange={e => { setFilters({ ...filters, valueStatus: e.target.value || undefined }); setCurrentPage(1); }}
+            className="px-3 py-2 border border-[var(--border)] rounded text-sm bg-[var(--surface)] text-[var(--text)]">
+            <option value="">All Value Status</option>
+            <option value="with-value">With Total Value</option>
+            <option value="zero-value">Zero Total Value</option>
+            <option value="high-value">High Value (≥ ₱50,000)</option>
+            <option value="low-value">Low Value (&lt; ₱50,000)</option>
+            <option value="missing">Missing Value</option>
+          </select>
+          <select value={filters.source || ''} onChange={e => { setFilters({ ...filters, source: e.target.value || undefined }); setCurrentPage(1); }}
+            className="px-3 py-2 border border-[var(--border)] rounded text-sm bg-[var(--surface)] text-[var(--text)]">
+            <option value="">All Sources</option>
+            <option value="manual">Manual</option>
+            <option value="csv_import">Imported from CSV</option>
+            <option value="unknown">Unknown</option>
+          </select>
+          <select value={filters.dateAdded || ''} onChange={e => { setFilters({ ...filters, dateAdded: e.target.value || undefined }); setCurrentPage(1); }}
+            className="px-3 py-2 border border-[var(--border)] rounded text-sm bg-[var(--surface)] text-[var(--text)]">
+            <option value="">All Date Added</option>
+            <option value="today">Added Today</option>
+            <option value="this-week">Added This Week</option>
+            <option value="this-month">Added This Month</option>
+            <option value="last-3-months">Added Last 3 Months</option>
+            <option value="this-year">Added This Year</option>
+            <option value="older-1-year">Older Than 1 Year</option>
+          </select>
+          <select value={filters.lastMovement || ''} onChange={e => { setFilters({ ...filters, lastMovement: e.target.value || undefined }); setCurrentPage(1); }}
+            className="px-3 py-2 border border-[var(--border)] rounded text-sm bg-[var(--surface)] text-[var(--text)]">
+            <option value="">All Last Movement</option>
+            <option value="moved-today">Moved Today</option>
+            <option value="moved-week">Moved This Week</option>
+            <option value="moved-month">Moved This Month</option>
+            <option value="moved-3months">Moved Last 3 Months</option>
+            <option value="no-movement">No Movement History</option>
+          </select>
+          <select value={filters.dataQuality || ''} onChange={e => { setFilters({ ...filters, dataQuality: e.target.value || undefined }); setCurrentPage(1); }}
+            className="px-3 py-2 border border-[var(--border)] rounded text-sm bg-[var(--surface)] text-[var(--text)]">
+            <option value="">All Data Quality</option>
+            <option value="complete">Complete Records</option>
+            <option value="incomplete">Incomplete Records</option>
+            <option value="missing-sku">Missing SKU</option>
+            <option value="missing-category">Missing Category</option>
+            <option value="missing-location">Missing Location</option>
+            <option value="missing-unit">Missing Unit</option>
+            <option value="missing-price">Missing Unit Price</option>
+            <option value="zero-price">Zero Unit Price</option>
+            <option value="missing-threshold">Missing Low Stock Threshold</option>
+            <option value="test-data">Placeholder / Test Data</option>
+          </select>
+          {user.role === 'superadmin' && (
+            <select value={filters.departmentId || ''} onChange={e => { setFilters({ ...filters, departmentId: e.target.value || undefined }); setCurrentPage(1); }}
+              className="px-3 py-2 border border-[var(--border)] rounded text-sm bg-[var(--surface)] text-[var(--text)]">
+              <option value="">All Departments</option>
+              {departments.map(dept => <option key={dept.id} value={dept.id}>{dept.name}</option>)}
+            </select>
+          )}
+        </div>
+      )}
     </>
   );
 
@@ -399,7 +442,7 @@ export default function Products() {
       </DataPageLayout>
 
       {/* Right-Side Drawer */}
-      {drawerOpen && (
+      {isDrawerOpen && (selectedItem || isCreating) && (
         <div className="fixed inset-0 z-50 flex">
           <div className="flex-1 bg-black/30" onClick={closeDrawer} />
           <div className="w-full max-w-lg bg-[var(--surface)] border-l border-[var(--border)] flex flex-col h-full overflow-hidden">
@@ -408,30 +451,30 @@ export default function Products() {
             <div className="px-6 py-4 border-b border-[var(--border)] flex items-start justify-between flex-shrink-0">
               <div className="min-w-0">
                 <div className="flex items-center gap-2 flex-wrap">
-                  {drawerItem && (
-                    <span className="font-mono text-xs text-[var(--primary)] font-bold">{drawerItem.sku}</span>
+                  {selectedItem && (
+                    <span className="font-mono text-xs text-[var(--primary)] font-bold">{selectedItem.sku}</span>
                   )}
-                  {drawerItem && !drawerEditing && (
-                    <span className={`px-2 py-0.5 rounded text-xs font-semibold ${STATUS_COLOR[drawerItem.status || 'active'] ?? STATUS_COLOR.active}`}>
-                      {drawerItem.status || 'active'}
+                  {selectedItem && !editingItem && !isCreating && (
+                    <span className={`px-2 py-0.5 rounded text-xs font-semibold ${STATUS_COLOR[selectedItem.status || 'active'] ?? STATUS_COLOR.active}`}>
+                      {selectedItem.status || 'active'}
                     </span>
                   )}
                 </div>
                 <h2 className="text-lg font-semibold text-[var(--text)] mt-0.5 truncate">
-                  {!drawerItem ? 'New Product' : drawerEditing ? 'Edit Product' : drawerItem.name}
+                  {isCreating ? 'New Product' : editingItem ? 'Edit Product' : selectedItem?.name}
                 </h2>
-                {drawerItem && !drawerEditing && (
-                  <p className="text-sm text-[var(--text-muted)]">{categoriesMap.get(drawerItem.categoryId)?.name ?? '—'}</p>
+                {selectedItem && !editingItem && !isCreating && (
+                  <p className="text-sm text-[var(--text-muted)]">{categoriesMap.get(selectedItem.categoryId)?.name ?? '—'}</p>
                 )}
               </div>
-              <button onClick={closeDrawer} className="p-1.5 rounded-lg hover:bg-[var(--surface-2)] text-[var(--text-muted)] flex-shrink-0 ml-2">
+              <button type="button" onClick={closeDrawer} className="p-1.5 rounded-lg hover:bg-[var(--surface-2)] text-[var(--text-muted)] flex-shrink-0 ml-2">
                 <X size={18} />
               </button>
             </div>
 
             {/* Body */}
             <div className="flex-1 overflow-y-auto px-6 py-4">
-              {drawerEditing ? (
+              {(editingItem || isCreating) ? (
                 <form id="product-form" onSubmit={handleSubmit} className="space-y-4">
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div>
@@ -440,7 +483,7 @@ export default function Products() {
                         <input type="text" value={formData.sku}
                           onChange={e => setFormData({ ...formData, sku: e.target.value })}
                           className="flex-1 px-3 py-1.5 text-sm border border-[var(--border)] rounded-lg bg-[var(--surface)] text-[var(--text)]" />
-                        {!drawerItem && (
+                        {isCreating && (
                           <button type="button" onClick={() => setFormData({ ...formData, sku: generateSKU() })}
                             className="px-3 py-1.5 text-sm bg-[var(--surface-2)] rounded-lg hover:bg-[var(--border)]">
                             Gen
@@ -520,7 +563,7 @@ export default function Products() {
                         </optgroup>
                       </select>
                     </div>
-                    {drawerItem ? (
+                    {selectedItem ? (
                       <div>
                         <label className="block text-xs font-medium text-[var(--text-muted)] mb-1">Current Stock</label>
                         <div className="w-full px-3 py-1.5 text-sm border border-[var(--border)] rounded-lg bg-[var(--surface-2)] text-[var(--text-muted)]">
@@ -598,18 +641,18 @@ export default function Products() {
                   </div>
                   {formError && <p className="text-red-500 text-sm">{formError}</p>}
                 </form>
-              ) : drawerItem && (
+              ) : selectedItem && (
                 <div className="space-y-6">
                   <section>
                     <h3 className="text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wider mb-3">Overview</h3>
                     <div className="grid grid-cols-2 gap-3">
                       {[
-                        { label: 'Current Stock', value: `${drawerItem.currentStock} ${drawerItem.unit}` },
-                        { label: 'Low Stock Threshold', value: `${drawerItem.lowStockThreshold} ${drawerItem.unit}` },
-                        { label: 'Unit Price', value: `$${(drawerItem.unitPrice || 0).toFixed(2)}` },
-                        { label: 'Total Value', value: `$${((drawerItem.unitPrice || 0) * drawerItem.currentStock).toFixed(2)}` },
-                        { label: 'Category', value: categoriesMap.get(drawerItem.categoryId)?.name ?? '—' },
-                        { label: 'Location', value: (drawerItem as any).location?.name ?? (locations.find(l => l.id === drawerItem.locationId)?.name) ?? '—' },
+                        { label: 'Current Stock', value: `${selectedItem.currentStock} ${selectedItem.unit}` },
+                        { label: 'Low Stock Threshold', value: `${selectedItem.lowStockThreshold} ${selectedItem.unit}` },
+                        { label: 'Unit Price', value: `$${(selectedItem.unitPrice || 0).toFixed(2)}` },
+                        { label: 'Total Value', value: `$${((selectedItem.unitPrice || 0) * selectedItem.currentStock).toFixed(2)}` },
+                        { label: 'Category', value: categoriesMap.get(selectedItem.categoryId)?.name ?? '—' },
+                        { label: 'Location', value: (selectedItem as any).location?.name ?? (locations.find(l => l.id === selectedItem.locationId)?.name) ?? '—' },
                       ].map(({ label, value }) => (
                         <div key={label}>
                           <p className="text-xs text-[var(--text-muted)] mb-0.5">{label}</p>
@@ -618,30 +661,30 @@ export default function Products() {
                       ))}
                     </div>
                   </section>
-                  {(drawerItem.supplier || drawerItem.leadTimeDays || drawerItem.expiryDate) && (
+                  {(selectedItem.supplier || selectedItem.leadTimeDays || selectedItem.expiryDate) && (
                     <section>
                       <h3 className="text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wider mb-3">Supplier & Logistics</h3>
                       <div className="grid grid-cols-2 gap-3">
                         <div>
                           <p className="text-xs text-[var(--text-muted)] mb-0.5">Supplier</p>
-                          <p className="text-sm text-[var(--text)]">{drawerItem.supplier || '—'}</p>
+                          <p className="text-sm text-[var(--text)]">{selectedItem.supplier || '—'}</p>
                         </div>
                         <div>
                           <p className="text-xs text-[var(--text-muted)] mb-0.5">Lead Time</p>
-                          <p className="text-sm text-[var(--text)]">{drawerItem.leadTimeDays ? `${drawerItem.leadTimeDays} days` : '—'}</p>
+                          <p className="text-sm text-[var(--text)]">{selectedItem.leadTimeDays ? `${selectedItem.leadTimeDays} days` : '—'}</p>
                         </div>
                         <div>
                           <p className="text-xs text-[var(--text-muted)] mb-0.5">Expiry Date</p>
-                          <p className="text-sm text-[var(--text)]">{drawerItem.expiryDate ? formatDate(drawerItem.expiryDate) : '—'}</p>
+                          <p className="text-sm text-[var(--text)]">{selectedItem.expiryDate ? formatDate(selectedItem.expiryDate) : '—'}</p>
                         </div>
                       </div>
                     </section>
                   )}
-                  {(drawerItem.description || drawerItem.notes) && (
+                  {(selectedItem.description || selectedItem.notes) && (
                     <section>
                       <h3 className="text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wider mb-3">Notes</h3>
-                      {drawerItem.description && <p className="text-sm text-[var(--text)] mb-2">{drawerItem.description}</p>}
-                      {drawerItem.notes && <p className="text-sm text-[var(--text-muted)] italic">{drawerItem.notes}</p>}
+                      {selectedItem.description && <p className="text-sm text-[var(--text)] mb-2">{selectedItem.description}</p>}
+                      {selectedItem.notes && <p className="text-sm text-[var(--text-muted)] italic">{selectedItem.notes}</p>}
                     </section>
                   )}
                 </div>
@@ -650,51 +693,51 @@ export default function Products() {
 
             {/* Footer */}
             <div className="px-6 py-4 border-t border-[var(--border)] flex-shrink-0">
-              {drawerEditing ? (
+              {(editingItem || isCreating) ? (
                 <div className="flex gap-2">
                   <button type="submit" form="product-form"
                     className="px-4 py-2 bg-[var(--primary)] text-white text-sm rounded-lg hover:bg-[var(--primary-hover)]">
                     Save
                   </button>
-                  <button type="button" onClick={() => drawerItem ? setDrawerEditing(false) : closeDrawer()}
+                  <button type="button" onClick={cancelEdit}
                     className="px-4 py-2 border border-[var(--border)] text-sm rounded-lg text-[var(--text)] hover:bg-[var(--surface-2)]">
                     Cancel
                   </button>
                 </div>
               ) : confirmingDelete ? (
                 <div className="w-full">
-                  <p className="text-sm font-medium text-[var(--text)] mb-3">Delete "{drawerItem?.name}"?</p>
+                  <p className="text-sm font-medium text-[var(--text)] mb-3">Delete "{selectedItem?.name}"?</p>
                   <div className="flex gap-2">
-                    <button onClick={doDelete}
+                    <button type="button" onClick={doDelete}
                       className="px-4 py-2 bg-red-600 text-white text-sm rounded-lg hover:bg-red-700">
                       Yes, Delete
                     </button>
-                    <button onClick={() => setConfirmingDelete(false)}
+                    <button type="button" onClick={() => setConfirmingDelete(false)}
                       className="px-4 py-2 border border-[var(--border)] text-sm rounded-lg text-[var(--text)] hover:bg-[var(--surface-2)]">
                       Cancel
                     </button>
                   </div>
                 </div>
-              ) : drawerItem && (
+              ) : selectedItem && (
                 <div className="flex gap-2">
                   {user.role !== 'superadmin' && (
-                    <button onClick={() => startEdit(drawerItem)}
+                    <button type="button" onClick={() => openEdit(selectedItem)}
                       className="flex items-center gap-2 px-4 py-2 bg-[var(--primary)] text-white text-sm rounded-lg hover:bg-[var(--primary-hover)]">
                       <Edit size={14} /> Edit
                     </button>
                   )}
                   {user.role === 'admin' ? (
-                    <button onClick={handleDelete}
+                    <button type="button" onClick={handleDelete}
                       className="flex items-center gap-2 px-4 py-2 border border-red-300 text-red-600 text-sm rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20">
                       <Trash2 size={14} /> Delete
                     </button>
                   ) : user.role === 'staff' ? (
-                    <button onClick={() => handleRequestDelete(drawerItem.id, drawerItem.name)}
+                    <button type="button" onClick={() => handleRequestDelete(selectedItem.id, selectedItem.name)}
                       className="flex items-center gap-2 px-4 py-2 border border-orange-300 text-orange-600 text-sm rounded-lg hover:bg-orange-50">
                       <Trash2 size={14} /> Request Delete
                     </button>
                   ) : null}
-                  <button onClick={() => { closeDrawer(); navigate('/stock-movements'); }}
+                  <button type="button" onClick={() => { closeDrawer(); navigate('/stock-movements'); }}
                     className="px-4 py-2 border border-[var(--border)] text-sm rounded-lg text-[var(--text)] hover:bg-[var(--surface-2)]">
                     View Movements
                   </button>
