@@ -1,6 +1,5 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Lock, Mail, User } from 'lucide-react';
 import { authApi } from '../services/api';
 import { useTheme } from '@/contexts/ThemeContext';
 

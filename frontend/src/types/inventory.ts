@@ -54,13 +54,36 @@ export interface Location {
 
 export type MovementType = 'stock_in' | 'stock_out' | 'adjustment' | 'transfer' | 'damaged' | 'returned' | 'opening_stock' | 'deployment' | 'repair' | 'disposal' | 'borrowed' | 'lost';
 
+export interface StockMovementItem {
+  id: string;
+  movementId: string;
+  stockDetailId: string;
+  productId?: string;
+  product?: Product;
+  stockDetail?: {
+    stockId?: string;
+    modelNumber?: string;
+    serialNumber?: string;
+    macId?: string;
+  };
+  quantity: number;
+  reason?: string;
+  fromLocationId?: string;
+  fromLocation?: Location;
+  toLocationId?: string;
+  toLocation?: Location;
+}
+
 export interface StockMovement {
   id: string;
+  movementNo?: string;
   productId: string;
   product?: Product;
   movementType: MovementType;
   quantity: number;
+  remarks?: string;
   reason?: string;
+  items?: StockMovementItem[];
   locationId?: string;
   location?: Location;
   modelNumber?: string;

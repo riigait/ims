@@ -1,19 +1,67 @@
 param(
-    [ValidateSet('start', 'stop', 'restart', 'status')]
+    [ValidateSet('start', 'stop', 'restart', 'status', 'check')]
     [string]$action = 'status'
 )
 
 $backendPort = 3001
 $frontendPort = 5173
+$rootPath = $PSScriptRoot
+$backendPath = Join-Path $rootPath 'backend'
+$frontendPath = Join-Path $rootPath 'frontend'
 
 function Get-PortProcess {
     param([int]$port)
-    $netstat = netstat -ano | Select-String ":$port.*LISTENING"
+
+    $netstat = netstat -ano | Select-String ":$port.*LISTENING" | Select-Object -First 1
     if ($netstat) {
         $procId = $netstat -split '\s+' | Select-Object -Last 1
         return [int]$procId
     }
+
     return $null
+}
+
+function Invoke-IMSCommand {
+    param(
+        [string]$Name,
+        [string]$Path,
+        [string]$Command
+    )
+
+    Write-Host "`nChecking $Name..." -ForegroundColor Cyan
+
+    Push-Location $Path
+    try {
+        Invoke-Expression $Command
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host "[FAIL] $Name check failed." -ForegroundColor Red
+            return $false
+        }
+
+        Write-Host "[OK] $Name check passed." -ForegroundColor Green
+        return $true
+    } finally {
+        Pop-Location
+    }
+}
+
+function Test-IMSApp {
+    Write-Host "`n=== IMS App Check ===" -ForegroundColor Cyan
+
+    $backendOk = Invoke-IMSCommand 'Backend' $backendPath 'npm run build'
+    if (-not $backendOk) {
+        Write-Host "`nStart cancelled. Fix backend errors first." -ForegroundColor Red
+        return $false
+    }
+
+    $frontendOk = Invoke-IMSCommand 'Frontend' $frontendPath 'npm run build'
+    if (-not $frontendOk) {
+        Write-Host "`nStart cancelled. Fix frontend errors first." -ForegroundColor Red
+        return $false
+    }
+
+    Write-Host "`n[OK] Backend and frontend have no build errors." -ForegroundColor Green
+    return $true
 }
 
 function Show-Status {
@@ -34,17 +82,21 @@ function Show-Status {
         Write-Host "[STOP] Frontend (Port $frontendPort): Stopped" -ForegroundColor Red
     }
 
-    # Check Docker containers
-    Push-Location $PSScriptRoot
-    $dockerStatus = docker-compose ps --services 2>&1 | Where-Object { $_ -and $_ -notmatch "warning" }
-    if ($dockerStatus) {
-        Write-Host "[OK] Docker: Running" -ForegroundColor Green
-    } else {
-        Write-Host "[STOP] Docker: Stopped" -ForegroundColor Red
+    Push-Location $rootPath
+    try {
+        $dockerStatus = docker-compose ps --services 2>&1 | Where-Object { $_ -and $_ -notmatch 'warning' }
+        if ($dockerStatus) {
+            Write-Host "[OK] Docker: Running" -ForegroundColor Green
+        } else {
+            Write-Host "[STOP] Docker: Stopped" -ForegroundColor Red
+        }
+    } catch {
+        Write-Host "[WARN] Docker status unavailable" -ForegroundColor Yellow
+    } finally {
+        Pop-Location
     }
-    Pop-Location
 
-    Write-Host "`n"
+    Write-Host ''
 }
 
 function Stop-IMSApp {
@@ -65,14 +117,13 @@ function Stop-IMSApp {
         Start-Sleep -Milliseconds 500
     }
 
-    # Stop Docker containers
     Write-Host "Stopping Docker containers..." -ForegroundColor Cyan
+    Push-Location $rootPath
     try {
-        Push-Location (Split-Path -Parent $MyInvocation.MyCommand.Path)
         docker-compose down 2>$null
-        Pop-Location
     } catch {
         Write-Host "WARNING: Could not stop Docker containers" -ForegroundColor Yellow
+    } finally {
         Pop-Location
     }
 
@@ -95,15 +146,18 @@ function Start-IMSApp {
         return
     }
 
+    if (-not (Test-IMSApp)) {
+        return
+    }
+
+    Push-Location $rootPath
     try {
-        Push-Location $PSScriptRoot
         npm run dev
     } finally {
         Pop-Location
     }
 }
 
-# Main execution
 switch ($action) {
     'start' {
         Start-IMSApp
@@ -120,5 +174,8 @@ switch ($action) {
     }
     'status' {
         Show-Status
+    }
+    'check' {
+        Test-IMSApp | Out-Null
     }
 }

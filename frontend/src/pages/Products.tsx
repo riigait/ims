@@ -24,6 +24,17 @@ const STATUS_COLOR: Record<string, string> = {
   'on-backorder': 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-100',
 };
 
+const formatDateTime = (value: string) => {
+  const date = new Date(value);
+  const pad = (num: number) => String(num).padStart(2, '0');
+
+  return [
+    pad(date.getMonth() + 1),
+    pad(date.getDate()),
+    date.getFullYear(),
+  ].join('/') + ` ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
+};
+
 export default function Products() {
   const navigate = useNavigate();
   const routeLocation = useLocation();
@@ -311,9 +322,9 @@ export default function Products() {
             className="px-3 py-2 border border-[var(--border)] rounded text-sm bg-[var(--surface)] text-[var(--text)]">
             <option value="">All Date Added</option>
             <option value="today">Added Today</option>
-            <option value="this-week">Added This Week</option>
-            <option value="this-month">Added This Month</option>
-            <option value="last-3-months">Added Last 3 Months</option>
+            <option value="yesterday">Added Yesterday</option>
+            <option value="last-week">Added Last Week</option>
+            <option value="last-month">Added Last Month</option>
             <option value="this-year">Added This Year</option>
             <option value="older-1-year">Older Than 1 Year</option>
           </select>
@@ -359,7 +370,10 @@ export default function Products() {
         <div>
           <h1 className="text-3xl font-bold text-[var(--text)]">Products</h1>
           <p className="text-sm text-[var(--text-muted)] mt-2">
-            {products.length} products · <span className="text-yellow-600">{lowStockCount} low stock</span> · <span className="text-red-600">{outOfStockCount} out of stock</span>
+            {filteredProducts.length !== products.length
+              ? <><span className="text-[var(--primary)] font-medium">{filteredProducts.length} filtered</span> of {products.length} products</>
+              : <>{products.length} products</>
+            } · <span className="text-yellow-600">{lowStockCount} low stock</span> · <span className="text-red-600">{outOfStockCount} out of stock</span>
             {negativeStockCount > 0 && <> · <span className="text-purple-600">{negativeStockCount} negative</span></>}
           </p>
         </div>
@@ -373,6 +387,7 @@ export default function Products() {
       </div>
 
       <DataPageLayout
+        title="Products"
         error={error}
         showForm={false}
         formContent={null}
@@ -387,7 +402,7 @@ export default function Products() {
           ) : (
             <div className="space-y-0 border border-[var(--border)] rounded-lg overflow-hidden">
               {/* Table header */}
-              <div className="hidden md:grid md:grid-cols-8 gap-4 px-4 py-2 bg-[var(--surface-2)] text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wide border-b border-[var(--border)]">
+              <div className="hidden md:grid md:grid-cols-9 gap-4 px-4 py-2 bg-[var(--surface-2)] text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wide border-b border-[var(--border)]">
                 <div>SKU</div>
                 <div>Name</div>
                 <div>Category</div>
@@ -396,6 +411,7 @@ export default function Products() {
                 <div className="text-right">Total Value</div>
                 <div>Status</div>
                 <div className="text-right">Stock</div>
+                <div>Date Added</div>
               </div>
               {paginatedProducts.map(product => {
                 const category = product.category ?? categoriesMap.get(product.categoryId);
@@ -408,7 +424,7 @@ export default function Products() {
                     key={product.id}
                     onClick={() => openViewDrawer(product)}
                     className="flex items-center gap-3 px-4 py-3 bg-[var(--surface)] border-b border-[var(--border)] hover:bg-[var(--surface-2)] cursor-pointer transition-colors">
-                    <div className="flex-1 grid grid-cols-2 md:grid-cols-8 gap-4 text-sm min-w-0">
+                    <div className="flex-1 grid grid-cols-2 md:grid-cols-9 gap-4 text-sm min-w-0">
                       <div className="truncate">
                         <span className="font-mono text-xs text-[var(--text-muted)]">{product.sku}</span>
                       </div>
@@ -431,6 +447,9 @@ export default function Products() {
                         }`}>
                           {product.currentStock} {product.unit}
                         </span>
+                      </div>
+                      <div className="text-xs text-[var(--text-muted)]">
+                        {product.createdAt ? formatDateTime(product.createdAt) : '—'}
                       </div>
                     </div>
                     <ChevronRight size={16} className="text-[var(--text-muted)] flex-shrink-0" />

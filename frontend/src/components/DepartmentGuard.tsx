@@ -1,5 +1,5 @@
 import { ReactNode } from 'react';
-import { LogOut, Mail, Phone, HelpCircle, RefreshCw } from 'lucide-react';
+import { LogOut, Mail, HelpCircle, RefreshCw } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 
 interface DepartmentGuardProps {

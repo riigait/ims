@@ -104,12 +104,15 @@ export const filterProducts = (products: Product[], filter: ProductFilter): Prod
     const now = Date.now();
     const added = product.createdAt ? new Date(product.createdAt).getTime() : null;
     const matchesDateAdded = !filter.dateAdded || (() => {
-      if (filter.dateAdded === 'today') return !!added && now - added < 86400000;
-      if (filter.dateAdded === 'this-week') return !!added && now - added < 7 * 86400000;
-      if (filter.dateAdded === 'this-month') return !!added && now - added < 30 * 86400000;
-      if (filter.dateAdded === 'last-3-months') return !!added && now - added < 90 * 86400000;
-      if (filter.dateAdded === 'this-year') return !!added && now - added < 365 * 86400000;
-      if (filter.dateAdded === 'older-1-year') return !!added && now - added >= 365 * 86400000;
+      if (!added) return false;
+
+      const age = now - added;
+      if (filter.dateAdded === 'today') return age >= 0 && age < 86400000;
+      if (filter.dateAdded === 'yesterday') return age >= 86400000 && age < 2 * 86400000;
+      if (filter.dateAdded === 'last-week') return age >= 7 * 86400000 && age < 30 * 86400000;
+      if (filter.dateAdded === 'last-month') return age >= 30 * 86400000 && age < 90 * 86400000;
+      if (filter.dateAdded === 'this-year') return age >= 90 * 86400000 && age < 365 * 86400000;
+      if (filter.dateAdded === 'older-1-year') return age >= 365 * 86400000;
       return true;
     })();
 
