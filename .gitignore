@@ -78,4 +78,4 @@ csv-corrector/
 # CSV files (blanket ignore — allow tracked templates and tooling formats)
 *.csv
 !scripts/csv-corrector/format.csv
-!templates/*.csv
+templates/*.csv
