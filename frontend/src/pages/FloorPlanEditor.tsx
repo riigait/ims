@@ -38,12 +38,13 @@ export default function FloorPlanEditor() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const canvasWrapperRef = useRef<HTMLDivElement>(null);
   const user = JSON.parse(localStorage.getItem('user') || '{}');
   const isReadOnly = user.role === 'staff';
 
   const {
     currentFloorPlan, editorState, selectedObjectIds,
-    setCurrentFloorPlan, setTool, setSelectedObject, setSelectedObjects, addToSelection, removeFromSelection, clearSelection, setZoomLevel,
+    setCurrentFloorPlan, setTool, setSelectedObject, setSelectedObjects, addToSelection, removeFromSelection, clearSelection, setZoomLevel, setPan,
     addObject, updateObject, deleteObject, deleteMultipleObjects, getSelectedObject,
     bringToFront, sendToBack, moveForward, moveBackward, getObjectLayer, groupObjects, ungroupObjects,
     copyObjects, pasteObjects, undo, redo,
@@ -62,6 +63,10 @@ export default function FloorPlanEditor() {
   // Drawing state
   const [startPos, setStartPos] = useState<{ x: number; y: number } | null>(null);
   const [currentMousePos, setCurrentMousePos] = useState<{ x: number; y: number } | null>(null);
+
+  // Pan state (middle mouse)
+  const [isPanning, setIsPanning] = useState(false);
+  const [panStart, setPanStart] = useState<{ x: number; y: number; panX: number; panY: number } | null>(null);
 
   // Drag state
   const [isDragging, setIsDragging] = useState(false);
@@ -239,6 +244,35 @@ export default function FloorPlanEditor() {
   }, [currentFloorPlan, editorState.selectedObjectId, editorState.zoomLevel,
       editorState.panX, editorState.panY, startPos, currentMousePos,
       productsByLocation, locationsMap]);
+
+  const wheelHandlerRef = useRef<(e: WheelEvent) => void>(() => {});
+  useEffect(() => {
+    wheelHandlerRef.current = (e: WheelEvent) => {
+      if (!e.ctrlKey) return;
+      // Stop browser zoom — must be non-passive listener on the wrapper for this to work
+      e.preventDefault();
+      e.stopPropagation();
+      const canvas = canvasRef.current;
+      if (!canvas) return;
+      const rect = canvas.getBoundingClientRect();
+      const mouseX = e.clientX - rect.left;
+      const mouseY = e.clientY - rect.top;
+      const factor = e.deltaY < 0 ? 1.1 : 0.9;
+      const { zoomLevel, panX, panY } = useFloorPlanStore.getState().editorState;
+      const newZoom = Math.min(3, Math.max(0.3, zoomLevel * factor));
+      const newPanX = mouseX - (mouseX - panX) * (newZoom / zoomLevel);
+      const newPanY = mouseY - (mouseY - panY) * (newZoom / zoomLevel);
+      setZoomLevel(newZoom);
+      setPan(newPanX, newPanY);
+    };
+  });
+  useEffect(() => {
+    const wrapper = canvasWrapperRef.current;
+    if (!wrapper) return;
+    const handler = (e: WheelEvent) => wheelHandlerRef.current(e);
+    wrapper.addEventListener('wheel', handler, { passive: false });
+    return () => wrapper.removeEventListener('wheel', handler);
+  }, []);
 
   const loadFloorPlan = async () => {
     if (!id) return;
@@ -1121,6 +1155,15 @@ export default function FloorPlanEditor() {
   };
 
   const handleCanvasPointerDown = (e: React.PointerEvent) => {
+    // Middle mouse button — start panning
+    if (e.button === 1) {
+      e.preventDefault();
+      (e.currentTarget as HTMLCanvasElement).setPointerCapture(e.pointerId);
+      setIsPanning(true);
+      setPanStart({ x: e.clientX, y: e.clientY, panX: editorState.panX, panY: editorState.panY });
+      return;
+    }
+
     const pos = canvasToWorld(e.clientX, e.clientY);
 
     // For read-only mode, only allow viewing objects (no editing)
@@ -1242,6 +1285,14 @@ export default function FloorPlanEditor() {
   };
 
   const handleCanvasPointerMove = (e: React.PointerEvent) => {
+    // Middle mouse panning
+    if (isPanning && panStart) {
+      const dx = e.clientX - panStart.x;
+      const dy = e.clientY - panStart.y;
+      setPan(panStart.panX + dx, panStart.panY + dy);
+      return;
+    }
+
     const pos = canvasToWorld(e.clientX, e.clientY);
 
     // No dragging/resizing in read-only mode
@@ -1393,8 +1444,16 @@ export default function FloorPlanEditor() {
   };
 
   const handleCanvasPointerUp = (e: React.PointerEvent) => {
-    const pos = canvasToWorld(e.clientX, e.clientY);
     (e.currentTarget as HTMLCanvasElement).releasePointerCapture(e.pointerId);
+
+    // Middle mouse — stop panning
+    if (e.button === 1) {
+      setIsPanning(false);
+      setPanStart(null);
+      return;
+    }
+
+    const pos = canvasToWorld(e.clientX, e.clientY);
 
     // In read-only mode, just reset drag state
     if (isReadOnly) {
@@ -1689,7 +1748,7 @@ export default function FloorPlanEditor() {
         )}
 
         {/* Canvas area */}
-        <div className="flex-1 overflow-auto bg-[var(--surface-2)] p-4">
+        <div ref={canvasWrapperRef} className="flex-1 overflow-auto bg-[var(--surface-2)] p-4">
           <canvas
             ref={canvasRef}
             width={currentFloorPlan.width}
@@ -1698,6 +1757,8 @@ export default function FloorPlanEditor() {
             onPointerMove={handleCanvasPointerMove}
             onPointerUp={handleCanvasPointerUp}
             onDoubleClick={isReadOnly ? undefined : handleCanvasDoubleClick}
+            onAuxClick={e => e.preventDefault()}
+            onContextMenu={e => e.preventDefault()}
             onPointerLeave={(e) => {
               (e.currentTarget as HTMLCanvasElement).releasePointerCapture(e.pointerId);
               if (!isDragging) { setStartPos(null); setCurrentMousePos(null); }
