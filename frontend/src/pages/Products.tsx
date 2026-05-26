@@ -35,7 +35,7 @@ export default function Products() {
   const [loading, setLoading] = useState(true);
   const routeState = (routeLocation.state as any) || {};
   const [filters, setFilters] = useState<ProductFilter>({
-    search: routeState.search ?? '', categoryId: undefined, locationId: routeState.locationId ?? undefined, stockStatus: undefined, departmentId: undefined, unit: undefined, dateRange: 'all',
+    search: routeState.search ?? '', categoryId: undefined, locationId: routeState.locationId ?? undefined, stockStatus: routeState.stockStatus ?? undefined, departmentId: undefined, unit: undefined, dateRange: 'all',
   });
   const [sort, setSort] = useState<ProductSort>({ field: 'date', order: 'desc' });
   const [error, setError] = useState('');

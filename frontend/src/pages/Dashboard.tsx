@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-  Package, Boxes, TrendingDown, AlertCircle, MapPin, Map,
+  Package, Boxes, AlertCircle, MapPin,
   ArrowLeftRight, CheckCircle, AlertTriangle, Activity,
   DollarSign, Wrench, Clock, Tag, ScanLine, Plus, FileDown, Zap,
 } from 'lucide-react';
@@ -210,6 +210,14 @@ export default function Dashboard() {
 
   const hasStockAlerts = stats.lowStockCount > 0 || stats.outOfStockCount > 0 || stats.negativeStockCount > 0;
 
+  const stockAlertItems = [
+    { label: 'Low Stock',    count: stats.lowStockCount,      color: 'text-yellow-600 dark:text-yellow-400', stockStatus: 'low-stock' },
+    { label: 'Out of Stock', count: stats.outOfStockCount,    color: 'text-red-600 dark:text-red-400',       stockStatus: 'out-of-stock' },
+    { label: 'Negative',     count: stats.negativeStockCount, color: 'text-purple-600 dark:text-purple-400', stockStatus: undefined },
+  ].filter(a => a.count > 0);
+
+  const categoryStockItems = stats.categoryBreakdown.map(c => ({ name: c.name, count: c.stock }));
+
   const quickActions = [
     { label: 'Add Product',     icon: Package,        path: '/products',        color: 'bg-blue-50 text-blue-600 hover:bg-blue-100 border-blue-200 dark:bg-blue-950 dark:text-blue-400 dark:border-blue-900' },
     { label: 'Add Stock',       icon: Plus,           path: '/stock-movements', color: 'bg-green-50 text-green-600 hover:bg-green-100 border-green-200 dark:bg-green-950 dark:text-green-400 dark:border-green-900' },
@@ -222,58 +230,103 @@ export default function Dashboard() {
     <div className="space-y-6 p-1">
 
       {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-end justify-between gap-2">
+      <div>
+        <p className="text-sm text-[var(--text-muted)]">{today}</p>
+        <h1 className="text-3xl font-bold text-[var(--text)] mt-0.5">
+          {greeting()}{user.name ? `, ${user.name}` : ''} 👋
+        </h1>
+        {user.role === 'superadmin' && (
+          <p className="text-sm text-[var(--text-muted)] mt-1">Viewing all departments</p>
+        )}
+        {(user.role === 'admin' || user.role === 'staff') && departmentName && (
+          <p className="text-sm text-[var(--text-muted)] mt-1">
+            Department: <span className="font-semibold text-[var(--text)]">{departmentName}</span>
+          </p>
+        )}
+      </div>
+
+      {/* Section 1 — Summary */}
+      <div>
+        <p className="text-xs font-semibold uppercase tracking-wide text-[var(--text-muted)] mb-3">Summary</p>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <StatCard label="Products"        value={stats.totalProducts}      sub="Product types / SKUs"      icon={Package}     accent="bg-blue-100 text-blue-600 dark:bg-blue-950 dark:text-blue-400"           onClick={() => navigate('/products')} />
+          <StatCard label="Inventory Items" value={stats.totalInventoryItems} sub="Tagged physical items"     icon={Boxes}       accent="bg-indigo-100 text-indigo-600 dark:bg-indigo-950 dark:text-indigo-400"   onClick={() => navigate('/inventory-items')} />
+          <StatCard label="Total Stock"     value={stats.totalStock}          sub="Quantity on hand"          icon={CheckCircle} accent="bg-green-100 text-green-600 dark:bg-green-950 dark:text-green-400"       onClick={() => navigate('/products')} />
+          <StatCard label="Inventory Value" value={formatValue(stats.totalInventoryValue)} sub="Based on current stock" icon={DollarSign} accent="bg-emerald-100 text-emerald-600 dark:bg-emerald-950 dark:text-emerald-400" />
+        </div>
+      </div>
+
+      {/* Section 2 — Attention Needed */}
+      {(hasStockAlerts || stats.unassignedLocationCount > 0 || stats.warrantyExpiringSoon > 0) && (
         <div>
-          <p className="text-sm text-[var(--text-muted)]">{today}</p>
-          <h1 className="text-3xl font-bold text-[var(--text)] mt-0.5">
-            {greeting()}{user.name ? `, ${user.name}` : ''} 👋
-          </h1>
-          {user.role === 'superadmin' && (
-            <p className="text-sm text-[var(--text-muted)] mt-1">Viewing all departments</p>
-          )}
-          {(user.role === 'admin' || user.role === 'staff') && departmentName && (
-            <p className="text-sm text-[var(--text-muted)] mt-1">
-              Department: <span className="font-semibold text-[var(--text)]">{departmentName}</span>
-            </p>
-          )}
-        </div>
-        <div className="flex flex-col gap-2">
-          {hasStockAlerts && (
-            <div className="flex items-center gap-2 bg-yellow-50 dark:bg-yellow-950 border border-yellow-200 dark:border-yellow-800 rounded-lg px-4 py-2">
-              <AlertTriangle size={16} className="text-yellow-600 flex-shrink-0" />
-              <span className="text-sm text-yellow-700 dark:text-yellow-300">
-                {stats.negativeStockCount > 0 && <><span className="font-semibold">{stats.negativeStockCount} negative</span> · </>}
-                {stats.outOfStockCount > 0 && <><span className="font-semibold">{stats.outOfStockCount} out of stock</span> · </>}
-                {stats.lowStockCount > 0 && <><span className="font-semibold">{stats.lowStockCount} low stock</span></>}
-              </span>
-            </div>
-          )}
-          {stats.warrantyExpiringSoon > 0 && (
-            <div className="flex items-center gap-2 bg-blue-50 dark:bg-blue-950 border border-blue-200 dark:border-blue-800 rounded-lg px-4 py-2">
-              <Clock size={16} className="text-blue-600 flex-shrink-0" />
-              <span className="text-sm text-blue-700 dark:text-blue-300">
-                <span className="font-semibold">{stats.warrantyExpiringSoon} item{stats.warrantyExpiringSoon !== 1 ? 's' : ''}</span> with warranty expiring within 30 days
-              </span>
-            </div>
-          )}
-        </div>
-      </div>
+          <p className="text-xs font-semibold uppercase tracking-wide text-[var(--text-muted)] mb-3">Attention Needed</p>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
 
-      {/* Main Stat Cards */}
-      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-4">
-        <StatCard label="Products"        value={stats.totalProducts}       icon={Package}     accent="bg-blue-100 text-blue-600 dark:bg-blue-950 dark:text-blue-400"         onClick={() => navigate('/products')} />
-        <StatCard label="Inventory Items" value={stats.totalInventoryItems}  icon={Boxes}       accent="bg-indigo-100 text-indigo-600 dark:bg-indigo-950 dark:text-indigo-400" onClick={() => navigate('/inventory-items')} />
-        <StatCard label="Total Stock"     value={stats.totalStock}           icon={CheckCircle} accent="bg-green-100 text-green-600 dark:bg-green-950 dark:text-green-400"     onClick={() => navigate('/products')} />
-        <StatCard label="Inventory Value" value={formatValue(stats.totalInventoryValue)} icon={DollarSign} accent="bg-emerald-100 text-emerald-600 dark:bg-emerald-950 dark:text-emerald-400" />
-        <StatCard label="Low Stock"       value={stats.lowStockCount}        icon={TrendingDown} accent={stats.lowStockCount > 0 ? 'bg-yellow-100 text-yellow-600 dark:bg-yellow-950 dark:text-yellow-400' : 'bg-gray-100 text-gray-400'} onClick={() => navigate('/products')} />
-        <StatCard label="Locations"       value={stats.totalLocations}       icon={MapPin}      accent="bg-purple-100 text-purple-600 dark:bg-purple-950 dark:text-purple-400" onClick={() => navigate('/locations')} />
-        <StatCard label="Unassigned Location" value={stats.unassignedLocationCount} icon={AlertCircle} accent={stats.unassignedLocationCount > 0 ? 'bg-red-100 text-red-600 dark:bg-red-950 dark:text-red-400' : 'bg-gray-100 text-gray-400'} onClick={() => navigate('/products', { state: { locationId: stats.unassignedLocationId ?? 'unassigned' } })} />
-        <StatCard label="Floor Plans"     value={stats.totalFloorPlans}      icon={Map}         accent="bg-rose-100 text-rose-600 dark:bg-rose-950 dark:text-rose-400"         onClick={() => navigate('/floor-plans')} />
-      </div>
+            {/* Stock Alerts card */}
+            {hasStockAlerts && (
+              <div className="bg-[var(--surface)] rounded-xl p-5 shadow-sm border border-yellow-200 dark:border-yellow-800">
+                <div className="flex items-center gap-2 mb-3">
+                  <div className="p-2 rounded-lg bg-yellow-100 text-yellow-600 dark:bg-yellow-950 dark:text-yellow-400">
+                    <AlertTriangle size={20} />
+                  </div>
+                  <p className="font-semibold text-[var(--text)]">Stock Alerts</p>
+                </div>
+                <div className="space-y-2">
+                  {stockAlertItems.map(a => (
+                    <button
+                      key={a.label}
+                      onClick={() => navigate('/products', { state: { stockStatus: a.stockStatus } })}
+                      className="w-full flex items-center justify-between text-sm hover:opacity-80 transition-opacity"
+                    >
+                      <span className="text-[var(--text-muted)]">{a.label}</span>
+                      <span className={`font-bold ${a.color}`}>{a.count}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
 
-      {/* Item Status */}
-      <div className="space-y-2">
-        <p className="text-xs font-semibold uppercase tracking-wide text-[var(--text-muted)]">Item Status</p>
+            {/* Unassigned Location card */}
+            {stats.unassignedLocationCount > 0 && (
+              <button
+                onClick={() => navigate('/products', { state: { locationId: stats.unassignedLocationId ?? 'unassigned' } })}
+                className="bg-[var(--surface)] rounded-xl p-5 shadow-sm border border-red-200 dark:border-red-800 text-left hover:shadow-md transition-all active:scale-95"
+              >
+                <div className="flex items-center gap-2 mb-3">
+                  <div className="p-2 rounded-lg bg-red-100 text-red-600 dark:bg-red-950 dark:text-red-400">
+                    <MapPin size={20} />
+                  </div>
+                  <p className="font-semibold text-[var(--text)]">Unassigned Location</p>
+                </div>
+                <p className="text-2xl font-bold text-red-600 dark:text-red-400">{stats.unassignedLocationCount}</p>
+                <p className="text-xs text-[var(--text-muted)] mt-1">Products with no assigned location</p>
+              </button>
+            )}
+
+            {/* Warranty Expiring Soon card */}
+            {stats.warrantyExpiringSoon > 0 && (
+              <button
+                onClick={() => navigate('/inventory-items')}
+                className="bg-[var(--surface)] rounded-xl p-5 shadow-sm border border-blue-200 dark:border-blue-800 text-left hover:shadow-md transition-all active:scale-95"
+              >
+                <div className="flex items-center gap-2 mb-3">
+                  <div className="p-2 rounded-lg bg-blue-100 text-blue-600 dark:bg-blue-950 dark:text-blue-400">
+                    <Clock size={20} />
+                  </div>
+                  <p className="font-semibold text-[var(--text)]">Warranty Expiring Soon</p>
+                </div>
+                <p className="text-2xl font-bold text-blue-600 dark:text-blue-400">{stats.warrantyExpiringSoon}</p>
+                <p className="text-xs text-[var(--text-muted)] mt-1">Items expiring within 30 days</p>
+              </button>
+            )}
+
+          </div>
+        </div>
+      )}
+
+      {/* Section 3 — Asset Status */}
+      <div>
+        <p className="text-xs font-semibold uppercase tracking-wide text-[var(--text-muted)] mb-3">Asset Status</p>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           <StatCard label="Available"  value={stats.itemsAvailable} icon={CheckCircle} accent="bg-green-100 text-green-600 dark:bg-green-950 dark:text-green-400"    onClick={() => navigate('/inventory-items')} />
           <StatCard label="In Use"     value={stats.itemsInUse}     icon={Zap}         accent="bg-blue-100 text-blue-600 dark:bg-blue-950 dark:text-blue-400"        onClick={() => navigate('/inventory-items')} />
@@ -282,48 +335,53 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* Analytics Row */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      {/* Section 4 — Inventory Analytics */}
+      <div>
+        <p className="text-xs font-semibold uppercase tracking-wide text-[var(--text-muted)] mb-3">Inventory Analytics</p>
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
 
-        <div className="bg-[var(--surface)] rounded-xl shadow-sm border border-[var(--border)] p-5">
-          <div className="flex items-center gap-2 mb-4">
-            <Activity size={18} className="text-[var(--primary)]" />
-            <h2 className="font-semibold text-[var(--text)]">Stock Health</h2>
+          <div className="bg-[var(--surface)] rounded-xl shadow-sm border border-[var(--border)] p-5">
+            <div className="flex items-center gap-2 mb-4">
+              <Activity size={18} className="text-[var(--primary)]" />
+              <h2 className="font-semibold text-[var(--text)]">Product Stock Health</h2>
+            </div>
+            <HealthBar
+              good={stats.goodStockCount}
+              low={stats.lowStockCount}
+              out={stats.outOfStockCount}
+              negative={stats.negativeStockCount}
+            />
+            {(stats.outOfStockCount > 0 || stats.negativeStockCount > 0) && (
+              <button onClick={() => navigate('/products')} className="mt-4 w-full text-xs text-center text-[var(--primary)] hover:underline">
+                Review products →
+              </button>
+            )}
           </div>
-          <HealthBar
-            good={stats.goodStockCount}
-            low={stats.lowStockCount}
-            out={stats.outOfStockCount}
-            negative={stats.negativeStockCount}
-          />
-          {(stats.outOfStockCount > 0 || stats.negativeStockCount > 0) && (
-            <button onClick={() => navigate('/products')} className="mt-4 w-full text-xs text-center text-[var(--primary)] hover:underline">
-              Review products →
-            </button>
-          )}
-        </div>
 
-        <div className="bg-[var(--surface)] rounded-xl shadow-sm border border-[var(--border)] p-5">
-          <div className="flex items-center gap-2 mb-4">
-            <Tag size={18} className="text-[var(--primary)]" />
-            <h2 className="font-semibold text-[var(--text)]">Category Breakdown</h2>
+          <div className="bg-[var(--surface)] rounded-xl shadow-sm border border-[var(--border)] p-5">
+            <div className="flex items-center gap-2 mb-4">
+              <Tag size={18} className="text-[var(--primary)]" />
+              <h2 className="font-semibold text-[var(--text)]">Stock Qty by Category</h2>
+            </div>
+            <BreakdownBar items={categoryStockItems} />
           </div>
-          <BreakdownBar items={stats.categoryBreakdown} />
-        </div>
 
-        <div className="bg-[var(--surface)] rounded-xl shadow-sm border border-[var(--border)] p-5">
-          <div className="flex items-center gap-2 mb-4">
-            <MapPin size={18} className="text-[var(--primary)]" />
-            <h2 className="font-semibold text-[var(--text)]">Location Breakdown</h2>
+          <div className="bg-[var(--surface)] rounded-xl shadow-sm border border-[var(--border)] p-5">
+            <div className="flex items-center gap-2 mb-4">
+              <MapPin size={18} className="text-[var(--primary)]" />
+              <h2 className="font-semibold text-[var(--text)]">Inventory Items by Location</h2>
+            </div>
+            <BreakdownBar items={stats.locationBreakdown} />
           </div>
-          <BreakdownBar items={stats.locationBreakdown} />
-        </div>
 
+        </div>
       </div>
 
-      {/* Quick Actions */}
-      <div className="space-y-2">
-        <p className="text-xs font-semibold uppercase tracking-wide text-[var(--text-muted)]">Quick Actions</p>
+      {/* Section 5 — Operations */}
+      <div className="space-y-4">
+        <p className="text-xs font-semibold uppercase tracking-wide text-[var(--text-muted)]">Operations</p>
+
+        {/* Quick Actions */}
         <div className="flex flex-wrap gap-3">
           {quickActions.map(({ label, icon: Icon, path, color }) => (
             <button
@@ -336,56 +394,56 @@ export default function Dashboard() {
             </button>
           ))}
         </div>
-      </div>
 
-      {/* Recent Movements */}
-      <div className="bg-[var(--surface)] rounded-xl shadow-sm border border-[var(--border)]">
-        <div className="px-5 py-4 border-b border-[var(--border)] flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <ArrowLeftRight size={18} className="text-[var(--primary)]" />
-            <h2 className="font-semibold text-[var(--text)]">Recent Movements</h2>
+        {/* Recent Movements */}
+        <div className="bg-[var(--surface)] rounded-xl shadow-sm border border-[var(--border)]">
+          <div className="px-5 py-4 border-b border-[var(--border)] flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <ArrowLeftRight size={18} className="text-[var(--primary)]" />
+              <h2 className="font-semibold text-[var(--text)]">Recent Movements</h2>
+            </div>
+            <button onClick={() => navigate('/stock-movements')} className="text-xs text-[var(--primary)] hover:underline font-medium">
+              View all →
+            </button>
           </div>
-          <button onClick={() => navigate('/stock-movements')} className="text-xs text-[var(--primary)] hover:underline font-medium">
-            View all →
-          </button>
-        </div>
 
-        {recentMovements.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-12 text-center">
-            <ArrowLeftRight size={32} className="text-[var(--text-muted)] mb-3 opacity-30" />
-            <p className="text-sm text-[var(--text-muted)]">No stock movements yet.</p>
-          </div>
-        ) : (
-          <div className="divide-y divide-[var(--border)]">
-            {recentMovements.slice(0, 8).map(m => {
-              const meta = MOVEMENT_META[m.movementType] ?? { label: m.movementType, color: 'bg-gray-100 text-gray-700', dot: 'bg-gray-400' };
-              const productNames: string = m.products || m.items?.map((i: any) => i.product?.name).join(', ') || '—';
-              const itemCount = m.items?.length ?? 0;
-              return (
-                <div
-                  key={m.id}
-                  onClick={() => navigate('/stock-movements')}
-                  className="flex items-center gap-4 px-5 py-3 hover:bg-[var(--surface-2)] cursor-pointer transition-colors"
-                >
-                  <span className={`w-2 h-2 rounded-full flex-shrink-0 ${meta.dot}`} />
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-[var(--text)] truncate">{productNames}</p>
-                    <p className="text-xs text-[var(--text-muted)]">
-                      {m.movementNo ?? '—'} · {itemCount} item{itemCount !== 1 ? 's' : ''}
-                      {m.user?.name ? ` · ${m.user.name}` : ''}
-                    </p>
+          {recentMovements.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-12 text-center">
+              <ArrowLeftRight size={32} className="text-[var(--text-muted)] mb-3 opacity-30" />
+              <p className="text-sm text-[var(--text-muted)]">No stock movements yet.</p>
+            </div>
+          ) : (
+            <div className="divide-y divide-[var(--border)]">
+              {recentMovements.slice(0, 8).map(m => {
+                const meta = MOVEMENT_META[m.movementType] ?? { label: m.movementType, color: 'bg-gray-100 text-gray-700', dot: 'bg-gray-400' };
+                const productNames: string = m.products || m.items?.map((i: any) => i.product?.name).join(', ') || '—';
+                const itemCount = m.items?.length ?? 0;
+                return (
+                  <div
+                    key={m.id}
+                    onClick={() => navigate('/stock-movements')}
+                    className="flex items-center gap-4 px-5 py-3 hover:bg-[var(--surface-2)] cursor-pointer transition-colors"
+                  >
+                    <span className={`w-2 h-2 rounded-full flex-shrink-0 ${meta.dot}`} />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-[var(--text)] truncate">{productNames}</p>
+                      <p className="text-xs text-[var(--text-muted)]">
+                        {m.movementNo ?? '—'} · {itemCount} item{itemCount !== 1 ? 's' : ''}
+                        {m.user?.name ? ` · ${m.user.name}` : ''}
+                      </p>
+                    </div>
+                    <span className={`px-2 py-0.5 rounded-full text-xs font-semibold flex-shrink-0 ${meta.color}`}>
+                      {meta.label}
+                    </span>
+                    <span className="text-xs text-[var(--text-muted)] flex-shrink-0">
+                      {timeAgo(m.createdAt)}
+                    </span>
                   </div>
-                  <span className={`px-2 py-0.5 rounded-full text-xs font-semibold flex-shrink-0 ${meta.color}`}>
-                    {meta.label}
-                  </span>
-                  <span className="text-xs text-[var(--text-muted)] flex-shrink-0">
-                    {timeAgo(m.createdAt)}
-                  </span>
-                </div>
-              );
-            })}
-          </div>
-        )}
+                );
+              })}
+            </div>
+          )}
+        </div>
       </div>
 
     </div>
