@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react';
-import { X, Trash2 } from 'lucide-react';
+import { useState, useEffect, useRef } from 'react';
+import { X, Trash2, Search, ChevronLeft, ChevronRight } from 'lucide-react';
 import { stockMovementsApi, productsApi, locationsApi, departmentsApi } from '@/services/api';
 import { StockMovement, MovementType, Product, Location } from '@/types/inventory';
 import { StockMovementFilter } from '@/types/filters';
@@ -38,6 +38,291 @@ const movementColor = (type: MovementType) =>
 const movementLabel = (type: MovementType) =>
   MOVEMENT_OPTIONS.find(o => o.value === type)?.label ?? type;
 
+const DROPDOWN_PAGE_SIZE = 20;
+
+function ProductSearchDropdown({
+  products,
+  value,
+  onChange,
+}: {
+  products: Product[];
+  value: string;
+  onChange: (productId: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState('');
+  const [page, setPage] = useState(1);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  const selected = products.find(p => p.id === value);
+
+  const filtered = search.trim()
+    ? products.filter(p =>
+        p.name.toLowerCase().includes(search.trim().toLowerCase()) ||
+        (p.sku || '').toLowerCase().includes(search.trim().toLowerCase())
+      )
+    : products;
+
+  const totalPages = Math.ceil(filtered.length / DROPDOWN_PAGE_SIZE);
+  const paginated = filtered.slice((page - 1) * DROPDOWN_PAGE_SIZE, page * DROPDOWN_PAGE_SIZE);
+
+  useEffect(() => { setPage(1); }, [search]);
+
+  useEffect(() => {
+    if (!open) return;
+    const handleClick = (e: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, [open]);
+
+  const handleOpen = () => {
+    setOpen(true);
+    setSearch('');
+    setPage(1);
+    setTimeout(() => inputRef.current?.focus(), 50);
+  };
+
+  const handleSelect = (productId: string) => {
+    onChange(productId);
+    setOpen(false);
+    setSearch('');
+  };
+
+  return (
+    <div ref={containerRef} className="relative">
+      {/* Trigger button */}
+      <button
+        type="button"
+        onClick={handleOpen}
+        className="w-full px-2 py-1.5 text-sm border border-[var(--border)] rounded bg-[var(--surface)] text-left flex items-center justify-between gap-1 hover:border-[var(--primary)] transition-colors"
+      >
+        <span className={selected ? 'text-[var(--text)] truncate' : 'text-[var(--text-muted)]'}>
+          {selected ? `${selected.name} (${selected.currentStock})` : 'Select product'}
+        </span>
+        <Search size={13} className="flex-shrink-0 text-[var(--text-muted)]" />
+      </button>
+
+      {/* Dropdown */}
+      {open && (
+        <div className="absolute z-50 left-0 right-0 mt-1 bg-[var(--surface)] border border-[var(--border)] rounded-lg shadow-xl overflow-hidden">
+          {/* Search input */}
+          <div className="p-2 border-b border-[var(--border)]">
+            <div className="flex items-center gap-2 px-2 py-1.5 border border-[var(--border)] rounded bg-[var(--surface-2)]">
+              <Search size={13} className="text-[var(--text-muted)] flex-shrink-0" />
+              <input
+                ref={inputRef}
+                type="text"
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+                placeholder="Search by name or SKU…"
+                className="flex-1 text-sm bg-transparent outline-none text-[var(--text)] placeholder:text-[var(--text-muted)]"
+              />
+              {search && (
+                <button type="button" onClick={() => setSearch('')} className="text-[var(--text-muted)] hover:text-[var(--text)]">
+                  <X size={12} />
+                </button>
+              )}
+            </div>
+            <p className="text-xs text-[var(--text-muted)] mt-1 px-1">
+              {filtered.length} product{filtered.length !== 1 ? 's' : ''} found
+            </p>
+          </div>
+
+          {/* Results list */}
+          <div className="max-h-48 overflow-y-auto">
+            {paginated.length === 0 ? (
+              <p className="text-sm text-[var(--text-muted)] text-center py-4">No products match.</p>
+            ) : (
+              paginated.map(p => (
+                <button
+                  key={p.id}
+                  type="button"
+                  onClick={() => handleSelect(p.id)}
+                  className={`w-full text-left px-3 py-2 text-sm hover:bg-[var(--surface-2)] transition-colors flex items-center justify-between gap-2 ${p.id === value ? 'bg-[var(--surface-2)] font-medium' : ''}`}
+                >
+                  <span className="truncate text-[var(--text)]">{p.name}</span>
+                  <span className="text-xs text-[var(--text-muted)] flex-shrink-0">qty {p.currentStock}</span>
+                </button>
+              ))
+            )}
+          </div>
+
+          {/* Pagination */}
+          {totalPages > 1 && (
+            <div className="flex items-center justify-between px-3 py-2 border-t border-[var(--border)] bg-[var(--surface-2)]">
+              <button
+                type="button"
+                onClick={() => setPage(p => Math.max(1, p - 1))}
+                disabled={page === 1}
+                className="p-1 rounded hover:bg-[var(--border)] disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                <ChevronLeft size={14} />
+              </button>
+              <span className="text-xs text-[var(--text-muted)]">
+                Page {page} of {totalPages}
+              </span>
+              <button
+                type="button"
+                onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+                disabled={page === totalPages}
+                className="p-1 rounded hover:bg-[var(--border)] disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                <ChevronRight size={14} />
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function LocationSearchDropdown({
+  locations,
+  value,
+  onChange,
+  placeholder = '— No location —',
+}: {
+  locations: Location[];
+  value: string;
+  onChange: (locationId: string) => void;
+  placeholder?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState('');
+  const [page, setPage] = useState(1);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  const selected = locations.find(l => l.id === value);
+
+  const filtered = search.trim()
+    ? locations.filter(l => l.name.toLowerCase().includes(search.trim().toLowerCase()))
+    : locations;
+
+  const totalPages = Math.ceil(filtered.length / DROPDOWN_PAGE_SIZE);
+  const paginated = filtered.slice((page - 1) * DROPDOWN_PAGE_SIZE, page * DROPDOWN_PAGE_SIZE);
+
+  useEffect(() => { setPage(1); }, [search]);
+
+  useEffect(() => {
+    if (!open) return;
+    const handleClick = (e: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, [open]);
+
+  const handleOpen = () => {
+    setOpen(true);
+    setSearch('');
+    setPage(1);
+    setTimeout(() => inputRef.current?.focus(), 50);
+  };
+
+  const handleSelect = (locationId: string) => {
+    onChange(locationId);
+    setOpen(false);
+    setSearch('');
+  };
+
+  return (
+    <div ref={containerRef} className="relative">
+      <button
+        type="button"
+        onClick={handleOpen}
+        className="w-full px-2 py-1.5 text-sm border border-[var(--border)] rounded bg-[var(--surface)] text-left flex items-center justify-between gap-1 hover:border-[var(--primary)] transition-colors"
+      >
+        <span className={selected ? 'text-[var(--text)] truncate' : 'text-[var(--text-muted)]'}>
+          {selected ? selected.name : placeholder}
+        </span>
+        <Search size={13} className="flex-shrink-0 text-[var(--text-muted)]" />
+      </button>
+
+      {open && (
+        <div className="absolute z-50 left-0 right-0 mt-1 bg-[var(--surface)] border border-[var(--border)] rounded-lg shadow-xl overflow-hidden">
+          <div className="p-2 border-b border-[var(--border)]">
+            <div className="flex items-center gap-2 px-2 py-1.5 border border-[var(--border)] rounded bg-[var(--surface-2)]">
+              <Search size={13} className="text-[var(--text-muted)] flex-shrink-0" />
+              <input
+                ref={inputRef}
+                type="text"
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+                placeholder="Search location…"
+                className="flex-1 text-sm bg-transparent outline-none text-[var(--text)] placeholder:text-[var(--text-muted)]"
+              />
+              {search && (
+                <button type="button" onClick={() => setSearch('')} className="text-[var(--text-muted)] hover:text-[var(--text)]">
+                  <X size={12} />
+                </button>
+              )}
+            </div>
+            <p className="text-xs text-[var(--text-muted)] mt-1 px-1">
+              {filtered.length} location{filtered.length !== 1 ? 's' : ''} found
+            </p>
+          </div>
+
+          <div className="max-h-48 overflow-y-auto">
+            {/* Clear / none option */}
+            <button
+              type="button"
+              onClick={() => handleSelect('')}
+              className={`w-full text-left px-3 py-2 text-sm hover:bg-[var(--surface-2)] transition-colors text-[var(--text-muted)] ${!value ? 'bg-[var(--surface-2)]' : ''}`}
+            >
+              — None —
+            </button>
+            {paginated.length === 0 ? (
+              <p className="text-sm text-[var(--text-muted)] text-center py-4">No locations match.</p>
+            ) : (
+              paginated.map(l => (
+                <button
+                  key={l.id}
+                  type="button"
+                  onClick={() => handleSelect(l.id)}
+                  className={`w-full text-left px-3 py-2 text-sm hover:bg-[var(--surface-2)] transition-colors text-[var(--text)] ${l.id === value ? 'bg-[var(--surface-2)] font-medium' : ''}`}
+                >
+                  {l.name}
+                </button>
+              ))
+            )}
+          </div>
+
+          {totalPages > 1 && (
+            <div className="flex items-center justify-between px-3 py-2 border-t border-[var(--border)] bg-[var(--surface-2)]">
+              <button
+                type="button"
+                onClick={() => setPage(p => Math.max(1, p - 1))}
+                disabled={page === 1}
+                className="p-1 rounded hover:bg-[var(--border)] disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                <ChevronLeft size={14} />
+              </button>
+              <span className="text-xs text-[var(--text-muted)]">Page {page} of {totalPages}</span>
+              <button
+                type="button"
+                onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+                disabled={page === totalPages}
+                className="p-1 rounded hover:bg-[var(--border)] disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                <ChevronRight size={14} />
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 const emptyForm = {
   movementType: 'stock_in' as MovementType,
   remarks: '',
@@ -68,6 +353,9 @@ export default function StockMovements() {
   const [drawerIsNew, setDrawerIsNew] = useState(false);
   const [formData, setFormData] = useState(emptyForm);
   const [formError, setFormError] = useState('');
+  const [itemsPage, setItemsPage] = useState(1);
+  const [itemsPageSize, setItemsPageSize] = useState(20);
+  const [itemsSearch, setItemsSearch] = useState('');
 
   const fetchData = async () => {
     try {
@@ -108,6 +396,8 @@ export default function StockMovements() {
     setDrawerItem(movement);
     setDrawerIsNew(false);
     setFormError('');
+    setItemsPage(1);
+    setItemsSearch('');
     setDrawerOpen(true);
   };
 
@@ -353,21 +643,18 @@ export default function StockMovements() {
                     <div className="space-y-3">
                       {formData.items.map((item, idx) => (
                         <div key={idx} className="p-3 bg-[var(--surface-2)] rounded-lg space-y-2">
-                          <div className="grid grid-cols-2 gap-2">
+                          <div className="flex flex-col gap-2">
                             <div>
                               <label className="block text-xs font-medium text-[var(--text-muted)] mb-1">Product *</label>
-                              <select value={item.productId}
-                                onChange={e => {
+                              <ProductSearchDropdown
+                                products={products}
+                                value={item.productId}
+                                onChange={productId => {
                                   const newItems = [...formData.items];
-                                  newItems[idx] = { ...item, productId: e.target.value, stockDetailId: '' };
+                                  newItems[idx] = { ...item, productId, stockDetailId: '' };
                                   setFormData({ ...formData, items: newItems });
                                 }}
-                                className="w-full px-2 py-1.5 text-sm border border-[var(--border)] rounded bg-[var(--surface)] text-[var(--text)]">
-                                <option value="">Select product</option>
-                                {products.map(p => (
-                                  <option key={p.id} value={p.id}>{p.name} ({p.currentStock})</option>
-                                ))}
-                              </select>
+                              />
                             </div>
                             <div>
                               <label className="block text-xs font-medium text-[var(--text-muted)] mb-1">Quantity *</label>
@@ -382,29 +669,27 @@ export default function StockMovements() {
                             </div>
                             <div>
                               <label className="block text-xs font-medium text-[var(--text-muted)] mb-1">From Location</label>
-                              <select value={(item.fromLocationId as string) || ''}
-                                onChange={e => {
+                              <LocationSearchDropdown
+                                locations={locations}
+                                value={(item.fromLocationId as string) || ''}
+                                onChange={locationId => {
                                   const newItems = [...formData.items];
-                                  newItems[idx].fromLocationId = e.target.value || '';
+                                  newItems[idx].fromLocationId = locationId;
                                   setFormData({ ...formData, items: newItems });
                                 }}
-                                className="w-full px-2 py-1.5 text-sm border border-[var(--border)] rounded bg-[var(--surface)] text-[var(--text)]">
-                                <option value="">—</option>
-                                {locations.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
-                              </select>
+                              />
                             </div>
                             <div>
                               <label className="block text-xs font-medium text-[var(--text-muted)] mb-1">To Location</label>
-                              <select value={(item.toLocationId as string) || ''}
-                                onChange={e => {
+                              <LocationSearchDropdown
+                                locations={locations}
+                                value={(item.toLocationId as string) || ''}
+                                onChange={locationId => {
                                   const newItems = [...formData.items];
-                                  newItems[idx].toLocationId = e.target.value || '';
+                                  newItems[idx].toLocationId = locationId;
                                   setFormData({ ...formData, items: newItems });
                                 }}
-                                className="w-full px-2 py-1.5 text-sm border border-[var(--border)] rounded bg-[var(--surface)] text-[var(--text)]">
-                                <option value="">—</option>
-                                {locations.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
-                              </select>
+                              />
                             </div>
                           </div>
                           {formData.items.length > 1 && (
@@ -437,34 +722,111 @@ export default function StockMovements() {
                     </section>
                   )}
                   <section>
-                    <h3 className="text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wider mb-3">Items</h3>
-                    <div className="space-y-2">
-                      {(drawerItem.items || []).map((item: any, idx: number) => (
-                        <div key={idx} className="p-3 bg-[var(--surface-2)] rounded-lg text-sm">
-                          <div className="grid grid-cols-2 gap-2">
-                            <div>
-                              <p className="text-xs text-[var(--text-muted)]">Product</p>
-                              <p className="font-medium text-[var(--text)]">{item.product?.name || 'Unknown'}</p>
-                            </div>
-                            <div>
-                              <p className="text-xs text-[var(--text-muted)]">Stock ID</p>
-                              <p className="text-[var(--text)] font-mono text-xs">{item.stockDetail?.stockId || '—'}</p>
-                            </div>
-                            <div>
-                              <p className="text-xs text-[var(--text-muted)]">Quantity</p>
-                              <p className="font-medium text-[var(--text)]">{item.quantity}</p>
-                            </div>
-                            <div>
-                              <p className="text-xs text-[var(--text-muted)]">Locations</p>
-                              <p className="text-[var(--text)]">{item.fromLocation?.name || '—'} → {item.toLocation?.name || '—'}</p>
+                    {(() => {
+                      const allItems = drawerItem.items || [];
+                      const term = itemsSearch.trim().toLowerCase();
+                      const filteredItems = term
+                        ? allItems.filter((item: any) =>
+                            (item.product?.name || '').toLowerCase().includes(term) ||
+                            (item.stockDetail?.stockId || '').toLowerCase().includes(term)
+                          )
+                        : allItems;
+                      const totalItemPages = Math.ceil(filteredItems.length / itemsPageSize);
+                      const pagedItems = filteredItems.slice((itemsPage - 1) * itemsPageSize, itemsPage * itemsPageSize);
+                      return (
+                        <>
+                          <div className="flex items-center justify-between mb-2">
+                            <h3 className="text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wider">
+                              Items <span className="normal-case font-normal">({allItems.length})</span>
+                            </h3>
+                            <div className="flex items-center gap-1.5">
+                              <span className="text-xs text-[var(--text-muted)]">Show</span>
+                              {[20, 50, 100].map(size => (
+                                <button
+                                  key={size}
+                                  type="button"
+                                  onClick={() => { setItemsPageSize(size); setItemsPage(1); }}
+                                  className={`text-xs px-2 py-0.5 rounded border transition-colors ${itemsPageSize === size ? 'bg-[var(--primary)] text-white border-[var(--primary)]' : 'border-[var(--border)] text-[var(--text-muted)] hover:bg-[var(--surface-2)]'}`}
+                                >
+                                  {size}
+                                </button>
+                              ))}
                             </div>
                           </div>
-                          {item.reason && (
-                            <p className="text-xs text-[var(--text-muted)] mt-2 italic">{item.reason}</p>
+                          {/* Items search */}
+                          <div className="flex items-center gap-2 px-2 py-1.5 border border-[var(--border)] rounded bg-[var(--surface-2)] mb-2">
+                            <Search size={13} className="text-[var(--text-muted)] flex-shrink-0" />
+                            <input
+                              type="text"
+                              value={itemsSearch}
+                              onChange={e => { setItemsSearch(e.target.value); setItemsPage(1); }}
+                              placeholder="Search by product name or stock ID…"
+                              className="flex-1 text-xs bg-transparent outline-none text-[var(--text)] placeholder:text-[var(--text-muted)]"
+                            />
+                            {itemsSearch && (
+                              <button type="button" onClick={() => { setItemsSearch(''); setItemsPage(1); }} className="text-[var(--text-muted)] hover:text-[var(--text)]">
+                                <X size={12} />
+                              </button>
+                            )}
+                          </div>
+                          {term && (
+                            <p className="text-xs text-[var(--text-muted)] mb-2">
+                              {filteredItems.length} of {allItems.length} items
+                            </p>
                           )}
-                        </div>
-                      ))}
-                    </div>
+                          <div className="space-y-2">
+                            {pagedItems.map((item: any, idx: number) => (
+                              <div key={idx} className="p-3 bg-[var(--surface-2)] rounded-lg text-sm">
+                                <div className="grid grid-cols-2 gap-2">
+                                  <div>
+                                    <p className="text-xs text-[var(--text-muted)]">Product</p>
+                                    <p className="font-medium text-[var(--text)]">{item.product?.name || 'Unknown'}</p>
+                                  </div>
+                                  <div>
+                                    <p className="text-xs text-[var(--text-muted)]">Stock ID</p>
+                                    <p className="text-[var(--text)] font-mono text-xs">{item.stockDetail?.stockId || '—'}</p>
+                                  </div>
+                                  <div>
+                                    <p className="text-xs text-[var(--text-muted)]">Quantity</p>
+                                    <p className="font-medium text-[var(--text)]">{item.quantity}</p>
+                                  </div>
+                                  <div>
+                                    <p className="text-xs text-[var(--text-muted)]">Locations</p>
+                                    <p className="text-[var(--text)]">{item.fromLocation?.name || '—'} → {item.toLocation?.name || '—'}</p>
+                                  </div>
+                                </div>
+                                {item.reason && (
+                                  <p className="text-xs text-[var(--text-muted)] mt-2 italic">{item.reason}</p>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                          {totalItemPages > 1 && (
+                            <div className="flex items-center justify-between mt-3 pt-3 border-t border-[var(--border)]">
+                              <button
+                                type="button"
+                                onClick={() => setItemsPage(p => Math.max(1, p - 1))}
+                                disabled={itemsPage === 1}
+                                className="flex items-center gap-1 px-2 py-1 text-xs rounded border border-[var(--border)] hover:bg-[var(--surface-2)] disabled:opacity-40 disabled:cursor-not-allowed"
+                              >
+                                <ChevronLeft size={13} /> Prev
+                              </button>
+                              <span className="text-xs text-[var(--text-muted)]">
+                                Page {itemsPage} of {totalItemPages} · {filteredItems.length} items
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => setItemsPage(p => Math.min(totalItemPages, p + 1))}
+                                disabled={itemsPage === totalItemPages}
+                                className="flex items-center gap-1 px-2 py-1 text-xs rounded border border-[var(--border)] hover:bg-[var(--surface-2)] disabled:opacity-40 disabled:cursor-not-allowed"
+                              >
+                                Next <ChevronRight size={13} />
+                              </button>
+                            </div>
+                          )}
+                        </>
+                      );
+                    })()}
                   </section>
                   <section>
                     <h3 className="text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wider mb-3">Details</h3>

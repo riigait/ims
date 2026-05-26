@@ -145,8 +145,18 @@ export const filterStockMovements = (
   const search = filter.search.trim().toLowerCase();
 
   return movements.filter((movement) => {
-    const productName = getProductName(movement.productId).toLowerCase();
-    const matchesSearch = !search || productName.includes(search);
+    let matchesSearch = true;
+    if (search) {
+      const itemTokens = (movement.items || [])
+        .flatMap((item: any) => [
+          (item.product?.name || getProductName(item.productId) || '').toLowerCase(),
+          (item.stockDetail?.stockId || '').toLowerCase(),
+        ])
+        .join(' ');
+      const movementNo = (movement.movementNo || '').toLowerCase();
+      const remarks = (movement.remarks || '').toLowerCase();
+      matchesSearch = itemTokens.includes(search) || movementNo.includes(search) || remarks.includes(search);
+    }
     const matchesType = !filter.movementType || movement.movementType === filter.movementType;
     const matchesDateRange = isWithinDateRange(
       movement.createdAt || new Date().toISOString(),
@@ -170,8 +180,11 @@ export const sortStockMovements = (
         return new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime();
       case 'oldest':
         return new Date(a.createdAt || 0).getTime() - new Date(b.createdAt || 0).getTime();
-      case 'product-name':
-        return getProductName(a.productId).localeCompare(getProductName(b.productId));
+      case 'product-name': {
+        const nameA = (a.items?.[0]?.product?.name || getProductName(a.items?.[0]?.productId) || '').toLowerCase();
+        const nameB = (b.items?.[0]?.product?.name || getProductName(b.items?.[0]?.productId) || '').toLowerCase();
+        return nameA.localeCompare(nameB);
+      }
       case 'quantity-high':
         return b.quantity - a.quantity;
       case 'quantity-low':

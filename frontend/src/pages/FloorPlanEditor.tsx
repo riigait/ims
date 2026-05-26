@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import {
   ArrowLeft, Save, Trash2, Move, Box, Square, Package,
   Layers, Type, ZoomIn, ZoomOut, MapPin, AlertTriangle, CheckCircle, XCircle,
-  ChevronsUp, ChevronsDown, ChevronUp, ChevronDown, DoorOpen, Grid2x2, LogIn,
+  ChevronsUp, ChevronsDown, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, DoorOpen, Grid2x2, LogIn, Search, X as XIcon,
 } from 'lucide-react';
 import { floorPlansApi, locationsApi, productsApi } from '@/services/api';
 import { useFloorPlanStore } from '@/services/floorPlanStore';
@@ -55,6 +55,9 @@ export default function FloorPlanEditor() {
   const [titleDraft, setTitleDraft] = useState('');
   const [locations, setLocations] = useState<Location[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
+  const [prodSearch, setProdSearch] = useState('');
+  const [prodPage, setProdPage] = useState(1);
+  const [prodPageSize, setProdPageSize] = useState(20);
 
   // Drawing state
   const [startPos, setStartPos] = useState<{ x: number; y: number } | null>(null);
@@ -1562,6 +1565,8 @@ export default function FloorPlanEditor() {
   const linkedLoc = linkedLocId ? locationsMap.get(linkedLocId) : null;
   const linkedProducts = linkedLocId ? (productsByLocation.get(linkedLocId) ?? []) : [];
 
+  useEffect(() => { setProdSearch(''); setProdPage(1); }, [linkedLocId]);
+
   const stockStatusLabel: Record<StockStatus, { label: string; className: string; icon: JSX.Element }> = {
     ok:       { label: 'In Stock',    className: 'text-green-700 bg-green-100',  icon: <CheckCircle size={12} /> },
     low:      { label: 'Low Stock',   className: 'text-amber-700 bg-amber-100',  icon: <AlertTriangle size={12} /> },
@@ -2150,56 +2155,125 @@ export default function FloorPlanEditor() {
                   </div>
 
                   {/* Product list */}
-                  <div>
-                    <div className="flex items-center justify-between mb-2">
-                      <h4 className="text-xs font-semibold text-[var(--text)] uppercase tracking-wide">
-                        Products ({linkedProducts.length})
-                      </h4>
-                    </div>
+                  {(() => {
+                    const term = prodSearch.trim().toLowerCase();
+                    const filteredProds = term
+                      ? linkedProducts.filter(p =>
+                          p.name.toLowerCase().includes(term) ||
+                          (p.sku || '').toLowerCase().includes(term)
+                        )
+                      : linkedProducts;
+                    const totalProdPages = Math.ceil(filteredProds.length / prodPageSize);
+                    const pagedProds = filteredProds.slice((prodPage - 1) * prodPageSize, prodPage * prodPageSize);
+                    return (
+                      <div>
+                        <div className="flex items-center justify-between mb-2">
+                          <h4 className="text-xs font-semibold text-[var(--text)] uppercase tracking-wide">
+                            Products ({linkedProducts.length})
+                          </h4>
+                          <div className="flex items-center gap-1">
+                            <span className="text-xs text-[var(--text-muted)]">Show</span>
+                            {[20, 50, 100].map(size => (
+                              <button
+                                key={size}
+                                type="button"
+                                onClick={() => { setProdPageSize(size); setProdPage(1); }}
+                                className={`text-xs px-1.5 py-0.5 rounded border transition-colors ${prodPageSize === size ? 'bg-[var(--primary)] text-white border-[var(--primary)]' : 'border-[var(--border)] text-[var(--text-muted)] hover:bg-[var(--surface-2)]'}`}
+                              >
+                                {size}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
 
-                    {linkedProducts.length === 0 ? (
-                      <div className="text-center py-6 text-[var(--text-muted)]">
-                        <Package size={28} className="mx-auto mb-2 opacity-40" />
-                        <p className="text-xs">No products assigned to this location.</p>
-                        <p className="text-xs mt-0.5">Go to Products to assign items here.</p>
-                      </div>
-                    ) : (
-                      <div className="space-y-2">
-                        {linkedProducts.map(product => {
-                          const status: StockStatus =
-                            product.currentStock === 0 ? 'out' :
-                            product.currentStock <= product.lowStockThreshold ? 'low' : 'ok';
-                          const s = stockStatusLabel[status];
-                          return (
-                            <div key={product.id} className="border border-[var(--border)] rounded-lg p-2.5 bg-[var(--surface-2)] hover:bg-[var(--border)] transition">
-                              <div className="flex items-start justify-between gap-2">
-                                <div className="min-w-0 flex-1">
-                                  <p className="text-sm font-medium text-[var(--text)] truncate">{product.name}</p>
-                                  <p className="text-xs text-[var(--text-muted)]">{product.sku}</p>
-                                </div>
-                                <span className={`flex items-center gap-0.5 text-xs font-medium px-1.5 py-0.5 rounded-full flex-shrink-0 ${s.className}`}>
-                                  {s.icon}
-                                </span>
-                              </div>
-                              <div className="mt-1.5 flex items-center justify-between">
-                                <div className="text-sm">
-                                  <span className={`font-bold ${status === 'out' ? 'text-red-600' : status === 'low' ? 'text-amber-600' : 'text-green-700'}`}>
-                                    {product.currentStock}
-                                  </span>
-                                  <span className="text-[var(--text-muted)] text-xs"> / {product.lowStockThreshold} min · {product.unit}</span>
-                                </div>
-                                {/* Mini stock bar */}
-                                <div className="w-16 h-1.5 bg-[var(--border)] rounded-full overflow-hidden">
-                                  <div className={`h-full rounded-full ${status === 'out' ? 'bg-red-500' : status === 'low' ? 'bg-amber-500' : 'bg-green-500'}`}
-                                    style={{ width: `${Math.min(100, (product.currentStock / Math.max(product.lowStockThreshold * 2, 1)) * 100)}%` }} />
-                                </div>
-                              </div>
+                        {linkedProducts.length === 0 ? (
+                          <div className="text-center py-6 text-[var(--text-muted)]">
+                            <Package size={28} className="mx-auto mb-2 opacity-40" />
+                            <p className="text-xs">No products assigned to this location.</p>
+                            <p className="text-xs mt-0.5">Go to Products to assign items here.</p>
+                          </div>
+                        ) : (
+                          <>
+                            {/* Search bar */}
+                            <div className="flex items-center gap-2 px-2 py-1.5 border border-[var(--border)] rounded bg-[var(--surface-2)] mb-2">
+                              <Search size={12} className="text-[var(--text-muted)] flex-shrink-0" />
+                              <input
+                                type="text"
+                                value={prodSearch}
+                                onChange={e => { setProdSearch(e.target.value); setProdPage(1); }}
+                                placeholder="Search by name or SKU…"
+                                className="flex-1 text-xs bg-transparent outline-none text-[var(--text)] placeholder:text-[var(--text-muted)]"
+                              />
+                              {prodSearch && (
+                                <button type="button" onClick={() => { setProdSearch(''); setProdPage(1); }} className="text-[var(--text-muted)] hover:text-[var(--text)]">
+                                  <XIcon size={11} />
+                                </button>
+                              )}
                             </div>
-                          );
-                        })}
+                            {term && (
+                              <p className="text-xs text-[var(--text-muted)] mb-2">{filteredProds.length} of {linkedProducts.length} products</p>
+                            )}
+                            <div className="space-y-2">
+                              {pagedProds.map(product => {
+                                const status: StockStatus =
+                                  product.currentStock === 0 ? 'out' :
+                                  product.currentStock <= product.lowStockThreshold ? 'low' : 'ok';
+                                const s = stockStatusLabel[status];
+                                return (
+                                  <div key={product.id} className="border border-[var(--border)] rounded-lg p-2.5 bg-[var(--surface-2)] hover:bg-[var(--border)] transition">
+                                    <div className="flex items-start justify-between gap-2">
+                                      <div className="min-w-0 flex-1">
+                                        <p className="text-sm font-medium text-[var(--text)] truncate">{product.name}</p>
+                                        <p className="text-xs text-[var(--text-muted)]">{product.sku}</p>
+                                      </div>
+                                      <span className={`flex items-center gap-0.5 text-xs font-medium px-1.5 py-0.5 rounded-full flex-shrink-0 ${s.className}`}>
+                                        {s.icon}
+                                      </span>
+                                    </div>
+                                    <div className="mt-1.5 flex items-center justify-between">
+                                      <div className="text-sm">
+                                        <span className={`font-bold ${status === 'out' ? 'text-red-600' : status === 'low' ? 'text-amber-600' : 'text-green-700'}`}>
+                                          {product.currentStock}
+                                        </span>
+                                        <span className="text-[var(--text-muted)] text-xs"> / {product.lowStockThreshold} min · {product.unit}</span>
+                                      </div>
+                                      <div className="w-16 h-1.5 bg-[var(--border)] rounded-full overflow-hidden">
+                                        <div className={`h-full rounded-full ${status === 'out' ? 'bg-red-500' : status === 'low' ? 'bg-amber-500' : 'bg-green-500'}`}
+                                          style={{ width: `${Math.min(100, (product.currentStock / Math.max(product.lowStockThreshold * 2, 1)) * 100)}%` }} />
+                                      </div>
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                            {totalProdPages > 1 && (
+                              <div className="flex items-center justify-between mt-3 pt-3 border-t border-[var(--border)]">
+                                <button
+                                  type="button"
+                                  onClick={() => setProdPage(p => Math.max(1, p - 1))}
+                                  disabled={prodPage === 1}
+                                  className="flex items-center gap-1 px-2 py-1 text-xs rounded border border-[var(--border)] hover:bg-[var(--surface-2)] disabled:opacity-40 disabled:cursor-not-allowed"
+                                >
+                                  <ChevronLeft size={12} /> Prev
+                                </button>
+                                <span className="text-xs text-[var(--text-muted)]">
+                                  Page {prodPage} of {totalProdPages} · {filteredProds.length} products
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => setProdPage(p => Math.min(totalProdPages, p + 1))}
+                                  disabled={prodPage === totalProdPages}
+                                  className="flex items-center gap-1 px-2 py-1 text-xs rounded border border-[var(--border)] hover:bg-[var(--surface-2)] disabled:opacity-40 disabled:cursor-not-allowed"
+                                >
+                                  Next <ChevronRight size={12} />
+                                </button>
+                              </div>
+                            )}
+                          </>
+                        )}
                       </div>
-                    )}
-                  </div>
+                    );
+                  })()}
                 </div>
               )}
             </div>

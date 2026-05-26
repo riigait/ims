@@ -38,6 +38,7 @@ router.get('/stats', authMiddleware, async (req: AuthRequest, res: Response) => 
       allProducts, totalInventoryItems,
       itemStatusGroups, warrantyExpiringSoon,
       categoryGroups, locationGroups,
+      missingDetailsCount,
     ] = await Promise.all([
       prisma.product.count({ where: departmentFilter }),
       prisma.product.aggregate({ _sum: { currentStock: true }, where: departmentFilter }),
@@ -74,6 +75,26 @@ router.get('/stats', authMiddleware, async (req: AuthRequest, res: Response) => 
         _count: { id: true },
         orderBy: { _count: { id: 'desc' } },
         take: 6,
+      }),
+      prisma.stockDetail.count({
+        where: {
+          ...stockDetailFilter,
+          currentStatus: { notIn: ['sold', 'disposed', 'lost'] },
+          OR: [
+            { assetTag: null },
+            { assetTag: '' },
+            { barcode: null },
+            { barcode: '' },
+            { serialNumber: null },
+            { serialNumber: '' },
+            { modelNumber: null },
+            { modelNumber: '' },
+            { warrantyExpiry: null },
+            { currentLocationId: null },
+            { macId: null },
+            { macId: '' },
+          ],
+        },
       }),
     ]);
 
@@ -129,6 +150,7 @@ router.get('/stats', authMiddleware, async (req: AuthRequest, res: Response) => 
       totalLocations, totalFloorPlans,
       unassignedLocationCount,
       unassignedLocationId: unassignedLocation?.id ?? null,
+      missingDetailsCount,
       totalInventoryValue,
       itemsAvailable, itemsInUse, itemsForRepair, itemsLost,
       warrantyExpiringSoon,
