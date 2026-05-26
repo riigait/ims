@@ -141,6 +141,7 @@ router.get('/', async (req: AuthRequest, res: Response) => {
         leadTimeDays: true,
         notes: true,
         source: true,
+        csvImportId: true,
         createdAt: true,
         updatedAt: true,
       },
@@ -178,6 +179,7 @@ router.get('/:id', async (req: AuthRequest, res: Response) => {
         leadTimeDays: true,
         notes: true,
         source: true,
+        csvImportId: true,
         createdAt: true,
         updatedAt: true,
       },
@@ -401,6 +403,12 @@ router.post('/import/csv', async (req: AuthRequest, res: Response) => {
     const created = [];
     const errors = [];
 
+    // Generate unique batch ID for this import session
+    const now = new Date();
+    const datePart = now.toISOString().slice(0, 10).replace(/-/g, '');
+    const randPart = Math.random().toString(36).substring(2, 6).toUpperCase();
+    const csvImportId = `IMP-${datePart}-${randPart}`;
+
     for (let i = 0; i < rows.length; i++) {
       try {
         const row = rows[i];
@@ -423,7 +431,8 @@ router.post('/import/csv', async (req: AuthRequest, res: Response) => {
             leadTimeDays: row.leadTimeDays ? parseInt(row.leadTimeDays) : null,
             notes: row.notes || null,
             source: 'csv_import',
-          };
+            csvImportId,
+          } as any;
         const existing = row.id
           ? await prisma.product.findUnique({ where: { id: row.id } })
           : await prisma.product.findUnique({ where: { sku: row.sku } });
@@ -451,6 +460,7 @@ router.post('/import/csv', async (req: AuthRequest, res: Response) => {
 
     res.json({
       created: created.length,
+      csvImportId,
       errors: errors,
       message: `Imported ${created.length} products${errors.length > 0 ? ` with ${errors.length} errors` : ''}`,
     });

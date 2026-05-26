@@ -70,6 +70,7 @@ model Product {
   leadTimeDays        Int?       // Days until new stock arrives
   notes               String?    // Product-specific notes
   source              String?    // manual, csv_import, unknown
+  csvImportId         String?    // batch ID assigned per CSV import session
   createdAt           DateTime   @default(now())
   updatedAt           DateTime   @updatedAt
   movementItems       StockMovementItem[] @relation("ProductMovementItems")

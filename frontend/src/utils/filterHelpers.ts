@@ -76,6 +76,8 @@ export const filterProducts = (products: Product[], filter: ProductFilter): Prod
       return true;
     })();
 
+    const matchesCsvImportId = !filter.csvImportId || (product as any).csvImportId === filter.csvImportId;
+
     const matchesProductStatus = !filter.productStatus || (product as any).status === filter.productStatus;
 
     const unitPrice = parseFloat((product as any).unitPrice ?? 0);
@@ -145,6 +147,7 @@ export const filterProducts = (products: Product[], filter: ProductFilter): Prod
       matchesUnit &&
       matchesDateRange &&
       matchesSource &&
+      matchesCsvImportId &&
       matchesProductStatus &&
       matchesPriceStatus &&
       matchesValueStatus &&
@@ -233,6 +236,7 @@ export const clearProductFilters = (): ProductFilter => ({
   priceStatus: undefined,
   valueStatus: undefined,
   source: undefined,
+  csvImportId: undefined,
   dateAdded: undefined,
   lastMovement: undefined,
   dataQuality: undefined,

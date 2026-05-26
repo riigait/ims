@@ -15,6 +15,7 @@ export interface ProductFilter {
   priceStatus?: string;
   valueStatus?: string;
   source?: string;
+  csvImportId?: string;
   dateAdded?: string;
   lastMovement?: string;
   dataQuality?: string;

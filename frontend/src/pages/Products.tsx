@@ -200,6 +200,7 @@ export default function Products() {
   const filteredProducts = filterAndSortProducts(products, filters, sort);
   const paginatedProducts = filteredProducts.slice((currentPage - 1) * pageSize, currentPage * pageSize);
   const uniqueUnits = Array.from(new Set(products.map(p => p.unit))).sort();
+  const uniqueImportBatches = Array.from(new Set(products.map(p => (p as any).csvImportId).filter(Boolean))).sort();
   const categoriesMap = new Map(categories.map(c => [c.id, c]));
 
   if (loading) return <div className="text-center py-12">Loading...</div>;
@@ -290,13 +291,22 @@ export default function Products() {
             <option value="low-value">Low Value (&lt; ₱50,000)</option>
             <option value="missing">Missing Value</option>
           </select>
-          <select value={filters.source || ''} onChange={e => { setFilters({ ...filters, source: e.target.value || undefined }); setCurrentPage(1); }}
+          <select value={filters.source || ''} onChange={e => { setFilters({ ...filters, source: e.target.value || undefined, csvImportId: undefined }); setCurrentPage(1); }}
             className="px-3 py-2 border border-[var(--border)] rounded text-sm bg-[var(--surface)] text-[var(--text)]">
             <option value="">All Sources</option>
             <option value="manual">Manual</option>
             <option value="csv_import">Imported from CSV</option>
             <option value="unknown">Unknown</option>
           </select>
+          {uniqueImportBatches.length > 0 && (
+            <select value={filters.csvImportId || ''} onChange={e => { setFilters({ ...filters, csvImportId: e.target.value || undefined, source: e.target.value ? 'csv_import' : filters.source }); setCurrentPage(1); }}
+              className="px-3 py-2 border border-[var(--border)] rounded text-sm bg-[var(--surface)] text-[var(--text)]">
+              <option value="">All Import Batches</option>
+              {uniqueImportBatches.map(id => (
+                <option key={id} value={id}>{id}</option>
+              ))}
+            </select>
+          )}
           <select value={filters.dateAdded || ''} onChange={e => { setFilters({ ...filters, dateAdded: e.target.value || undefined }); setCurrentPage(1); }}
             className="px-3 py-2 border border-[var(--border)] rounded text-sm bg-[var(--surface)] text-[var(--text)]">
             <option value="">All Date Added</option>
