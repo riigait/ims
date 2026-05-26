@@ -247,8 +247,18 @@ export default function Dashboard() {
   const stockAlertItems = [
     { label: 'Low Stock',    count: stats.lowStockCount,      color: 'text-yellow-600 dark:text-yellow-400', stockStatus: 'low-stock' },
     { label: 'Out of Stock', count: stats.outOfStockCount,    color: 'text-red-600 dark:text-red-400',       stockStatus: 'out-of-stock' },
-    { label: 'Negative',     count: stats.negativeStockCount, color: 'text-purple-600 dark:text-purple-400', stockStatus: undefined },
+    { label: 'Negative',     count: stats.negativeStockCount, color: 'text-purple-600 dark:text-purple-400', stockStatus: 'negative-stock' },
   ].filter(a => a.count > 0);
+
+  const actionQueue = [
+    { label: 'Low stock products', count: stats.lowStockCount, path: '/products', state: { stockStatus: 'low-stock' }, tone: 'text-yellow-600 dark:text-yellow-400' },
+    { label: 'Out of stock products', count: stats.outOfStockCount, path: '/products', state: { stockStatus: 'out-of-stock' }, tone: 'text-red-600 dark:text-red-400' },
+    { label: 'Products without location', count: stats.unassignedLocationCount, path: '/products', state: { locationId: UNASSIGNED_LOCATION }, tone: 'text-red-600 dark:text-red-400' },
+    { label: 'Incomplete item records', count: stats.missingDetailsCount, path: '/inventory-items', state: { filterDataQuality: 'incomplete' }, tone: 'text-orange-600 dark:text-orange-400' },
+    { label: 'Warranty expiring soon', count: stats.warrantyExpiringSoon, path: '/inventory-items', state: { filterWarranty: 'under-warranty' }, tone: 'text-blue-600 dark:text-blue-400' },
+    { label: 'Items for repair', count: stats.itemsForRepair, path: '/inventory-items', state: { filterStatus: 'under-repair' }, tone: 'text-orange-600 dark:text-orange-400' },
+    { label: 'Lost items', count: stats.itemsLost, path: '/inventory-items', state: { filterStatus: 'lost' }, tone: 'text-red-600 dark:text-red-400' },
+  ].filter(item => item.count > 0);
 
   const categoryStockItems = stats.categoryBreakdown.map(c => ({ name: c.name, count: c.stock }));
 
@@ -338,7 +348,7 @@ export default function Dashboard() {
 
           {/* Warranty Expiring Soon */}
           <button
-            onClick={() => stats.warrantyExpiringSoon > 0 ? navigate('/inventory-items') : undefined}
+            onClick={() => stats.warrantyExpiringSoon > 0 ? navigate('/inventory-items', { state: { filterWarranty: 'under-warranty' } }) : undefined}
             className={`bg-[var(--surface)] rounded-xl p-4 shadow-sm border text-left transition-all active:scale-95 ${stats.warrantyExpiringSoon > 0 ? 'border-blue-200 dark:border-blue-800 hover:shadow-md cursor-pointer' : 'border-[var(--border)] cursor-default'}`}
           >
             <div className="flex items-center gap-2 mb-2">
@@ -353,7 +363,7 @@ export default function Dashboard() {
 
           {/* Missing Details */}
           <button
-            onClick={() => stats.missingDetailsCount > 0 ? navigate('/inventory-items') : undefined}
+            onClick={() => stats.missingDetailsCount > 0 ? navigate('/inventory-items', { state: { filterDataQuality: 'incomplete' } }) : undefined}
             className={`bg-[var(--surface)] rounded-xl p-4 shadow-sm border text-left transition-all active:scale-95 ${stats.missingDetailsCount > 0 ? 'border-orange-200 dark:border-orange-800 hover:shadow-md cursor-pointer' : 'border-[var(--border)] cursor-default'}`}
           >
             <div className="flex items-center gap-2 mb-2">
@@ -371,12 +381,30 @@ export default function Dashboard() {
 
       {/* Section 3 — Asset Status */}
       <div>
+        <SectionLabel>Action Queue</SectionLabel>
+        <div className="bg-[var(--surface)] rounded-xl shadow-sm border border-[var(--border)] divide-y divide-[var(--border)]">
+          {actionQueue.length > 0 ? actionQueue.map(item => (
+            <button
+              key={item.label}
+              onClick={() => navigate(item.path, { state: item.state })}
+              className="w-full px-4 py-3 flex items-center justify-between text-left hover:bg-[var(--surface-2)] transition-colors"
+            >
+              <span className="text-sm font-medium text-[var(--text)]">{item.label}</span>
+              <span className={`text-sm font-bold ${item.tone}`}>{item.count}</span>
+            </button>
+          )) : (
+            <div className="px-4 py-6 text-sm text-[var(--text-muted)] text-center">No priority actions right now.</div>
+          )}
+        </div>
+      </div>
+
+      <div>
         <SectionLabel>Asset Status</SectionLabel>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           <StatCard label="Available"  value={stats.itemsAvailable} icon={CheckCircle} accent="bg-green-100 text-green-600 dark:bg-green-950 dark:text-green-400"    onClick={() => navigate('/inventory-items')} />
           <StatCard label="In Use"     value={stats.itemsInUse}     icon={Zap}         accent="bg-blue-100 text-blue-600 dark:bg-blue-950 dark:text-blue-400"        onClick={() => navigate('/inventory-items')} />
-          <StatCard label="For Repair" value={stats.itemsForRepair} icon={Wrench}      accent={stats.itemsForRepair > 0 ? 'bg-orange-100 text-orange-600 dark:bg-orange-950 dark:text-orange-400' : 'bg-gray-100 text-gray-400'} onClick={() => navigate('/inventory-items')} />
-          <StatCard label="Lost"       value={stats.itemsLost}      icon={AlertCircle} accent={stats.itemsLost > 0 ? 'bg-red-100 text-red-600 dark:bg-red-950 dark:text-red-400' : 'bg-gray-100 text-gray-400'} onClick={() => navigate('/inventory-items')} />
+          <StatCard label="For Repair" value={stats.itemsForRepair} icon={Wrench}      accent={stats.itemsForRepair > 0 ? 'bg-orange-100 text-orange-600 dark:bg-orange-950 dark:text-orange-400' : 'bg-gray-100 text-gray-400'} onClick={() => navigate('/inventory-items', { state: { filterStatus: 'under-repair' } })} />
+          <StatCard label="Lost"       value={stats.itemsLost}      icon={AlertCircle} accent={stats.itemsLost > 0 ? 'bg-red-100 text-red-600 dark:bg-red-950 dark:text-red-400' : 'bg-gray-100 text-gray-400'} onClick={() => navigate('/inventory-items', { state: { filterStatus: 'lost' } })} />
         </div>
       </div>
 

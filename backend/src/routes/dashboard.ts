@@ -114,7 +114,7 @@ router.get('/stats', authMiddleware, async (req: AuthRequest, res: Response) => 
     for (const g of itemStatusGroups) statusMap[g.currentStatus] = g._count.id;
     const itemsAvailable = statusMap['active'] || 0;
     const itemsInUse     = (statusMap['deployed'] || 0) + (statusMap['borrowed'] || 0);
-    const itemsForRepair = (statusMap['repair'] || 0) + (statusMap['damaged'] || 0);
+    const itemsForRepair = (statusMap['under-repair'] || 0) + (statusMap['repair'] || 0) + (statusMap['damaged'] || 0);
     const itemsLost      = statusMap['lost'] || 0;
 
     const categoryIds = categoryGroups.map(c => c.categoryId);

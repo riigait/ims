@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { X, Edit, ArrowLeftRight, ChevronRight, ChevronDown } from 'lucide-react';
 import { stockDetailsApi, locationsApi, productsApi, categoriesApi, departmentsApi } from '@/services/api';
 import { ALL_DEPARTMENTS_ID } from '@/constants/app';
@@ -150,6 +150,8 @@ function Field({ label, value }: { label: string; value?: string | null }) {
 
 export default function InventoryItems() {
   const navigate = useNavigate();
+  const routeLocation = useLocation();
+  const routeState = (routeLocation.state as any) || {};
   const user = JSON.parse(localStorage.getItem('user') || '{}');
   const [items, setItems] = useState<any[]>([]);
   const [locations, setLocations] = useState<any[]>([]);
@@ -173,10 +175,10 @@ export default function InventoryItems() {
   const [search, setSearch] = useState('');
   const [filterCategory, setFilterCategory] = useState('');
   const [filterProduct, setFilterProduct] = useState('');
-  const [filterStatus, setFilterStatus] = useState('');
+  const [filterStatus, setFilterStatus] = useState(routeState.filterStatus ?? '');
   const [filterCondition, setFilterCondition] = useState('');
   const [filterLocation, setFilterLocation] = useState('');
-  const [filterWarranty, setFilterWarranty] = useState('');
+  const [filterWarranty, setFilterWarranty] = useState(routeState.filterWarranty ?? '');
   // Filters — advanced
   const [filterDepartment, setFilterDepartment] = useState('');
   const [filterAssignment, setFilterAssignment] = useState('');
@@ -191,7 +193,7 @@ export default function InventoryItems() {
   const [filterDateAdded, setFilterDateAdded] = useState('');
   const [filterMovementType, setFilterMovementType] = useState('');
   const [filterCostStatus, setFilterCostStatus] = useState('');
-  const [filterDataQuality, setFilterDataQuality] = useState('');
+  const [filterDataQuality, setFilterDataQuality] = useState(routeState.filterDataQuality ?? '');
   const [sortBy, setSortBy] = useState('recently-added');
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
