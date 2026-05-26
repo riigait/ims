@@ -28,6 +28,11 @@ router.get('/stats', authMiddleware, async (req: AuthRequest, res: Response) => 
     const thirtyDaysFromNow = new Date(now);
     thirtyDaysFromNow.setDate(thirtyDaysFromNow.getDate() + 30);
 
+    const unassignedLocation = await prisma.location.findFirst({
+      where: { name: { contains: 'unassigned', mode: 'insensitive' } },
+      select: { id: true },
+    });
+
     const [
       totalProducts, totalStock, totalLocations, totalFloorPlans,
       allProducts, totalInventoryItems,
@@ -40,7 +45,7 @@ router.get('/stats', authMiddleware, async (req: AuthRequest, res: Response) => 
       prisma.floorPlan.count({ where: departmentFilter }),
       prisma.product.findMany({
         where: departmentFilter,
-        select: { currentStock: true, lowStockThreshold: true, unitPrice: true, location: { select: { name: true } } },
+        select: { currentStock: true, lowStockThreshold: true, unitPrice: true, locationId: true },
       }),
       prisma.stockDetail.count({ where: stockDetailFilter }),
       prisma.stockDetail.groupBy({
@@ -72,9 +77,9 @@ router.get('/stats', authMiddleware, async (req: AuthRequest, res: Response) => 
       }),
     ]);
 
-    const unassignedLocationCount = allProducts.filter(p =>
-      (p.location?.name ?? 'unassigned').toLowerCase().includes('unassigned')
-    ).length;
+    const unassignedLocationCount = unassignedLocation
+      ? allProducts.filter(p => p.locationId === unassignedLocation.id || !p.locationId).length
+      : allProducts.filter(p => !p.locationId).length;
     const lowStockCount     = allProducts.filter(p => p.currentStock > 0 && p.currentStock <= p.lowStockThreshold).length;
     const outOfStockCount   = allProducts.filter(p => p.currentStock === 0).length;
     const negativeStockCount = allProducts.filter(p => p.currentStock < 0).length;
@@ -123,6 +128,7 @@ router.get('/stats', authMiddleware, async (req: AuthRequest, res: Response) => 
       lowStockCount, outOfStockCount, negativeStockCount, goodStockCount,
       totalLocations, totalFloorPlans,
       unassignedLocationCount,
+      unassignedLocationId: unassignedLocation?.id ?? null,
       totalInventoryValue,
       itemsAvailable, itemsInUse, itemsForRepair, itemsLost,
       warrantyExpiringSoon,
