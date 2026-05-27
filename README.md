@@ -2,7 +2,7 @@
 
 An open-source Inventory Management System built for IT asset tracking, office equipment inventory, and multi-department stock management.
 
-This app is currently under active development. You can use it, test it, and contribute to it, but some features may still change or contain bugs. Please report any issues you find through GitHub Issues.
+This app is currently under active development. You can use it, test it, and contribute to it, but some features may still change or contain bugs. Please report any issues through GitHub Issues.
 
 ---
 
@@ -12,14 +12,14 @@ Inventory Management System is designed to help companies, offices, IT departmen
 
 It can be used for tracking:
 
-- IT equipment
-- Office supplies
-- Network devices
-- Stock movements
+- IT equipment and network devices
+- Office supplies and equipment
+- Stock movements and transactions
 - Department-assigned assets
 - Locations and storage areas
 - Product categories
-- Inventory item details
+- Individual inventory item details
+- Visual floor plan layouts
 
 The goal of this project is to provide a practical, open-source inventory platform that can be improved and customized based on real operational needs.
 
@@ -27,60 +27,184 @@ The goal of this project is to provide a practical, open-source inventory platfo
 
 ## Main Features
 
-- Product and inventory item management
-- Category management
-- Location management
-- Department-based organization
-- Stock movement tracking
-- Asset tag, barcode, serial number, MAC address, and model number fields
-- Item status and condition tracking
-- Warranty and date received tracking
-- Role-based access structure
-- Dashboard-style inventory monitoring
-- Search, filter, and sorting support
-- Designed for company and government office inventory workflows
+- Product management with SKU, category, location, stock levels, unit, pricing, expiry, and supplier fields
+- Individual inventory item tracking with status and condition per unit
+- Hierarchical location management (branch → building → floor → room → rack → shelf)
+- Stock movement logging with 12+ movement types (stock in/out, transfer, adjustment, deployment, repair, disposal, borrowed, lost, and more)
+- Interactive floor plan editor with wall drawing, door/window placement, and inventory markers
+- CSV import and export for products, categories, locations, and floor plans
+- Built-in CSV corrector tool for fixing malformed import files
+- Barcode and QR code scanner (camera or keyboard input)
+- Three-tier role system: superadmin, admin, and staff
+- Department-based access control and data isolation
+- Request workflows for delete requests, password changes, and CSV import approvals
+- Invite-based user registration with role assignment
+- Audit log for tracking all changes by entity and user
+- Dashboard with inventory statistics, stock status, and low-stock alerts
+- Dark and light theme support
 
 ---
 
-## Project Status
+## Pages
 
-This project is under active development.
+| Page | Description |
+|---|---|
+| Login | User authentication |
+| Register | Invite-based registration |
+| Initial Setup | First-time system setup wizard (superadmin only) |
+| Dashboard | Inventory stats, stock status overview, recent activity |
+| Products | Full product CRUD with filters, sorting, and stock management |
+| Categories | Product category management per department |
+| Locations | Hierarchical location CRUD |
+| Inventory Items | Per-unit item tracking with status, condition, and movement history |
+| Stock Movements | Transaction log for all stock in/out/transfer/adjustment events |
+| Floor Plans | Visual floor plan list and management |
+| Floor Plan Editor | Interactive canvas editor for drawing layouts and placing inventory markers |
+| Import / Export | CSV import and export for all core data types, plus CSV corrector tool |
+| Requests | Import request tracking with auto-approval after 30 days |
+| Scanner | Camera and keyboard barcode/QR scanner for products and locations |
+| Admin Users | User management, invite code generation, role assignment |
+| Admin Departments | Department CRUD |
+| Admin Assignment | Assign admins to departments |
+| Delete Requests | Review and approve delete requests submitted by staff |
+| Password Requests | Review and approve password change requests from staff |
+| Change Password | User password change with reason field for staff |
+| Superadmin Settings | Dangerous operations: full database wipe with confirmation (superadmin only) |
 
-Current focus areas include:
+---
 
-- Improving inventory workflows
-- Enhancing product, category, and location management
-- Improving stock movement tracking
-- Cleaning up UI behavior
-- Improving data validation
-- Strengthening security and role-based access
-- Preparing the system for more production-ready use
+## User Roles
 
-Breaking changes may happen while the project is still being improved.
+| Role | Access |
+|---|---|
+| **Superadmin** | Full system access, initial setup, all departments, database management, user and department creation |
+| **Admin** | Department-scoped access, manage staff, approve delete and password requests, view audit logs |
+| **Staff** | Read and limited write access to assigned department, submit delete and password requests via approval workflow |
 
 ---
 
 ## Tech Stack
 
-- **Frontend:** React, TypeScript, Vite
-- **Backend:** Node.js, Express, TypeScript
-- **Database:** PostgreSQL via Prisma ORM
-- **Authentication:** JWT-based with role-based access
+- **Frontend:** React 18, TypeScript, Vite 5, Tailwind CSS 3, Zustand, React Router 6, Axios, Lucide React
+- **Backend:** Node.js, Express 4, TypeScript
+- **ORM:** Prisma 5
+- **Database:** PostgreSQL
+- **Authentication:** JWT with role-based access control
+- **CSV:** csv-parse (import), json2csv (export)
 - **API:** REST
 
 ---
 
-## Use Cases
+## Project Structure
 
-This system is useful for:
+```
+ims/
+├── backend/
+│   ├── src/
+│   │   ├── index.ts          Express server entry
+│   │   ├── middleware/        JWT auth and role middleware
+│   │   ├── routes/            18 route handlers
+│   │   └── utils/             Prisma client, CSV utilities, audit logging, ID generation
+│   └── prisma/
+│       ├── schema.prisma      Database schema (15+ models)
+│       └── seed.ts            Database seed script
+├── frontend/
+│   └── src/
+│       ├── pages/             22 page components
+│       ├── components/        Layout, floor plan, inventory UI components
+│       ├── services/          Axios API client, Zustand stores
+│       ├── types/             TypeScript interfaces
+│       ├── utils/             Filters, validation, CSV helpers, ID generation
+│       ├── contexts/          Theme context (dark/light mode)
+│       └── hooks/             Custom React hooks
+├── csv-corrector/             Standalone CSV validation and correction tool
+├── docs/screenshots/          UI documentation images
+├── templates/                 Floor plan templates
+├── docker-compose.yml
+└── README.md
+```
 
-- IT asset tracking
-- Office equipment inventory
-- Government office inventory
-- Company stock management
-- Multi-department asset monitoring
-- Equipment assignment tracking
-- Basic warehouse or storage room inventory
+---
+
+## Installation
+
+Clone the repository:
+
+```bash
+git clone <your-repository-url>
+cd <repository-folder>
+```
+
+### Backend Setup
+
+```bash
+cd backend
+npm install
+cp .env.example .env
+```
+
+Update `.env` with your PostgreSQL connection string and JWT secret:
+
+```env
+DATABASE_URL="postgresql://user:password@localhost:5432/ims"
+JWT_SECRET="your-jwt-secret-here"
+PORT=3001
+```
+
+Run database migrations:
+
+```bash
+npx prisma generate
+npx prisma migrate dev
+```
+
+Start the backend:
+
+```bash
+npm run dev
+```
+
+### Frontend Setup
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+The frontend runs on `http://localhost:5173` and the backend on `http://localhost:3001` by default.
+
+---
+
+## Docker
+
+A `docker-compose.yml` is included for running the full stack with Docker:
+
+```bash
+docker-compose up
+```
+
+---
+
+## Environment Files
+
+Use `.env.example` as the template. Never commit `.env`.
+
+```env
+DATABASE_URL="postgresql://user:password@localhost:5432/ims"
+JWT_SECRET="your-jwt-secret-here"
+PORT=3001
+```
+
+`.gitignore` should include:
+
+```
+.env
+.env.local
+node_modules
+dist
+build
+```
 
 ---
 
@@ -102,90 +226,17 @@ Do not commit or expose:
 - Production database dumps
 - Real confidential inventory records
 
-Use `.env.example` instead of `.env`.
-
-Example:
-
-```env
-DATABASE_URL="your-database-url-here"
-JWT_SECRET="your-jwt-secret-here"
-PORT=3001
-```
-
-Never place real secrets inside the README, source code, screenshots, documentation, or GitHub Issues.
-
 ---
 
-## Installation
+## Use Cases
 
-Clone the repository:
-
-```bash
-git clone <your-repository-url>
-cd <repository-folder>
-```
-
-Install dependencies:
-
-```bash
-npm install
-```
-
-Create an environment file:
-
-```bash
-cp backend/.env.example backend/.env
-```
-
-Update the `.env` file with your local development values.
-
-Run database setup:
-
-```bash
-cd backend
-npx prisma generate
-npx prisma migrate dev
-```
-
-Start the development server:
-
-```bash
-npm run dev
-```
-
-If the frontend and backend are separated, install and run each one separately based on your project structure.
-
----
-
-## Recommended Environment Files
-
-Use this structure:
-
-```
-.env
-.env.example
-```
-
-The `.env` file should be ignored by Git.
-
-The `.env.example` file should contain only placeholder values.
-
-Example `.gitignore` entries:
-
-```
-.env
-.env.local
-.env.production
-.env.development
-node_modules
-dist
-build
-coverage
-logs
-uploads
-temp
-cache
-```
+- IT asset tracking
+- Office equipment inventory
+- Government office inventory
+- Company stock management
+- Multi-department asset monitoring
+- Equipment assignment and deployment tracking
+- Basic warehouse or storage room inventory
 
 ---
 
@@ -204,7 +255,7 @@ You can help by:
 - Improving security
 - Refactoring code safely
 
-Before submitting changes, please make sure your code does not expose secrets, private data, or environment-specific configuration.
+Before submitting changes, make sure your code does not expose secrets, private data, or environment-specific configuration.
 
 ---
 
@@ -223,14 +274,6 @@ Do not include passwords, tokens, private URLs, or real confidential data in bug
 
 ---
 
-## Development Notes
-
-This project is still evolving. Some modules, database fields, UI components, and API routes may be updated as the system improves.
-
-The goal is to keep the system clean, secure, practical, and useful for real inventory operations.
-
----
-
 ## License
 
 This project is open source. Add your selected license here (e.g., MIT License).
@@ -239,4 +282,4 @@ This project is open source. Add your selected license here (e.g., MIT License).
 
 ## Disclaimer
 
-This software is provided as-is while under active development. Use it carefully, review the code before production deployment, and configure your own security settings properly.
+This software is provided as-is while under active development. Review the code before production deployment and configure your own security settings properly.
