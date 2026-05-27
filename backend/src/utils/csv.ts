@@ -4,8 +4,9 @@ import { parse } from 'csv-parse/sync';
 export function csvToJson<T>(csvContent: string): T[] {
   try {
     return parse(csvContent, {
-      columns: true,
+      columns: (headers: string[]) => headers.map(header => header.replace(/^\uFEFF/, '').trim()),
       skip_empty_lines: true,
+      trim: true,
     }) as T[];
   } catch (error) {
     throw new Error(`CSV parsing error: ${error}`);

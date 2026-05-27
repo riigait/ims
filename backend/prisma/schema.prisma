@@ -185,17 +185,70 @@ model AuditLog {
 }
 
 model FloorPlan {
-  id          String     @id @default(cuid())
-  name        String
-  locationId  String?
-  location    Location?  @relation(fields: [locationId], references: [id], onDelete: SetNull)
-  departmentId String?
-  department  Department? @relation(fields: [departmentId], references: [id], onDelete: SetNull)
-  width       Int
-  height      Int
-  planJson    String     // JSON serialized floor plan data
-  createdAt   DateTime   @default(now())
-  updatedAt   DateTime   @updatedAt
+  id              String     @id @default(cuid())
+  name            String
+  locationId      String?
+  location        Location?  @relation(fields: [locationId], references: [id], onDelete: SetNull)
+  departmentId    String?
+  department      Department? @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+  width           Int
+  height          Int
+  planJson        String     // JSON serialized floor plan data
+  isApproved      Boolean    @default(false)
+  isTemplate      Boolean    @default(false)
+  generationScore Int?
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
+  examples        FloorPlanExample[]
+  generationLogs  FloorPlanGenerationLog[]
+}
+
+model FloorPlanRoomType {
+  id           String   @id @default(cuid())
+  name         String
+  templateType String
+  minWidth     Int      @default(120)
+  minHeight    Int      @default(80)
+  defaultColor String   @default("#dbeafe")
+  isRequired   Boolean  @default(false)
+  notes        String?
+  createdAt    DateTime @default(now())
+
+  @@unique([name, templateType])
+}
+
+model FloorPlanRule {
+  id             String   @id @default(cuid())
+  templateType   String
+  ruleType       String   // near, away_from, required_room, restricted_access, must_have
+  sourceRoomType String
+  targetRoomType String?
+  description    String?
+  createdAt      DateTime @default(now())
+}
+
+model FloorPlanExample {
+  id               String    @id @default(cuid())
+  floorPlanId      String
+  floorPlan        FloorPlan @relation(fields: [floorPlanId], references: [id], onDelete: Cascade)
+  templateType     String
+  originalData     String
+  correctedData    String?
+  feedback         String?   // approved, edited, bad_layout
+  rating           Int?
+  approvedByUserId String?
+  createdAt        DateTime  @default(now())
+}
+
+model FloorPlanGenerationLog {
+  id               String    @id @default(cuid())
+  floorPlanId      String
+  floorPlan        FloorPlan @relation(fields: [floorPlanId], references: [id], onDelete: Cascade)
+  templateUsed     String
+  score            Int       @default(0)
+  validationResult String?
+  userFeedback     String?
+  createdAt        DateTime  @default(now())
 }
 
 model DeleteRequest {

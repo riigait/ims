@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { Plus, Trash2, MapPin, LayoutGrid, List, Edit, Sparkles } from 'lucide-react';
+import { Plus, Trash2, MapPin, LayoutGrid, List, Edit, Sparkles, CheckCircle, XCircle, RefreshCw, BookmarkCheck, ChevronDown, ChevronUp, Info } from 'lucide-react';
 import { formatDate } from '@/utils/ids';
 import { floorPlansApi, departmentsApi } from '@/services/api';
 import { FloorPlan } from '@/types/floorplan';
@@ -13,12 +13,102 @@ interface Department {
   name: string;
 }
 
+const AUTO_GENERATE_TEMPLATES = [
+  'Office layout',
+  'Storage room',
+  'Server room',
+  'SCADA control room',
+  'Dormitory',
+  'Warehouse',
+  'Reception',
+];
+
+// Inline rules for the preview panel (mirrors backend TEMPLATE_RULES)
+const TEMPLATE_RULES_PREVIEW: Record<string, {
+  description: string;
+  requiredRooms: string[];
+  relationships: Array<{ type: string; source: string; target?: string; description: string }>;
+  mustHave: string[];
+}> = {
+  'Office layout': {
+    description: 'Reception near entrance, meeting room near work area, storage accessible from office.',
+    requiredRooms: ['Reception', 'Open Office Work Area', 'Meeting/Training Room', 'Equipment Storage'],
+    relationships: [
+      { type: 'near', source: 'Reception', target: 'Entrance', description: 'Reception at front entrance' },
+      { type: 'near', source: 'Meeting Room', target: 'Work Area', description: 'Meeting room near work area' },
+      { type: 'near', source: 'Storage', target: 'Work Area', description: 'Storage accessible from work area' },
+    ],
+    mustHave: ['Front Entry', 'Meeting Room', 'Storage Area'],
+  },
+  'Reception': {
+    description: 'Waiting area at entrance, admin desk visible from door, restricted back office.',
+    requiredRooms: ['Reception / Waiting Area', 'Open Office Work Area', 'Meeting/Training Room', 'Equipment Storage'],
+    relationships: [
+      { type: 'near', source: 'Reception', target: 'Entrance', description: 'Waiting area at front door' },
+    ],
+    mustHave: ['Front Entry', 'Waiting Area'],
+  },
+  'Storage room': {
+    description: 'Rack aisles and bulk storage with clear walking paths, receiving area near door.',
+    requiredRooms: ['Rack Aisle Storage', 'Bulk Storage', 'Receiving/Dispatch Bay', 'Warehouse Office'],
+    relationships: [
+      { type: 'near', source: 'Receiving/Dispatch', target: 'Main Door', description: 'Receiving bay near roll-up door' },
+    ],
+    mustHave: ['Roll-up Door', 'Walking Aisle'],
+  },
+  'Warehouse': {
+    description: 'Same as storage — clear flow from receiving to dispatch with labeled aisles.',
+    requiredRooms: ['Rack Aisle Storage', 'Bulk Storage', 'Receiving/Dispatch Bay', 'Warehouse Office'],
+    relationships: [
+      { type: 'near', source: 'Receiving/Dispatch', target: 'Main Door', description: 'Receiving bay near roll-up door' },
+      { type: 'near', source: 'Office', target: 'Receiving', description: 'Office has visibility to receiving' },
+    ],
+    mustHave: ['Roll-up Door', 'Walking Aisle', 'Receiving Bay'],
+  },
+  'Server room': {
+    description: 'Server room adjacent to network room, access control door, not publicly accessible.',
+    requiredRooms: ['Server Room', 'Network/Electrical Room', 'Operator Workstations', 'Controlled Spares'],
+    relationships: [
+      { type: 'near', source: 'Server Room', target: 'Network Room', description: 'Adjacent to network/electrical room' },
+      { type: 'restricted', source: 'Server Room', description: 'Requires access control — not public' },
+      { type: 'away_from', source: 'Server Room', target: 'Public Area', description: 'Away from reception/public zones' },
+    ],
+    mustHave: ['Access Control Door', 'Cooling Space'],
+  },
+  'SCADA control room': {
+    description: 'SCADA consoles near server room, operator desks with display wall, restricted access.',
+    requiredRooms: ['SCADA Console Room', 'Network/Electrical Room', 'Operator Workstations', 'Controlled Spares'],
+    relationships: [
+      { type: 'near', source: 'Console Room', target: 'Operator Area', description: 'Operators need line of sight to consoles' },
+      { type: 'restricted', source: 'SCADA Room', description: 'Access-controlled — not publicly accessible' },
+    ],
+    mustHave: ['Access Control Door', 'Cooling Space', 'Secure Entry'],
+  },
+  'Dormitory': {
+    description: 'Bedrooms grouped around hallway, utility near rooms, common area centrally located.',
+    requiredRooms: ['Dorm Rooms', 'Common Area', 'Utility/Service', 'Linen/Equipment Storage'],
+    relationships: [
+      { type: 'near', source: 'Utility', target: 'Dorm Rooms', description: 'Utility accessible from bedrooms' },
+      { type: 'near', source: 'Common Area', target: 'Hallway', description: 'Common area near hallway' },
+      { type: 'away_from', source: 'Kitchen/Utility', target: 'Bedrooms', description: 'Dirty kitchen away from sleeping areas' },
+    ],
+    mustHave: ['Hallway Access', 'Shared Bathroom', 'Common Area'],
+  },
+};
+
 type AutoGenerateStatus = {
   type: 'info' | 'success' | 'error';
   message: string;
 } | null;
 
+type FeedbackState = 'approved' | 'bad_layout' | null;
+
 const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
+const SCORE_COLOR = (score: number) =>
+  score >= 80 ? 'text-green-600 bg-green-50 border-green-200' :
+  score >= 50 ? 'text-yellow-600 bg-yellow-50 border-yellow-200' :
+  'text-red-600 bg-red-50 border-red-200';
 
 export default function FloorPlans() {
   const navigate = useNavigate();
@@ -44,11 +134,27 @@ export default function FloorPlans() {
   const [autoGenerating, setAutoGenerating] = useState(false);
   const [showAutoGenerateConfirm, setShowAutoGenerateConfirm] = useState(false);
   const [autoGenerateStatus, setAutoGenerateStatus] = useState<AutoGenerateStatus>(null);
+  const [autoGenerateCount, setAutoGenerateCount] = useState(3);
+  const [autoGenerateTemplates, setAutoGenerateTemplates] = useState<string[]>(['Office layout', 'Storage room', 'SCADA control room']);
+  const [showRulesPreview, setShowRulesPreview] = useState(false);
+
+  // Per-plan feedback state: planId -> feedback value
+  const [planFeedback, setPlanFeedback] = useState<Record<string, FeedbackState>>({});
+  // Per-plan regenerating state
+  const [regeneratingId, setRegeneratingId] = useState<string | null>(null);
+  // Per-plan saving-as-template state
+  const [savingTemplateId, setSavingTemplateId] = useState<string | null>(null);
 
   const fetchFloorPlans = async () => {
     try {
       const response = await floorPlansApi.getAll();
       setFloorPlans(response.data);
+      // Seed feedback state from isApproved
+      const fb: Record<string, FeedbackState> = {};
+      response.data.forEach((p: any) => {
+        if (p.isApproved) fb[p.id] = 'approved';
+      });
+      setPlanFeedback(fb);
     } catch (error) {
       console.error('Failed to fetch floor plans:', error);
     } finally {
@@ -122,7 +228,6 @@ export default function FloorPlans() {
       setAutoGenerateStatus({ type: 'error', message: 'Select one department before auto-generating floor plans.' });
       return;
     }
-
     setShowAutoGenerateConfirm(true);
   };
 
@@ -135,18 +240,68 @@ export default function FloorPlans() {
     try {
       setShowAutoGenerateConfirm(false);
       setAutoGenerating(true);
-      setAutoGenerateStatus({ type: 'info', message: 'Reading locations and preparing floorplan groups...' });
-      const response = await floorPlansApi.autoGenerate();
-      setAutoGenerateStatus({ type: 'info', message: 'Finalizing generated floorplans...' });
+      setAutoGenerateStatus({ type: 'info', message: 'Applying template rules and relationship constraints...' });
+      const response = await floorPlansApi.autoGenerate({
+        count: autoGenerateCount,
+        templates: autoGenerateTemplates,
+      });
+      setAutoGenerateStatus({ type: 'info', message: 'Validating and scoring generated layouts...' });
       await wait(700);
       await fetchFloorPlans();
       setAutoGenerateStatus({ type: 'success', message: response.data.message || 'Floor plans generated.' });
-      window.setTimeout(() => setAutoGenerateStatus(null), 4500);
+      window.setTimeout(() => setAutoGenerateStatus(null), 5000);
     } catch (error: any) {
       console.error('Failed to auto-generate floor plans:', error);
       setAutoGenerateStatus({ type: 'error', message: error.response?.data?.error || 'Failed to auto-generate floor plans.' });
     } finally {
       setAutoGenerating(false);
+    }
+  };
+
+  const handleFeedback = async (planId: string, feedback: 'approved' | 'bad_layout') => {
+    try {
+      await floorPlansApi.feedback(planId, { feedback });
+      setPlanFeedback(prev => ({ ...prev, [planId]: feedback }));
+      if (feedback === 'approved') {
+        setFloorPlans(prev => prev.map(p => p.id === planId ? { ...p, isApproved: true } : p));
+      }
+    } catch (error) {
+      console.error('Failed to save feedback:', error);
+    }
+  };
+
+  const handleRegenerate = async (planId: string) => {
+    try {
+      setRegeneratingId(planId);
+      const response = await floorPlansApi.regenerate(planId);
+      setFloorPlans(prev => prev.map(p => p.id === planId
+        ? { ...p, objects: response.data.objects, generationScore: response.data.generationScore, isApproved: false }
+        : p
+      ));
+      setPlanFeedback(prev => ({ ...prev, [planId]: null }));
+    } catch (error: any) {
+      console.error('Failed to regenerate:', error);
+      alert(error.response?.data?.error || 'Failed to regenerate floor plan');
+    } finally {
+      setRegeneratingId(null);
+    }
+  };
+
+  const handleSaveAsTemplate = async (plan: FloorPlan) => {
+    try {
+      setSavingTemplateId(plan.id);
+      await floorPlansApi.update(plan.id, {
+        name: plan.name,
+        width: plan.width,
+        height: plan.height,
+        objects: plan.objects,
+        isTemplate: true,
+      });
+      setFloorPlans(prev => prev.map(p => p.id === plan.id ? { ...p, isTemplate: true } : p));
+    } catch (error) {
+      console.error('Failed to save as template:', error);
+    } finally {
+      setSavingTemplateId(null);
     }
   };
 
@@ -160,6 +315,7 @@ export default function FloorPlans() {
       if (sortBy === 'name') return a.name.localeCompare(b.name);
       if (sortBy === 'recently-added') return new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime();
       if (sortBy === 'object-count') return (b.objects?.length || 0) - (a.objects?.length || 0);
+      if (sortBy === 'score') return (b.generationScore || 0) - (a.generationScore || 0);
       return 0;
     });
 
@@ -171,6 +327,9 @@ export default function FloorPlans() {
     setSortBy('recently-added');
     setCurrentPage(1);
   };
+
+  // Rules preview for selected templates
+  const selectedRules = autoGenerateTemplates.map(t => ({ name: t, rules: TEMPLATE_RULES_PREVIEW[t] })).filter(r => r.rules);
 
   if (loading) return <div className="text-center py-12 text-[var(--text-muted)]">Loading...</div>;
   if (locationId && locationLookupFailed) {
@@ -230,16 +389,105 @@ export default function FloorPlans() {
         </div>
       )}
 
+      {/* Auto Generate Modal */}
       {showAutoGenerateConfirm && (
         <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-5 shadow-lg transition-all duration-300">
-          <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+          <div className="space-y-4">
             <div>
               <h2 className="text-lg font-semibold text-[var(--text)]">Generate floorplans now?</h2>
               <p className="mt-1 text-sm text-[var(--text-muted)]">
-                This will replace existing auto-generated floorplans for the selected department and rebuild them from current locations.
+                Applies template rules, room relationships, and validation scoring. Replaces existing auto-generated plans for this department.
               </p>
             </div>
-            <div className="flex gap-2">
+            <div className="grid grid-cols-1 md:grid-cols-[180px_1fr] gap-4">
+              <div>
+                <label className="block text-xs font-medium text-[var(--text-muted)] mb-1">How many</label>
+                <input
+                  type="number"
+                  min={1}
+                  max={12}
+                  value={autoGenerateCount}
+                  onChange={e => setAutoGenerateCount(Math.max(1, Math.min(12, Number(e.target.value) || 1)))}
+                  className="w-full px-3 py-2 border border-[var(--border)] rounded text-sm bg-[var(--surface)] text-[var(--text)]"
+                />
+              </div>
+              <div>
+                <p className="text-xs font-medium text-[var(--text-muted)] mb-2">Templates</p>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                  {AUTO_GENERATE_TEMPLATES.map(template => (
+                    <label key={template} className="flex items-center gap-2 text-sm text-[var(--text)] bg-[var(--surface-2)] border border-[var(--border)] rounded px-3 py-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={autoGenerateTemplates.includes(template)}
+                        onChange={e => {
+                          setAutoGenerateTemplates(current => e.target.checked
+                            ? [...current, template]
+                            : current.filter(item => item !== template));
+                        }}
+                      />
+                      <span>{template}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {/* Rules Preview */}
+            {autoGenerateTemplates.length > 0 && (
+              <div className="border border-[var(--border)] rounded-lg overflow-hidden">
+                <button
+                  type="button"
+                  onClick={() => setShowRulesPreview(v => !v)}
+                  className="w-full flex items-center justify-between px-4 py-2.5 bg-[var(--surface-2)] text-sm font-medium text-[var(--text)] hover:bg-[var(--border)]"
+                >
+                  <span className="flex items-center gap-2"><Info size={14} /> Template Rules Preview</span>
+                  {showRulesPreview ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                </button>
+                {showRulesPreview && (
+                  <div className="p-4 space-y-4 bg-[var(--surface)]">
+                    {selectedRules.map(({ name, rules }) => (
+                      <div key={name} className="border border-[var(--border)] rounded p-3 space-y-2">
+                        <div className="font-semibold text-sm text-[var(--text)]">{name}</div>
+                        <p className="text-xs text-[var(--text-muted)]">{rules.description}</p>
+                        <div className="space-y-1">
+                          <div className="text-xs font-medium text-[var(--text-muted)] uppercase tracking-wide">Required Rooms</div>
+                          <div className="flex flex-wrap gap-1">
+                            {rules.requiredRooms.map(r => (
+                              <span key={r} className="text-xs bg-blue-50 text-blue-700 border border-blue-200 rounded px-2 py-0.5">{r}</span>
+                            ))}
+                          </div>
+                        </div>
+                        <div className="space-y-1">
+                          <div className="text-xs font-medium text-[var(--text-muted)] uppercase tracking-wide">Relationships</div>
+                          {rules.relationships.map((rel, i) => (
+                            <div key={i} className="flex items-start gap-2 text-xs text-[var(--text)]">
+                              <span className={`flex-shrink-0 px-1.5 py-0.5 rounded text-[10px] font-medium ${
+                                rel.type === 'near' ? 'bg-green-100 text-green-700' :
+                                rel.type === 'restricted' ? 'bg-red-100 text-red-700' :
+                                'bg-orange-100 text-orange-700'
+                              }`}>
+                                {rel.type === 'near' ? 'NEAR' : rel.type === 'restricted' ? 'RESTRICTED' : 'AWAY FROM'}
+                              </span>
+                              <span>{rel.description}</span>
+                            </div>
+                          ))}
+                        </div>
+                        <div className="space-y-1">
+                          <div className="text-xs font-medium text-[var(--text-muted)] uppercase tracking-wide">Must Have</div>
+                          <div className="flex flex-wrap gap-1">
+                            {rules.mustHave.map(r => (
+                              <span key={r} className="text-xs bg-purple-50 text-purple-700 border border-purple-200 rounded px-2 py-0.5">{r}</span>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            <div className="flex justify-end gap-2">
               <button
                 type="button"
                 onClick={() => setShowAutoGenerateConfirm(false)}
@@ -323,6 +571,7 @@ export default function FloorPlans() {
               <option value="recently-added">Sort: Recently Added</option>
               <option value="name">Sort: Name</option>
               <option value="object-count">Sort: Object Count</option>
+              <option value="score">Sort: Layout Score</option>
             </select>
             <button
               onClick={clearAllFilters}
@@ -385,20 +634,52 @@ export default function FloorPlans() {
             </div>
           ) : paginatedPlans.map((plan) => {
             const hasLocation = locationId && plan.objects?.some(o => o.linkedLocationId === locationId);
+            const isAutoGenerated = plan.name.startsWith('Auto - ');
+            const score = plan.generationScore as number | undefined;
+            const feedback = planFeedback[plan.id];
+            const isApproved = feedback === 'approved' || plan.isApproved;
+            const isTemplate = plan.isTemplate;
+            const isRegenerating = regeneratingId === plan.id;
+            const isSavingTemplate = savingTemplateId === plan.id;
+
             return (
               <div key={plan.id}
                 onClick={() => navigate(`/floor-plans/${plan.id}/edit`)}
-                className={`aspect-square bg-[var(--surface)] rounded-lg shadow hover:shadow-lg transition cursor-pointer group flex flex-col ${hasLocation ? 'ring-2 ring-[var(--primary)]' : ''}`}>
+                className={`aspect-square bg-[var(--surface)] rounded-lg shadow hover:shadow-lg transition cursor-pointer group flex flex-col ${
+                  hasLocation ? 'ring-2 ring-[var(--primary)]' : ''
+                } ${isApproved ? 'ring-2 ring-green-400' : ''}`}>
                 {/* Thumbnail */}
-                <div className="flex-1 overflow-hidden rounded-t-lg bg-slate-100">
+                <div className="flex-1 overflow-hidden rounded-t-lg bg-slate-100 relative">
                   <FloorPlanThumbnail plan={plan} width={400} height={400}
                     highlightLocationId={locationId ?? undefined} />
+
+                  {/* Score badge */}
+                  {isAutoGenerated && score !== undefined && (
+                    <span className={`absolute top-1 right-1 text-[10px] font-bold px-1.5 py-0.5 rounded border ${SCORE_COLOR(score)}`}>
+                      {score}%
+                    </span>
+                  )}
+
+                  {/* Approved badge */}
+                  {isApproved && (
+                    <span className="absolute top-1 left-1 text-[10px] font-bold px-1.5 py-0.5 rounded bg-green-600 text-white flex items-center gap-0.5">
+                      <CheckCircle size={10} /> OK
+                    </span>
+                  )}
+
+                  {/* Template badge */}
+                  {isTemplate && (
+                    <span className="absolute bottom-1 left-1 text-[10px] font-bold px-1.5 py-0.5 rounded bg-purple-600 text-white flex items-center gap-0.5">
+                      <BookmarkCheck size={10} /> TPL
+                    </span>
+                  )}
                 </div>
 
                 <div className="p-1.5 flex flex-col gap-1 flex-shrink-0">
                   <h3 className="text-xs font-semibold text-[var(--text)] group-hover:text-[var(--primary)] transition truncate line-clamp-1">
                     {plan.name}
                   </h3>
+
                   {(user.role === 'admin' || user.role === 'superadmin') && (
                     confirmingDeleteId === plan.id ? (
                       <div className="flex gap-1" onClick={e => e.stopPropagation()}>
@@ -411,6 +692,65 @@ export default function FloorPlans() {
                           className="px-1 py-0.5 bg-[var(--surface-2)] text-xs rounded hover:bg-[var(--border)]">
                           No
                         </button>
+                      </div>
+                    ) : isAutoGenerated ? (
+                      /* Auto-generated plan: feedback + actions row */
+                      <div className="flex flex-col gap-0.5" onClick={e => e.stopPropagation()}>
+                        <div className="flex gap-0.5">
+                          <button
+                            onClick={() => navigate(`/floor-plans/${plan.id}/edit`)}
+                            className="flex-1 px-1 py-0.5 bg-[var(--primary)] text-white text-xs rounded hover:bg-[var(--primary-hover)] flex items-center justify-center gap-0.5"
+                            title="Edit">
+                            <Edit size={10} /> Edit
+                          </button>
+                          <button
+                            onClick={() => handleRegenerate(plan.id)}
+                            disabled={isRegenerating}
+                            className="px-1 py-0.5 bg-[var(--surface-2)] text-[var(--text)] text-xs rounded hover:bg-[var(--border)] disabled:opacity-50"
+                            title="Regenerate">
+                            <RefreshCw size={10} className={isRegenerating ? 'animate-spin' : ''} />
+                          </button>
+                          <button onClick={() => setConfirmingDeleteId(plan.id)}
+                            className="px-1 py-0.5 bg-red-50 text-red-600 text-xs rounded hover:bg-red-100"
+                            title="Delete">
+                            <Trash2 size={10} />
+                          </button>
+                        </div>
+                        <div className="flex gap-0.5">
+                          <button
+                            onClick={() => handleFeedback(plan.id, 'approved')}
+                            disabled={isApproved}
+                            className={`flex-1 px-1 py-0.5 text-xs rounded flex items-center justify-center gap-0.5 ${
+                              isApproved
+                                ? 'bg-green-600 text-white cursor-default'
+                                : 'bg-green-50 text-green-700 hover:bg-green-100'
+                            }`}
+                            title="Approve this layout">
+                            <CheckCircle size={10} /> {isApproved ? 'Approved' : 'Approve'}
+                          </button>
+                          <button
+                            onClick={() => handleFeedback(plan.id, 'bad_layout')}
+                            disabled={feedback === 'bad_layout'}
+                            className={`flex-1 px-1 py-0.5 text-xs rounded flex items-center justify-center gap-0.5 ${
+                              feedback === 'bad_layout'
+                                ? 'bg-red-600 text-white cursor-default'
+                                : 'bg-red-50 text-red-600 hover:bg-red-100'
+                            }`}
+                            title="Mark as bad layout">
+                            <XCircle size={10} /> Bad
+                          </button>
+                          <button
+                            onClick={() => handleSaveAsTemplate(plan)}
+                            disabled={isTemplate || isSavingTemplate}
+                            className={`flex-1 px-1 py-0.5 text-xs rounded flex items-center justify-center gap-0.5 ${
+                              isTemplate
+                                ? 'bg-purple-600 text-white cursor-default'
+                                : 'bg-purple-50 text-purple-700 hover:bg-purple-100'
+                            }`}
+                            title="Save as approved template">
+                            <BookmarkCheck size={10} /> {isTemplate ? 'Saved' : 'Template'}
+                          </button>
+                        </div>
                       </div>
                     ) : (
                       <div className="flex gap-1">
@@ -455,6 +795,8 @@ export default function FloorPlans() {
                   <th className="px-4 py-2 text-left text-[var(--text)]">Name</th>
                   <th className="px-4 py-2 text-left text-[var(--text)]">Dimensions</th>
                   <th className="px-4 py-2 text-left text-[var(--text)]">Objects</th>
+                  <th className="px-4 py-2 text-left text-[var(--text)]">Score</th>
+                  <th className="px-4 py-2 text-left text-[var(--text)]">Status</th>
                   <th className="px-4 py-2 text-left text-[var(--text)]">Department</th>
                   <th className="px-4 py-2 text-left text-[var(--text)]">Date</th>
                   <th className="px-4 py-2 text-right text-[var(--text)]">Actions</th>
@@ -464,17 +806,55 @@ export default function FloorPlans() {
                 {paginatedPlans.map((plan) => {
                   const departmentsMap = departments.reduce((map, dept) => ({ ...map, [dept.id]: dept.name }), {} as Record<string, string>);
                   const departmentName = plan.departmentId ? departmentsMap[plan.departmentId] : null;
+                  const isAutoGenerated = plan.name.startsWith('Auto - ');
+                  const score = plan.generationScore as number | undefined;
+                  const feedback = planFeedback[plan.id];
+                  const isApproved = feedback === 'approved' || plan.isApproved;
+                  const isTemplate = plan.isTemplate;
+                  const isRegenerating = regeneratingId === plan.id;
+
                   return (
                     <tr key={plan.id} className="hover:bg-[var(--surface-2)] transition-colors">
                       <td className="px-4 py-2 text-[var(--text)] font-medium cursor-pointer hover:text-[var(--primary)]"
                         onClick={() => navigate(`/floor-plans/${plan.id}/edit`)}>
-                        {plan.name}
+                        <div className="flex items-center gap-1.5">
+                          {plan.name}
+                          {isApproved && <CheckCircle size={13} className="text-green-500 flex-shrink-0" />}
+                          {isTemplate && <BookmarkCheck size={13} className="text-purple-500 flex-shrink-0" />}
+                        </div>
                       </td>
                       <td className="px-4 py-2 text-[var(--text-muted)]">
                         {plan.width} × {plan.height} px
                       </td>
                       <td className="px-4 py-2 text-[var(--text-muted)]">
                         {plan.objects?.length ?? 0}
+                      </td>
+                      <td className="px-4 py-2">
+                        {isAutoGenerated && score !== undefined ? (
+                          <span className={`text-xs font-bold px-2 py-0.5 rounded border ${SCORE_COLOR(score)}`}>
+                            {score}%
+                          </span>
+                        ) : <span className="text-[var(--text-muted)]">—</span>}
+                      </td>
+                      <td className="px-4 py-2">
+                        {isAutoGenerated ? (
+                          <div className="flex gap-1">
+                            <button
+                              onClick={() => handleFeedback(plan.id, 'approved')}
+                              disabled={isApproved}
+                              className={`text-xs px-2 py-0.5 rounded flex items-center gap-1 ${isApproved ? 'bg-green-600 text-white' : 'bg-green-50 text-green-700 hover:bg-green-100'}`}
+                              title="Approve layout">
+                              <CheckCircle size={11} /> {isApproved ? 'Approved' : 'Approve'}
+                            </button>
+                            <button
+                              onClick={() => handleFeedback(plan.id, 'bad_layout')}
+                              disabled={feedback === 'bad_layout'}
+                              className={`text-xs px-2 py-0.5 rounded flex items-center gap-1 ${feedback === 'bad_layout' ? 'bg-red-600 text-white' : 'bg-red-50 text-red-600 hover:bg-red-100'}`}
+                              title="Mark as bad layout">
+                              <XCircle size={11} /> Bad
+                            </button>
+                          </div>
+                        ) : <span className="text-xs text-[var(--text-muted)]">Manual</span>}
                       </td>
                       <td className="px-4 py-2 text-[var(--text)]">
                         {departmentName ? (
@@ -494,6 +874,15 @@ export default function FloorPlans() {
                             </span>
                           ) : (
                             <span className="inline-flex gap-2 items-center">
+                              {isAutoGenerated && (
+                                <button
+                                  onClick={() => handleRegenerate(plan.id)}
+                                  disabled={isRegenerating}
+                                  className="text-[var(--text-muted)] hover:text-[var(--text)] disabled:opacity-50"
+                                  title="Regenerate">
+                                  <RefreshCw size={16} className={isRegenerating ? 'animate-spin' : ''} />
+                                </button>
+                              )}
                               <button
                                 onClick={() => navigate(`/floor-plans/${plan.id}/edit`)}
                                 className="text-[var(--primary)] hover:text-[var(--primary-hover)]">

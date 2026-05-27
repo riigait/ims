@@ -1,367 +1,242 @@
-# Inventory Management System (IMS)
+# Inventory Management System
 
-Full-stack inventory app for multi-department teams. PostgreSQL-backed, with per-unit asset tracking, multi-line stock movements, an interactive 2D floor-plan editor, a browser barcode scanner, and a unified CSV import/export/corrector workflow.
+An open-source Inventory Management System built for IT asset tracking, office equipment inventory, and multi-department stock management.
 
----
-
-## Screenshots
-
-### Login
-![Login screen](docs/screenshots/01-login.png)
-
-### Dashboard
-KPIs, stock health, category and location breakdowns, recent movements — all department-scoped.
-
-![Dashboard — department-filtered view](docs/screenshots/03-dashboard-alt.png)
-
-### Categories
-![Categories page](docs/screenshots/04-categories.png)
-
-### Products
-SKU catalog with filters (category, location including Unassigned, stock status, unit, date range), search across name / SKU / location.
-
-![Products page](docs/screenshots/05-products.png)
-
-### Locations
-Hierarchical location tree (Branch → Building → Floor → Room → Rack → Shelf), per-department.
-
-![Locations page](docs/screenshots/06-locations.png)
-
-### Inventory items (per-unit tracking)
-Asset tag, serial number, MAC ID, barcode, model, condition, status, custodian, warranty.
-
-![Inventory Items list](docs/screenshots/07-inventory-items.png)
-![Inventory Item detail drawer](docs/screenshots/08-inventory-item-detail.png)
-
-### Stock movements
-Multi-line movements — one operation can shift many `StockDetail` units, each with its own from/to location and reason. Twelve movement types.
-
-![Stock Movements list](docs/screenshots/09-stock-movements.png)
-![Stock Movement detail drawer](docs/screenshots/10-stock-movement-detail.png)
-
-### Floor plans
-Auto-generate a starter layout from the current locations, or build one by hand in the canvas editor.
-
-![Floor Plans — Auto Generate prompt](docs/screenshots/11-floor-plans-auto-generate.png)
-![Floor Plans — generated list with thumbnails](docs/screenshots/12-floor-plans-list.png)
-![Floor Plan Editor — canvas](docs/screenshots/13-floor-plan-editor.png)
-![Floor Plan Editor — object properties panel](docs/screenshots/14-floor-plan-editor-properties.png)
+This app is currently under active development. You can use it, test it, and contribute to it, but some features may still change or contain bugs. Please report any issues you find through GitHub Issues.
 
 ---
 
-## What it does
+## About the Project
 
-### Auth and roles
-- Three roles — **superadmin**, **admin**, **staff**
-- **Invite-code registration** — admins create one-time codes; new users sign up against them
-- **Forced initial setup** — on first boot the system creates a temporary setup-only superadmin account; the account must complete a profile + password reset before any other route is reachable
-- **Password change requests** — staff can request a reset; admins approve/reject
-- **Department guard** — every data page is blocked until a department (or "All Departments") is selected via the top-bar switcher (uses the `X-Department-Id` header)
+Inventory Management System is designed to help companies, offices, IT departments, and government organizations manage assets and inventory records in a structured way.
 
-### Inventory data model (the "trinity")
-Three layers track inventory. Read everything in the UI through this lens:
+It can be used for tracking:
 
-| Layer | Model | What it stores |
-|-------|-------|----------------|
-| Master catalog | `Product` | SKU, name, category, unit, price, low-stock threshold, opening stock |
-| Transactions | `StockMovement` + `StockMovementItem` | Every quantity change. Multi-line, with from/to locations per line item |
-| Per-unit registry | `StockDetail` | Individual physical units — asset tag, serial, MAC, barcode, warranty, custodian, condition, status |
+- IT equipment
+- Office supplies
+- Network devices
+- Stock movements
+- Department-assigned assets
+- Locations and storage areas
+- Product categories
+- Inventory item details
 
-### Products
-- SKU catalog with 31 measurement units (count / weight / volume / length / area / packaging)
-- Category, location, supplier, unit price, low-stock threshold, lead-time days, expiry date, status (`active` / `discontinued` / `obsolete` / `on-backorder`), notes
-- Search by name, SKU, or location name
-- Filter by category, location (including **Unassigned**), stock status, department, unit, date range
-- Location column on the table; the dashboard "Unassigned Location" card deep-links here with the filter pre-applied
-
-### Inventory items (per-unit tracking)
-- Auto `STK-` stock IDs + optional custom asset tags
-- Identity: serial number, MAC ID, barcode, model number, brand, item type
-- Lifecycle: condition (`new` / `good` / `fair` / `poor`) and 9 statuses (`active`, `deployed`, `borrowed`, `repair`, `returned`, `damaged`, `lost`, `disposed`, `sold`)
-- Warranty expiry + notes, custodian, last-checked date and checker
-- Search by stock ID, asset tag, product name, serial, MAC, model, or barcode
-
-### Stock movements
-- **12 movement types** — `stock_in`, `stock_out`, `adjustment`, `returned`, `damaged`, `transfer`, `opening_stock`, `deployment`, `repair`, `disposal`, `borrowed`, `lost`
-- Auto `MVT-` movement numbers
-- Multi-line: one movement can shift many `StockDetail` units, each with its own from/to location and reason
-- Each line references the specific `StockDetail` so unit-level history stays intact
-
-### Categories and locations
-- Categories scoped per department (unique name within a department)
-- Locations form a free-form hierarchy: `Branch → Building → Floor → Room → Rack → Shelf`. Children cascade-delete with parents
-
-### Floor plans
-- Per-plan canvas with width / height in units
-- Plan stored as serialised JSON (walls, racks, shelves, labels, etc.)
-- Editor at `/floor-plans/:id/edit`; thumbnails on the list page
-- Linkable to a real location so the plan represents an actual space
-
-### Dashboard
-- KPIs — products, total stock, inventory items, inventory value, low / out / negative / good stock, total locations, **unassigned-location count**, floor plans
-- Item-status breakdown — available, in use, for repair, lost
-- Warranty expiring in the next 30 days
-- Top categories and top locations by item count
-- All metrics respect the current department filter
-
-### Barcode scanner (`/scanner`)
-- Browser `BarcodeDetector` for camera scanning, with keyboard fallback
-- Formats — QR, Code 128, Code 39, EAN-13/8, UPC-A/E
-- Targets a product (by SKU/barcode) or a location; deep-links to the match
-
-### Unified CSV pipeline (`/import-pclsf`)
-Three tabs in one page:
-- **Import** — auto-detects file type (Products / Categories / Locations / Floor Plans) from headers
-- **Export** — per-type CSV, or one unified file with `#IMS_SECTION,<type>` section markers
-- **Corrector** — re-uploads an export to repair/re-sync rows
-- Offline companion: `scripts/csv-corrector/csv_corrector.py` — drop any CSV in that folder, run `python csv_corrector.py`, get a `corrected-XXXXX-YYYYMMDD-HHMMSS.csv` back (no dependencies)
-
-### Departments and assignments
-- Department-scoped data for Products, Categories, Locations, Movements, Floor Plans
-- `AdminDepartment` and `StaffDepartment` join tables let users belong to multiple departments
-- Top-bar **DepartmentSwitcher** — superadmins see all, admins/staff see their assigned set plus "All Departments" where applicable
-
-### Delete requests
-- Staff cannot hard-delete; they file a `DeleteRequest` (product / category / location / floor plan)
-- Admins/superadmins approve or reject at `/delete-requests`
-- The original entity name and reason are captured for the audit trail
-
-### Audit log
-- Backend writes audit records on key actions (CREATE / UPDATE / DELETE, stock movements, login, etc.) with user, entity, JSON change snapshot, IP
-- Exposed at `GET /api/audit-logs` to admins/superadmins
-
-### Superadmin maintenance (`/admin/settings`)
-- Superadmin-only maintenance actions guarded by a typed confirmation phrase and a countdown delay
-- Operational data can be reset for clean re-onboarding while users, departments, and department assignments are preserved
+The goal of this project is to provide a practical, open-source inventory platform that can be improved and customized based on real operational needs.
 
 ---
 
-## Tech stack
+## Main Features
 
-**Frontend**
-- React 18 + TypeScript on Vite
-- React Router 6, Zustand, Axios
-- Tailwind CSS with dark mode via `ThemeContext`
-- Lucide icons
-- HTML5 Canvas for the floor-plan editor; browser `BarcodeDetector` for the scanner
-- React `ErrorBoundary` wraps the entire app
-
-**Backend**
-- Node.js + Express + TypeScript
-- Prisma ORM
-- **PostgreSQL** (schema is `provider = "postgresql"` — no other DB supported)
-- `jsonwebtoken` (JWT auth) + `bcryptjs` password hashing
-- `csv-parse` + `json2csv` for the CSV pipeline
-- `nodemon` + `ts-node` for dev
-
-**Infra / tooling**
-- `docker-compose.yml` provisions a `postgres:16-alpine` container (`ims_postgres`)
-- `scripts/dev-start.js` orchestrates: checks Docker → starts the DB → waits for `pg_isready` → runs both apps via `concurrently`
-- `ims-control.ps1` — PowerShell control script (`start | stop | restart | status`) for ports 3001 / 5173 and the Docker container
-- `setup.bat` / `setup.sh` — install dependencies + run initial migration
-- Python `scripts/csv-corrector/csv_corrector.py` — offline CSV-to-IMS-format normaliser (no dependencies)
+- Product and inventory item management
+- Category management
+- Location management
+- Department-based organization
+- Stock movement tracking
+- Asset tag, barcode, serial number, MAC address, and model number fields
+- Item status and condition tracking
+- Warranty and date received tracking
+- Role-based access structure
+- Dashboard-style inventory monitoring
+- Search, filter, and sorting support
+- Designed for company and government office inventory workflows
 
 ---
 
-## Project layout
+## Project Status
 
-```
-ims/
-├── frontend/                  # React + Vite SPA
-│   ├── src/
-│   │   ├── pages/             # 21 route pages
-│   │   ├── components/        # Layout, Sidebar, DepartmentSwitcher,
-│   │   │                      # DepartmentGuard, DataPageLayout,
-│   │   │                      # ConfirmDialog, Pagination, CSVControls,
-│   │   │                      # StockDetails, ErrorBoundary, floorplan/
-│   │   ├── services/api.ts    # All Axios API clients
-│   │   ├── services/floorPlanStore.ts  # Zustand store for the editor
-│   │   ├── contexts/          # ThemeContext (light/dark)
-│   │   ├── types/             # inventory, filters, floorplan
-│   │   ├── utils/             # filterHelpers, csv, ids, validation
-│   │   ├── constants/app.ts   # ALL_DEPARTMENTS_ID, etc.
-│   │   └── App.tsx            # Routes + role guards
-│   └── vite.config.ts         # Dev server proxies /api → :3001
-│
-├── backend/                   # Express API
-│   ├── src/
-│   │   ├── routes/            # 17 route modules
-│   │   ├── middleware/auth.ts # JWT + role + department header resolution
-│   │   ├── utils/             # prisma, audit, csv, idGenerator
-│   │   └── index.ts
-│   ├── prisma/schema.prisma   # All models
-│   └── .env.example
-│
-├── scripts/
-│   ├── dev-start.js           # Docker + concurrently launcher
-│   └── csv-corrector/
-│       ├── csv_corrector.py   # Offline CSV normaliser (no deps)
-│       └── format.csv         # Reference format
-│
-├── docker-compose.yml         # ims_postgres (postgres:16-alpine)
-├── ims-control.ps1            # PowerShell control script
-├── setup.bat / setup.sh       # One-shot install + migrate
-└── package.json               # Root scripts (dev, build, db, etc.)
+This project is under active development.
+
+Current focus areas include:
+
+- Improving inventory workflows
+- Enhancing product, category, and location management
+- Improving stock movement tracking
+- Cleaning up UI behavior
+- Improving data validation
+- Strengthening security and role-based access
+- Preparing the system for more production-ready use
+
+Breaking changes may happen while the project is still being improved.
+
+---
+
+## Tech Stack
+
+- **Frontend:** React, TypeScript, Vite
+- **Backend:** Node.js, Express, TypeScript
+- **Database:** PostgreSQL via Prisma ORM
+- **Authentication:** JWT-based with role-based access
+- **API:** REST
+
+---
+
+## Use Cases
+
+This system is useful for:
+
+- IT asset tracking
+- Office equipment inventory
+- Government office inventory
+- Company stock management
+- Multi-department asset monitoring
+- Equipment assignment tracking
+- Basic warehouse or storage room inventory
+
+---
+
+## Security Notice
+
+This repository should only contain safe public information.
+
+Do not commit or expose:
+
+- `.env` files
+- API keys
+- Database passwords
+- JWT secrets
+- Admin credentials
+- Private server IP addresses
+- Internal-only URLs
+- Cloud access tokens
+- Personal user data
+- Production database dumps
+- Real confidential inventory records
+
+Use `.env.example` instead of `.env`.
+
+Example:
+
+```env
+DATABASE_URL="your-database-url-here"
+JWT_SECRET="your-jwt-secret-here"
+PORT=3001
 ```
 
----
-
-## Routes
-
-### Public
-`/login`, `/register`, `/initial-setup`
-
-### Authenticated and department-scoped
-`/dashboard`, `/products`, `/categories`, `/locations`, `/inventory-items`, `/stock-movements`, `/floor-plans`, `/floor-plans/:id/edit`, `/import-pclsf`, `/scanner`
-
-### Authenticated (any role)
-`/change-password`
-
-### Admin / superadmin only
-`/admin/users`, `/admin/departments`, `/admin/assignment`, `/delete-requests`, `/password-requests`
-
-### Superadmin only
-`/admin/settings`
+Never place real secrets inside the README, source code, screenshots, documentation, or GitHub Issues.
 
 ---
 
-## API surface
+## Installation
 
-The backend exposes authenticated REST endpoints for auth, products, categories, locations, stock movements, stock details, floor plans, dashboard metrics, users, departments, requests (delete and password), settings, and audit logs.
+Clone the repository:
 
-All endpoints (except auth and invite-code endpoints) require a bearer token. Admin and staff requests additionally pass a department-context header so the backend can scope queries to the right department.
-
-For the exact endpoint list, see the route modules in `backend/src/routes/`.
-
----
-
-## Quick start
-
-### Prerequisites
-- Node.js 18+ and npm 9+
-- **Docker Desktop** (recommended — `docker-compose.yml` boots PostgreSQL for you)
-- Or your own PostgreSQL 14+ reachable at the URL in `backend/.env`
-
-### Setup
 ```bash
-# Install dependencies for both apps
+git clone <your-repository-url>
+cd <repository-folder>
+```
+
+Install dependencies:
+
+```bash
 npm install
+```
 
-# Configure the backend
+Create an environment file:
+
+```bash
 cp backend/.env.example backend/.env
-# Edit JWT_SECRET to a strong random string
+```
 
-# Run migrations (Docker DB must be up: docker-compose up -d)
+Update the `.env` file with your local development values.
+
+Run database setup:
+
+```bash
 cd backend
+npx prisma generate
 npx prisma migrate dev
-cd ..
+```
 
-# Start everything together (handles Docker + both apps)
+Start the development server:
+
+```bash
 npm run dev
 ```
 
-- Frontend: <http://localhost:5173>
-- Backend:  <http://localhost:3001>
-- Postgres: `localhost:5432` (db / user / password come from `backend/.env`)
-
-### Root scripts (`package.json`)
-| Script | Does |
-|--------|------|
-| `npm run dev` | `scripts/dev-start.js` — Docker check → DB up → both apps via `concurrently` |
-| `npm run frontend:dev` | Vite only |
-| `npm run backend:dev` | Express only (`ts-node` + `nodemon`) |
-| `npm run frontend:build` | `tsc && vite build` |
-| `npm run backend:build` | `tsc` compile |
-| `npm run backend:db:migrate` | `prisma migrate dev` |
-| `npm run backend:db:studio` | Prisma Studio UI |
-| `npm run control` | PowerShell control script (`start | stop | restart | status`) |
-| `setup.bat` / `setup.sh` | One-shot dependency install + initial migrate |
+If the frontend and backend are separated, install and run each one separately based on your project structure.
 
 ---
 
-## First-time login
+## Recommended Environment Files
 
-On first boot the system creates a **temporary setup-only superadmin account**. The exact credentials are printed in the backend console and shown on the login screen of a fresh install.
+Use this structure:
 
-> ⚠️ **Security**
-> - Change the default credentials immediately during initial setup.
-> - Do not expose the app on a public network before completing initial setup.
-> - The default account is invalidated as soon as the setup form is submitted.
-
-Logging in with the default account is redirected to `/initial-setup` — set your real name, email, and a new password before anything else opens.
-
-After setup:
-1. Create departments at `/admin/departments`
-2. Generate invite codes at `/admin/users`
-3. Link roles + departments at `/admin/assignment`
-4. Build the location tree at `/locations`
-5. Add products at `/products` (or bulk-import via `/import-pclsf`)
-
----
-
-## Configuration
-
-`backend/.env`:
-```env
-DATABASE_URL="postgresql://<db_user>:<db_password>@<host>:5432/<db_name>"
-JWT_SECRET="<generate-a-strong-random-secret>"
-NODE_ENV="development"
-PORT=3001
-# Comma-separated origins for CORS (production)
-# ALLOWED_ORIGINS="https://yourdomain.com,https://app.yourdomain.com"
+```
+.env
+.env.example
 ```
 
-Generate `JWT_SECRET` with something like `openssl rand -base64 48`. Use a unique, long, random value per deployment.
+The `.env` file should be ignored by Git.
 
-The frontend needs no env vars — `vite.config.ts` proxies `/api` to `http://localhost:3001` in dev.
+The `.env.example` file should contain only placeholder values.
 
----
+Example `.gitignore` entries:
 
-## Role / access matrix
-
-| Capability | Superadmin | Admin | Staff |
-|------------|:---------:|:-----:|:-----:|
-| View all departments | ✓ | per-assignment | per-assignment |
-| Manage users | ✓ | ✓ | – |
-| Manage departments | ✓ | – | – |
-| Assign staff / admins to departments | ✓ | ✓ | – |
-| Approve delete & password requests | ✓ | ✓ | – |
-| Hard-delete inventory entities | ✓ | ✓ | – (files request) |
-| Create / edit products, items, movements | ✓ | ✓ | ✓ (own dept) |
-| Floor-plan editor | ✓ | ✓ | ✓ (own dept) |
-| CSV import / export / corrector | ✓ | ✓ | ✓ (own dept) |
-| Audit log | ✓ | ✓ | – |
-| Superadmin maintenance | ✓ | – | – |
-
----
-
-## Security notes
-
-- JWT auth + bcrypt (10 salt rounds)
-- Department scoping enforced in `backend/src/middleware/auth.ts` via `req.departmentId` / `req.departmentIds`
-- Soft-delete pattern via `DeleteRequest` for staff
-- Audit log captures user, entity, JSON change snapshot, IP
-- Never commit `backend/.env` — use `backend/.env.example` as a template
-- Change the default superadmin credentials immediately on first login (do not expose the app publicly before initial setup is complete)
-- Generate a strong, unique `JWT_SECRET` per deployment and rotate it periodically
-- Use HTTPS in production
+```
+.env
+.env.local
+.env.production
+.env.development
+node_modules
+dist
+build
+coverage
+logs
+uploads
+temp
+cache
+```
 
 ---
 
-## Troubleshooting
+## Contributing
 
-| Issue | Fix |
-|-------|-----|
-| `Can't reach database server` | PostgreSQL isn't running — `docker-compose up -d`, then check `DATABASE_URL` |
-| `npm run dev` says Docker is not running | Start Docker Desktop, retry |
-| Port 3001 / 5173 in use | `npm run control` then `stop`, or kill the offending process |
-| Login keeps redirecting to `/initial-setup` | The default superadmin hasn't finished setup — complete the form |
-| CORS errors | Add the frontend origin to `ALLOWED_ORIGINS` in `backend/.env` |
-| Scanner says "camera not supported" | Browser lacks `BarcodeDetector` — use keyboard mode, or Chrome/Edge |
-| CSV import says "Unknown type" | Header row doesn't match a known schema — re-export the template, or run it through `scripts/csv-corrector/csv_corrector.py` first |
+Contributions are welcome.
+
+You can help by:
+
+- Reporting bugs
+- Suggesting improvements
+- Improving documentation
+- Fixing UI issues
+- Improving backend logic
+- Adding tests
+- Improving security
+- Refactoring code safely
+
+Before submitting changes, please make sure your code does not expose secrets, private data, or environment-specific configuration.
+
+---
+
+## Bug Reports
+
+When reporting bugs, please include:
+
+- What page or feature has the issue
+- Steps to reproduce the problem
+- Expected result
+- Actual result
+- Screenshot if helpful
+- Browser or environment used
+
+Do not include passwords, tokens, private URLs, or real confidential data in bug reports.
+
+---
+
+## Development Notes
+
+This project is still evolving. Some modules, database fields, UI components, and API routes may be updated as the system improves.
+
+The goal is to keep the system clean, secure, practical, and useful for real inventory operations.
 
 ---
 
 ## License
 
-MIT
+This project is open source. Add your selected license here (e.g., MIT License).
+
+---
+
+## Disclaimer
+
+This software is provided as-is while under active development. Use it carefully, review the code before production deployment, and configure your own security settings properly.

@@ -51,8 +51,11 @@ export default function ImportPCLSF() {
   const [exportMessage, setExportMessage] = useState('');
   const [correctorMessage, setCorrectorMessage] = useState('');
 
+  const normalizeCsvHeader = (value: string) =>
+    value.replace(/^\uFEFF/, '').replace(/^"|"$/g, '').trim().toLowerCase().replace(/\s+/g, ' ');
+
   const detectImportType = (headers: string[]): ImportType => {
-    const headerSet = new Set(headers.map(h => h.trim().toLowerCase()));
+    const headerSet = new Set(headers.map(normalizeCsvHeader));
     const hasAll = (required: string[]) => required.every(header => headerSet.has(header));
 
     if (hasAll(['sku', 'name', 'categoryid'])) return 'products';
@@ -141,7 +144,7 @@ export default function ImportPCLSF() {
     let currentType: UnifiedType | null = null;
 
     csvContent.split(/\r?\n/).forEach(line => {
-      const marker = line.match(/^#IMS_SECTION,(products|categories|locations|floor-plans)\s*$/);
+      const marker = line.replace(/^\uFEFF/, '').trim().match(/^#IMS_SECTION\s*,\s*(products|categories|locations|floor-plans)$/i);
       if (marker) {
         currentType = marker[1] as UnifiedType;
         sections[currentType] = [];
@@ -210,23 +213,41 @@ export default function ImportPCLSF() {
     return cleaned || fallback;
   };
 
+  const getCsvValue = (row: CsvRow, ...headers: string[]) => {
+    const normalizedHeaders = headers.map(normalizeCsvHeader);
+    const key = Object.keys(row).find(header => normalizedHeaders.includes(normalizeCsvHeader(header)));
+    return key ? row[key] : '';
+  };
+
   const isInventoryListCsv = (csvContent: string) => {
-    const headers = csvContent.split(/\r?\n/)[0]?.split(',').map(header => header.trim().toLowerCase()) || [];
-    return ['description', 'model number', 'serial number', 'mac id', 'location'].every(header => headers.includes(header));
+    const headers = csvContent.split(/\r?\n/)[0]?.split(',').map(normalizeCsvHeader) || [];
+    return ['count', 'description', 'model number', 'serial number', 'mac id', 'location', 'category', 'department']
+      .every(header => headers.includes(header));
   };
 
   const convertInventoryListToUnifiedCsv = (csvContent: string) => {
     const rows = parseCsvRows(csvContent);
     const now = new Date().toISOString();
-    const categoryId = 'csv-cat-imported-items';
     const locations = new Map<string, CsvRow>();
+    const categories = new Map<string, CsvRow>();
     const products: CsvRow[] = [];
 
     rows.forEach((row, index) => {
-      const description = row.Description || '';
+      const description = getCsvValue(row, 'Description');
       if (!description.trim()) return;
 
-      const locationName = row.Location || 'Unassigned';
+      const categoryName = getCsvValue(row, 'Category') || 'Imported Items';
+      const categoryId = `csv-cat-${slug(categoryName, 'imported-items')}`;
+      categories.set(categoryId, {
+        id: categoryId,
+        name: categoryName,
+        description: 'Items converted from inventory CSV',
+        departmentId: '',
+        createdAt: now,
+        updatedAt: now,
+      });
+
+      const locationName = getCsvValue(row, 'Location') || 'Unassigned';
       const locationId = `csv-loc-${slug(locationName, `location-${index + 1}`)}`;
       locations.set(locationId, {
         id: locationId,
@@ -241,12 +262,14 @@ export default function ImportPCLSF() {
         children: '[]',
       });
 
+      const departmentName = getCsvValue(row, 'Department');
       const notes = [
-        row['Model Number'] ? `Model: ${row['Model Number']}` : '',
-        row['Serial Number'] ? `Serial: ${row['Serial Number']}` : '',
-        row['MAC ID'] ? `MAC: ${row['MAC ID']}` : '',
+        getCsvValue(row, 'Model Number') ? `Model: ${getCsvValue(row, 'Model Number')}` : '',
+        getCsvValue(row, 'Serial Number') ? `Serial: ${getCsvValue(row, 'Serial Number')}` : '',
+        getCsvValue(row, 'MAC ID') ? `MAC: ${getCsvValue(row, 'MAC ID')}` : '',
+        departmentName ? `Department: ${departmentName}` : '',
       ].filter(Boolean).join('; ');
-      const count = Number.parseInt(row.Count || '', 10);
+      const count = Number.parseInt(getCsvValue(row, 'Count') || '', 10);
       const stock = Number.isFinite(count) && count > 0 ? count : 1;
       const rowNo = String(products.length + 1).padStart(4, '0');
 
@@ -277,7 +300,7 @@ export default function ImportPCLSF() {
 
     return [
       '#IMS_SECTION,categories',
-      convertToCSV([{ id: categoryId, name: 'Imported Items', description: 'Items converted from inventory CSV', departmentId: '', createdAt: now, updatedAt: now }]),
+      convertToCSV([...categories.values()]),
       '#IMS_SECTION,locations',
       convertToCSV([...locations.values()]),
       '#IMS_SECTION,products',
@@ -310,7 +333,7 @@ export default function ImportPCLSF() {
       setCorrectorLoading(true);
       const csvContent = await parseCSV(correctorFile);
       if (!isInventoryListCsv(csvContent)) {
-        setError('CSV Corrector expects columns: Description, Model Number, Serial Number, MAC ID, Location.');
+        setError('CSV Corrector expects columns: Count, Description, Model Number, Serial Number, MAC ID, Location, Category, Department.');
         return;
       }
 
@@ -362,6 +385,29 @@ export default function ImportPCLSF() {
       const importType = detectImportType(headers);
 
       if (importType === 'unknown') {
+        if (isInventoryListCsv(csvContent)) {
+          const correctedSections = parseUnifiedCsv(convertInventoryListToUnifiedCsv(csvContent));
+          let created = 0;
+          const errors: ImportResult['errors'] = [];
+
+          for (const section of correctedSections) {
+            const response = await api.post(getImportEndpoint(section.type), { csv: section.csv });
+            created += response.data.created || 0;
+            (response.data.errors || []).forEach((err: { row: number; error: string }) => {
+              errors.push({ row: err.row, error: `${TYPE_LABELS[section.type]}: ${err.error}` });
+            });
+          }
+
+          setResult({
+            type: 'unified',
+            created,
+            errors,
+            message: `Corrected and imported ${created} records from ${correctedSections.length} sections${errors.length > 0 ? ` with ${errors.length} errors` : ''}`,
+          });
+          setError('');
+          return;
+        }
+
         setError('Could not detect CSV type. Please use Products, Categories, Locations, or unified IMS format.');
         return;
       }
@@ -530,7 +576,7 @@ export default function ImportPCLSF() {
 
           <div className="bg-[var(--surface-2)] rounded-lg p-4 border border-[var(--border)] text-sm text-[var(--text-muted)] space-y-2">
             <p className="font-medium text-[var(--text)]">Expected columns</p>
-            <p>Count, Description, Model Number, Serial Number, MAC ID, Location</p>
+            <p>Count, Description, Model Number, Serial Number, MAC ID, Location, Category, Department</p>
             <p>Rows without Description are skipped. Count defaults to 1 when blank.</p>
           </div>
 

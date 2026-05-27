@@ -11,14 +11,22 @@ function log(msg)  { console.log(`[IMS] ${msg}`); }
 function warn(msg) { console.warn(`[IMS] WARNING: ${msg}`); }
 function fail(msg) { console.error(`[IMS] ERROR: ${msg}`); }
 
+function isDockerRunning() {
+  try {
+    execSync('docker info', { stdio: 'ignore' });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 // ── 1. Check Docker daemon ────────────────────────────────────────────────────
 log('Checking Docker...');
-try {
-  execSync('docker info', { stdio: 'ignore' });
+if (isDockerRunning()) {
   log('Docker is running.');
-} catch {
-  fail('Docker Desktop is not running.');
-  fail('Please start Docker Desktop, then run: npm run dev\n');
+} else {
+  fail('Docker is not running.');
+  fail('Start Docker, then run: npm run dev\n');
   process.exit(1);
 }
 

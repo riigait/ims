@@ -88,6 +88,9 @@ export interface FloorPlan {
     pixelsPerMeter: number;
   };
   objects: FloorPlanObject[];
+  isApproved?: boolean;
+  isTemplate?: boolean;
+  generationScore?: number;
   createdAt: string;
   updatedAt: string;
 }
