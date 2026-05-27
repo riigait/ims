@@ -63,7 +63,7 @@ export default function Products() {
   const [formData, setFormData] = useState(emptyForm);
   const [formError, setFormError] = useState('');
   const currentDepartmentId = localStorage.getItem('currentDepartmentId');
-  const showDepartmentFilter = user.role === 'superadmin' || currentDepartmentId === ALL_DEPARTMENTS_ID;
+  const showDepartmentFilter = user.role === 'superadmin' || (user.role === 'admin' && currentDepartmentId === ALL_DEPARTMENTS_ID);
 
   const fetchData = async () => {
     try {
@@ -113,6 +113,7 @@ export default function Products() {
     setFormData(emptyForm);
     setFormError('');
     setIsCreating(true);
+    setConfirmingDelete(false);
     setIsDrawerOpen(true);
   };
 
@@ -121,6 +122,7 @@ export default function Products() {
     setEditingItem(null);
     setIsCreating(false);
     setFormError('');
+    setConfirmingDelete(false);
     setIsDrawerOpen(true);
   };
 
@@ -512,7 +514,7 @@ export default function Products() {
             {/* Body */}
             <div className="flex-1 overflow-y-auto px-6 py-4">
               {(editingItem || isCreating) ? (
-                <form id="product-form" onSubmit={handleSubmit} className="space-y-4">
+                <form onSubmit={handleSubmit} className="space-y-4">
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div>
                       <label className="block text-xs font-medium text-[var(--text-muted)] mb-1">SKU</label>
@@ -677,6 +679,16 @@ export default function Products() {
                     </div>
                   </div>
                   {formError && <p className="text-red-500 text-sm">{formError}</p>}
+                  <div className="flex gap-2">
+                    <button type="submit"
+                      className="px-4 py-2 bg-[var(--primary)] text-white text-sm rounded-lg hover:bg-[var(--primary-hover)]">
+                      Save
+                    </button>
+                    <button type="button" onClick={cancelEdit}
+                      className="px-4 py-2 border border-[var(--border)] text-sm rounded-lg text-[var(--text)] hover:bg-[var(--surface-2)]">
+                      Cancel
+                    </button>
+                  </div>
                 </form>
               ) : selectedItem && (
                 <div className="space-y-6">
@@ -728,59 +740,50 @@ export default function Products() {
               )}
             </div>
 
-            {/* Footer */}
-            <div className="px-6 py-4 border-t border-[var(--border)] flex-shrink-0">
-              {(editingItem || isCreating) ? (
-                <div className="flex gap-2">
-                  <button type="submit" form="product-form"
-                    className="px-4 py-2 bg-[var(--primary)] text-white text-sm rounded-lg hover:bg-[var(--primary-hover)]">
-                    Save
-                  </button>
-                  <button type="button" onClick={cancelEdit}
-                    className="px-4 py-2 border border-[var(--border)] text-sm rounded-lg text-[var(--text)] hover:bg-[var(--surface-2)]">
-                    Cancel
-                  </button>
-                </div>
-              ) : confirmingDelete ? (
-                <div className="w-full">
-                  <p className="text-sm font-medium text-[var(--text)] mb-3">Delete "{selectedItem?.name}"?</p>
+            {/* Footer — view mode only */}
+            {!editingItem && !isCreating && (
+              <div className="px-6 py-4 border-t border-[var(--border)] flex-shrink-0">
+                {confirmingDelete ? (
+                  <div className="w-full">
+                    <p className="text-sm font-medium text-[var(--text)] mb-3">Delete "{selectedItem?.name}"?</p>
+                    <div className="flex gap-2">
+                      <button type="button" onClick={doDelete}
+                        className="px-4 py-2 bg-red-600 text-white text-sm rounded-lg hover:bg-red-700">
+                        Yes, Delete
+                      </button>
+                      <button type="button" onClick={() => setConfirmingDelete(false)}
+                        className="px-4 py-2 border border-[var(--border)] text-sm rounded-lg text-[var(--text)] hover:bg-[var(--surface-2)]">
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                ) : selectedItem && (
                   <div className="flex gap-2">
-                    <button type="button" onClick={doDelete}
-                      className="px-4 py-2 bg-red-600 text-white text-sm rounded-lg hover:bg-red-700">
-                      Yes, Delete
-                    </button>
-                    <button type="button" onClick={() => setConfirmingDelete(false)}
+                    {user.role !== 'superadmin' && (
+                      <button type="button" onClick={() => openEdit(selectedItem)}
+                        className="flex items-center gap-2 px-4 py-2 bg-[var(--primary)] text-white text-sm rounded-lg hover:bg-[var(--primary-hover)]">
+                        <Edit size={14} /> Edit Details
+                      </button>
+                    )}
+                    {user.role === 'admin' ? (
+                      <button type="button" onClick={handleDelete}
+                        className="flex items-center gap-2 px-4 py-2 border border-red-300 text-red-600 text-sm rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20">
+                        <Trash2 size={14} /> Delete
+                      </button>
+                    ) : user.role === 'staff' ? (
+                      <button type="button" onClick={() => handleRequestDelete(selectedItem.id, selectedItem.name)}
+                        className="flex items-center gap-2 px-4 py-2 border border-orange-300 text-orange-600 text-sm rounded-lg hover:bg-orange-50">
+                        <Trash2 size={14} /> Request Delete
+                      </button>
+                    ) : null}
+                    <button type="button" onClick={() => { closeDrawer(); navigate('/stock-movements'); }}
                       className="px-4 py-2 border border-[var(--border)] text-sm rounded-lg text-[var(--text)] hover:bg-[var(--surface-2)]">
-                      Cancel
+                      View Movements
                     </button>
                   </div>
-                </div>
-              ) : selectedItem && (
-                <div className="flex gap-2">
-                  {user.role !== 'superadmin' && (
-                    <button type="button" onClick={() => openEdit(selectedItem)}
-                      className="flex items-center gap-2 px-4 py-2 bg-[var(--primary)] text-white text-sm rounded-lg hover:bg-[var(--primary-hover)]">
-                      <Edit size={14} /> Edit
-                    </button>
-                  )}
-                  {user.role === 'admin' ? (
-                    <button type="button" onClick={handleDelete}
-                      className="flex items-center gap-2 px-4 py-2 border border-red-300 text-red-600 text-sm rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20">
-                      <Trash2 size={14} /> Delete
-                    </button>
-                  ) : user.role === 'staff' ? (
-                    <button type="button" onClick={() => handleRequestDelete(selectedItem.id, selectedItem.name)}
-                      className="flex items-center gap-2 px-4 py-2 border border-orange-300 text-orange-600 text-sm rounded-lg hover:bg-orange-50">
-                      <Trash2 size={14} /> Request Delete
-                    </button>
-                  ) : null}
-                  <button type="button" onClick={() => { closeDrawer(); navigate('/stock-movements'); }}
-                    className="px-4 py-2 border border-[var(--border)] text-sm rounded-lg text-[var(--text)] hover:bg-[var(--surface-2)]">
-                    View Movements
-                  </button>
-                </div>
-              )}
-            </div>
+                )}
+              </div>
+            )}
           </div>
         </div>
       )}

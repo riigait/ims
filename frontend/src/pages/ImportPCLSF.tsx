@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { Navigate } from 'react-router-dom';
 import { Download, Upload } from 'lucide-react';
 import api, {
   categoriesApi,
@@ -10,6 +11,7 @@ import api, {
 } from '@/services/api';
 import { convertToCSV, downloadCsv, parseCSV } from '@/utils/csv';
 import DataPageLayout from '@/components/layout/DataPageLayout';
+import { ALL_DEPARTMENTS_ID } from '@/constants/app';
 
 type ImportType = 'products' | 'categories' | 'locations' | 'floor-plans' | 'unknown';
 type ExportType = 'products' | 'categories' | 'locations' | 'floor-plans' | 'stock-movements' | 'inventory-items';
@@ -40,7 +42,10 @@ const TYPE_LABELS: Record<ImportType | ExportType | 'unified', string> = {
 };
 
 export default function ImportPCLSF() {
-  const [activeTab, setActiveTab] = useState<Tab>('import');
+  const user = JSON.parse(localStorage.getItem('user') || '{}');
+  if (user.role === 'superadmin') return <Navigate to="/dashboard" replace />;
+
+  const [activeTab, setActiveTab] = useState<Tab>(user.role === 'staff' ? 'corrector' : 'import');
   const [file, setFile] = useState<File | null>(null);
   const [loading, setLoading] = useState(false);
   const [exportLoading, setExportLoading] = useState<ExportType | 'unified' | null>(null);
@@ -50,6 +55,26 @@ export default function ImportPCLSF() {
   const [error, setError] = useState('');
   const [exportMessage, setExportMessage] = useState('');
   const [correctorMessage, setCorrectorMessage] = useState('');
+  const [departments, setDepartments] = useState<any[]>([]);
+  const [importDeptId, setImportDeptId] = useState('');
+  const [deptSearch, setDeptSearch] = useState('');
+
+  const currentDeptId = localStorage.getItem('currentDepartmentId');
+  const showDeptSelector = !currentDeptId || currentDeptId === ALL_DEPARTMENTS_ID;
+
+  useEffect(() => {
+    if (!showDeptSelector) return;
+    const assigned = [
+      ...(user.adminDepartments || []),
+      ...(user.staffDepartments || []),
+    ].map((ad: any) => ad.department).filter(Boolean);
+    const seen = new Set<string>();
+    setDepartments(assigned.filter((d: any) => {
+      if (seen.has(d.id)) return false;
+      seen.add(d.id);
+      return true;
+    }));
+  }, []);
 
   const normalizeCsvHeader = (value: string) =>
     value.replace(/^\uFEFF/, '').replace(/^"|"$/g, '').trim().toLowerCase().replace(/\s+/g, ' ');
@@ -353,6 +378,13 @@ export default function ImportPCLSF() {
       setError('Please select a CSV file');
       return;
     }
+    if (showDeptSelector && !importDeptId) {
+      setError('Please select a department before importing.');
+      return;
+    }
+
+    const savedDeptId = localStorage.getItem('currentDepartmentId');
+    if (importDeptId) localStorage.setItem('currentDepartmentId', importDeptId);
 
     try {
       setLoading(true);
@@ -432,6 +464,10 @@ export default function ImportPCLSF() {
       const message = (err as any).response?.data?.error || 'Failed to import file. Please check format and try again.';
       setError(message);
     } finally {
+      if (importDeptId) {
+        if (savedDeptId !== null) localStorage.setItem('currentDepartmentId', savedDeptId);
+        else localStorage.removeItem('currentDepartmentId');
+      }
       setLoading(false);
     }
   };
@@ -479,7 +515,7 @@ export default function ImportPCLSF() {
   const formContent = (
     <div className="space-y-6">
       <div className="inline-flex rounded-lg border border-[var(--border)] overflow-hidden">
-        {(['import', 'export', 'corrector'] as Tab[]).map(tab => (
+        {(['import', 'export', 'corrector'] as Tab[]).filter(tab => user.role === 'staff' ? tab === 'corrector' : true).map(tab => (
           <button
             key={tab}
             onClick={() => { setActiveTab(tab); setError(''); setExportMessage(''); setCorrectorMessage(''); }}
@@ -514,6 +550,51 @@ export default function ImportPCLSF() {
               ))}
             </div>
           </div>
+
+          {showDeptSelector && (
+            <div className="bg-[var(--surface-2)] rounded-lg p-4 border border-amber-400">
+              <div className="flex items-start justify-between mb-2">
+                <h3 className="font-semibold text-[var(--text)]">Import Department</h3>
+                {importDeptId && (
+                  <span className="text-xs bg-green-100 text-green-800 px-2 py-0.5 rounded font-medium">
+                    {departments.find(d => d.id === importDeptId)?.name}
+                  </span>
+                )}
+              </div>
+              <p className="text-sm text-amber-700 dark:text-amber-400 mb-3">
+                Note: Select the proper department before importing. Records will be assigned to the selected department. Do not import under All Departments.
+              </p>
+              <input
+                type="text"
+                value={deptSearch}
+                onChange={e => setDeptSearch(e.target.value)}
+                placeholder="Search department..."
+                className="w-full px-3 py-2 text-sm border border-[var(--border)] rounded-lg bg-[var(--surface)] text-[var(--text)] mb-2"
+              />
+              <div className="flex flex-col gap-1 max-h-40 overflow-y-auto">
+                {departments
+                  .filter(d => d.name.toLowerCase().includes(deptSearch.toLowerCase()))
+                  .map(d => (
+                    <button
+                      key={d.id}
+                      type="button"
+                      onClick={() => setImportDeptId(d.id)}
+                      className={`text-left px-3 py-2 text-sm rounded-lg transition-colors ${
+                        importDeptId === d.id
+                          ? 'bg-[var(--primary)] text-white font-semibold'
+                          : 'bg-[var(--surface)] text-[var(--text)] hover:bg-[var(--border)]'
+                      }`}
+                    >
+                      {d.name}
+                      {d.description && <span className="text-xs opacity-60 ml-2">{d.description}</span>}
+                    </button>
+                  ))}
+                {departments.filter(d => d.name.toLowerCase().includes(deptSearch.toLowerCase())).length === 0 && (
+                  <p className="text-xs text-[var(--text-muted)] px-3 py-2">No departments found.</p>
+                )}
+              </div>
+            </div>
+          )}
 
           <div className="border-2 border-dashed border-[var(--border)] rounded-lg p-8 text-center">
             <Upload size={48} className="mx-auto mb-4 text-[var(--text-muted)]" />

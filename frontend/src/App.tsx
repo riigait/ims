@@ -18,6 +18,7 @@ import Scanner from '@/pages/Scanner';
 import AdminUsers from '@/pages/AdminUsers';
 import AdminDepartments from '@/pages/AdminDepartments';
 import DeleteRequests from '@/pages/DeleteRequests';
+import Requests from '@/pages/Requests';
 import AdminAssignment from '@/pages/AdminAssignment';
 import ChangePassword from '@/pages/ChangePassword';
 import PasswordRequests from '@/pages/PasswordRequests';
@@ -223,6 +224,16 @@ function App() {
             <AdminRoute>
               <Layout>
                 <DeleteRequests />
+              </Layout>
+            </AdminRoute>
+          }
+        />
+        <Route
+          path="/admin/requests"
+          element={
+            <AdminRoute>
+              <Layout>
+                <Requests />
               </Layout>
             </AdminRoute>
           }

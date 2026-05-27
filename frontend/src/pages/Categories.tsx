@@ -283,49 +283,68 @@ export default function Categories() {
             {/* Body */}
             <div className="flex-1 overflow-y-auto px-6 py-4">
               {(editingItem || isCreating) ? (
-                <form id="category-form" onSubmit={handleSubmit} className="space-y-4">
+                <form onSubmit={handleSubmit} className="space-y-5">
                   <div>
-                    <label className="block text-xs font-medium text-[var(--text-muted)] mb-1">Category Name *</label>
-                    <input
-                      type="text"
-                      value={formData.name}
-                      onChange={e => setFormData({ ...formData, name: e.target.value })}
-                      className="w-full px-3 py-2 border border-[var(--border)] rounded-lg text-sm bg-[var(--surface)] text-[var(--text)]"
-                      autoFocus
-                      required
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium text-[var(--text-muted)] mb-1">Description</label>
-                    <textarea
-                      value={formData.description}
-                      onChange={e => setFormData({ ...formData, description: e.target.value })}
-                      rows={3}
-                      className="w-full px-3 py-2 border border-[var(--border)] rounded-lg text-sm bg-[var(--surface)] text-[var(--text)]"
-                    />
+                    <h4 className="text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wider mb-2">Category Details</h4>
+                    <div className="space-y-3">
+                      <div>
+                        <label className="block text-xs font-medium text-[var(--text-muted)] mb-1">Category Name *</label>
+                        <input
+                          type="text"
+                          value={formData.name}
+                          onChange={e => setFormData({ ...formData, name: e.target.value })}
+                          className="w-full px-3 py-1.5 text-sm border border-[var(--border)] rounded-lg bg-[var(--surface)] text-[var(--text)]"
+                          autoFocus
+                          required
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-[var(--text-muted)] mb-1">Description</label>
+                        <textarea
+                          value={formData.description}
+                          onChange={e => setFormData({ ...formData, description: e.target.value })}
+                          rows={3}
+                          className="w-full px-3 py-1.5 text-sm border border-[var(--border)] rounded-lg bg-[var(--surface)] text-[var(--text)]"
+                        />
+                      </div>
+                    </div>
                   </div>
                   {formError && <p className="text-red-500 text-sm">{formError}</p>}
+                  <div className="flex gap-2">
+                    <button type="submit"
+                      className="px-4 py-2 bg-[var(--primary)] text-white text-sm rounded-lg hover:bg-[var(--primary-hover)]">
+                      Save
+                    </button>
+                    <button type="button" onClick={cancelEdit}
+                      className="px-4 py-2 border border-[var(--border)] text-sm rounded-lg text-[var(--text)] hover:bg-[var(--surface-2)]">
+                      Cancel
+                    </button>
+                  </div>
                 </form>
               ) : selectedItem && (
                 <div className="space-y-6">
                   <section>
                     <h3 className="text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wider mb-3">Details</h3>
-                    <div className="space-y-3">
+                    <div className="grid grid-cols-2 gap-3">
                       <div>
                         <p className="text-xs text-[var(--text-muted)] mb-0.5">Name</p>
                         <p className="text-sm font-medium text-[var(--text)]">{selectedItem.name}</p>
                       </div>
                       <div>
+                        <p className="text-xs text-[var(--text-muted)] mb-0.5">Department</p>
+                        <p className="text-sm text-[var(--text)]">{selectedItem.department?.name ?? '—'}</p>
+                      </div>
+                      <div className="col-span-2">
                         <p className="text-xs text-[var(--text-muted)] mb-0.5">Description</p>
                         <p className="text-sm text-[var(--text)]">{selectedItem.description || '—'}</p>
                       </div>
                       <div>
-                        <p className="text-xs text-[var(--text-muted)] mb-0.5">Department</p>
-                        <p className="text-sm text-[var(--text)]">{selectedItem.department?.name ?? '—'}</p>
-                      </div>
-                      <div>
                         <p className="text-xs text-[var(--text-muted)] mb-0.5">Date Added</p>
                         <p className="text-sm text-[var(--text)]">{formatDate(selectedItem.createdAt)}</p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-[var(--text-muted)] mb-0.5">Last Updated</p>
+                        <p className="text-sm text-[var(--text)]">{formatDate(selectedItem.updatedAt)}</p>
                       </div>
                     </div>
                   </section>
@@ -333,46 +352,37 @@ export default function Categories() {
               )}
             </div>
 
-            {/* Footer */}
-            <div className="px-6 py-4 border-t border-[var(--border)] flex-shrink-0">
-              {(editingItem || isCreating) ? (
-                <div className="flex gap-2">
-                  <button type="submit" form="category-form"
-                    className="px-4 py-2 bg-[var(--primary)] text-white text-sm rounded-lg hover:bg-[var(--primary-hover)]">
-                    Save
-                  </button>
-                  <button type="button" onClick={cancelEdit}
-                    className="px-4 py-2 border border-[var(--border)] text-sm rounded-lg text-[var(--text)] hover:bg-[var(--surface-2)]">
-                    Cancel
-                  </button>
-                </div>
-              ) : confirmingDelete ? (
-                <div className="w-full">
-                  <p className="text-sm font-medium text-[var(--text)] mb-3">Delete "{selectedItem?.name}"?</p>
+            {/* Footer — view mode actions only */}
+            {!editingItem && !isCreating && (
+              <div className="px-6 py-4 border-t border-[var(--border)] flex-shrink-0">
+                {confirmingDelete ? (
+                  <div className="w-full">
+                    <p className="text-sm font-medium text-[var(--text)] mb-3">Delete "{selectedItem?.name}"?</p>
+                    <div className="flex gap-2">
+                      <button type="button" onClick={doDelete}
+                        className="px-4 py-2 bg-red-600 text-white text-sm rounded-lg hover:bg-red-700">
+                        Yes, Delete
+                      </button>
+                      <button type="button" onClick={() => setConfirmingDelete(false)}
+                        className="px-4 py-2 border border-[var(--border)] text-sm rounded-lg text-[var(--text)] hover:bg-[var(--surface-2)]">
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                ) : user.role === 'admin' && (
                   <div className="flex gap-2">
-                    <button type="button" onClick={doDelete}
-                      className="px-4 py-2 bg-red-600 text-white text-sm rounded-lg hover:bg-red-700">
-                      Yes, Delete
+                    <button type="button" onClick={() => selectedItem && openEdit(selectedItem)}
+                      className="flex items-center gap-2 px-4 py-2 bg-[var(--primary)] text-white text-sm rounded-lg hover:bg-[var(--primary-hover)]">
+                      <Edit size={14} /> Edit Details
                     </button>
-                    <button type="button" onClick={() => setConfirmingDelete(false)}
-                      className="px-4 py-2 border border-[var(--border)] text-sm rounded-lg text-[var(--text)] hover:bg-[var(--surface-2)]">
-                      Cancel
+                    <button type="button" onClick={() => setConfirmingDelete(true)}
+                      className="flex items-center gap-2 px-4 py-2 border border-red-300 text-red-600 text-sm rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20">
+                      <Trash2 size={14} /> Delete
                     </button>
                   </div>
-                </div>
-              ) : user.role === 'admin' && (
-                <div className="flex gap-2">
-                  <button type="button" onClick={() => selectedItem && openEdit(selectedItem)}
-                    className="flex items-center gap-2 px-4 py-2 bg-[var(--primary)] text-white text-sm rounded-lg hover:bg-[var(--primary-hover)]">
-                    <Edit size={14} /> Edit
-                  </button>
-                  <button type="button" onClick={() => setConfirmingDelete(true)}
-                    className="flex items-center gap-2 px-4 py-2 border border-red-300 text-red-600 text-sm rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20">
-                    <Trash2 size={14} /> Delete
-                  </button>
-                </div>
-              )}
-            </div>
+                )}
+              </div>
+            )}
           </div>
         </div>
       )}

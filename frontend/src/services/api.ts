@@ -151,6 +151,13 @@ export const passwordRequestsApi = {
     api.patch(`/password-requests/${id}/reject`),
 };
 
+// Import Requests
+export const importRequestsApi = {
+  getAll: () => api.get('/import-requests'),
+  approve: (id: string) => api.patch(`/import-requests/${id}/approve`),
+  reject: (id: string, reason?: string) => api.patch(`/import-requests/${id}/reject`, { reason }),
+};
+
 // Settings
 export const settingsApi = {
   deleteOperationalData: (confirmPhrase: string) =>

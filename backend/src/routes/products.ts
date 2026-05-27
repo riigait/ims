@@ -269,6 +269,18 @@ router.post('/', async (req: AuthRequest, res: Response) => {
 
     await logAudit({ userId: req.userId, action: 'CREATE', entityType: 'product', entityId: product.id, changes: { name, sku, currentStock } });
 
+    await prisma.importRequest.create({
+      data: {
+        type: 'product_add',
+        status: 'pending',
+        productIds: [product.id],
+        label: `Added product: ${product.name} (${product.sku})`,
+        submittedBy: req.userId!,
+        departmentId: req.departmentId || null,
+        expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+      },
+    });
+
     res.status(201).json({
       ...product,
       _needsOpeningStock: false,
@@ -456,6 +468,22 @@ router.post('/import/csv', async (req: AuthRequest, res: Response) => {
       } catch (err: any) {
         errors.push({ row: i + 1, error: err.message });
       }
+    }
+
+    const newProducts = created.filter((p: any) => p._isNew !== false);
+    if (created.length > 0) {
+      await prisma.importRequest.create({
+        data: {
+          type: 'csv_import',
+          status: 'pending',
+          productIds: created.map((p: any) => p.id),
+          csvImportId,
+          label: `CSV Import — ${created.length} product${created.length !== 1 ? 's' : ''}`,
+          submittedBy: req.userId!,
+          departmentId: resolvedDeptId,
+          expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+        },
+      });
     }
 
     res.json({

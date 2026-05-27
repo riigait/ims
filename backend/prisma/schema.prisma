@@ -24,8 +24,9 @@ model Department {
   products    Product[]
   categories  Category[]
   locations   Location[]
-  movements   StockMovement[]
-  floorPlans  FloorPlan[]
+  movements      StockMovement[]
+  floorPlans     FloorPlan[]
+  importRequests ImportRequest[]
 }
 
 model User {
@@ -45,8 +46,10 @@ model User {
   inviteCodes           InviteCode[]
   deleteRequests        DeleteRequest[] @relation("requestedBy")
   reviewedRequests      DeleteRequest[] @relation("reviewedBy")
-  passwordRequests      PasswordChangeRequest[] @relation("passwordRequestedBy")
-  passwordApprovals     PasswordChangeRequest[] @relation("passwordApprovedBy")
+  passwordRequests           PasswordChangeRequest[] @relation("passwordRequestedBy")
+  passwordApprovals          PasswordChangeRequest[] @relation("passwordApprovedBy")
+  importRequests             ImportRequest[]         @relation("importSubmittedBy")
+  reviewedImportRequests     ImportRequest[]         @relation("importReviewedBy")
 }
 
 model Product {
@@ -310,4 +313,24 @@ model PasswordChangeRequest {
   approver      User?      @relation("passwordApprovedBy", fields: [approvedBy], references: [id], onDelete: SetNull)
   approvedAt    DateTime?
   createdAt     DateTime   @default(now())
+}
+
+model ImportRequest {
+  id           String      @id @default(cuid())
+  type         String      // 'csv_import' | 'product_add'
+  status       String      @default("pending") // 'pending' | 'approved' | 'rejected'
+  productIds   String[]
+  csvImportId  String?
+  label        String?
+  submittedBy  String
+  submitter    User        @relation("importSubmittedBy", fields: [submittedBy], references: [id])
+  departmentId String?
+  department   Department? @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+  notes        String?
+  expiresAt    DateTime
+  reviewedBy   String?
+  reviewer     User?       @relation("importReviewedBy", fields: [reviewedBy], references: [id], onDelete: SetNull)
+  reviewedAt   DateTime?
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
 }

@@ -308,7 +308,7 @@ export default function Locations() {
             {/* Body */}
             <div className="flex-1 overflow-y-auto px-6 py-4">
               {(editingItem || isCreating) ? (
-                <form id="location-form" onSubmit={handleSubmit} className="space-y-4">
+                <form onSubmit={handleSubmit} className="space-y-4">
                   <div className="grid grid-cols-2 gap-3">
                     <div className="col-span-2">
                       <label className="block text-xs font-medium text-[var(--text-muted)] mb-1">Location Name *</label>
@@ -360,6 +360,16 @@ export default function Locations() {
                     </div>
                   </div>
                   {formError && <p className="text-red-500 text-sm">{formError}</p>}
+                  <div className="flex gap-2">
+                    <button type="submit"
+                      className="px-4 py-2 bg-[var(--primary)] text-white text-sm rounded-lg hover:bg-[var(--primary-hover)]">
+                      Save
+                    </button>
+                    <button type="button" onClick={cancelEdit}
+                      className="px-4 py-2 border border-[var(--border)] text-sm rounded-lg text-[var(--text)] hover:bg-[var(--surface-2)]">
+                      Cancel
+                    </button>
+                  </div>
                 </form>
               ) : selectedItem && (
                 <div className="space-y-6">
@@ -398,46 +408,37 @@ export default function Locations() {
               )}
             </div>
 
-            {/* Footer */}
-            <div className="px-6 py-4 border-t border-[var(--border)] flex-shrink-0">
-              {(editingItem || isCreating) ? (
-                <div className="flex gap-2">
-                  <button type="submit" form="location-form"
-                    className="px-4 py-2 bg-[var(--primary)] text-white text-sm rounded-lg hover:bg-[var(--primary-hover)]">
-                    Save
-                  </button>
-                  <button type="button" onClick={cancelEdit}
-                    className="px-4 py-2 border border-[var(--border)] text-sm rounded-lg text-[var(--text)] hover:bg-[var(--surface-2)]">
-                    Cancel
-                  </button>
-                </div>
-              ) : confirmingDelete ? (
-                <div className="w-full">
-                  <p className="text-sm font-medium text-[var(--text)] mb-3">Delete "{selectedItem?.name}"?</p>
+            {/* Footer — view mode only */}
+            {!editingItem && !isCreating && (
+              <div className="px-6 py-4 border-t border-[var(--border)] flex-shrink-0">
+                {confirmingDelete ? (
+                  <div className="w-full">
+                    <p className="text-sm font-medium text-[var(--text)] mb-3">Delete "{selectedItem?.name}"?</p>
+                    <div className="flex gap-2">
+                      <button type="button" onClick={doDelete}
+                        className="px-4 py-2 bg-red-600 text-white text-sm rounded-lg hover:bg-red-700">
+                        Yes, Delete
+                      </button>
+                      <button type="button" onClick={() => setConfirmingDelete(false)}
+                        className="px-4 py-2 border border-[var(--border)] text-sm rounded-lg text-[var(--text)] hover:bg-[var(--surface-2)]">
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                ) : user.role === 'admin' && (
                   <div className="flex gap-2">
-                    <button type="button" onClick={doDelete}
-                      className="px-4 py-2 bg-red-600 text-white text-sm rounded-lg hover:bg-red-700">
-                      Yes, Delete
+                    <button type="button" onClick={() => selectedItem && openEdit(selectedItem)}
+                      className="flex items-center gap-2 px-4 py-2 bg-[var(--primary)] text-white text-sm rounded-lg hover:bg-[var(--primary-hover)]">
+                      <Edit size={14} /> Edit Details
                     </button>
-                    <button type="button" onClick={() => setConfirmingDelete(false)}
-                      className="px-4 py-2 border border-[var(--border)] text-sm rounded-lg text-[var(--text)] hover:bg-[var(--surface-2)]">
-                      Cancel
+                    <button type="button" onClick={() => setConfirmingDelete(true)}
+                      className="flex items-center gap-2 px-4 py-2 border border-red-300 text-red-600 text-sm rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20">
+                      <Trash2 size={14} /> Delete
                     </button>
                   </div>
-                </div>
-              ) : user.role === 'admin' && (
-                <div className="flex gap-2">
-                  <button type="button" onClick={() => selectedItem && openEdit(selectedItem)}
-                    className="flex items-center gap-2 px-4 py-2 bg-[var(--primary)] text-white text-sm rounded-lg hover:bg-[var(--primary-hover)]">
-                    <Edit size={14} /> Edit
-                  </button>
-                  <button type="button" onClick={() => setConfirmingDelete(true)}
-                    className="flex items-center gap-2 px-4 py-2 border border-red-300 text-red-600 text-sm rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20">
-                    <Trash2 size={14} /> Delete
-                  </button>
-                </div>
-              )}
-            </div>
+                )}
+              </div>
+            )}
           </div>
         </div>
       )}

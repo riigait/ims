@@ -205,7 +205,7 @@ export default function InventoryItems() {
         productsApi.getAll(),
         locationsApi.getAll(),
         categoriesApi.getAll(),
-        (user.role === 'superadmin' || localStorage.getItem('currentDepartmentId') === ALL_DEPARTMENTS_ID) ? departmentsApi.getAll() : Promise.resolve({ data: [] }),
+        (user.role === 'superadmin' || (user.role === 'admin' && localStorage.getItem('currentDepartmentId') === ALL_DEPARTMENTS_ID)) ? departmentsApi.getAll() : Promise.resolve({ data: [] }),
       ]);
       setItems(itemsRes.data);
       setAllProducts(productsRes.data);
@@ -505,9 +505,8 @@ export default function InventoryItems() {
           </button>
         </div>
 
-        {/* Main filters — 3 columns, 2 rows */}
+        {/* Main filters — 3 columns */}
         <div className="grid grid-cols-3 gap-2">
-          {/* Row 1 */}
           <select value={filterCategory} onChange={e => { setFilterCategory(e.target.value); setCurrentPage(1); }}
             className="px-3 py-2 border border-[var(--border)] rounded text-sm bg-[var(--surface)] text-[var(--text)]">
             <option value="">All Categories</option>
@@ -525,25 +524,6 @@ export default function InventoryItems() {
             onChange={v => { setFilterLocation(v); setCurrentPage(1); }}
             options={locations.map(l => ({ id: l.id, name: l.name }))}
           />
-          {/* Row 2 */}
-          <select value={filterStatus} onChange={e => { setFilterStatus(e.target.value); setCurrentPage(1); }}
-            className="px-3 py-2 border border-[var(--border)] rounded text-sm bg-[var(--surface)] text-[var(--text)]">
-            <option value="">All Statuses</option>
-            {STATUS_OPTIONS.map(s => <option key={s} value={s}>{STATUS_LABELS[s]}</option>)}
-          </select>
-          <select value={filterCondition} onChange={e => { setFilterCondition(e.target.value); setCurrentPage(1); }}
-            className="px-3 py-2 border border-[var(--border)] rounded text-sm bg-[var(--surface)] text-[var(--text)]">
-            <option value="">All Conditions</option>
-            {CONDITION_OPTIONS.map(c => <option key={c} value={c}>{CONDITION_LABELS[c]}</option>)}
-          </select>
-          <select value={filterWarranty} onChange={e => { setFilterWarranty(e.target.value); setCurrentPage(1); }}
-            className="px-3 py-2 border border-[var(--border)] rounded text-sm bg-[var(--surface)] text-[var(--text)]">
-            <option value="">All Warranty</option>
-            <option value="under-warranty">Under Warranty</option>
-            <option value="expiring-soon">Expiring Soon (90 days)</option>
-            <option value="expired">Expired Warranty</option>
-            <option value="no-date">No Warranty Date</option>
-          </select>
         </div>
 
         {/* Advanced filters toggle */}
@@ -554,6 +534,24 @@ export default function InventoryItems() {
 
         {showAdvanced && (
           <div className="grid grid-cols-2 gap-2 pt-1 border-t border-[var(--border)]">
+            <select value={filterStatus} onChange={e => { setFilterStatus(e.target.value); setCurrentPage(1); }}
+              className="px-3 py-2 border border-[var(--border)] rounded text-sm bg-[var(--surface)] text-[var(--text)]">
+              <option value="">All Statuses</option>
+              {STATUS_OPTIONS.map(s => <option key={s} value={s}>{STATUS_LABELS[s]}</option>)}
+            </select>
+            <select value={filterCondition} onChange={e => { setFilterCondition(e.target.value); setCurrentPage(1); }}
+              className="px-3 py-2 border border-[var(--border)] rounded text-sm bg-[var(--surface)] text-[var(--text)]">
+              <option value="">All Conditions</option>
+              {CONDITION_OPTIONS.map(c => <option key={c} value={c}>{CONDITION_LABELS[c]}</option>)}
+            </select>
+            <select value={filterWarranty} onChange={e => { setFilterWarranty(e.target.value); setCurrentPage(1); }}
+              className="px-3 py-2 border border-[var(--border)] rounded text-sm bg-[var(--surface)] text-[var(--text)]">
+              <option value="">All Warranty</option>
+              <option value="under-warranty">Under Warranty</option>
+              <option value="expiring-soon">Expiring Soon (90 days)</option>
+              <option value="expired">Expired Warranty</option>
+              <option value="no-date">No Warranty Date</option>
+            </select>
             <select value={filterAssignment} onChange={e => { setFilterAssignment(e.target.value); setCurrentPage(1); }}
               className="px-3 py-2 border border-[var(--border)] rounded text-sm bg-[var(--surface)] text-[var(--text)]">
               <option value="">All Assignment</option>
