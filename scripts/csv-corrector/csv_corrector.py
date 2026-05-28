@@ -383,6 +383,21 @@ def _pick(row: dict, *keys: str) -> str:
     return ''
 
 
+def infer_location_type(name: str) -> str:
+    n = name.lower()
+    if any(k in n for k in ('branch', 'site', 'campus')):
+        return 'branch'
+    if any(k in n for k in ('building', 'bldg', 'tower', 'block')):
+        return 'building'
+    if any(k in n for k in ('floor', 'level', 'storey', 'story')):
+        return 'floor'
+    if any(k in n for k in ('rack', 'server rack', 'network rack')):
+        return 'rack'
+    if any(k in n for k in ('shelf', 'cabinet', 'drawer', 'locker')):
+        return 'shelf'
+    return 'room'
+
+
 def convert_inventory_list(rows: list) -> dict:
     now = datetime.now().isoformat(timespec='milliseconds') + 'Z'
     dept_id = ''
@@ -434,7 +449,7 @@ def convert_inventory_list(rows: list) -> dict:
             locations[location_id] = {
                 'id': location_id,
                 'name': location_name,
-                'type': 'room',
+                'type': infer_location_type(location_name),
                 'parentId': '',
                 'departmentId': dept_id,
                 'notes': '',

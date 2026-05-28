@@ -58,7 +58,7 @@ $RECYCLE.BIN/
 
 # Local-only dev notes and scratch folders
 mds/
-csv-corrector/
+/csv-corrector/
 
 # Local-only screenshots and dev artifacts
 *-screenshot.png
@@ -86,4 +86,5 @@ csv-corrector/
 # CSV files (blanket ignore — allow tracked templates and tooling formats)
 *.csv
 !scripts/csv-corrector/format.csv
+!scripts/csv-corrector/sample_inventory.csv
 templates/*.csv

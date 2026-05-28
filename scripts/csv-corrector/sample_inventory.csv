@@ -1,0 +1,11 @@
+Description,Model Number,Serial Number,MAC ID,Asset Tag,Count,Unit,Category,Location,Unit Cost,Supplier,Status,Condition,Warranty Expiry,Lead Time Days,Assigned To,Remarks
+Cisco Managed Switch 24-Port,WS-C2960X-24,FOC2301A1B2,A8:B4:C1:22:33:44,IMS-2026-000001,1,pcs,Network Equipment,Server Room,18500,Cisco Systems,active,good,2027-06-30,14,John Santos,Rack B shelf 2
+HP ProBook 450 G9 Laptop,ProBook 450 G9,5CG2340KJH,,IMS-2026-000002,1,pcs,Computers,NOC Room,42000,HP Philippines,active,new,2026-12-31,7,Maria Reyes,Assigned to NOC staff
+Uninterruptible Power Supply 1500VA,APC BX1500M,3B1234ABC56,,IMS-2026-000003,3,pcs,Power Equipment,Server Room,8200,APC by Schneider,active,good,,30,,,Backup for server row
+CAT6 Ethernet Cable 5m,,,,,50,pcs,Cabling,Storage Cabinet,85,LocalTech,active,new,,,Jose Cruz,Bulk stock
+CCTV IP Camera Outdoor,DS-2CD2347G2-LU,DS2347AB1234,,,4,pcs,Security,Main Entrance,3200,Hikvision,active,new,2028-01-15,21,,
+Wireless Access Point Dual Band,UAP-AC-PRO,FCEC DA:B1:C2:D3:E4:F5,F0:9F:C2:D3:E4:F5,IMS-2026-000004,2,pcs,Network Equipment,Office Area,6500,Ubiquiti Networks,active,good,2027-03-20,14,IT Admin,
+Dell PowerEdge R340 Server,PowerEdge R340,BCZX123456,,IMS-2026-000005,1,pcs,Servers,Server Room,155000,Dell Technologies,active,new,2029-05-10,30,NOC Team,Primary web server
+Toner Cartridge HP 85A,,,,, 12,pcs,Consumables,Supply Cabinet,1200,HP Philippines,active,new,2025-12-01,,Office Staff,Monthly stock
+Fiber Optic Patch Cord 3m SC-LC,FOC-SC-LC-3M,,,, 20,pcs,Cabling,Storage Cabinet,350,FiberLink,active,new,,,Jose Cruz,For backbone connections
+Polycom Conference Phone,Polycom Trio 8800,64167AB987,,IMS-2026-000006,1,pcs,Communications,Conference Room,28000,Plantronics PH,active,good,2027-09-30,21,Admin Secretary,
