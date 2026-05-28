@@ -17,3 +17,8 @@ export const formatDate = (date: string | Date) => {
 export const formatNumber = (num: number) => {
   return new Intl.NumberFormat('en-US').format(num);
 };
+
+export const formatPhp = (amount: number | null | undefined) => {
+  if (amount == null) return '—';
+  return `₱${Number(amount).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+};

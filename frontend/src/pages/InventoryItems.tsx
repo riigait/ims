@@ -964,8 +964,8 @@ export default function InventoryItems() {
                     <div className="grid grid-cols-2 gap-3">
                       <Field label="Supplier / Vendor" value={drawerItem.product?.supplier} />
                       <Field label="Date Received" value={drawerItem.dateStock ? new Date(drawerItem.dateStock).toLocaleDateString() : null} />
-                      <Field label="Unit Cost" value={drawerItem.product?.unitPrice ? `$${Number(drawerItem.product.unitPrice).toFixed(2)}` : null} />
-                      <Field label="Total Cost" value={drawerItem.product?.unitPrice ? `$${Number(drawerItem.product.unitPrice).toFixed(2)}` : null} />
+                      <Field label="Unit Cost" value={drawerItem.product?.unitPrice ? `₱${Number(drawerItem.product.unitPrice).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : null} />
+                      <Field label="Total Cost" value={drawerItem.product?.unitPrice ? `₱${Number(drawerItem.product.unitPrice).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : null} />
                     </div>
                   </section>
 

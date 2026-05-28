@@ -6,7 +6,7 @@ import Pagination from '@/components/Pagination';
 import { Product, Category, Location } from '@/types/inventory';
 import { ProductFilter, ProductSort } from '@/types/filters';
 import { validateProductName, validateStock } from '@/utils/validation';
-import { formatDate } from '@/utils/ids';
+import { formatDate, formatPhp } from '@/utils/ids';
 import { filterAndSortProducts, clearProductFilters, UNASSIGNED_LOCATION } from '@/utils/filterHelpers';
 import DataPageLayout from '@/components/layout/DataPageLayout';
 import { ALL_DEPARTMENTS_ID } from '@/constants/app';
@@ -471,8 +471,8 @@ export default function Products() {
                       <div className="truncate text-[var(--text-muted)]">{category?.name ?? '—'}</div>
                       <div className="truncate text-[var(--text-muted)]">{product.location?.name ?? <span className="text-red-400 text-xs">Unassigned</span>}</div>
                       <div className="truncate text-[var(--text-muted)]">{department?.name ?? '—'}</div>
-                      <div className="text-right text-[var(--text)]">${(product.unitPrice || 0).toFixed(2)}</div>
-                      <div className="text-right text-[var(--text)]">${totalValue.toFixed(2)}</div>
+                      <div className="text-right text-[var(--text)]">{formatPhp(product.unitPrice)}</div>
+                      <div className="text-right text-[var(--text)]">{formatPhp(totalValue)}</div>
                       <div>
                         <span className={`px-2 py-0.5 rounded text-xs font-semibold ${STATUS_COLOR[product.status || 'active'] ?? STATUS_COLOR.active}`}>
                           {product.status || 'active'}
@@ -721,8 +721,8 @@ export default function Products() {
                       {[
                         { label: 'Current Stock', value: `${selectedItem.currentStock} ${selectedItem.unit}` },
                         { label: 'Low Stock Threshold', value: `${selectedItem.lowStockThreshold} ${selectedItem.unit}` },
-                        { label: 'Unit Price', value: `$${(selectedItem.unitPrice || 0).toFixed(2)}` },
-                        { label: 'Total Value', value: `$${((selectedItem.unitPrice || 0) * selectedItem.currentStock).toFixed(2)}` },
+                        { label: 'Unit Price', value: formatPhp(selectedItem.unitPrice) },
+                        { label: 'Total Value', value: formatPhp((selectedItem.unitPrice || 0) * selectedItem.currentStock) },
                         { label: 'Category', value: categoriesMap.get(selectedItem.categoryId)?.name ?? '—' },
                         { label: 'Location', value: (selectedItem as any).location?.name ?? (locations.find(l => l.id === selectedItem.locationId)?.name) ?? '—' },
                       ].map(({ label, value }) => (
