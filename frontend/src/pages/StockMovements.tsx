@@ -562,12 +562,15 @@ export default function StockMovements() {
                   <p className="text-xs text-[var(--text-muted)]">+{(movement.items || []).length - 3} more items</p>
                 )}
               </div>
-              {movement.department?.name && (
+              {movement.movementType === 'moved_to_department' ? (
                 <p className="text-xs text-[var(--text-muted)] mt-2">
-                  {movement.department.name}
-                  {(movement as any).toDepartment?.name && <span className="ml-1">→ {(movement as any).toDepartment.name}</span>}
+                  <span>{movement.department?.name || '—'}</span>
+                  <span className="mx-1">→</span>
+                  <span className="text-[var(--primary)] font-medium">{(movement as any).toDepartment?.name || '—'}</span>
                 </p>
-              )}
+              ) : movement.department?.name ? (
+                <p className="text-xs text-[var(--text-muted)] mt-2">{movement.department.name}</p>
+              ) : null}
             </div>
           ))}
         </div>
@@ -849,10 +852,23 @@ export default function StockMovements() {
                   <section>
                     <h3 className="text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wider mb-3">Details</h3>
                     <div className="space-y-2">
-                      <div>
-                        <p className="text-xs text-[var(--text-muted)] mb-0.5">Department</p>
-                        <p className="text-sm text-[var(--text)]">{drawerItem.department?.name || '—'}</p>
-                      </div>
+                      {drawerItem.movementType === 'moved_to_department' ? (
+                        <>
+                          <div>
+                            <p className="text-xs text-[var(--text-muted)] mb-0.5">Moved From</p>
+                            <p className="text-sm text-[var(--text)]">{drawerItem.department?.name || '—'}</p>
+                          </div>
+                          <div>
+                            <p className="text-xs text-[var(--text-muted)] mb-0.5">Moved To</p>
+                            <p className="text-sm font-medium text-[var(--primary)]">{(drawerItem as any).toDepartment?.name || '—'}</p>
+                          </div>
+                        </>
+                      ) : (
+                        <div>
+                          <p className="text-xs text-[var(--text-muted)] mb-0.5">Department</p>
+                          <p className="text-sm text-[var(--text)]">{drawerItem.department?.name || '—'}</p>
+                        </div>
+                      )}
                       <div>
                         <p className="text-xs text-[var(--text-muted)] mb-0.5">Recorded</p>
                         <p className="text-sm text-[var(--text)]">{formatDate(drawerItem.createdAt)}</p>
