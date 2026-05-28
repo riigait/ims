@@ -412,6 +412,7 @@ router.post('/import/csv', async (req: AuthRequest, res: Response) => {
     }
 
     const rows = csvToJson<any>(req.body.csv);
+    const fileName = req.body.fileName || null;
     const created = [];
     const errors = [];
 
@@ -447,7 +448,7 @@ router.post('/import/csv', async (req: AuthRequest, res: Response) => {
           } as any;
         const existing = row.id
           ? await prisma.product.findUnique({ where: { id: row.id } })
-          : await prisma.product.findUnique({ where: { sku: row.sku } });
+          : null;
         const product = existing
           ? await prisma.product.update({ where: { id: existing.id }, data })
           : await prisma.product.create({ data: { ...(row.id ? { id: row.id } : {}), ...data } });
@@ -478,9 +479,9 @@ router.post('/import/csv', async (req: AuthRequest, res: Response) => {
           status: 'pending',
           productIds: created.map((p: any) => p.id),
           csvImportId,
-          label: `CSV Import — ${created.length} product${created.length !== 1 ? 's' : ''}`,
+          label: `Item Imported CSV — ${fileName || 'import'} — ${now.toISOString().slice(0, 10)}`,
           submittedBy: req.userId!,
-          departmentId: resolvedDeptId,
+          departmentId: req.departmentId,
           expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
         },
       });

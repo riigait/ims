@@ -54,4 +54,79 @@ router.post('/danger/delete-data', async (req: AuthRequest, res: Response) => {
   }
 });
 
+router.post('/danger/delete-department-data', async (req: AuthRequest, res: Response) => {
+  try {
+    if (req.userRole !== 'superadmin') {
+      return res.status(403).json({ error: 'Only superadmins can delete department data' });
+    }
+
+    const { confirmPhrase, departmentId } = req.body;
+
+    if (confirmPhrase !== 'DELETE DEPT DATA') {
+      return res.status(400).json({ error: 'Confirmation phrase is required' });
+    }
+
+    if (!departmentId) {
+      return res.status(400).json({ error: 'Department ID is required' });
+    }
+
+    const department = await prisma.department.findUnique({ where: { id: departmentId } });
+    if (!department) {
+      return res.status(404).json({ error: 'Department not found' });
+    }
+
+    const result = await prisma.$transaction(async (tx) => {
+      const counts = {
+        floorPlans: await tx.floorPlan.count({ where: { departmentId } }),
+        stockMovements: await tx.stockMovement.count({ where: { departmentId } }),
+        products: await tx.product.count({ where: { departmentId } }),
+        categories: await tx.category.count({ where: { departmentId } }),
+        locations: await tx.location.count({ where: { departmentId } }),
+      };
+
+      // Delete child records first
+      const deptProducts = await tx.product.findMany({ where: { departmentId }, select: { id: true } });
+      const productIds = deptProducts.map(p => p.id);
+
+      if (productIds.length > 0) {
+        await tx.stockMovementItem.deleteMany({ where: { productId: { in: productIds } } });
+        await tx.stockDetail.deleteMany({ where: { productId: { in: productIds } } });
+      }
+
+      const deptMovements = await tx.stockMovement.findMany({ where: { departmentId }, select: { id: true } });
+      const movementIds = deptMovements.map(m => m.id);
+      if (movementIds.length > 0) {
+        await tx.stockMovementItem.deleteMany({ where: { movementId: { in: movementIds } } });
+      }
+
+      await tx.floorPlan.deleteMany({ where: { departmentId } });
+      await tx.stockMovement.deleteMany({ where: { departmentId } });
+      await tx.product.deleteMany({ where: { departmentId } });
+
+      // Category has onDelete:Cascade to Product, so deleting a category cascade-deletes
+      // any products still referencing it (including products from other departments).
+      // Only delete categories that have no remaining products after the dept products are gone.
+      const deptCategories = await tx.category.findMany({ where: { departmentId }, select: { id: true } });
+      for (const cat of deptCategories) {
+        const stillReferenced = await tx.product.count({ where: { categoryId: cat.id } });
+        if (stillReferenced === 0) {
+          await tx.category.delete({ where: { id: cat.id } });
+        }
+      }
+
+      await tx.location.deleteMany({ where: { departmentId } });
+
+      return counts;
+    });
+
+    res.json({
+      message: `Data for department "${department.name}" has been deleted.`,
+      deleted: result,
+    });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Failed to delete department data' });
+  }
+});
+
 export default router;

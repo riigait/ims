@@ -150,7 +150,7 @@ function BreakdownBar({ items, emptyLabel }: { items: { name: string; count: num
   return (
     <div className="space-y-2">
       {items.map((item, i) => (
-        <div key={item.name} className="flex items-center gap-2">
+        <div key={`${item.name}-${i}`} className="flex items-center gap-2">
           <span className="text-xs text-[var(--text-muted)] w-24 truncate flex-shrink-0" title={item.name}>{item.name}</span>
           <div className="flex-1 h-2 bg-[var(--border)] rounded-full overflow-hidden">
             <div

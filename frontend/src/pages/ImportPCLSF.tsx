@@ -396,7 +396,7 @@ export default function ImportPCLSF() {
         const errors: ImportResult['errors'] = [];
 
         for (const section of unifiedSections) {
-          const response = await api.post(getImportEndpoint(section.type), { csv: section.csv });
+          const response = await api.post(getImportEndpoint(section.type), { csv: section.csv, fileName: file?.name });
           created += response.data.created || 0;
           (response.data.errors || []).forEach((err: { row: number; error: string }) => {
             errors.push({ row: err.row, error: `${TYPE_LABELS[section.type]}: ${err.error}` });
@@ -423,7 +423,7 @@ export default function ImportPCLSF() {
           const errors: ImportResult['errors'] = [];
 
           for (const section of correctedSections) {
-            const response = await api.post(getImportEndpoint(section.type), { csv: section.csv });
+            const response = await api.post(getImportEndpoint(section.type), { csv: section.csv, fileName: file?.name });
             created += response.data.created || 0;
             (response.data.errors || []).forEach((err: { row: number; error: string }) => {
               errors.push({ row: err.row, error: `${TYPE_LABELS[section.type]}: ${err.error}` });
@@ -449,7 +449,7 @@ export default function ImportPCLSF() {
         return;
       }
 
-      const response = await api.post(getImportEndpoint(importType), { csv: csvContent });
+      const response = await api.post(getImportEndpoint(importType), { csv: csvContent, fileName: file?.name });
       const data = response.data;
 
       setResult({

@@ -137,6 +137,23 @@ function Stop-IMSApp {
 function Start-IMSApp {
     Write-Host "`nStarting IMS app..." -ForegroundColor Yellow
 
+    # Start Docker Desktop
+    Write-Host "Starting Docker Desktop..." -ForegroundColor Cyan
+    Start-Process "C:\Program Files\Docker\Docker\Docker Desktop.exe" -ErrorAction SilentlyContinue
+    Start-Sleep -Seconds 5
+
+    # Find and start our container
+    Write-Host "Checking Docker containers..." -ForegroundColor Cyan
+    $containers = docker ps -a --format "{{.Names}}" 2>$null
+    $imsContainer = $containers | Where-Object { $_ -match 'ims' } | Select-Object -First 1
+    if ($imsContainer) {
+        Write-Host "Starting container: $imsContainer" -ForegroundColor Cyan
+        docker start $imsContainer 2>$null
+        Write-Host "[OK] Container '$imsContainer' started." -ForegroundColor Green
+    } else {
+        Write-Host "[WARN] No IMS container found. Skipping docker start." -ForegroundColor Yellow
+    }
+
     $backendPid = Get-PortProcess $backendPort
     $frontendPid = Get-PortProcess $frontendPort
 

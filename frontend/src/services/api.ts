@@ -162,6 +162,8 @@ export const importRequestsApi = {
 export const settingsApi = {
   deleteOperationalData: (confirmPhrase: string) =>
     api.post('/settings/danger/delete-data', { confirmPhrase }),
+  deleteDepartmentData: (departmentId: string, confirmPhrase: string) =>
+    api.post('/settings/danger/delete-department-data', { departmentId, confirmPhrase }),
 };
 
 export default api;
