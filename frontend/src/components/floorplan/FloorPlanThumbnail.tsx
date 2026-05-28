@@ -1,5 +1,6 @@
-import { useEffect, useRef } from 'react';
-import { FloorPlan, FloorPlanObject, WallObject, RectangleObject, LabelObject } from '@/types/floorplan';
+import { Fragment } from 'react';
+import { Layer, Line, Rect, Stage, Text } from 'react-konva';
+import { FloorPlan, FloorPlanObject, LabelObject, RectangleObject, WallObject } from '@/types/floorplan';
 
 interface Props {
   plan: FloorPlan;
@@ -9,142 +10,163 @@ interface Props {
 }
 
 const RECT_FILL: Record<string, string> = {
-  room:  'rgba(224,224,224,0.7)',
-  rack:  'rgba(255,235,59,0.7)',
-  shelf: 'rgba(144,202,249,0.7)',
+  room: '#e5e7eb',
+  rack: '#fef3c7',
+  shelf: '#dbeafe',
 };
 
-export default function FloorPlanThumbnail({ plan, width = 280, height = 160, highlightLocationId }: Props) {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
+function getBounds(objects: FloorPlanObject[], plan: FloorPlan) {
+  if (!objects.length) return { minX: 0, minY: 0, maxX: plan.width, maxY: plan.height };
 
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
 
-    // Background
-    ctx.fillStyle = '#f8fafc';
-    ctx.fillRect(0, 0, width, height);
-
-    // Grid
-    ctx.strokeStyle = '#e2e8f0';
-    ctx.lineWidth = 0.4;
-    for (let x = 0; x < width; x += 12) {
-      ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, height); ctx.stroke();
-    }
-    for (let y = 0; y < height; y += 12) {
-      ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(width, y); ctx.stroke();
-    }
-
-    if (!plan.objects || plan.objects.length === 0) {
-      ctx.fillStyle = '#cbd5e1';
-      ctx.font = '11px Inter, Arial, sans-serif';
-      ctx.textAlign = 'center';
-      ctx.fillText('Empty floor plan', width / 2, height / 2);
+  objects.forEach((obj) => {
+    if (obj.type === 'wall') {
+      const wall = obj as WallObject;
+      minX = Math.min(minX, wall.startX, wall.endX);
+      minY = Math.min(minY, wall.startY, wall.endY);
+      maxX = Math.max(maxX, wall.startX, wall.endX);
+      maxY = Math.max(maxY, wall.startY, wall.endY);
       return;
     }
 
-    // Calculate bounding box of all objects to auto-fit
-    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-    plan.objects.forEach(obj => {
-      if (obj.type === 'wall') {
-        const w = obj as WallObject;
-        const startX = w.startX ?? (w as any).x ?? 0;
-        const startY = w.startY ?? (w as any).y ?? 0;
-        const endX = w.endX ?? startX + ((w as any).width ?? 0);
-        const endY = w.endY ?? startY + ((w as any).height ?? 0);
-        minX = Math.min(minX, startX, endX);
-        minY = Math.min(minY, startY, endY);
-        maxX = Math.max(maxX, startX, endX);
-        maxY = Math.max(maxY, startY, endY);
-      } else if (obj.type === 'room' || obj.type === 'rack' || obj.type === 'shelf') {
-        const r = obj as RectangleObject;
-        minX = Math.min(minX, r.x);
-        minY = Math.min(minY, r.y);
-        maxX = Math.max(maxX, r.x + r.width);
-        maxY = Math.max(maxY, r.y + r.height);
-      } else if (obj.type === 'label') {
-        const l = obj as LabelObject;
-        minX = Math.min(minX, l.x);
-        minY = Math.min(minY, l.y);
-        maxX = Math.max(maxX, l.x + 60);
-        maxY = Math.max(maxY, l.y + 20);
-      }
-    });
+    if (obj.type === 'room' || obj.type === 'rack' || obj.type === 'shelf') {
+      const rect = obj as RectangleObject;
+      minX = Math.min(minX, rect.x);
+      minY = Math.min(minY, rect.y);
+      maxX = Math.max(maxX, rect.x + rect.width);
+      maxY = Math.max(maxY, rect.y + rect.height);
+      return;
+    }
 
-    const padding = 12;
-    const contentW = maxX - minX || plan.width;
-    const contentH = maxY - minY || plan.height;
-    const scaleX = (width - padding * 2) / contentW;
-    const scaleY = (height - padding * 2) / contentH;
-    const scale = Math.min(scaleX, scaleY, 1);
-    const offsetX = padding - minX * scale + ((width - padding * 2) - contentW * scale) / 2;
-    const offsetY = padding - minY * scale + ((height - padding * 2) - contentH * scale) / 2;
+    if (obj.type === 'label') {
+      const label = obj as LabelObject;
+      minX = Math.min(minX, label.x);
+      minY = Math.min(minY, label.y);
+      maxX = Math.max(maxX, label.x + 160);
+      maxY = Math.max(maxY, label.y + 24);
+    }
+  });
 
-    const tx = (v: number) => v * scale + offsetX;
-    const ty = (v: number) => v * scale + offsetY;
+  if (!Number.isFinite(minX)) return { minX: 0, minY: 0, maxX: plan.width, maxY: plan.height };
+  return { minX, minY, maxX, maxY };
+}
 
-    plan.objects.forEach((obj: FloorPlanObject) => {
-      const isHighlighted = !!highlightLocationId && obj.linkedLocationId === highlightLocationId;
-
-      if (obj.type === 'wall') {
-        const w = obj as WallObject;
-        const startX = w.startX ?? (w as any).x ?? 0;
-        const startY = w.startY ?? (w as any).y ?? 0;
-        const endX = w.endX ?? startX + ((w as any).width ?? 0);
-        const endY = w.endY ?? startY + ((w as any).height ?? 0);
-        ctx.beginPath();
-        ctx.moveTo(tx(startX), ty(startY));
-        ctx.lineTo(tx(endX), ty(endY));
-        ctx.strokeStyle = isHighlighted ? '#2563eb' : (obj.color ?? '#1e293b');
-        ctx.lineWidth = Math.max(1, (w.thickness ?? (w as any).height ?? 4) * scale);
-        ctx.stroke();
-      } else if (obj.type === 'room' || obj.type === 'rack' || obj.type === 'shelf') {
-        const r = obj as RectangleObject;
-        const x = tx(r.x), y = ty(r.y), w = r.width * scale, h = r.height * scale;
-        ctx.fillStyle = isHighlighted ? 'rgba(37,99,235,0.2)' : (obj.color ? obj.color + '55' : RECT_FILL[obj.type]);
-        ctx.fillRect(x, y, w, h);
-        ctx.strokeStyle = isHighlighted ? '#2563eb' : (obj.color ?? '#64748b');
-        ctx.lineWidth = isHighlighted ? 1.5 : 0.8;
-        ctx.strokeRect(x, y, w, h);
-
-        // Label inside if big enough
-        if (w > 24 && h > 14 && obj.label) {
-          ctx.fillStyle = '#334155';
-          ctx.font = `${Math.max(7, Math.min(10, h / 3))}px Inter, Arial, sans-serif`;
-          ctx.textAlign = 'center';
-          ctx.fillText(
-            obj.label.length > 12 ? obj.label.slice(0, 11) + '…' : obj.label,
-            x + w / 2, y + h / 2 + 3
-          );
-        }
-      } else if (obj.type === 'label') {
-        const l = obj as LabelObject;
-        const text = l.text ?? obj.label ?? '';
-        ctx.fillStyle = obj.color ?? '#475569';
-        ctx.font = `${Math.max(7, (l.fontSize ?? 14) * scale)}px Inter, Arial, sans-serif`;
-        ctx.textAlign = 'left';
-        ctx.fillText(text.slice(0, 20), tx(l.x), ty(l.y));
-      }
-    });
-
-    // Object count badge
-    ctx.fillStyle = 'rgba(15,23,42,0.55)';
-    ctx.fillRect(width - 46, height - 20, 42, 16);
-    ctx.fillStyle = '#ffffff';
-    ctx.font = '9px Inter, Arial, sans-serif';
-    ctx.textAlign = 'center';
-    ctx.fillText(`${plan.objects.length} objects`, width - 25, height - 9);
-  }, [plan, width, height, highlightLocationId]);
+export default function FloorPlanThumbnail({ plan, width = 280, height = 160, highlightLocationId }: Props) {
+  const objects = plan.objects || [];
+  const bounds = getBounds(objects, plan);
+  const padding = 12;
+  const contentW = bounds.maxX - bounds.minX || plan.width;
+  const contentH = bounds.maxY - bounds.minY || plan.height;
+  const scale = Math.min((width - padding * 2) / contentW, (height - padding * 2) / contentH, 1);
+  const offsetX = padding - bounds.minX * scale + ((width - padding * 2) - contentW * scale) / 2;
+  const offsetY = padding - bounds.minY * scale + ((height - padding * 2) - contentH * scale) / 2;
+  const tx = (value: number) => value * scale + offsetX;
+  const ty = (value: number) => value * scale + offsetY;
 
   return (
-    <canvas
-      ref={canvasRef}
-      width={width}
-      height={height}
-      className="w-full h-full rounded-t-lg"
-      style={{ display: 'block' }}
-    />
+    <Stage width={width} height={height} className="w-full h-full rounded-t-lg overflow-hidden bg-slate-50">
+      <Layer listening={false}>
+        <Rect x={0} y={0} width={width} height={height} fill="#f8fafc" />
+        {Array.from({ length: Math.ceil(width / 12) }).map((_, i) => (
+          <Line key={`gx-${i}`} points={[i * 12, 0, i * 12, height]} stroke="#e2e8f0" strokeWidth={0.4} />
+        ))}
+        {Array.from({ length: Math.ceil(height / 12) }).map((_, i) => (
+          <Line key={`gy-${i}`} points={[0, i * 12, width, i * 12]} stroke="#e2e8f0" strokeWidth={0.4} />
+        ))}
+
+        {objects.length === 0 ? (
+          <Text x={0} y={height / 2 - 8} width={width} text="Empty floor plan" align="center" fontSize={11} fill="#cbd5e1" />
+        ) : objects.map((obj) => {
+          const isHighlighted = !!highlightLocationId && obj.linkedLocationId === highlightLocationId;
+
+          if (obj.type === 'wall') {
+            const wall = obj as WallObject;
+            return (
+              <Line
+                key={obj.id}
+                points={[tx(wall.startX), ty(wall.startY), tx(wall.endX), ty(wall.endY)]}
+                stroke={isHighlighted ? '#2563eb' : (wall.color ?? '#1e293b')}
+                strokeWidth={Math.max(1, wall.thickness * scale)}
+                lineCap="round"
+              />
+            );
+          }
+
+          if (obj.type === 'room' || obj.type === 'rack' || obj.type === 'shelf') {
+            const rect = obj as RectangleObject;
+            const x = tx(rect.x);
+            const y = ty(rect.y);
+            const w = rect.width * scale;
+            const h = rect.height * scale;
+            const label = obj.label || '';
+            return (
+              <Fragment key={obj.id}>
+                <Rect
+                  x={x}
+                  y={y}
+                  width={w}
+                  height={h}
+                  fill={isHighlighted ? '#dbeafe' : (rect.color ?? RECT_FILL[obj.type])}
+                  opacity={isHighlighted ? 0.9 : 0.65}
+                  stroke={isHighlighted ? '#2563eb' : (rect.color ?? '#64748b')}
+                  strokeWidth={isHighlighted ? 1.5 : 0.8}
+                />
+                {w > 24 && h > 14 && label && (
+                  <Text
+                    x={x + 3}
+                    y={y + h / 2 - 5}
+                    width={Math.max(10, w - 6)}
+                    text={label.length > 14 ? `${label.slice(0, 13)}...` : label}
+                    align="center"
+                    fontSize={Math.max(7, Math.min(10, h / 3))}
+                    fill="#334155"
+                  />
+                )}
+              </Fragment>
+            );
+          }
+
+          if (obj.type === 'door' || obj.type === 'entrance' || obj.type === 'window') {
+            const shape = obj as any;
+            return (
+              <Line
+                key={obj.id}
+                points={[tx(shape.x - shape.width / 2), ty(shape.y), tx(shape.x + shape.width / 2), ty(shape.y)]}
+                stroke={obj.type === 'window' ? '#38bdf8' : '#16a34a'}
+                strokeWidth={Math.max(2, 4 * scale)}
+                rotation={(shape.angle || 0) * (180 / Math.PI)}
+                x={tx(shape.x)}
+                y={ty(shape.y)}
+                offsetX={tx(shape.x)}
+                offsetY={ty(shape.y)}
+              />
+            );
+          }
+
+          if (obj.type === 'label') {
+            const label = obj as LabelObject;
+            return (
+              <Text
+                key={obj.id}
+                x={tx(label.x)}
+                y={ty(label.y)}
+                text={(label.text || obj.label || '').slice(0, 28)}
+                fontSize={Math.max(7, label.fontSize * scale)}
+                fill={label.color ?? '#475569'}
+              />
+            );
+          }
+
+          return null;
+        })}
+
+        <Rect x={width - 48} y={height - 21} width={44} height={17} fill="rgba(15,23,42,0.55)" cornerRadius={3} />
+        <Text x={width - 48} y={height - 17} width={44} text={`${objects.length} objects`} align="center" fontSize={9} fill="#ffffff" />
+      </Layer>
+    </Stage>
   );
 }

@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
+import { Arc, Circle, Group, Layer, Line, Rect as KonvaRect, Stage, Text as KonvaText } from 'react-konva';
 import {
   ArrowLeft, Save, Trash2, Move, Box, Square, Package,
   Layers, Type, ZoomIn, ZoomOut, MapPin, AlertTriangle, CheckCircle, XCircle,
@@ -37,7 +38,7 @@ const DEFAULT_RECT_FILL: Record<string, string> = {
 export default function FloorPlanEditor() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const canvasRef = useRef<HTMLDivElement>(null);
   const canvasWrapperRef = useRef<HTMLDivElement>(null);
   const user = JSON.parse(localStorage.getItem('user') || '{}');
   const isReadOnly = user.role === 'staff';
@@ -239,12 +240,6 @@ export default function FloorPlanEditor() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [updateObject]);
 
-  useEffect(() => {
-    if (currentFloorPlan && canvasRef.current) redrawCanvas();
-  }, [currentFloorPlan, editorState.selectedObjectId, editorState.zoomLevel,
-      editorState.panX, editorState.panY, startPos, currentMousePos,
-      productsByLocation, locationsMap]);
-
   const wheelHandlerRef = useRef<(e: WheelEvent) => void>(() => {});
   useEffect(() => {
     wheelHandlerRef.current = (e: WheelEvent) => {
@@ -302,9 +297,11 @@ export default function FloorPlanEditor() {
 
   const redrawCanvas = useCallback(() => {
     if (!canvasRef.current || !currentFloorPlan) return;
-    const ctx = canvasRef.current.getContext('2d');
+    const legacyCanvas = canvasRef.current as unknown as HTMLCanvasElement;
+    if (typeof legacyCanvas.getContext !== 'function') return;
+    const ctx = legacyCanvas.getContext('2d');
     if (!ctx) return;
-    const canvas = canvasRef.current;
+    const canvas = legacyCanvas;
 
     ctx.fillStyle = '#f8fafc';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
@@ -524,6 +521,10 @@ export default function FloorPlanEditor() {
       ctx.setLineDash([]);
     }
   }, [currentFloorPlan, editorState, selectedObjectIds, startPos, currentMousePos, isSelectingRect, selectRectStart, selectRectEnd, productsByLocation, locationsMap]);
+
+  useEffect(() => {
+    redrawCanvas();
+  }, [redrawCanvas]);
 
   const getGroupBounds = (objects: FloorPlanObject[]): { minX: number; minY: number; maxX: number; maxY: number } | null => {
     if (objects.length === 0) return null;
@@ -1158,7 +1159,7 @@ export default function FloorPlanEditor() {
     // Middle mouse button — start panning
     if (e.button === 1) {
       e.preventDefault();
-      (e.currentTarget as HTMLCanvasElement).setPointerCapture(e.pointerId);
+      (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
       setIsPanning(true);
       setPanStart({ x: e.clientX, y: e.clientY, panX: editorState.panX, panY: editorState.panY });
       return;
@@ -1189,7 +1190,7 @@ export default function FloorPlanEditor() {
       // Check for wall endpoint drag
       const wallEndpoint = getWallEndpointAtPoint(pos.x, pos.y, currentSelectedObj ?? null);
       if (wallEndpoint) {
-        (e.currentTarget as HTMLCanvasElement).setPointerCapture(e.pointerId);
+        (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
         setWallEndpointDragging(wallEndpoint);
         setDragStart(pos);
         setDragSnapshot(currentSelectedObj ? { ...currentSelectedObj } : null);
@@ -1197,7 +1198,7 @@ export default function FloorPlanEditor() {
         // Check for rectangle resize handles
         const handle = getResizeHandleAtPoint(pos.x, pos.y, currentSelectedObj ?? null);
         if (handle) {
-          (e.currentTarget as HTMLCanvasElement).setPointerCapture(e.pointerId);
+          (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
           setIsResizing(true);
           setResizeHandle(handle);
           setDragStart(pos);
@@ -1230,7 +1231,7 @@ export default function FloorPlanEditor() {
             }
             const obj = currentFloorPlan?.objects.find(o => o.id === objId);
             if (obj) {
-              (e.currentTarget as HTMLCanvasElement).setPointerCapture(e.pointerId);
+              (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
               setIsDragging(true);
               setDragStart(pos);
 
@@ -1255,7 +1256,7 @@ export default function FloorPlanEditor() {
             if (!e.ctrlKey && !e.shiftKey) {
               clearSelection();
             }
-            (e.currentTarget as HTMLCanvasElement).setPointerCapture(e.pointerId);
+            (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
             setIsSelectingRect(true);
             setSelectRectStart(pos);
             setSelectRectEnd(pos);
@@ -1266,7 +1267,7 @@ export default function FloorPlanEditor() {
       const objId = getObjectAtPoint(pos.x, pos.y);
       if (objId) { deleteObject(objId); setSelectedObject(null); useFloorPlanStore.getState().pushHistory(); }
     } else if (['wall', 'room', 'rack', 'shelf', 'door', 'window', 'entrance'].includes(editorState.tool)) {
-      (e.currentTarget as HTMLCanvasElement).setPointerCapture(e.pointerId);
+      (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
       setStartPos(pos); setCurrentMousePos(pos);
     } else if (editorState.tool === 'label') {
       const text = prompt('Enter label text:');
@@ -1444,7 +1445,7 @@ export default function FloorPlanEditor() {
   };
 
   const handleCanvasPointerUp = (e: React.PointerEvent) => {
-    (e.currentTarget as HTMLCanvasElement).releasePointerCapture(e.pointerId);
+    (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
 
     // Middle mouse — stop panning
     if (e.button === 1) {
@@ -1634,6 +1635,285 @@ export default function FloorPlanEditor() {
     unlinked: { label: 'Unlinked',    className: 'text-gray-400 bg-gray-50',     icon: <MapPin size={12} /> },
   };
 
+  const deg = (radians: number) => radians * (180 / Math.PI);
+  const shortText = (text: string, max = 28) => text.length > max ? `${text.slice(0, max - 3)}...` : text;
+
+  const renderResizeHandles = (rect: RectangleObject) => {
+    const handles: [number, number][] = [
+      [rect.x, rect.y],
+      [rect.x + rect.width, rect.y],
+      [rect.x, rect.y + rect.height],
+      [rect.x + rect.width, rect.y + rect.height],
+      [rect.x + rect.width / 2, rect.y],
+      [rect.x + rect.width / 2, rect.y + rect.height],
+      [rect.x, rect.y + rect.height / 2],
+      [rect.x + rect.width, rect.y + rect.height / 2],
+    ];
+
+    return handles.map(([x, y], index) => (
+      <KonvaRect
+        key={`handle-${rect.id}-${index}`}
+        x={x - RESIZE_HANDLE_SIZE / 2}
+        y={y - RESIZE_HANDLE_SIZE / 2}
+        width={RESIZE_HANDLE_SIZE}
+        height={RESIZE_HANDLE_SIZE}
+        fill="#2563eb"
+        stroke="#ffffff"
+        strokeWidth={1.5}
+      />
+    ));
+  };
+
+  const renderKonvaObject = (obj: FloorPlanObject) => {
+    const isSelected = selectedObjectIds.includes(obj.id);
+
+    if (obj.type === 'wall') {
+      const wall = obj as WallObject;
+      return (
+        <Group key={obj.id}>
+          {isSelected && selectedObjectIds.length > 1 && (
+            <Line
+              points={[wall.startX, wall.startY, wall.endX, wall.endY]}
+              stroke="rgba(37, 99, 235, 0.4)"
+              strokeWidth={8}
+              dash={[3, 3]}
+              lineCap="round"
+            />
+          )}
+          <Line
+            points={[wall.startX, wall.startY, wall.endX, wall.endY]}
+            stroke={isSelected ? '#2563eb' : (wall.color ?? '#1e293b')}
+            strokeWidth={isSelected ? wall.thickness + 2 : wall.thickness}
+            lineCap="round"
+          />
+          {obj.label && (
+            <KonvaText
+              x={(wall.startX + wall.endX) / 2 - 70}
+              y={(wall.startY + wall.endY) / 2 - 22}
+              width={140}
+              text={obj.label}
+              align="center"
+              fontSize={10}
+              fill="#64748b"
+            />
+          )}
+          {isSelected && (
+            <>
+              <Circle x={wall.startX} y={wall.startY} radius={RESIZE_HANDLE_SIZE / 2} fill="#2563eb" stroke="#ffffff" strokeWidth={1.5} />
+              <Circle x={wall.endX} y={wall.endY} radius={RESIZE_HANDLE_SIZE / 2} fill="#2563eb" stroke="#ffffff" strokeWidth={1.5} />
+            </>
+          )}
+        </Group>
+      );
+    }
+
+    if (obj.type === 'label') {
+      const label = obj as LabelObject;
+      const textWidth = label.text.length * (label.fontSize * 0.6);
+      return (
+        <Group key={obj.id}>
+          <KonvaText
+            x={label.x}
+            y={label.y - label.fontSize}
+            text={label.text}
+            fontSize={label.fontSize}
+            fill={isSelected ? '#2563eb' : (label.color ?? '#1e293b')}
+          />
+          {isSelected && (
+            <KonvaRect
+              x={label.x - 2}
+              y={label.y - label.fontSize - 2}
+              width={textWidth + 4}
+              height={label.fontSize + 4}
+              stroke="#2563eb"
+              dash={[3, 3]}
+            />
+          )}
+        </Group>
+      );
+    }
+
+    if (obj.type === 'door') {
+      const door = obj as DoorObject;
+      return (
+        <Group key={obj.id} x={door.x} y={door.y} rotation={deg(door.angle)}>
+          {!isSelected && <KonvaRect x={-door.width / 2 - 3} y={-12} width={door.width + 6} height={24} fill="rgba(139, 69, 19, 0.08)" />}
+          <Line points={[-door.width / 2, 0, door.width / 2, 0]} stroke={isSelected ? '#2563eb' : (door.color ?? '#8B4513')} strokeWidth={isSelected ? 3.5 : 3} />
+          <Arc
+            x={0}
+            y={0}
+            innerRadius={door.width / 2}
+            outerRadius={door.width / 2}
+            angle={135}
+            rotation={door.swingDirection === 'right' ? -135 : 180}
+            stroke={isSelected ? '#2563eb' : (door.color ?? '#8B4513')}
+            strokeWidth={isSelected ? 2 : 1.5}
+            dash={[2, 2]}
+          />
+          {isSelected && <KonvaRect x={-door.width / 2 - 4} y={-13} width={door.width + 8} height={26} stroke="#2563eb" dash={[4, 4]} />}
+        </Group>
+      );
+    }
+
+    if (obj.type === 'window') {
+      const win = obj as WindowObject;
+      const paneSpacing = win.width / 4;
+      return (
+        <Group key={obj.id} x={win.x} y={win.y} rotation={deg(win.angle)}>
+          {!isSelected && <KonvaRect x={-win.width / 2 - 3} y={-12} width={win.width + 6} height={24} fill="rgba(135, 206, 235, 0.08)" />}
+          <Line points={[-win.width / 2, 0, win.width / 2, 0]} stroke={isSelected ? '#2563eb' : (win.color ?? '#87CEEB')} strokeWidth={isSelected ? 3 : 2.5} />
+          {[-1, 0, 1].map(i => (
+            <Line key={i} points={[i * paneSpacing, -win.width / 8, i * paneSpacing, win.width / 8]} stroke={isSelected ? '#2563eb' : (win.color ?? '#87CEEB')} strokeWidth={isSelected ? 2.5 : 2} />
+          ))}
+          {isSelected && <KonvaRect x={-win.width / 2 - 4} y={-13} width={win.width + 8} height={26} stroke="#2563eb" dash={[4, 4]} />}
+        </Group>
+      );
+    }
+
+    if (obj.type === 'entrance') {
+      const entrance = obj as EntranceObject;
+      return (
+        <Group key={obj.id} x={entrance.x} y={entrance.y} rotation={deg(entrance.angle)}>
+          {!isSelected && <KonvaRect x={-entrance.width / 2 - 3} y={-12} width={entrance.width + 6} height={24} fill="rgba(16, 185, 129, 0.08)" />}
+          <Line points={[-entrance.width / 2, 0, entrance.width / 2, 0]} stroke={isSelected ? '#2563eb' : (entrance.color ?? '#10b981')} strokeWidth={isSelected ? 2.5 : 2} dash={entrance.style === 'archway' ? [4, 3] : [3, 3]} />
+          <Line points={[-entrance.width / 2, -8, -entrance.width / 2, 8]} stroke={isSelected ? '#2563eb' : (entrance.color ?? '#10b981')} strokeWidth={2} />
+          <Line points={[entrance.width / 2, -8, entrance.width / 2, 8]} stroke={isSelected ? '#2563eb' : (entrance.color ?? '#10b981')} strokeWidth={2} />
+          {isSelected && <KonvaRect x={-entrance.width / 2 - 4} y={-13} width={entrance.width + 8} height={26} stroke="#2563eb" dash={[4, 4]} />}
+        </Group>
+      );
+    }
+
+    if (obj.type === 'marker') {
+      const marker = obj as InventoryMarkerObject;
+      return (
+        <Group key={obj.id}>
+          <Circle x={marker.x} y={marker.y} radius={isSelected ? 8 : 6} fill={isSelected ? '#2563eb' : '#ef4444'} stroke="#ffffff" strokeWidth={2} />
+        </Group>
+      );
+    }
+
+    const rect = obj as RectangleObject;
+    const linkedId = obj.linkedLocationId;
+    const locProds = linkedId ? (productsByLocation.get(linkedId) ?? []) : [];
+    const status: StockStatus = linkedId ? getStockStatus(locProds) : 'unlinked';
+    const colors = STATUS_COLORS[status];
+    const fillColor = rect.color ? `${rect.color}44` : colors.fill;
+    const strokeColor = isSelected ? '#2563eb' : (rect.color ?? colors.stroke);
+    const label = linkedId ? (locationsMap.get(linkedId)?.name ?? 'Linked') : (obj.label || obj.type);
+    const fontSize = Math.min(12, Math.max(8, rect.height / 4));
+
+    return (
+      <Group key={obj.id}>
+        <KonvaRect
+          x={rect.x}
+          y={rect.y}
+          width={rect.width}
+          height={rect.height}
+          fill={fillColor}
+          stroke={strokeColor}
+          strokeWidth={isSelected ? 2.5 : 1.5}
+        />
+        <KonvaText
+          x={rect.x + 4}
+          y={rect.y + rect.height / 2 - fontSize}
+          width={Math.max(10, rect.width - 8)}
+          text={shortText(label)}
+          align="center"
+          fontSize={fontSize}
+          fontStyle={linkedId ? 'bold' : 'normal'}
+          fill={isSelected ? '#1e40af' : '#1e293b'}
+        />
+        {linkedId && rect.height > 36 && rect.width > 40 && (
+          <KonvaText
+            x={rect.x + 4}
+            y={rect.y + rect.height / 2 + 4}
+            width={Math.max(10, rect.width - 8)}
+            text={locProds.length === 0 ? 'No products' : `${locProds.length} product${locProds.length !== 1 ? 's' : ''}`}
+            align="center"
+            fontSize={Math.max(9, fontSize - 2)}
+            fill={colors.badge}
+          />
+        )}
+        {linkedId && rect.width > 30 && rect.height > 20 && (
+          <Circle x={rect.x + rect.width - 9} y={rect.y + 9} radius={5} fill={colors.badge} />
+        )}
+        {isSelected && renderResizeHandles(rect)}
+      </Group>
+    );
+  };
+
+  const renderGroupBounds = () => {
+    if (!currentFloorPlan) return null;
+    const groupsToShow = new Set<string>();
+    selectedObjectIds.forEach(id => {
+      const obj = currentFloorPlan.objects.find(o => o.id === id);
+      if (obj?.groupId) groupsToShow.add(obj.groupId);
+    });
+
+    return [...groupsToShow].map(groupId => {
+      const groupMembers = currentFloorPlan.objects.filter(o => o.groupId === groupId);
+      const bounds = getGroupBounds(groupMembers);
+      if (!bounds) return null;
+      return (
+        <KonvaRect
+          key={groupId}
+          x={bounds.minX - 6}
+          y={bounds.minY - 6}
+          width={bounds.maxX - bounds.minX + 12}
+          height={bounds.maxY - bounds.minY + 12}
+          stroke="#8b5cf6"
+          strokeWidth={2}
+          dash={[6, 4]}
+        />
+      );
+    });
+  };
+
+  const renderLivePreview = () => {
+    if (!startPos || !currentMousePos) return null;
+
+    if (editorState.tool === 'wall') {
+      return <Line points={[startPos.x, startPos.y, currentMousePos.x, currentMousePos.y]} stroke="#334155" strokeWidth={8} dash={[6, 4]} opacity={0.55} lineCap="round" />;
+    }
+
+    if (editorState.tool === 'room' || editorState.tool === 'rack' || editorState.tool === 'shelf') {
+      const x = Math.min(startPos.x, currentMousePos.x);
+      const y = Math.min(startPos.y, currentMousePos.y);
+      const width = Math.abs(currentMousePos.x - startPos.x);
+      const height = Math.abs(currentMousePos.y - startPos.y);
+      return <KonvaRect x={x} y={y} width={width} height={height} fill={DEFAULT_RECT_FILL[editorState.tool]} stroke="#475569" strokeWidth={1.5} dash={[6, 4]} opacity={0.55} />;
+    }
+
+    if (editorState.tool === 'door' || editorState.tool === 'window' || editorState.tool === 'entrance') {
+      const nearestWall = getWallAtPoint(startPos.x, startPos.y);
+      if (!nearestWall) return null;
+      const proj1 = projectPointOntoWall(startPos.x, startPos.y, nearestWall);
+      const proj2 = projectPointOntoWall(currentMousePos.x, currentMousePos.y, nearestWall);
+      const wallLen = dist(nearestWall.startX, nearestWall.startY, nearestWall.endX, nearestWall.endY);
+      const width = Math.max(10, Math.abs(proj2.t - proj1.t) * wallLen);
+      const midT = (proj1.t + proj2.t) / 2;
+      const midX = nearestWall.startX + midT * (nearestWall.endX - nearestWall.startX);
+      const midY = nearestWall.startY + midT * (nearestWall.endY - nearestWall.startY);
+      const color = editorState.tool === 'window' ? '#38bdf8' : editorState.tool === 'entrance' ? '#10b981' : '#8B4513';
+      return (
+        <Group x={midX} y={midY} rotation={deg(getWallAngle(nearestWall))} opacity={0.6}>
+          <Line points={[-width / 2, 0, width / 2, 0]} stroke={color} strokeWidth={4} dash={[6, 4]} />
+        </Group>
+      );
+    }
+
+    return null;
+  };
+
+  const renderSelectionRect = () => {
+    if (!isSelectingRect || !selectRectStart || !selectRectEnd) return null;
+    const x = Math.min(selectRectStart.x, selectRectEnd.x);
+    const y = Math.min(selectRectStart.y, selectRectEnd.y);
+    const width = Math.abs(selectRectEnd.x - selectRectStart.x);
+    const height = Math.abs(selectRectEnd.y - selectRectStart.y);
+    return <KonvaRect x={x} y={y} width={width} height={height} stroke="#2563eb" strokeWidth={1} dash={[4, 4]} fill="rgba(37,99,235,0.08)" />;
+  };
+
   if (loading) return <div className="text-center py-12 text-[var(--text-muted)]">Loading...</div>;
   if (!currentFloorPlan) return <div className="text-center py-12 text-[var(--text-muted)]">Floor plan not found</div>;
 
@@ -1749,10 +2029,8 @@ export default function FloorPlanEditor() {
 
         {/* Canvas area */}
         <div ref={canvasWrapperRef} className="flex-1 overflow-auto bg-[var(--surface-2)] p-4">
-          <canvas
+          <div
             ref={canvasRef}
-            width={currentFloorPlan.width}
-            height={currentFloorPlan.height}
             onPointerDown={handleCanvasPointerDown}
             onPointerMove={handleCanvasPointerMove}
             onPointerUp={handleCanvasPointerUp}
@@ -1760,12 +2038,37 @@ export default function FloorPlanEditor() {
             onAuxClick={e => e.preventDefault()}
             onContextMenu={e => e.preventDefault()}
             onPointerLeave={(e) => {
-              (e.currentTarget as HTMLCanvasElement).releasePointerCapture(e.pointerId);
+              try { (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId); } catch { /* ignore */ }
               if (!isDragging) { setStartPos(null); setCurrentMousePos(null); }
             }}
-            className={`bg-white border border-[var(--border)] shadow-lg block ${getCursor()}`}
-            style={{ margin: '16px' }}
-          />
+            className={`bg-white border border-[var(--border)] shadow-lg inline-block ${getCursor()}`}
+            style={{ margin: '16px', width: currentFloorPlan.width, height: currentFloorPlan.height }}
+          >
+            <Stage
+              width={currentFloorPlan.width}
+              height={currentFloorPlan.height}
+              listening={false}
+              style={{ display: 'block', pointerEvents: 'none' }}
+            >
+              <Layer listening={false}>
+                <KonvaRect x={0} y={0} width={currentFloorPlan.width} height={currentFloorPlan.height} fill="#f8fafc" />
+                {Array.from({ length: Math.ceil(currentFloorPlan.width / GRID_SIZE) + 1 }).map((_, i) => (
+                  <Line key={`grid-x-${i}`} points={[i * GRID_SIZE, 0, i * GRID_SIZE, currentFloorPlan.height]} stroke="#e2e8f0" strokeWidth={0.5} />
+                ))}
+                {Array.from({ length: Math.ceil(currentFloorPlan.height / GRID_SIZE) + 1 }).map((_, i) => (
+                  <Line key={`grid-y-${i}`} points={[0, i * GRID_SIZE, currentFloorPlan.width, i * GRID_SIZE]} stroke="#e2e8f0" strokeWidth={0.5} />
+                ))}
+              </Layer>
+              <Layer listening={false}>
+                <Group x={editorState.panX} y={editorState.panY} scaleX={editorState.zoomLevel} scaleY={editorState.zoomLevel}>
+                  {currentFloorPlan.objects.map(renderKonvaObject)}
+                  {renderGroupBounds()}
+                  {renderLivePreview()}
+                  {renderSelectionRect()}
+                </Group>
+              </Layer>
+            </Stage>
+          </div>
         </div>
 
         {/* Right panel */}

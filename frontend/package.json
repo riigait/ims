@@ -10,10 +10,13 @@
     "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0"
   },
   "dependencies": {
+    "@turf/turf": "^7.3.5",
     "axios": "^1.6.0",
+    "konva": "^9.3.22",
     "lucide-react": "^0.292.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
+    "react-konva": "^18.2.16",
     "react-router-dom": "^6.18.0",
     "zustand": "^4.4.0"
   },

@@ -116,6 +116,24 @@ type FloorPlanObject = {
   style?: string;
 };
 
+type RoomZone = {
+  key: string;
+  label: string;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  color: string;
+  cols: number;
+  doorX: number;
+  doorY: number;
+  doorAngle?: number;
+  windowX?: number;
+  windowY?: number;
+  windowWidth?: number;
+  windowAngle?: number;
+};
+
 // ─── Helpers ───────────────────────────────────────────────────────────────────
 
 function getDepartmentFilter(req: AuthRequest) {
@@ -205,8 +223,9 @@ function validateGeneratedFloorPlan(objects: FloorPlanObject[], templateType: st
 } {
   const passes: string[] = [];
   const fails: string[] = [];
-  const rooms = objects.filter(o => o.type === 'room');
+  const rooms = objects.filter(o => o.type === 'room' && !o.linkedLocationId);
   const entrances = objects.filter(o => o.type === 'entrance');
+  const walls = objects.filter(o => o.type === 'wall');
   const linkedLocations = objects.filter(o => o.linkedLocationId);
 
   // Check: has entrance/door
@@ -234,6 +253,44 @@ function validateGeneratedFloorPlan(objects: FloorPlanObject[], templateType: st
   // Check: locations mapped
   if (linkedLocations.length > 0) passes.push(`${linkedLocations.length} locations mapped to floor plan`);
   else fails.push('No locations mapped — link department locations first');
+
+  const hasObjectOutsideRoom = linkedLocations.some((obj) => !rooms.some((room) =>
+    obj.x >= room.x + 8 &&
+    obj.y >= room.y + 8 &&
+    obj.x + obj.width <= room.x + room.width - 8 &&
+    obj.y + obj.height <= room.y + room.height - 8
+  ));
+  if (!hasObjectOutsideRoom) passes.push('All generated objects stay inside room boundaries');
+  else fails.push('Object is outside the room boundary');
+
+  const hasWallCrossingObject = linkedLocations.some((obj) => walls.some((wall) => {
+    const vertical = wall.startX === wall.endX;
+    const horizontal = wall.startY === wall.endY;
+    if (vertical) {
+      const x = wall.startX ?? wall.x;
+      const y1 = Math.min(wall.startY ?? wall.y, wall.endY ?? wall.y);
+      const y2 = Math.max(wall.startY ?? wall.y, wall.endY ?? wall.y);
+      return x > obj.x && x < obj.x + obj.width && y2 > obj.y && y1 < obj.y + obj.height;
+    }
+    if (horizontal) {
+      const y = wall.startY ?? wall.y;
+      const x1 = Math.min(wall.startX ?? wall.x, wall.endX ?? wall.x);
+      const x2 = Math.max(wall.startX ?? wall.x, wall.endX ?? wall.x);
+      return y > obj.y && y < obj.y + obj.height && x2 > obj.x && x1 < obj.x + obj.width;
+    }
+    return false;
+  }));
+  if (!hasWallCrossingObject) passes.push('No wall crosses generated objects');
+  else fails.push('Wall is crossing an object');
+
+  const inaccessibleRooms = rooms.filter((room) => !entrances.some((door) =>
+    door.x >= room.x - 8 &&
+    door.y >= room.y - 8 &&
+    door.x <= room.x + room.width + 8 &&
+    door.y <= room.y + room.height + 8
+  ));
+  if (inaccessibleRooms.length === 0) passes.push('Every enclosed room has a door or opening');
+  else fails.push(`Door is missing in ${inaccessibleRooms.length} enclosed area(s)`);
 
   // Template-specific: required rooms present
   const rules = TEMPLATE_RULES[templateType];
@@ -277,16 +334,18 @@ function placeLocationsInZone(
   zone: { key: string; label: string; x: number; y: number; w: number; h: number; color: string; cols: number },
   locations: Array<{ id: string; name: string }>,
 ) {
-  objects.push({
-    id: `zone-${zone.key}`,
-    type: 'room',
-    x: zone.x,
-    y: zone.y,
-    width: zone.w,
-    height: zone.h,
-    label: zone.label,
-    color: zone.color,
-  });
+  if (!objects.some((object) => object.type === 'room' && object.label === zone.label && object.x === zone.x && object.y === zone.y)) {
+    objects.push({
+      id: `zone-${zone.key}`,
+      type: 'room',
+      x: zone.x,
+      y: zone.y,
+      width: zone.w,
+      height: zone.h,
+      label: zone.label,
+      color: zone.color,
+    });
+  }
 
   const gap = 10;
   const topPadding = 45;
@@ -340,6 +399,50 @@ function addOpening(objects: FloorPlanObject[], id: string, label: string, x: nu
 
 function addWindow(objects: FloorPlanObject[], id: string, x: number, y: number, width: number, angle = 0) {
   objects.push({ id, type: 'window', x, y, width, height: 18, angle, color: '#38bdf8' });
+}
+
+function addRoomShell(objects: FloorPlanObject[], prefix: string, room: RoomZone) {
+  addSpace(objects, `${prefix}-${room.key}`, room.label, room.x, room.y, room.w, room.h, room.color);
+  addWall(objects, `${prefix}-${room.key}-wall-top`, room.x, room.y, room.x + room.w, room.y, 6);
+  addWall(objects, `${prefix}-${room.key}-wall-bottom`, room.x, room.y + room.h, room.x + room.w, room.y + room.h, 6);
+  addWall(objects, `${prefix}-${room.key}-wall-left`, room.x, room.y, room.x, room.y + room.h, 6);
+  addWall(objects, `${prefix}-${room.key}-wall-right`, room.x + room.w, room.y, room.x + room.w, room.y + room.h, 6);
+  addOpening(objects, `${prefix}-${room.key}-door`, `${room.label} Door`, room.doorX, room.doorY, 92, room.doorAngle ?? 0);
+  if (room.windowX && room.windowY) {
+    addWindow(objects, `${prefix}-${room.key}-window`, room.windowX, room.windowY, room.windowWidth ?? 140, room.windowAngle ?? 0);
+  }
+}
+
+function addMeasurements(objects: FloorPlanObject[], prefix: string) {
+  objects.push(
+    { id: `${prefix}-overall-measure`, type: 'label', x: 720, y: 1110, width: 360, height: 24, text: 'Overall: 17.2m x 10.1m', label: 'Overall measurement', fontSize: 14, color: '#475569' },
+    { id: `${prefix}-corridor-measure`, type: 'label', x: 785, y: 578, width: 260, height: 24, text: 'Main corridor: 1.0m clear', label: 'Corridor measurement', fontSize: 13, color: '#475569' },
+  );
+}
+
+function buildValidatedLayoutFloorPlan(floorLabel: string, locations: Array<{ id: string; name: string }>, rooms: RoomZone[]) {
+  const prefix = slug(floorLabel, 'auto-floorplan');
+  const objects = buildBaseFloorObjects(floorLabel).filter((obj) => obj.id !== `${floorLabel}-corridor-wall`);
+
+  rooms.forEach((room) => addRoomShell(objects, prefix, room));
+
+  const grouped = new Map<string, Array<{ id: string; name: string }>>();
+  rooms.forEach((room) => grouped.set(room.key, []));
+
+  locations.forEach((location) => {
+    const normalized = location.name.toLowerCase();
+    let key = rooms[rooms.length - 1].key;
+    if (normalized.includes('rack') || normalized.includes('server') || normalized.includes('radio')) key = rooms.find(r => r.key.includes('rack') || r.key.includes('control'))?.key ?? key;
+    else if (normalized.includes('cabinet') || normalized.includes('box') || normalized.includes('shelf') || normalized.includes('storage') || normalized.includes('drawer')) key = rooms.find(r => r.key.includes('storage') || r.key.includes('shelf'))?.key ?? key;
+    else if (normalized.includes('table') || normalized.includes('office') || normalized.includes('work')) key = rooms.find(r => r.key.includes('office') || r.key.includes('work'))?.key ?? key;
+    else if (normalized.includes('reception') || normalized.includes('waiting')) key = rooms.find(r => r.key.includes('reception'))?.key ?? key;
+    else if (normalized.includes('dorm') || normalized.includes('room')) key = rooms.find(r => r.key.includes('room'))?.key ?? key;
+    grouped.get(key)?.push(location);
+  });
+
+  rooms.forEach((room) => placeLocationsInZone(objects, room, grouped.get(room.key) || []));
+  addMeasurements(objects, prefix);
+  return objects;
 }
 
 function addTemplateArchitecture(objects: FloorPlanObject[], templateName: string, floorLabel: string) {
@@ -424,88 +527,50 @@ function addTemplateArchitecture(objects: FloorPlanObject[], templateName: strin
 }
 
 function buildGeneratedFloorPlan(floorLabel: string, locations: Array<{ id: string; name: string }>) {
-  const objects = buildBaseFloorObjects(floorLabel);
-  const zones = [
-    { key: 'area', label: 'Room / Area', x: 80, y: 120, w: 500, h: 430, color: '#dbeafe', cols: 3 },
-    { key: 'rack', label: 'Rack Line', x: 620, y: 120, w: 500, h: 430, color: '#fef3c7', cols: 3 },
-    { key: 'shelf', label: 'Shelf / Cabinet Storage', x: 1160, y: 120, w: 560, h: 430, color: '#ede9fe', cols: 3 },
-    { key: 'table', label: 'Tables / Work Surface', x: 80, y: 620, w: 720, h: 420, color: '#dcfce7', cols: 4 },
-    { key: 'overflow', label: 'Other Assigned Locations', x: 860, y: 620, w: 860, h: 420, color: '#f3f4f6', cols: 5 },
-  ];
-
-  const grouped = new Map<string, Array<{ id: string; name: string }>>();
-  zones.forEach((zone) => grouped.set(zone.key, []));
-
-  locations.forEach((location) => {
-    const normalized = location.name.toLowerCase();
-    let key = 'overflow';
-
-    if (normalized.includes('rack')) key = 'rack';
-    else if (normalized.includes('cabinet') || normalized.includes('box') || normalized.includes('shelf') || normalized.includes('drawer') || normalized.includes('orocan')) key = 'shelf';
-    else if (normalized.includes('table') || normalized.includes('pedestal')) key = 'table';
-    else if (classifyLocation(location.name) === 'room') key = 'area';
-
-    grouped.get(key)?.push(location);
-  });
-
-  zones.forEach((zone) => placeLocationsInZone(objects, zone, grouped.get(zone.key) || []));
-
-  return objects;
+  return buildValidatedLayoutFloorPlan(floorLabel, locations, [
+    { key: 'area', label: 'Main Room / Area', x: 90, y: 120, w: 430, h: 390, color: '#dbeafe', cols: 2, doorX: 305, doorY: 510, windowX: 220, windowY: 70, windowWidth: 180 },
+    { key: 'rack', label: 'Rack Room', x: 570, y: 120, w: 430, h: 390, color: '#fef3c7', cols: 2, doorX: 785, doorY: 510, windowX: 700, windowY: 70, windowWidth: 180 },
+    { key: 'shelf-storage', label: 'Shelf / Cabinet Storage', x: 1050, y: 120, w: 610, h: 390, color: '#ede9fe', cols: 3, doorX: 1355, doorY: 510, windowX: 1280, windowY: 70, windowWidth: 220 },
+    { key: 'work-area', label: 'Work / Table Area', x: 90, y: 660, w: 710, h: 360, color: '#dcfce7', cols: 4, doorX: 445, doorY: 660 },
+    { key: 'overflow', label: 'Other Assigned Locations', x: 860, y: 660, w: 800, h: 360, color: '#f3f4f6', cols: 4, doorX: 1260, doorY: 660 },
+  ]);
 }
 
 function buildKnowledgeTemplateFloorPlan(templateName: string, departmentName: string, locations: Array<{ id: string; name: string }>) {
   const floorLabel = `${departmentName} ${templateName}`;
-  const objects = buildBaseFloorObjects(floorLabel);
-  addTemplateArchitecture(objects, templateName, floorLabel);
   const lower = templateName.toLowerCase();
   const isTechnical = lower.includes('server') || lower.includes('scada');
   const isWarehouse = lower.includes('warehouse') || lower.includes('storage');
   const isDormitory = lower.includes('dormitory');
   const isReception = lower.includes('reception');
 
-  const zones = isTechnical ? [
-    { key: 'control', label: lower.includes('scada') ? 'SCADA / Control Consoles' : 'Server Racks', x: 80, y: 120, w: 700, h: 430, color: '#dbeafe', cols: 3 },
-    { key: 'network', label: 'Network / Electrical', x: 820, y: 120, w: 420, h: 430, color: '#fef3c7', cols: 2 },
-    { key: 'storage', label: 'Spare Parts Storage', x: 1280, y: 120, w: 440, h: 430, color: '#ede9fe', cols: 2 },
-    { key: 'work', label: 'Workstations / Monitoring', x: 80, y: 620, w: 760, h: 420, color: '#dcfce7', cols: 4 },
-    { key: 'support', label: 'Support / Overflow', x: 900, y: 620, w: 820, h: 420, color: '#f3f4f6', cols: 4 },
+  const zones: RoomZone[] = isTechnical ? [
+    { key: 'control', label: lower.includes('scada') ? 'SCADA / Control Room' : 'Server Rack Room', x: 90, y: 120, w: 610, h: 390, color: '#dbeafe', cols: 3, doorX: 395, doorY: 510, windowX: 260, windowY: 70, windowWidth: 190 },
+    { key: 'network', label: 'Network / Electrical Room', x: 760, y: 120, w: 360, h: 390, color: '#fef3c7', cols: 2, doorX: 940, doorY: 510, windowX: 860, windowY: 70, windowWidth: 140 },
+    { key: 'storage', label: 'Controlled Storage', x: 1180, y: 120, w: 480, h: 390, color: '#ede9fe', cols: 2, doorX: 1420, doorY: 510, windowX: 1330, windowY: 70, windowWidth: 160 },
+    { key: 'work', label: 'Workstations / Monitoring', x: 90, y: 660, w: 760, h: 360, color: '#dcfce7', cols: 4, doorX: 470, doorY: 660 },
+    { key: 'support', label: 'Support / Overflow', x: 910, y: 660, w: 750, h: 360, color: '#f3f4f6', cols: 4, doorX: 1285, doorY: 660 },
   ] : isWarehouse ? [
-    { key: 'rack', label: 'Warehouse Racking', x: 80, y: 120, w: 820, h: 430, color: '#fef3c7', cols: 4 },
-    { key: 'storage', label: 'Bulk Storage', x: 940, y: 120, w: 780, h: 430, color: '#ede9fe', cols: 4 },
-    { key: 'receiving', label: 'Receiving / Dispatch', x: 80, y: 620, w: 620, h: 420, color: '#dbeafe', cols: 3 },
-    { key: 'office', label: 'Warehouse Office', x: 760, y: 620, w: 420, h: 420, color: '#dcfce7', cols: 2 },
-    { key: 'overflow', label: 'Other Locations', x: 1240, y: 620, w: 480, h: 420, color: '#f3f4f6', cols: 3 },
+    { key: 'rack', label: 'Warehouse Racking', x: 90, y: 120, w: 780, h: 390, color: '#fef3c7', cols: 4, doorX: 480, doorY: 510, windowX: 300, windowY: 70, windowWidth: 220 },
+    { key: 'storage', label: 'Bulk Storage', x: 930, y: 120, w: 730, h: 390, color: '#ede9fe', cols: 4, doorX: 1295, doorY: 510, windowX: 1180, windowY: 70, windowWidth: 220 },
+    { key: 'receiving', label: 'Receiving / Dispatch Bay', x: 90, y: 660, w: 610, h: 360, color: '#dbeafe', cols: 3, doorX: 395, doorY: 1080 },
+    { key: 'office', label: 'Warehouse Office', x: 760, y: 660, w: 390, h: 360, color: '#dcfce7', cols: 2, doorX: 955, doorY: 660 },
+    { key: 'overflow', label: 'Other Locations', x: 1210, y: 660, w: 450, h: 360, color: '#f3f4f6', cols: 2, doorX: 1435, doorY: 660 },
   ] : isDormitory ? [
-    { key: 'rooms', label: 'Dorm Rooms', x: 80, y: 120, w: 820, h: 430, color: '#dbeafe', cols: 4 },
-    { key: 'common', label: 'Common Area', x: 940, y: 120, w: 360, h: 430, color: '#dcfce7', cols: 2 },
-    { key: 'storage', label: 'Dorm Storage', x: 1340, y: 120, w: 380, h: 430, color: '#ede9fe', cols: 2 },
-    { key: 'utility', label: 'Utility / Service', x: 80, y: 620, w: 640, h: 420, color: '#fef3c7', cols: 3 },
-    { key: 'overflow', label: 'Other Locations', x: 780, y: 620, w: 940, h: 420, color: '#f3f4f6', cols: 5 },
+    { key: 'rooms', label: 'Dorm Rooms', x: 90, y: 120, w: 780, h: 390, color: '#dbeafe', cols: 4, doorX: 480, doorY: 510, windowX: 300, windowY: 70, windowWidth: 220 },
+    { key: 'common', label: 'Common Area', x: 930, y: 120, w: 350, h: 390, color: '#dcfce7', cols: 2, doorX: 1105, doorY: 510, windowX: 1020, windowY: 70, windowWidth: 140 },
+    { key: 'storage', label: 'Dorm Storage', x: 1340, y: 120, w: 320, h: 390, color: '#ede9fe', cols: 2, doorX: 1500, doorY: 510, windowX: 1430, windowY: 70, windowWidth: 120 },
+    { key: 'utility', label: 'Utility / Service', x: 90, y: 660, w: 610, h: 360, color: '#fef3c7', cols: 3, doorX: 395, doorY: 660 },
+    { key: 'overflow', label: 'Other Locations', x: 760, y: 660, w: 900, h: 360, color: '#f3f4f6', cols: 5, doorX: 1210, doorY: 660 },
   ] : [
-    { key: 'reception', label: isReception ? 'Reception / Waiting' : 'Reception', x: 80, y: 120, w: 420, h: 430, color: '#dbeafe', cols: 2 },
-    { key: 'office', label: 'Office Work Area', x: 540, y: 120, w: 600, h: 430, color: '#dcfce7', cols: 3 },
-    { key: 'meeting', label: 'Meeting / Training', x: 1180, y: 120, w: 540, h: 430, color: '#fef3c7', cols: 3 },
-    { key: 'storage', label: 'Storage / Equipment', x: 80, y: 620, w: 700, h: 420, color: '#ede9fe', cols: 4 },
-    { key: 'overflow', label: 'Other Locations', x: 840, y: 620, w: 880, h: 420, color: '#f3f4f6', cols: 5 },
+    { key: 'reception', label: isReception ? 'Reception / Waiting' : 'Reception', x: 90, y: 120, w: 390, h: 390, color: '#dbeafe', cols: 2, doorX: 285, doorY: 510, windowX: 190, windowY: 70, windowWidth: 160 },
+    { key: 'office', label: 'Office Work Area', x: 540, y: 120, w: 560, h: 390, color: '#dcfce7', cols: 3, doorX: 820, doorY: 510, windowX: 720, windowY: 70, windowWidth: 180 },
+    { key: 'meeting', label: 'Meeting / Training Room', x: 1160, y: 120, w: 500, h: 390, color: '#fef3c7', cols: 3, doorX: 1410, doorY: 510, windowX: 1320, windowY: 70, windowWidth: 180 },
+    { key: 'storage', label: 'Storage / Equipment', x: 90, y: 660, w: 710, h: 360, color: '#ede9fe', cols: 4, doorX: 445, doorY: 660 },
+    { key: 'overflow', label: 'Other Locations', x: 860, y: 660, w: 800, h: 360, color: '#f3f4f6', cols: 4, doorX: 1260, doorY: 660 },
   ];
 
-  const grouped = new Map<string, Array<{ id: string; name: string }>>();
-  zones.forEach((zone) => grouped.set(zone.key, []));
-
-  locations.forEach((location) => {
-    const normalized = location.name.toLowerCase();
-    let key = zones[zones.length - 1].key;
-    if (normalized.includes('rack') || normalized.includes('server') || normalized.includes('radio')) key = isTechnical ? 'control' : 'rack';
-    else if (normalized.includes('scada') || normalized.includes('control')) key = isTechnical ? 'control' : 'office';
-    else if (normalized.includes('cabinet') || normalized.includes('box') || normalized.includes('shelf') || normalized.includes('storage')) key = 'storage';
-    else if (normalized.includes('dorm') || normalized.includes('room')) key = isDormitory ? 'rooms' : 'office';
-    else if (normalized.includes('reception') || normalized.includes('waiting')) key = 'reception';
-    else if (normalized.includes('table') || normalized.includes('office')) key = 'office';
-
-    grouped.get(key)?.push(location);
-  });
-
-  zones.forEach((zone) => placeLocationsInZone(objects, zone, grouped.get(zone.key) || []));
+  const objects = buildValidatedLayoutFloorPlan(floorLabel, locations, zones);
   objects.push({
     id: `${floorLabel}-knowledge-note`,
     type: 'label',
@@ -915,10 +980,11 @@ router.post('/:id/regenerate', async (req: AuthRequest, res: Response) => {
 
     // Extract template from plan name: "Auto - DeptName - TemplateName"
     const prefix = GENERATED_FLOORPLAN_PREFIX;
-    let templateName: string | null = null;
+    let templateName = floorPlan.name;
     if (floorPlan.name.startsWith(prefix)) {
-      const parts = floorPlan.name.slice(prefix.length).split(' - ');
-      templateName = parts.length >= 2 ? parts.slice(1).join(' - ') : null;
+      const suffix = floorPlan.name.slice(prefix.length);
+      const knownTemplate = FLOORPLAN_KNOWLEDGE.imsUseful.find((template) => suffix.endsWith(` - ${template}`));
+      templateName = knownTemplate || suffix.split(' - ').pop() || suffix;
     }
 
     if (!templateName) {
