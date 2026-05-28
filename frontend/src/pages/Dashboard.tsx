@@ -3,8 +3,14 @@ import { useNavigate } from 'react-router-dom';
 import {
   Package, Boxes, AlertCircle, MapPin,
   ArrowLeftRight, CheckCircle, AlertTriangle, Activity,
-  DollarSign, Wrench, Clock, Tag, ScanLine, Plus, FileDown, Zap,
+  Wrench, Clock, Tag, ScanLine, Plus, FileDown, Zap,
 } from 'lucide-react';
+
+function PesoSign({ size = 18 }: { size?: number }) {
+  return (
+    <span style={{ fontSize: size, fontWeight: 700, lineHeight: 1, display: 'inline-flex', alignItems: 'center' }}>₱</span>
+  );
+}
 import { dashboardApi, departmentsApi } from '@/services/api';
 import { ALL_DEPARTMENTS_ID } from '@/constants/app';
 import { UNASSIGNED_LOCATION } from '@/utils/filterHelpers';
@@ -66,9 +72,7 @@ function timeAgo(dateStr: string) {
 }
 
 function formatValue(n: number) {
-  if (n >= 1_000_000) return `₱${(n / 1_000_000).toFixed(1)}M`;
-  if (n >= 1_000) return `₱${(n / 1_000).toFixed(1)}K`;
-  return `₱${n.toLocaleString()}`;
+  return `₱ ${n.toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
 function formatMovementTitle(raw: string, itemCount: number): string {
@@ -296,7 +300,7 @@ export default function Dashboard() {
           <StatCard label="Products"        value={stats.totalProducts}      sub="Product types / SKUs"      icon={Package}     accent="bg-blue-100 text-blue-600 dark:bg-blue-950 dark:text-blue-400"         onClick={() => navigate('/products')} />
           <StatCard label="Inventory Items" value={stats.totalInventoryItems} sub="Tagged physical items"     icon={Boxes}       accent="bg-indigo-100 text-indigo-600 dark:bg-indigo-950 dark:text-indigo-400" onClick={() => navigate('/inventory-items')} />
           <StatCard label="Total Stock"     value={stats.totalStock}          sub="Quantity on hand"          icon={CheckCircle} accent="bg-green-100 text-green-600 dark:bg-green-950 dark:text-green-400"     onClick={() => navigate('/products')} />
-          <StatCard label="Inventory Value" value={formatValue(stats.totalInventoryValue)} sub="Based on current stock" icon={DollarSign} accent="bg-emerald-100 text-emerald-600 dark:bg-emerald-950 dark:text-emerald-400" />
+          <StatCard label="Inventory Value" value={formatValue(stats.totalInventoryValue)} sub="Based on current stock" icon={PesoSign} accent="bg-emerald-100 text-emerald-600 dark:bg-emerald-950 dark:text-emerald-400" />
         </div>
       </div>
 
