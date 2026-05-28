@@ -52,7 +52,7 @@ export interface Location {
   updatedAt: string;
 }
 
-export type MovementType = 'stock_in' | 'stock_out' | 'adjustment' | 'transfer' | 'damaged' | 'returned' | 'opening_stock' | 'deployment' | 'repair' | 'disposal' | 'borrowed' | 'lost';
+export type MovementType = 'stock_in' | 'stock_out' | 'adjustment' | 'transfer' | 'damaged' | 'returned' | 'opening_stock' | 'deployment' | 'repair' | 'disposal' | 'borrowed' | 'lost' | 'moved_to_department';
 
 export interface StockMovementItem {
   id: string;
@@ -93,6 +93,8 @@ export interface StockMovement {
   user?: User;
   departmentId?: string;
   department?: Department;
+  toDepartmentId?: string;
+  toDepartment?: Department;
   createdAt: string;
 }
 

@@ -7,12 +7,12 @@ import { generateStockId, generateMovementNo } from '../utils/idGenerator';
 
 const router = Router();
 
-const VALID_MOVEMENT_TYPES = ['stock_in', 'stock_out', 'adjustment', 'transfer', 'damaged', 'returned', 'opening_stock', 'deployment', 'repair', 'disposal', 'borrowed', 'lost'] as const;
+const VALID_MOVEMENT_TYPES = ['stock_in', 'stock_out', 'adjustment', 'transfer', 'damaged', 'returned', 'opening_stock', 'deployment', 'repair', 'disposal', 'borrowed', 'lost', 'moved_to_department'] as const;
 type MovementType = typeof VALID_MOVEMENT_TYPES[number];
 
 const DEDUCTING_TYPES: MovementType[] = ['stock_out', 'transfer', 'damaged', 'disposal', 'borrowed', 'lost'];
 const ADDING_TYPES: MovementType[] = ['stock_in', 'returned', 'adjustment', 'opening_stock'];
-const NEUTRAL_TYPES: MovementType[] = ['deployment', 'repair'];
+const NEUTRAL_TYPES: MovementType[] = ['deployment', 'repair', 'moved_to_department'];
 
 function stockDelta(type: MovementType, quantity: number): number {
   if (DEDUCTING_TYPES.includes(type)) return -quantity;
@@ -41,7 +41,7 @@ router.get('/', async (req: AuthRequest, res: Response) => {
     }
     const movements = await prisma.stockMovement.findMany({
       where: whereFilter,
-      include: { items: { include: { product: true, stockDetail: true, fromLocation: true, toLocation: true } }, user: true, department: true },
+      include: { items: { include: { product: true, stockDetail: true, fromLocation: true, toLocation: true } }, user: true, department: true, toDepartment: true },
       orderBy: { createdAt: 'desc' },
     });
     res.json(movements);
@@ -56,7 +56,7 @@ router.get('/:id', async (req: AuthRequest, res: Response) => {
   try {
     const movement = await prisma.stockMovement.findUnique({
       where: { id: req.params.id },
-      include: { items: { include: { product: true, stockDetail: true, fromLocation: true, toLocation: true } }, user: true, department: true },
+      include: { items: { include: { product: true, stockDetail: true, fromLocation: true, toLocation: true } }, user: true, department: true, toDepartment: true },
     });
     if (!movement) return res.status(404).json({ error: 'Stock movement not found' });
 
@@ -74,12 +74,16 @@ router.get('/:id', async (req: AuthRequest, res: Response) => {
 // Create stock movement with items
 router.post('/', async (req: AuthRequest, res: Response) => {
   try {
-    const { movementType, remarks, items } = req.body;
+    const { movementType, remarks, items, toDepartmentId } = req.body;
     const userId = req.userId!;
 
     // Validate input
     if (!movementType || !items || !Array.isArray(items) || items.length === 0) {
       return res.status(400).json({ error: 'movementType and items array are required' });
+    }
+
+    if (movementType === 'moved_to_department' && !toDepartmentId) {
+      return res.status(400).json({ error: 'toDepartmentId is required for moved_to_department' });
     }
 
     if (!VALID_MOVEMENT_TYPES.includes(movementType as MovementType)) {
@@ -139,12 +143,13 @@ router.post('/', async (req: AuthRequest, res: Response) => {
           status: 'pending',
           remarks: remarks || null,
           departmentId: req.departmentId || null,
+          toDepartmentId: toDepartmentId || null,
           userId,
           items: {
             create: processedItems,
           },
         },
-        include: { items: { include: { product: true, stockDetail: true } }, user: true, department: true },
+        include: { items: { include: { product: true, stockDetail: true } }, user: true, department: true, toDepartment: true },
       });
 
       // Update currentStock for each affected product
@@ -159,6 +164,15 @@ router.post('/', async (req: AuthRequest, res: Response) => {
         await tx.product.update({
           where: { id: productId },
           data: { currentStock: { increment: delta } },
+        });
+      }
+
+      // For moved_to_department: reassign all affected products to the destination department
+      if (movementType === 'moved_to_department' && toDepartmentId) {
+        const productIds = [...productTotals.keys()];
+        await tx.product.updateMany({
+          where: { id: { in: productIds } },
+          data: { departmentId: toDepartmentId },
         });
       }
 

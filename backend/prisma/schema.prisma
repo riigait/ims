@@ -24,7 +24,8 @@ model Department {
   products    Product[]
   categories  Category[]
   locations   Location[]
-  movements      StockMovement[]
+  movements         StockMovement[] @relation("MovementFromDepartment")
+  receivedMovements StockMovement[] @relation("MovementToDepartment")
   floorPlans     FloorPlan[]
   importRequests ImportRequest[]
 }
@@ -115,11 +116,13 @@ model Location {
 model StockMovement {
   id              String     @id @default(cuid())
   movementNo      String?    @unique  // e.g., MVT-2026-000001 (auto-generated)
-  movementType    String     // stock_in, stock_out, adjustment, transfer, damaged, returned, opening_stock
+  movementType    String     // stock_in, stock_out, adjustment, transfer, damaged, returned, opening_stock, moved_to_department
   status          String     @default("pending") // pending, committed, cancelled
   remarks         String?
   departmentId    String?
-  department      Department? @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+  department      Department? @relation("MovementFromDepartment", fields: [departmentId], references: [id], onDelete: SetNull)
+  toDepartmentId  String?    // destination department for moved_to_department type
+  toDepartment    Department? @relation("MovementToDepartment", fields: [toDepartmentId], references: [id], onDelete: SetNull)
   userId          String
   user            User       @relation(fields: [userId], references: [id], onDelete: Cascade)
   items           StockMovementItem[] // Line items in this movement

@@ -21,7 +21,8 @@ const MOVEMENT_OPTIONS: { value: MovementType; label: string; color: string }[] 
   { value: 'adjustment',    label: 'Adjustment',    color: 'bg-blue-100 text-blue-800' },
   { value: 'returned',      label: 'Returned',      color: 'bg-teal-100 text-teal-800' },
   { value: 'damaged',       label: 'Damaged',       color: 'bg-orange-100 text-orange-800' },
-  { value: 'transfer',      label: 'Transfer',      color: 'bg-purple-100 text-purple-800' },
+  { value: 'transfer',            label: 'Transfer',            color: 'bg-purple-100 text-purple-800' },
+  { value: 'moved_to_department', label: 'Moved to Department',  color: 'bg-sky-100 text-sky-800' },
   { value: 'opening_stock', label: 'Opening Stock', color: 'bg-indigo-100 text-indigo-800' },
   { value: 'deployment',    label: 'Deployment',    color: 'bg-cyan-100 text-cyan-800' },
   { value: 'repair',        label: 'Repair',        color: 'bg-yellow-100 text-yellow-800' },
@@ -326,6 +327,7 @@ function LocationSearchDropdown({
 const emptyForm = {
   movementType: 'stock_in' as MovementType,
   remarks: '',
+  toDepartmentId: '',
   items: [{ stockDetailId: '', productId: '', quantity: 0, fromLocationId: '', toLocationId: '', reason: '' }],
 };
 
@@ -363,7 +365,7 @@ export default function StockMovements() {
         stockMovementsApi.getAll(),
         productsApi.getAll(),
         locationsApi.getAll(),
-        user.role === 'superadmin' ? departmentsApi.getAll() : Promise.resolve({ data: [] }),
+        ['superadmin', 'admin'].includes(user.role) ? departmentsApi.getAll() : Promise.resolve({ data: [] }),
       ]);
       setMovements(movementsRes.data);
       setProducts(productsRes.data);
@@ -421,6 +423,7 @@ export default function StockMovements() {
       await stockMovementsApi.create({
         movementType: formData.movementType,
         remarks: formData.remarks || null,
+        toDepartmentId: formData.toDepartmentId || undefined,
         items: validItems,
       });
       await fetchData();
@@ -560,7 +563,10 @@ export default function StockMovements() {
                 )}
               </div>
               {movement.department?.name && (
-                <p className="text-xs text-[var(--text-muted)] mt-2">{movement.department.name}</p>
+                <p className="text-xs text-[var(--text-muted)] mt-2">
+                  {movement.department.name}
+                  {(movement as any).toDepartment?.name && <span className="ml-1">→ {(movement as any).toDepartment.name}</span>}
+                </p>
               )}
             </div>
           ))}
@@ -627,6 +633,7 @@ export default function StockMovements() {
                         {formData.movementType === 'returned' && 'Customer returns or items coming back'}
                         {formData.movementType === 'damaged' && 'Damaged items being written off'}
                         {formData.movementType === 'transfer' && 'Moving stock between locations'}
+                        {formData.movementType === 'moved_to_department' && 'Reassign product to a different department — keeps the same product ID'}
                       </p>
                     </div>
                     <div>
@@ -636,6 +643,17 @@ export default function StockMovements() {
                         placeholder="e.g., Purchase order #123, Batch adjustment..."
                         className="w-full px-3 py-2 border border-[var(--border)] rounded-lg text-sm bg-[var(--surface)] text-[var(--text)]" />
                     </div>
+                    {formData.movementType === 'moved_to_department' && (
+                      <div>
+                        <label className="block text-xs font-medium text-[var(--text-muted)] mb-1">Move To Department *</label>
+                        <select value={formData.toDepartmentId}
+                          onChange={e => setFormData({ ...formData, toDepartmentId: e.target.value })}
+                          className="w-full px-3 py-2 border border-[var(--border)] rounded-lg text-sm bg-[var(--surface)] text-[var(--text)]">
+                          <option value="">— Select destination department —</option>
+                          {departments.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
+                        </select>
+                      </div>
+                    )}
                   </div>
 
                   <div className="border-t border-[var(--border)] pt-4">
