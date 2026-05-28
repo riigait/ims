@@ -54,6 +54,21 @@ router.get('/product/:productId', async (req: AuthRequest, res: Response) => {
 });
 
 // Get single stock detail
+router.get('/by-status/:status', async (req: AuthRequest, res: Response) => {
+  try {
+    const where: any = { currentStatus: req.params.status };
+    if (req.departmentId) where.product = { departmentId: req.departmentId };
+    const items = await prisma.stockDetail.findMany({
+      where,
+      select: { id: true, stockId: true, productId: true, currentStatus: true, currentLocationId: true, currentLocation: { select: { name: true } }, assetTag: true },
+    });
+    res.json(items);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 router.get('/:id', async (req: AuthRequest, res: Response) => {
   try {
     const stockDetail = await prisma.stockDetail.findUnique({

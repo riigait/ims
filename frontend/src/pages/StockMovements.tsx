@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { X, Trash2, Search, ChevronLeft, ChevronRight } from 'lucide-react';
-import { stockMovementsApi, productsApi, locationsApi, departmentsApi } from '@/services/api';
+import { stockMovementsApi, productsApi, locationsApi, departmentsApi, stockDetailsApi } from '@/services/api';
 import { StockMovement, MovementType, Product, Location } from '@/types/inventory';
 import { StockMovementFilter } from '@/types/filters';
 import { formatDate } from '@/utils/ids';
@@ -45,10 +45,14 @@ function ProductSearchDropdown({
   products,
   value,
   onChange,
+  excludeIds = [],
+  allocatedCounts = {},
 }: {
   products: Product[];
   value: string;
   onChange: (productId: string) => void;
+  excludeIds?: string[];
+  allocatedCounts?: Record<string, number>;
 }) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
@@ -56,14 +60,17 @@ function ProductSearchDropdown({
   const containerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
+  const remaining = (p: Product) => Math.max(0, p.currentStock - (allocatedCounts[p.id] || 0));
+
   const selected = products.find(p => p.id === value);
+  const available = products.filter(p => p.id === value || !excludeIds.includes(p.id));
 
   const filtered = search.trim()
-    ? products.filter(p =>
+    ? available.filter(p =>
         p.name.toLowerCase().includes(search.trim().toLowerCase()) ||
         (p.sku || '').toLowerCase().includes(search.trim().toLowerCase())
       )
-    : products;
+    : available;
 
   const totalPages = Math.ceil(filtered.length / DROPDOWN_PAGE_SIZE);
   const paginated = filtered.slice((page - 1) * DROPDOWN_PAGE_SIZE, page * DROPDOWN_PAGE_SIZE);
@@ -103,7 +110,7 @@ function ProductSearchDropdown({
         className="w-full px-2 py-1.5 text-sm border border-[var(--border)] rounded bg-[var(--surface)] text-left flex items-center justify-between gap-1 hover:border-[var(--primary)] transition-colors"
       >
         <span className={selected ? 'text-[var(--text)] truncate' : 'text-[var(--text-muted)]'}>
-          {selected ? `${selected.name} (${selected.currentStock})` : 'Select product'}
+          {selected ? `${selected.name} (${remaining(selected)})` : 'Select product'}
         </span>
         <Search size={13} className="flex-shrink-0 text-[var(--text-muted)]" />
       </button>
@@ -147,7 +154,7 @@ function ProductSearchDropdown({
                   className={`w-full text-left px-3 py-2 text-sm hover:bg-[var(--surface-2)] transition-colors flex items-center justify-between gap-2 ${p.id === value ? 'bg-[var(--surface-2)] font-medium' : ''}`}
                 >
                   <span className="truncate text-[var(--text)]">{p.name}</span>
-                  <span className="text-xs text-[var(--text-muted)] flex-shrink-0">qty {p.currentStock}</span>
+                  <span className="text-xs text-[var(--text-muted)] flex-shrink-0">{remaining(p)} left</span>
                 </button>
               ))
             )}
@@ -324,6 +331,180 @@ function LocationSearchDropdown({
   );
 }
 
+interface StockDetailItem {
+  id: string;
+  stockId: string;
+  productId?: string;
+  currentStatus: string;
+  currentLocationId?: string;
+  product?: { name: string };
+  currentLocation?: { name: string };
+  assetTag?: string;
+}
+
+const DEDUCTING_MOVEMENT_TYPES = ['stock_out', 'transfer', 'damaged', 'disposal', 'borrowed', 'lost', 'returned'];
+const RETURNING_STATUSES = ['borrowed'];
+
+function StockDetailSearchDropdown({
+  stockDetails,
+  value,
+  onChange,
+  excludeIds = [],
+}: {
+  stockDetails: StockDetailItem[];
+  value: string;
+  onChange: (stockDetailId: string, locationId?: string) => void;
+  excludeIds?: string[];
+}) {
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState('');
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(20);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  const selected = stockDetails.find(s => s.id === value);
+  const available = stockDetails.filter(s => s.id === value || !excludeIds.includes(s.id));
+
+  const filtered = search.trim()
+    ? available.filter(s =>
+        s.stockId.toLowerCase().includes(search.trim().toLowerCase()) ||
+        (s.assetTag || '').toLowerCase().includes(search.trim().toLowerCase()) ||
+        (s.currentLocation?.name || '').toLowerCase().includes(search.trim().toLowerCase())
+      )
+    : available;
+
+  const totalPages = Math.ceil(filtered.length / pageSize);
+  const paginated = filtered.slice((page - 1) * pageSize, page * pageSize);
+
+  useEffect(() => { setPage(1); }, [search, pageSize]);
+
+  useEffect(() => {
+    if (!open) return;
+    const handleClick = (e: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, [open]);
+
+  const handleOpen = () => {
+    setOpen(true);
+    setSearch('');
+    setPage(1);
+    setTimeout(() => inputRef.current?.focus(), 50);
+  };
+
+  const handleSelect = (id: string) => {
+    const sd = stockDetails.find(s => s.id === id);
+    onChange(id, sd?.currentLocationId);
+    setOpen(false);
+    setSearch('');
+  };
+
+  const STATUS_COLOR: Record<string, string> = {
+    active: 'text-green-600', damaged: 'text-orange-500', sold: 'text-gray-400',
+    lost: 'text-red-500', borrowed: 'text-violet-500', disposed: 'text-gray-500',
+    repair: 'text-yellow-600', deployed: 'text-cyan-600', returned: 'text-teal-600',
+  };
+
+  return (
+    <div ref={containerRef} className="relative">
+      <button
+        type="button"
+        onClick={handleOpen}
+        className="w-full px-2 py-1.5 text-sm border border-[var(--border)] rounded bg-[var(--surface)] text-left flex items-center justify-between gap-1 hover:border-[var(--primary)] transition-colors"
+      >
+        {selected ? (
+          <span className="text-[var(--text)] truncate font-mono text-xs">
+            {selected.stockId}{selected.assetTag ? ` · ${selected.assetTag}` : ''}{selected.currentLocation ? ` · ${selected.currentLocation.name}` : ''}
+          </span>
+        ) : (
+          <span className="text-[var(--text-muted)]">Select inventory item</span>
+        )}
+        <Search size={13} className="flex-shrink-0 text-[var(--text-muted)]" />
+      </button>
+
+      {open && (
+        <div className="absolute z-50 left-0 right-0 mt-1 bg-[var(--surface)] border border-[var(--border)] rounded-lg shadow-xl overflow-hidden">
+          <div className="p-2 border-b border-[var(--border)]">
+            <div className="flex items-center gap-2 px-2 py-1.5 border border-[var(--border)] rounded bg-[var(--surface-2)]">
+              <Search size={13} className="text-[var(--text-muted)] flex-shrink-0" />
+              <input
+                ref={inputRef}
+                type="text"
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+                placeholder="Search by item ID, asset tag, location…"
+                className="flex-1 text-sm bg-transparent outline-none text-[var(--text)] placeholder:text-[var(--text-muted)]"
+              />
+              {search && (
+                <button type="button" onClick={() => setSearch('')} className="text-[var(--text-muted)] hover:text-[var(--text)]">
+                  <X size={12} />
+                </button>
+              )}
+            </div>
+            <div className="flex items-center justify-between mt-1.5 px-1">
+              <p className="text-xs text-[var(--text-muted)]">{filtered.length} item{filtered.length !== 1 ? 's' : ''}</p>
+              <div className="flex items-center gap-1">
+                <span className="text-xs text-[var(--text-muted)]">Show</span>
+                {[20, 50, 100].map(s => (
+                  <button key={s} type="button"
+                    onClick={() => setPageSize(s)}
+                    className={`text-xs px-1.5 py-0.5 rounded border transition-colors ${pageSize === s ? 'bg-[var(--primary)] text-white border-[var(--primary)]' : 'border-[var(--border)] text-[var(--text-muted)] hover:bg-[var(--surface-2)]'}`}>
+                    {s}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          <div className="max-h-52 overflow-y-auto">
+            {paginated.length === 0 ? (
+              <p className="text-sm text-[var(--text-muted)] text-center py-4">No active items found.</p>
+            ) : (
+              paginated.map(s => (
+                <button
+                  key={s.id}
+                  type="button"
+                  onClick={() => handleSelect(s.id)}
+                  className={`w-full text-left px-3 py-2 text-sm hover:bg-[var(--surface-2)] transition-colors flex items-center justify-between gap-2 ${s.id === value ? 'bg-[var(--surface-2)] font-medium' : ''}`}
+                >
+                  <div className="min-w-0">
+                    <p className="font-mono text-xs text-[var(--text)] truncate">{s.stockId}{s.assetTag ? ` · ${s.assetTag}` : ''}</p>
+                    {s.currentLocation && (
+                      <p className="text-xs text-[var(--text-muted)] truncate">{s.currentLocation.name}</p>
+                    )}
+                  </div>
+                  <span className={`text-xs flex-shrink-0 ${STATUS_COLOR[s.currentStatus] ?? 'text-[var(--text-muted)]'}`}>
+                    {s.currentStatus}
+                  </span>
+                </button>
+              ))
+            )}
+          </div>
+
+          {totalPages > 1 && (
+            <div className="flex items-center justify-between px-3 py-2 border-t border-[var(--border)] bg-[var(--surface-2)]">
+              <button type="button" onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}
+                className="p-1 rounded hover:bg-[var(--border)] disabled:opacity-40 disabled:cursor-not-allowed">
+                <ChevronLeft size={14} />
+              </button>
+              <span className="text-xs text-[var(--text-muted)]">Page {page} of {totalPages}</span>
+              <button type="button" onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages}
+                className="p-1 rounded hover:bg-[var(--border)] disabled:opacity-40 disabled:cursor-not-allowed">
+                <ChevronRight size={14} />
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 const emptyForm = {
   movementType: 'stock_in' as MovementType,
   remarks: '',
@@ -358,6 +539,8 @@ export default function StockMovements() {
   const [itemsPage, setItemsPage] = useState(1);
   const [itemsPageSize, setItemsPageSize] = useState(20);
   const [itemsSearch, setItemsSearch] = useState('');
+  const [itemStockDetails, setItemStockDetails] = useState<Record<number, StockDetailItem[]>>({});
+  const [borrowedProductIds, setBorrowedProductIds] = useState<Set<string>>(new Set());
 
   const fetchData = async () => {
     try {
@@ -410,11 +593,15 @@ export default function StockMovements() {
     setConfirmingDelete(false);
     setFormData(emptyForm);
     setFormError('');
+    setItemStockDetails({});
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const validItems = formData.items.filter(item => (item.stockDetailId || item.productId) && item.quantity > 0);
+    const validItems = formData.items.filter(item =>
+      (item.stockDetailId || item.productId) &&
+      (formData.movementType === 'adjustment' ? item.quantity !== 0 : item.quantity > 0)
+    );
     if (validItems.length === 0) {
       setFormError('Please select at least one product and enter a valid quantity');
       return;
@@ -623,20 +810,37 @@ export default function StockMovements() {
                     <div>
                       <label className="block text-xs font-medium text-[var(--text-muted)] mb-1">Movement Type *</label>
                       <select value={formData.movementType}
-                        onChange={e => setFormData({ ...formData, movementType: e.target.value as MovementType })}
+                        onChange={async e => {
+                          const newType = e.target.value as MovementType;
+                          setFormData({ ...formData, movementType: newType, items: formData.items.map(it => ({ ...it, stockDetailId: '', productId: '', fromLocationId: '' })) });
+                          setItemStockDetails({});
+                          if (newType === 'returned') {
+                            try {
+                              const res = await stockDetailsApi.getByStatus('borrowed');
+                              setBorrowedProductIds(new Set((res.data as StockDetailItem[]).map(s => s.productId as string)));
+                            } catch { setBorrowedProductIds(new Set()); }
+                          } else {
+                            setBorrowedProductIds(new Set());
+                          }
+                        }}
                         className="w-full px-3 py-2 border border-[var(--border)] rounded-lg text-sm bg-[var(--surface)] text-[var(--text)]">
                         {FORM_MOVEMENT_OPTIONS.map(o => (
                           <option key={o.value} value={o.value}>{o.label}</option>
                         ))}
                       </select>
                       <p className="text-xs text-[var(--text-muted)] mt-1">
-                        {formData.movementType === 'stock_in' && 'Received goods or stock arriving'}
-                        {formData.movementType === 'stock_out' && 'Sales, shipments, or stock leaving'}
-                        {formData.movementType === 'adjustment' && 'Manual corrections or count differences'}
-                        {formData.movementType === 'returned' && 'Customer returns or items coming back'}
-                        {formData.movementType === 'damaged' && 'Damaged items being written off'}
-                        {formData.movementType === 'transfer' && 'Moving stock between locations'}
-                        {formData.movementType === 'moved_to_department' && 'Reassign product to a different department — keeps the same product ID'}
+                        {formData.movementType === 'stock_in' && 'Add quantity — received goods or new stock arriving'}
+                        {formData.movementType === 'stock_out' && 'Remove quantity — sales, shipments, or stock leaving'}
+                        {formData.movementType === 'adjustment' && 'Adjust stock — positive quantity adds, negative quantity deducts'}
+                        {formData.movementType === 'returned' && 'Add quantity — customer returns or items coming back'}
+                        {formData.movementType === 'damaged' && 'Remove quantity — marks item as damaged, removed from available stock'}
+                        {formData.movementType === 'transfer' && 'Move item between locations — no quantity change'}
+                        {formData.movementType === 'moved_to_department' && 'Reassign product to a different department — no quantity change, keeps the same product ID'}
+                        {formData.movementType === 'deployment' && 'Mark item as deployed or in use — no quantity change'}
+                        {formData.movementType === 'repair' && 'Mark item as under repair — no quantity change'}
+                        {formData.movementType === 'disposal' && 'Remove quantity — mark item as disposed or retired'}
+                        {formData.movementType === 'borrowed' && 'Remove quantity — mark item as temporarily borrowed or issued'}
+                        {formData.movementType === 'lost' && 'Remove quantity — mark item as lost or missing'}
                       </p>
                     </div>
                     <div>
@@ -668,25 +872,118 @@ export default function StockMovements() {
                             <div>
                               <label className="block text-xs font-medium text-[var(--text-muted)] mb-1">Product *</label>
                               <ProductSearchDropdown
-                                products={products}
+                                products={formData.movementType === 'returned' && borrowedProductIds.size > 0
+                                  ? products.filter(p => borrowedProductIds.has(p.id))
+                                  : products}
                                 value={item.productId}
-                                onChange={productId => {
+                                excludeIds={(() => {
+                                  if (!DEDUCTING_MOVEMENT_TYPES.includes(formData.movementType) || formData.movementType === 'returned') return [];
+                                  const alloc: Record<string, number> = {};
+                                  formData.items.forEach((it, i) => {
+                                    if (i < idx && it.productId) alloc[it.productId] = (alloc[it.productId] || 0) + (it.stockDetailId ? 1 : (it.quantity || 0));
+                                  });
+                                  return products.filter(p => (alloc[p.id] || 0) >= p.currentStock).map(p => p.id);
+                                })()}
+                                allocatedCounts={(() => {
+                                  if (!DEDUCTING_MOVEMENT_TYPES.includes(formData.movementType) || formData.movementType === 'returned') return {};
+                                  const alloc: Record<string, number> = {};
+                                  formData.items.forEach((it, i) => {
+                                    if (i < idx && it.productId) alloc[it.productId] = (alloc[it.productId] || 0) + (it.stockDetailId ? 1 : (it.quantity || 0));
+                                  });
+                                  return alloc;
+                                })()}
+                                onChange={async productId => {
                                   const newItems = [...formData.items];
-                                  newItems[idx] = { ...item, productId, stockDetailId: '' };
+                                  const selectedProduct = products.find(p => p.id === productId);
+                                  newItems[idx] = { ...item, productId, stockDetailId: '', fromLocationId: selectedProduct?.locationId || '' };
                                   setFormData({ ...formData, items: newItems });
+                                  if (DEDUCTING_MOVEMENT_TYPES.includes(formData.movementType) && productId) {
+                                    try {
+                                      const res = await stockDetailsApi.getByProductId(productId);
+                                      const filtered = formData.movementType === 'returned'
+                                        ? (res.data as StockDetailItem[]).filter(s => RETURNING_STATUSES.includes(s.currentStatus))
+                                        : (res.data as StockDetailItem[]).filter(s => s.currentStatus === 'active');
+                                      setItemStockDetails(prev => ({ ...prev, [idx]: filtered }));
+                                    } catch { setItemStockDetails(prev => ({ ...prev, [idx]: [] })); }
+                                  } else {
+                                    setItemStockDetails(prev => { const next = { ...prev }; delete next[idx]; return next; });
+                                  }
                                 }}
                               />
                             </div>
+                            {DEDUCTING_MOVEMENT_TYPES.includes(formData.movementType) && item.productId && (
+                              <div>
+                                <label className="block text-xs font-medium text-[var(--text-muted)] mb-1">
+                                  Inventory Item <span className="text-[var(--text-muted)] font-normal normal-case">(which specific unit?)</span>
+                                </label>
+                                {itemStockDetails[idx] === undefined ? (
+                                  <p className="text-xs text-[var(--text-muted)] italic px-1">Loading items…</p>
+                                ) : itemStockDetails[idx].length === 0 ? (
+                                  <p className="text-xs text-orange-500 px-1">
+                                    {formData.movementType === 'returned'
+                                      ? 'No borrowed inventory items found for this product.'
+                                      : 'No active inventory items found for this product.'}
+                                  </p>
+                                ) : (
+                                  <StockDetailSearchDropdown
+                                    stockDetails={itemStockDetails[idx]}
+                                    value={item.stockDetailId}
+                                    excludeIds={formData.items.filter((_, i) => i < idx).map(it => it.stockDetailId).filter(Boolean)}
+                                    onChange={(stockDetailId, locationId) => {
+                                      const newItems = [...formData.items];
+                                      newItems[idx] = { ...newItems[idx], stockDetailId, quantity: 1, fromLocationId: locationId || newItems[idx].fromLocationId };
+                                      setFormData({ ...formData, items: newItems });
+                                    }}
+                                  />
+                                )}
+                              </div>
+                            )}
                             <div>
                               <label className="block text-xs font-medium text-[var(--text-muted)] mb-1">Quantity *</label>
-                              <input type="number" min={1} value={item.quantity || ''}
-                                onChange={e => {
-                                  const newItems = [...formData.items];
-                                  newItems[idx] = { ...newItems[idx], quantity: parseInt(e.target.value) || 0 };
-                                  setFormData({ ...formData, items: newItems });
-                                }}
-                                placeholder="0"
-                                className="w-full px-2 py-1.5 text-sm border border-[var(--border)] rounded bg-[var(--surface)] text-[var(--text)]" />
+                              {item.stockDetailId ? (
+                                <div className="w-full px-2 py-1.5 text-sm border border-[var(--border)] rounded bg-[var(--surface-2)] text-[var(--text-muted)] select-none">
+                                  1 <span className="text-xs">(fixed — 1 specific unit)</span>
+                                </div>
+                              ) : formData.movementType === 'adjustment' ? (
+                                <div className="flex gap-1.5">
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      const newItems = [...formData.items];
+                                      const abs = Math.abs(newItems[idx].quantity || 0);
+                                      const isNeg = newItems[idx].quantity < 0;
+                                      newItems[idx] = { ...newItems[idx], quantity: isNeg ? abs : -abs };
+                                      setFormData({ ...formData, items: newItems });
+                                    }}
+                                    className={`flex-shrink-0 w-9 h-[34px] rounded text-sm font-bold border transition-colors ${item.quantity < 0 ? 'bg-red-500 text-white border-red-500' : 'bg-green-500 text-white border-green-500'}`}
+                                  >
+                                    {item.quantity < 0 ? '−' : '+'}
+                                  </button>
+                                  <input
+                                    type="number"
+                                    min={1}
+                                    value={Math.abs(item.quantity) || ''}
+                                    onChange={e => {
+                                      const abs = parseInt(e.target.value) || 0;
+                                      const newItems = [...formData.items];
+                                      const sign = newItems[idx].quantity < 0 ? -1 : 1;
+                                      newItems[idx] = { ...newItems[idx], quantity: sign * abs };
+                                      setFormData({ ...formData, items: newItems });
+                                    }}
+                                    placeholder="0"
+                                    className="flex-1 px-2 py-1.5 text-sm border border-[var(--border)] rounded bg-[var(--surface)] text-[var(--text)]"
+                                  />
+                                </div>
+                              ) : (
+                                <input type="number" min={1} value={item.quantity || ''}
+                                  onChange={e => {
+                                    const newItems = [...formData.items];
+                                    newItems[idx] = { ...newItems[idx], quantity: parseInt(e.target.value) || 0 };
+                                    setFormData({ ...formData, items: newItems });
+                                  }}
+                                  placeholder="0"
+                                  className="w-full px-2 py-1.5 text-sm border border-[var(--border)] rounded bg-[var(--surface)] text-[var(--text)]" />
+                              )}
                             </div>
                             <div>
                               <label className="block text-xs font-medium text-[var(--text-muted)] mb-1">From Location</label>

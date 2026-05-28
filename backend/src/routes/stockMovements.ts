@@ -10,7 +10,7 @@ const router = Router();
 const VALID_MOVEMENT_TYPES = ['stock_in', 'stock_out', 'adjustment', 'transfer', 'damaged', 'returned', 'opening_stock', 'deployment', 'repair', 'disposal', 'borrowed', 'lost', 'moved_to_department'] as const;
 type MovementType = typeof VALID_MOVEMENT_TYPES[number];
 
-const DEDUCTING_TYPES: MovementType[] = ['stock_out', 'transfer', 'damaged', 'disposal', 'borrowed', 'lost'];
+const DEDUCTING_TYPES: MovementType[] = ['stock_out', 'damaged', 'disposal', 'borrowed', 'lost', 'transfer'];
 const ADDING_TYPES: MovementType[] = ['stock_in', 'returned', 'adjustment', 'opening_stock'];
 const NEUTRAL_TYPES: MovementType[] = ['deployment', 'repair', 'moved_to_department'];
 
@@ -94,92 +94,183 @@ router.post('/', async (req: AuthRequest, res: Response) => {
       });
     }
 
+    // Validate deducting movements don't exceed available stock
+    if (DEDUCTING_TYPES.includes(movementType as MovementType)) {
+      const requested: Record<string, number> = {};
+      for (const item of items) {
+        if (item.productId && !item.stockDetailId) {
+          requested[item.productId] = (requested[item.productId] || 0) + (item.quantity || 1);
+        }
+      }
+      for (const [productId, qty] of Object.entries(requested)) {
+        const product = await prisma.product.findUnique({ where: { id: productId }, select: { name: true, currentStock: true } });
+        if (product && qty > product.currentStock) {
+          return res.status(400).json({
+            error: `Cannot stock out ${qty} item(s) of "${product.name}". Only ${product.currentStock} item(s) available.`,
+          });
+        }
+      }
+    }
+
     // Generate movement number
     const movementNo = await generateMovementNo();
 
     // Create movement header and items
     const result = await prisma.$transaction(async (tx) => {
-      // For each item, ensure stockDetailId exists (create if needed)
-      const processedItems = [];
-      for (const item of items) {
-        let stockDetailId = item.stockDetailId;
+      // Each processedItem = exactly 1 physical unit (qty always 1).
+      // This ensures every StockDetail status is individually updated and
+      // prevents the same unit being reused across rows within the transaction.
+      const processedItems: Array<{
+        stockDetailId: string; productId: string; quantity: number;
+        fromLocationId: string | null; toLocationId: string | null; reason: string | null;
+      }> = [];
 
-        // If no stockDetailId provided, resolve or create a StockDetail for this product
-        if (!stockDetailId && item.productId) {
+      // Track IDs already committed in this transaction to avoid reuse
+      const usedIds = new Set<string>();
+
+      const statusMap: Record<string, string> = {
+        stock_out: 'sold', damaged: 'damaged', disposal: 'disposed',
+        borrowed: 'borrowed', lost: 'lost', transfer: 'sold',
+      };
+
+      for (const item of items) {
+        const qty = item.quantity || 1;
+
+        if (item.stockDetailId) {
+          // Explicit unit selected by the user — always qty 1
+          if (DEDUCTING_TYPES.includes(movementType as MovementType)) {
+            await tx.stockDetail.update({
+              where: { id: item.stockDetailId },
+              data: {
+                currentStatus: statusMap[movementType] ?? 'sold',
+                currentLocationId: item.toLocationId || null,
+              },
+            });
+          } else if (movementType === 'returned') {
+            await tx.stockDetail.update({
+              where: { id: item.stockDetailId },
+              data: {
+                currentStatus: 'active',
+                currentLocationId: item.toLocationId || null,
+              },
+            });
+          }
+          usedIds.add(item.stockDetailId);
+          processedItems.push({
+            stockDetailId: item.stockDetailId,
+            productId: item.productId,
+            quantity: 1,
+            fromLocationId: item.fromLocationId || null,
+            toLocationId: item.toLocationId || null,
+            reason: item.reason || null,
+          });
+        } else if (item.productId) {
           const product = await tx.product.findUnique({ where: { id: item.productId } });
 
           if (DEDUCTING_TYPES.includes(movementType as MovementType)) {
-            // For deducting movements, look for an existing active StockDetail at the fromLocation
-            const existing = await tx.stockDetail.findFirst({
-              where: {
-                productId: item.productId,
-                currentStatus: 'active',
-                ...(item.fromLocationId ? { currentLocationId: item.fromLocationId } : {}),
-              },
-            });
-            if (existing) {
-              stockDetailId = existing.id;
-              // Mark the unit with the appropriate status based on movement type
-              const statusMap: Record<string, string> = {
-                stock_out: 'sold', damaged: 'damaged', disposal: 'disposed',
-                borrowed: 'borrowed', lost: 'lost', transfer: 'active',
-              };
-              const newStatus = statusMap[movementType] ?? 'sold';
-              await tx.stockDetail.update({
-                where: { id: existing.id },
-                data: {
-                  currentStatus: newStatus,
-                  currentLocationId: item.toLocationId || null,
+            // Find and mark exactly `qty` individual active units, skipping already-used ones
+            for (let i = 0; i < qty; i++) {
+              const existing = await tx.stockDetail.findFirst({
+                where: {
+                  productId: item.productId,
+                  currentStatus: 'active',
+                  id: { notIn: [...usedIds] },
+                  ...(item.fromLocationId ? { currentLocationId: item.fromLocationId } : {}),
                 },
               });
-            } else {
-              // No existing unit — create a phantom record with appropriate status
+              let unitId: string;
+              if (existing) {
+                unitId = existing.id;
+                await tx.stockDetail.update({
+                  where: { id: unitId },
+                  data: {
+                    currentStatus: statusMap[movementType] ?? 'sold',
+                    currentLocationId: item.toLocationId || null,
+                  },
+                });
+              } else {
+                // No remaining active unit — create a phantom with correct status
+                const stockId = await generateStockId();
+                const phantom = await tx.stockDetail.create({
+                  data: {
+                    stockId,
+                    productId: item.productId,
+                    currentStatus: statusMap[movementType] ?? 'sold',
+                    currentLocationId: item.toLocationId || product?.locationId || null,
+                  },
+                });
+                unitId = phantom.id;
+              }
+              usedIds.add(unitId);
+              processedItems.push({
+                stockDetailId: unitId,
+                productId: item.productId,
+                quantity: 1,
+                fromLocationId: item.fromLocationId || null,
+                toLocationId: item.toLocationId || null,
+                reason: item.reason || null,
+              });
+            }
+          } else if (qty < 0 && movementType === 'adjustment') {
+            // Negative adjustment — deduct |qty| existing active units
+            const absQty = Math.abs(qty);
+            for (let i = 0; i < absQty; i++) {
+              const existing = await tx.stockDetail.findFirst({
+                where: {
+                  productId: item.productId,
+                  currentStatus: 'active',
+                  id: { notIn: [...usedIds] },
+                  ...(item.fromLocationId ? { currentLocationId: item.fromLocationId } : {}),
+                },
+              });
+              let unitId: string;
+              if (existing) {
+                unitId = existing.id;
+                await tx.stockDetail.update({
+                  where: { id: unitId },
+                  data: { currentStatus: 'sold', currentLocationId: item.toLocationId || null },
+                });
+              } else {
+                const stockId = await generateStockId();
+                const phantom = await tx.stockDetail.create({
+                  data: { stockId, productId: item.productId, currentStatus: 'sold', currentLocationId: item.toLocationId || product?.locationId || null },
+                });
+                unitId = phantom.id;
+              }
+              usedIds.add(unitId);
+              processedItems.push({
+                stockDetailId: unitId,
+                productId: item.productId,
+                quantity: -1,
+                fromLocationId: item.fromLocationId || null,
+                toLocationId: item.toLocationId || null,
+                reason: item.reason || null,
+              });
+            }
+          } else {
+            // Adding / neutral — create one new active StockDetail per unit
+            for (let i = 0; i < qty; i++) {
               const stockId = await generateStockId();
-              const statusMap: Record<string, string> = {
-                stock_out: 'sold', damaged: 'damaged', disposal: 'disposed',
-                borrowed: 'borrowed', lost: 'lost', transfer: 'active',
-              };
-              const stockDetail = await tx.stockDetail.create({
+              const newDetail = await tx.stockDetail.create({
                 data: {
                   stockId,
                   productId: item.productId,
-                  currentStatus: statusMap[movementType] ?? 'sold',
+                  currentStatus: 'active',
                   currentLocationId: item.toLocationId || product?.locationId || null,
                 },
               });
-              stockDetailId = stockDetail.id;
-            }
-          } else {
-            // For adding/neutral movements, always create a new StockDetail unit
-            console.log(`[STOCK MOVEMENT] Creating StockDetail for product ${item.productId}`);
-            const stockId = await generateStockId();
-            const stockDetail = await tx.stockDetail.create({
-              data: {
-                stockId,
+              usedIds.add(newDetail.id);
+              processedItems.push({
+                stockDetailId: newDetail.id,
                 productId: item.productId,
-                currentStatus: 'active',
-                currentLocationId: item.toLocationId || product?.locationId || null,
-              },
-            });
-            stockDetailId = stockDetail.id;
-            console.log(`[STOCK MOVEMENT] Auto-created stock detail: ${stockId} with ID ${stockDetailId}`);
+                quantity: 1,
+                fromLocationId: item.fromLocationId || null,
+                toLocationId: item.toLocationId || null,
+                reason: item.reason || null,
+              });
+            }
           }
         }
-
-        if (!stockDetailId) {
-          throw new Error(`No stockDetailId available for product ${item.productId}`);
-        }
-
-        console.log(`[STOCK MOVEMENT] Processing item: productId=${item.productId}, stockDetailId=${stockDetailId}, quantity=${item.quantity}`);
-
-        processedItems.push({
-          stockDetailId,
-          productId: item.productId,
-          quantity: item.quantity || 0,
-          fromLocationId: item.fromLocationId || null,
-          toLocationId: item.toLocationId || null,
-          reason: item.reason || null,
-        });
       }
 
       const movement = await tx.stockMovement.create({

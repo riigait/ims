@@ -97,6 +97,7 @@ export const stockMovementsApi = {
 export const stockDetailsApi = {
   getAll: () => api.get('/stock-details'),
   getByProductId: (productId: string) => api.get(`/stock-details/product/${productId}`),
+  getByStatus: (status: string) => api.get(`/stock-details/by-status/${status}`),
   getById: (id: string) => api.get(`/stock-details/${id}`),
   getMovements: (id: string) => api.get(`/stock-details/${id}/movements`),
   create: (data: any) => api.post('/stock-details', data),
