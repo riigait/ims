@@ -96,7 +96,6 @@ router.get('/:id/movements', async (req: AuthRequest, res: Response) => {
         toLocation: true,
       },
       orderBy: { createdAt: 'desc' },
-      take: 20,
     });
 
     res.json(movements);

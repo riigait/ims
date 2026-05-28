@@ -11,6 +11,21 @@ import { filterAndSortProducts, clearProductFilters, UNASSIGNED_LOCATION } from 
 import DataPageLayout from '@/components/layout/DataPageLayout';
 import { ALL_DEPARTMENTS_ID } from '@/constants/app';
 
+const MOVEMENT_COLOR: Record<string, string> = {
+  stock_in: 'bg-green-100 text-green-800', stock_out: 'bg-red-100 text-red-800',
+  adjustment: 'bg-blue-100 text-blue-800', returned: 'bg-teal-100 text-teal-800',
+  damaged: 'bg-orange-100 text-orange-800', transfer: 'bg-purple-100 text-purple-800',
+  opening_stock: 'bg-indigo-100 text-indigo-800', deployment: 'bg-cyan-100 text-cyan-800',
+  repair: 'bg-yellow-100 text-yellow-800', disposal: 'bg-gray-100 text-gray-800',
+  borrowed: 'bg-violet-100 text-violet-800', lost: 'bg-rose-100 text-rose-800',
+};
+const MOVEMENT_LABEL: Record<string, string> = {
+  stock_in: 'Stock In', stock_out: 'Stock Out', adjustment: 'Adjustment',
+  returned: 'Returned', damaged: 'Damaged', transfer: 'Transfer',
+  opening_stock: 'Opening Stock', deployment: 'Deployment', repair: 'Repair',
+  disposal: 'Disposal', borrowed: 'Borrowed', lost: 'Lost',
+};
+
 const emptyForm = {
   sku: '', name: '', description: '', categoryId: '', locationId: '', unit: 'pcs',
   currentStock: 0, lowStockThreshold: 10, supplier: '', unitPrice: 0,
@@ -62,6 +77,11 @@ export default function Products() {
   const [isCreating, setIsCreating] = useState(false);
   const [formData, setFormData] = useState(emptyForm);
   const [formError, setFormError] = useState('');
+  const [drawerMovements, setDrawerMovements] = useState<any[]>([]);
+  const [drawerMovementsLoading, setDrawerMovementsLoading] = useState(false);
+  const [mvSearch, setMvSearch] = useState('');
+  const [mvPageSize, setMvPageSize] = useState(20);
+  const [mvPage, setMvPage] = useState(1);
   const currentDepartmentId = localStorage.getItem('currentDepartmentId');
   const showDepartmentFilter = user.role === 'superadmin' || (user.role === 'admin' && currentDepartmentId === ALL_DEPARTMENTS_ID);
 
@@ -117,13 +137,22 @@ export default function Products() {
     setIsDrawerOpen(true);
   };
 
-  const openViewDrawer = (product: Product) => {
+  const openViewDrawer = async (product: Product) => {
     setSelectedItem(product);
     setEditingItem(null);
     setIsCreating(false);
     setFormError('');
     setConfirmingDelete(false);
+    setDrawerMovements([]);
+    setMvSearch(''); setMvPage(1); setMvPageSize(20);
     setIsDrawerOpen(true);
+    setDrawerMovementsLoading(true);
+    try {
+      const res = await productsApi.getMovements(product.id);
+      setDrawerMovements(res.data);
+    } catch { /* ignore */ } finally {
+      setDrawerMovementsLoading(false);
+    }
   };
 
   const openEdit = (product: Product) => {
@@ -149,6 +178,8 @@ export default function Products() {
     setConfirmingDelete(false);
     setFormData(emptyForm);
     setFormError('');
+    setDrawerMovements([]);
+    setMvSearch(''); setMvPage(1); setMvPageSize(20);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -736,6 +767,79 @@ export default function Products() {
                       {selectedItem.notes && <p className="text-sm text-[var(--text-muted)] italic">{selectedItem.notes}</p>}
                     </section>
                   )}
+
+                  {/* Movement History */}
+                  <section>
+                    <h3 className="text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wider mb-3">Movement History</h3>
+                    {drawerMovementsLoading ? (
+                      <p className="text-sm text-[var(--text-muted)]">Loading…</p>
+                    ) : (() => {
+                      const q = mvSearch.toLowerCase();
+                      const filtered = drawerMovements.filter(mi =>
+                        !q ||
+                        mi.movement?.movementNo?.toLowerCase().includes(q) ||
+                        (MOVEMENT_LABEL[mi.movement?.movementType] ?? mi.movement?.movementType ?? '').toLowerCase().includes(q) ||
+                        mi.fromLocation?.name?.toLowerCase().includes(q) ||
+                        mi.toLocation?.name?.toLowerCase().includes(q) ||
+                        mi.reason?.toLowerCase().includes(q) ||
+                        mi.stockDetail?.assetTag?.toLowerCase().includes(q)
+                      );
+                      const totalPages = Math.max(1, Math.ceil(filtered.length / mvPageSize));
+                      const paged = filtered.slice((mvPage - 1) * mvPageSize, mvPage * mvPageSize);
+                      return (
+                        <>
+                          <div className="flex gap-2 mb-3">
+                            <input type="text" value={mvSearch} placeholder="Search movements…"
+                              onChange={e => { setMvSearch(e.target.value); setMvPage(1); }}
+                              className="flex-1 px-2 py-1.5 text-xs border border-[var(--border)] rounded bg-[var(--surface)] text-[var(--text)]" />
+                            <select value={mvPageSize} onChange={e => { setMvPageSize(Number(e.target.value)); setMvPage(1); }}
+                              className="px-2 py-1.5 text-xs border border-[var(--border)] rounded bg-[var(--surface)] text-[var(--text)]">
+                              <option value={20}>20</option>
+                              <option value={50}>50</option>
+                              <option value={100}>100</option>
+                            </select>
+                            <button type="button" onClick={() => { setMvSearch(''); setMvPage(1); setMvPageSize(20); }}
+                              className="px-2 py-1.5 text-xs border border-[var(--border)] rounded bg-[var(--surface-2)] text-[var(--text-muted)] hover:bg-[var(--border)]">
+                              Clear
+                            </button>
+                          </div>
+                          {filtered.length === 0 ? (
+                            <p className="text-sm text-[var(--text-muted)]">No movements recorded.</p>
+                          ) : (
+                            <div className="space-y-2">
+                              {paged.map(mi => (
+                                <div key={mi.id} className="flex items-start gap-3 p-3 bg-[var(--surface-2)] rounded-lg">
+                                  <span className={`px-2 py-0.5 rounded text-xs font-semibold flex-shrink-0 ${MOVEMENT_COLOR[mi.movement?.movementType] ?? 'bg-gray-100 text-gray-800'}`}>
+                                    {MOVEMENT_LABEL[mi.movement?.movementType] ?? mi.movement?.movementType}
+                                  </span>
+                                  <div className="flex-1 min-w-0 text-xs text-[var(--text-muted)]">
+                                    <p className="font-medium text-[var(--text)]">{mi.movement?.movementNo ?? '—'}</p>
+                                    {mi.stockDetail?.assetTag && <p className="font-mono">{mi.stockDetail.assetTag}</p>}
+                                    {(mi.fromLocation || mi.toLocation) && (
+                                      <p>{mi.fromLocation?.name ?? '?'} → {mi.toLocation?.name ?? '?'}</p>
+                                    )}
+                                    {mi.reason && <p className="italic">{mi.reason}</p>}
+                                    <p>{new Date(mi.createdAt).toLocaleDateString()} · qty {mi.quantity}</p>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                          {totalPages > 1 && (
+                            <div className="flex items-center justify-between mt-3 text-xs text-[var(--text-muted)]">
+                              <span>{filtered.length} total · page {mvPage}/{totalPages}</span>
+                              <div className="flex gap-1">
+                                <button type="button" disabled={mvPage === 1} onClick={() => setMvPage(p => p - 1)}
+                                  className="px-2 py-1 border border-[var(--border)] rounded disabled:opacity-40 hover:bg-[var(--surface-2)]">‹</button>
+                                <button type="button" disabled={mvPage === totalPages} onClick={() => setMvPage(p => p + 1)}
+                                  className="px-2 py-1 border border-[var(--border)] rounded disabled:opacity-40 hover:bg-[var(--surface-2)]">›</button>
+                              </div>
+                            </div>
+                          )}
+                        </>
+                      );
+                    })()}
+                  </section>
                 </div>
               )}
             </div>

@@ -198,6 +198,34 @@ router.get('/:id', async (req: AuthRequest, res: Response) => {
   }
 });
 
+// Get movement history for a product
+router.get('/:id/movements', async (req: AuthRequest, res: Response) => {
+  try {
+    const product = await prisma.product.findUnique({ where: { id: req.params.id } });
+    if (!product) return res.status(404).json({ error: 'Product not found' });
+
+    if (req.departmentId && product.departmentId !== req.departmentId) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    const movements = await prisma.stockMovementItem.findMany({
+      where: { productId: req.params.id },
+      include: {
+        movement: { include: { user: { select: { name: true } } } },
+        fromLocation: true,
+        toLocation: true,
+        stockDetail: { select: { stockId: true, assetTag: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    res.json(movements);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 // Create product
 router.post('/', async (req: AuthRequest, res: Response) => {
   try {

@@ -165,6 +165,9 @@ export default function InventoryItems() {
   const [drawerItem, setDrawerItem] = useState<any | null>(null);
   const [drawerMovements, setDrawerMovements] = useState<any[]>([]);
   const [drawerMovementsLoading, setDrawerMovementsLoading] = useState(false);
+  const [mvSearch, setMvSearch] = useState('');
+  const [mvPageSize, setMvPageSize] = useState(20);
+  const [mvPage, setMvPage] = useState(1);
 
   // Edit form (inline, not a drawer)
   const [editingItem, setEditingItem] = useState<any | null>(null);
@@ -225,6 +228,7 @@ export default function InventoryItems() {
     setDrawerItem(item);
     setEditingItem(null);
     setDrawerMovements([]);
+    setMvSearch(''); setMvPage(1); setMvPageSize(20);
     setDrawerMovementsLoading(true);
     try {
       const res = await stockDetailsApi.getMovements(item.id);
@@ -238,6 +242,7 @@ export default function InventoryItems() {
     setDrawerItem(null);
     setEditingItem(null);
     setDrawerMovements([]);
+    setMvSearch(''); setMvPage(1); setMvPageSize(20);
   };
 
   const openEdit = (item: any) => {
@@ -788,7 +793,7 @@ export default function InventoryItems() {
 
               {editingItem ? (
                 /* Inline Edit Form */
-                <form onSubmit={handleSubmit} className="space-y-5">
+                <form id="inventory-form" onSubmit={handleSubmit} className="space-y-5">
                   {/* Identification */}
                   <div>
                     <h4 className="text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wider mb-2">Identification</h4>
@@ -906,10 +911,6 @@ export default function InventoryItems() {
                       className="w-full px-3 py-1.5 text-sm border border-[var(--border)] rounded-lg bg-[var(--surface)] text-[var(--text)]" />
                   </div>
                   {formError && <p className="text-red-500 text-sm">{formError}</p>}
-                  <div className="flex gap-2">
-                    <button type="submit" className="px-4 py-2 bg-[var(--primary)] text-white text-sm rounded-lg hover:bg-[var(--primary-hover)]">Save</button>
-                    <button type="button" onClick={() => setEditingItem(null)} className="px-4 py-2 border border-[var(--border)] text-sm rounded-lg text-[var(--text)] hover:bg-[var(--surface-2)]">Cancel</button>
-                  </div>
                 </form>
               ) : (
                 <>
@@ -1000,49 +1001,105 @@ export default function InventoryItems() {
                     <h3 className="text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wider mb-3">Movement History</h3>
                     {drawerMovementsLoading ? (
                       <p className="text-sm text-[var(--text-muted)]">Loading…</p>
-                    ) : drawerMovements.length === 0 ? (
-                      <p className="text-sm text-[var(--text-muted)]">No movements recorded.</p>
-                    ) : (
-                      <div className="space-y-2">
-                        {drawerMovements.map(mi => (
-                          <div key={mi.id} className="flex items-start gap-3 p-3 bg-[var(--surface-2)] rounded-lg">
-                            <span className={`px-2 py-0.5 rounded text-xs font-semibold flex-shrink-0 ${MOVEMENT_COLOR[mi.movement?.movementType] ?? 'bg-gray-100 text-gray-800'}`}>
-                              {MOVEMENT_LABEL[mi.movement?.movementType] ?? mi.movement?.movementType}
-                            </span>
-                            <div className="flex-1 min-w-0 text-xs text-[var(--text-muted)]">
-                              <p className="font-medium text-[var(--text)]">{mi.movement?.movementNo ?? '—'}</p>
-                              {(mi.fromLocation || mi.toLocation) && (
-                                <p>{mi.fromLocation?.name ?? '?'} → {mi.toLocation?.name ?? '?'}</p>
-                              )}
-                              {mi.reason && <p className="italic">{mi.reason}</p>}
-                              <p>{new Date(mi.createdAt).toLocaleDateString()} · qty {mi.quantity}</p>
-                            </div>
+                    ) : (() => {
+                      const q = mvSearch.toLowerCase();
+                      const filtered = drawerMovements.filter(mi =>
+                        !q ||
+                        mi.movement?.movementNo?.toLowerCase().includes(q) ||
+                        (MOVEMENT_LABEL[mi.movement?.movementType] ?? mi.movement?.movementType ?? '').toLowerCase().includes(q) ||
+                        mi.fromLocation?.name?.toLowerCase().includes(q) ||
+                        mi.toLocation?.name?.toLowerCase().includes(q) ||
+                        mi.reason?.toLowerCase().includes(q)
+                      );
+                      const totalPages = Math.max(1, Math.ceil(filtered.length / mvPageSize));
+                      const paged = filtered.slice((mvPage - 1) * mvPageSize, mvPage * mvPageSize);
+                      return (
+                        <>
+                          <div className="flex gap-2 mb-3">
+                            <input type="text" value={mvSearch} placeholder="Search movements…"
+                              onChange={e => { setMvSearch(e.target.value); setMvPage(1); }}
+                              className="flex-1 px-2 py-1.5 text-xs border border-[var(--border)] rounded bg-[var(--surface)] text-[var(--text)]" />
+                            <select value={mvPageSize} onChange={e => { setMvPageSize(Number(e.target.value)); setMvPage(1); }}
+                              className="px-2 py-1.5 text-xs border border-[var(--border)] rounded bg-[var(--surface)] text-[var(--text)]">
+                              <option value={20}>20</option>
+                              <option value={50}>50</option>
+                              <option value={100}>100</option>
+                            </select>
+                            <button type="button" onClick={() => { setMvSearch(''); setMvPage(1); setMvPageSize(20); }}
+                              className="px-2 py-1.5 text-xs border border-[var(--border)] rounded bg-[var(--surface-2)] text-[var(--text-muted)] hover:bg-[var(--border)]">
+                              Clear
+                            </button>
                           </div>
-                        ))}
-                      </div>
-                    )}
+                          {filtered.length === 0 ? (
+                            <p className="text-sm text-[var(--text-muted)]">No movements recorded.</p>
+                          ) : (
+                            <div className="space-y-2">
+                              {paged.map(mi => (
+                                <div key={mi.id} className="flex items-start gap-3 p-3 bg-[var(--surface-2)] rounded-lg">
+                                  <span className={`px-2 py-0.5 rounded text-xs font-semibold flex-shrink-0 ${MOVEMENT_COLOR[mi.movement?.movementType] ?? 'bg-gray-100 text-gray-800'}`}>
+                                    {MOVEMENT_LABEL[mi.movement?.movementType] ?? mi.movement?.movementType}
+                                  </span>
+                                  <div className="flex-1 min-w-0 text-xs text-[var(--text-muted)]">
+                                    <p className="font-medium text-[var(--text)]">{mi.movement?.movementNo ?? '—'}</p>
+                                    {(mi.fromLocation || mi.toLocation) && (
+                                      <p>{mi.fromLocation?.name ?? '?'} → {mi.toLocation?.name ?? '?'}</p>
+                                    )}
+                                    {mi.reason && <p className="italic">{mi.reason}</p>}
+                                    <p>{new Date(mi.createdAt).toLocaleDateString()} · qty {mi.quantity}</p>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                          {totalPages > 1 && (
+                            <div className="flex items-center justify-between mt-3 text-xs text-[var(--text-muted)]">
+                              <span>{filtered.length} total · page {mvPage}/{totalPages}</span>
+                              <div className="flex gap-1">
+                                <button type="button" disabled={mvPage === 1} onClick={() => setMvPage(p => p - 1)}
+                                  className="px-2 py-1 border border-[var(--border)] rounded disabled:opacity-40 hover:bg-[var(--surface-2)]">‹</button>
+                                <button type="button" disabled={mvPage === totalPages} onClick={() => setMvPage(p => p + 1)}
+                                  className="px-2 py-1 border border-[var(--border)] rounded disabled:opacity-40 hover:bg-[var(--surface-2)]">›</button>
+                              </div>
+                            </div>
+                          )}
+                        </>
+                      );
+                    })()}
                   </section>
                 </>
               )}
             </div>
 
             {/* Drawer Actions */}
-            {!editingItem && (
-              <div className="px-6 py-4 border-t border-[var(--border)] flex gap-2 flex-shrink-0">
-                {user.role !== 'superadmin' && (
-                  <button
-                    onClick={() => openEdit(drawerItem)}
-                    className="flex items-center gap-2 px-4 py-2 bg-[var(--primary)] text-white text-sm rounded-lg hover:bg-[var(--primary-hover)]">
-                    <Edit size={14} /> Edit Details
+            <div className="px-6 py-4 border-t border-[var(--border)] flex gap-2 flex-shrink-0">
+              {editingItem ? (
+                <>
+                  <button type="submit" form="inventory-form"
+                    className="px-4 py-2 bg-[var(--primary)] text-white text-sm rounded-lg hover:bg-[var(--primary-hover)]">
+                    Save
                   </button>
-                )}
-                <button
-                  onClick={() => { closeDrawer(); navigate('/stock-movements'); }}
-                  className="flex items-center gap-2 px-4 py-2 border border-[var(--border)] text-sm rounded-lg text-[var(--text)] hover:bg-[var(--surface-2)]">
-                  <ArrowLeftRight size={14} /> Move Item
-                </button>
-              </div>
-            )}
+                  <button type="button" onClick={() => setEditingItem(null)}
+                    className="px-4 py-2 border border-[var(--border)] text-sm rounded-lg text-[var(--text)] hover:bg-[var(--surface-2)]">
+                    Cancel
+                  </button>
+                </>
+              ) : (
+                <>
+                  {user.role !== 'superadmin' && (
+                    <button
+                      onClick={() => openEdit(drawerItem)}
+                      className="flex items-center gap-2 px-4 py-2 bg-[var(--primary)] text-white text-sm rounded-lg hover:bg-[var(--primary-hover)]">
+                      <Edit size={14} /> Edit Details
+                    </button>
+                  )}
+                  <button
+                    onClick={() => { closeDrawer(); navigate('/stock-movements'); }}
+                    className="flex items-center gap-2 px-4 py-2 border border-[var(--border)] text-sm rounded-lg text-[var(--text)] hover:bg-[var(--surface-2)]">
+                    <ArrowLeftRight size={14} /> Move Item
+                  </button>
+                </>
+              )}
+            </div>
           </div>
         </div>
       )}
