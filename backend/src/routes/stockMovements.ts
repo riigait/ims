@@ -7,17 +7,26 @@ import { generateStockId, generateMovementNo } from '../utils/idGenerator';
 
 const router = Router();
 
-const VALID_MOVEMENT_TYPES = ['stock_in', 'stock_out', 'adjustment', 'transfer', 'damaged', 'returned', 'opening_stock', 'deployment', 'repair', 'disposal', 'borrowed', 'lost', 'moved_to_department'] as const;
+const VALID_MOVEMENT_TYPES = ['stock_in', 'stock_out', 'adjustment', 'transfer', 'damaged', 'returned', 'found', 'opening_stock', 'deployment', 'repair', 'disposal', 'borrowed', 'lost', 'moved_to_department'] as const;
 type MovementType = typeof VALID_MOVEMENT_TYPES[number];
 
-const DEDUCTING_TYPES: MovementType[] = ['stock_out', 'damaged', 'disposal', 'borrowed', 'lost', 'transfer'];
-const ADDING_TYPES: MovementType[] = ['stock_in', 'returned', 'adjustment', 'opening_stock'];
-const NEUTRAL_TYPES: MovementType[] = ['deployment', 'repair', 'moved_to_department'];
+const DEDUCTING_TYPES: MovementType[] = ['stock_out', 'damaged', 'disposal', 'borrowed', 'lost'];
+const ADDING_TYPES: MovementType[] = ['stock_in', 'returned', 'found', 'adjustment', 'opening_stock'];
+const NEUTRAL_TYPES: MovementType[] = ['transfer', 'deployment', 'repair', 'moved_to_department'];
+const STATUS_ONLY_TYPES: MovementType[] = ['deployment', 'repair'];
 
 function stockDelta(type: MovementType, quantity: number): number {
   if (DEDUCTING_TYPES.includes(type)) return -quantity;
   if (NEUTRAL_TYPES.includes(type)) return 0;
   return quantity; // ADDING_TYPES
+}
+
+function incrementStockId(stockId: string): string {
+  const match = stockId.match(/STK-(\d+)/);
+  if (!match) return 'STK-000001';
+
+  const nextNum = parseInt(match[1]) + 1;
+  return `STK-${String(nextNum).padStart(6, '0')}`;
 }
 
 // Get all stock movements
@@ -94,12 +103,16 @@ router.post('/', async (req: AuthRequest, res: Response) => {
       });
     }
 
-    // Validate deducting movements don't exceed available stock
-    if (DEDUCTING_TYPES.includes(movementType as MovementType)) {
+    // Validate movements that remove available stock don't exceed current stock
+    if (DEDUCTING_TYPES.includes(movementType as MovementType) || movementType === 'adjustment') {
       const requested: Record<string, number> = {};
       for (const item of items) {
-        if (item.productId && !item.stockDetailId) {
-          requested[item.productId] = (requested[item.productId] || 0) + (item.quantity || 1);
+        if (!item.productId || item.stockDetailId) continue;
+
+        const qty = item.quantity || 1;
+        const requestedQty = movementType === 'adjustment' ? Math.max(0, -qty) : qty;
+        if (requestedQty > 0) {
+          requested[item.productId] = (requested[item.productId] || 0) + requestedQty;
         }
       }
       for (const [productId, qty] of Object.entries(requested)) {
@@ -127,10 +140,23 @@ router.post('/', async (req: AuthRequest, res: Response) => {
 
       // Track IDs already committed in this transaction to avoid reuse
       const usedIds = new Set<string>();
+      const generatedStockIds = new Set<string>();
+
+      const nextStockId = async () => {
+        let stockId = await generateStockId();
+        while (
+          generatedStockIds.has(stockId) ||
+          await tx.stockDetail.findUnique({ where: { stockId }, select: { id: true } })
+        ) {
+          stockId = incrementStockId(stockId);
+        }
+        generatedStockIds.add(stockId);
+        return stockId;
+      };
 
       const statusMap: Record<string, string> = {
         stock_out: 'sold', damaged: 'damaged', disposal: 'disposed',
-        borrowed: 'borrowed', lost: 'lost', transfer: 'sold',
+        borrowed: 'borrowed', lost: 'lost', deployment: 'deployed', repair: 'repair',
       };
 
       for (const item of items) {
@@ -138,15 +164,42 @@ router.post('/', async (req: AuthRequest, res: Response) => {
 
         if (item.stockDetailId) {
           // Explicit unit selected by the user — always qty 1
-          if (DEDUCTING_TYPES.includes(movementType as MovementType)) {
+          if (movementType === 'transfer') {
+            const existing = await tx.stockDetail.findFirst({
+              where: {
+                id: item.stockDetailId,
+                productId: item.productId,
+                currentStatus: 'active',
+                ...(item.fromLocationId ? { currentLocationId: item.fromLocationId } : {}),
+              },
+            });
+            if (!existing) {
+              throw new Error('Cannot transfer an item that is not active in the source location.');
+            }
+            await tx.stockDetail.update({
+              where: { id: item.stockDetailId },
+              data: { currentLocationId: item.toLocationId || null },
+            });
+          } else if (DEDUCTING_TYPES.includes(movementType as MovementType) || STATUS_ONLY_TYPES.includes(movementType as MovementType)) {
+            const existing = await tx.stockDetail.findFirst({
+              where: {
+                id: item.stockDetailId,
+                productId: item.productId,
+                currentStatus: 'active',
+                ...(item.fromLocationId ? { currentLocationId: item.fromLocationId } : {}),
+              },
+            });
+            if (!existing) {
+              throw new Error('Cannot update item status. The selected item is not active in the source location.');
+            }
             await tx.stockDetail.update({
               where: { id: item.stockDetailId },
               data: {
                 currentStatus: statusMap[movementType] ?? 'sold',
-                currentLocationId: item.toLocationId || null,
+                currentLocationId: item.toLocationId || (STATUS_ONLY_TYPES.includes(movementType as MovementType) ? existing.currentLocationId : null),
               },
             });
-          } else if (movementType === 'returned') {
+          } else if (movementType === 'returned' || movementType === 'found') {
             await tx.stockDetail.update({
               where: { id: item.stockDetailId },
               data: {
@@ -167,7 +220,34 @@ router.post('/', async (req: AuthRequest, res: Response) => {
         } else if (item.productId) {
           const product = await tx.product.findUnique({ where: { id: item.productId } });
 
-          if (DEDUCTING_TYPES.includes(movementType as MovementType)) {
+          if (movementType === 'transfer') {
+            for (let i = 0; i < qty; i++) {
+              const existing = await tx.stockDetail.findFirst({
+                where: {
+                  productId: item.productId,
+                  currentStatus: 'active',
+                  id: { notIn: [...usedIds] },
+                  ...(item.fromLocationId ? { currentLocationId: item.fromLocationId } : {}),
+                },
+              });
+              if (!existing) {
+                throw new Error(`Cannot transfer ${qty} item(s). Only ${i} active item(s) available in the source location.`);
+              }
+              await tx.stockDetail.update({
+                where: { id: existing.id },
+                data: { currentLocationId: item.toLocationId || null },
+              });
+              usedIds.add(existing.id);
+              processedItems.push({
+                stockDetailId: existing.id,
+                productId: item.productId,
+                quantity: STATUS_ONLY_TYPES.includes(movementType as MovementType) ? 0 : 1,
+                fromLocationId: item.fromLocationId || null,
+                toLocationId: item.toLocationId || null,
+                reason: item.reason || null,
+              });
+            }
+          } else if (DEDUCTING_TYPES.includes(movementType as MovementType) || STATUS_ONLY_TYPES.includes(movementType as MovementType)) {
             // Find and mark exactly `qty` individual active units, skipping already-used ones
             for (let i = 0; i < qty; i++) {
               const existing = await tx.stockDetail.findFirst({
@@ -185,12 +265,13 @@ router.post('/', async (req: AuthRequest, res: Response) => {
                   where: { id: unitId },
                   data: {
                     currentStatus: statusMap[movementType] ?? 'sold',
-                    currentLocationId: item.toLocationId || null,
+                    currentLocationId: item.toLocationId || (STATUS_ONLY_TYPES.includes(movementType as MovementType) ? existing.currentLocationId : null),
                   },
                 });
               } else {
                 // No remaining active unit — create a phantom with correct status
-                const stockId = await generateStockId();
+                throw new Error(`Cannot stock out ${qty} item(s). Only ${i} active item(s) available.`);
+                const stockId = await nextStockId();
                 const phantom = await tx.stockDetail.create({
                   data: {
                     stockId,
@@ -205,7 +286,7 @@ router.post('/', async (req: AuthRequest, res: Response) => {
               processedItems.push({
                 stockDetailId: unitId,
                 productId: item.productId,
-                quantity: 1,
+                quantity: STATUS_ONLY_TYPES.includes(movementType as MovementType) ? 0 : 1,
                 fromLocationId: item.fromLocationId || null,
                 toLocationId: item.toLocationId || null,
                 reason: item.reason || null,
@@ -231,7 +312,8 @@ router.post('/', async (req: AuthRequest, res: Response) => {
                   data: { currentStatus: 'sold', currentLocationId: item.toLocationId || null },
                 });
               } else {
-                const stockId = await generateStockId();
+                throw new Error(`Cannot stock out ${absQty} item(s). Only ${i} active item(s) available.`);
+                const stockId = await nextStockId();
                 const phantom = await tx.stockDetail.create({
                   data: { stockId, productId: item.productId, currentStatus: 'sold', currentLocationId: item.toLocationId || product?.locationId || null },
                 });
@@ -250,7 +332,7 @@ router.post('/', async (req: AuthRequest, res: Response) => {
           } else {
             // Adding / neutral — create one new active StockDetail per unit
             for (let i = 0; i < qty; i++) {
-              const stockId = await generateStockId();
+              const stockId = await nextStockId();
               const newDetail = await tx.stockDetail.create({
                 data: {
                   stockId,
@@ -302,6 +384,22 @@ router.post('/', async (req: AuthRequest, res: Response) => {
           where: { id: productId },
           data: { currentStock: { increment: delta } },
         });
+      }
+
+      if (movementType === 'transfer') {
+        for (const productId of productTotals.keys()) {
+          const activeLocations = await tx.stockDetail.findMany({
+            where: { productId, currentStatus: 'active' },
+            distinct: ['currentLocationId'],
+            select: { currentLocationId: true },
+          });
+          await tx.product.update({
+            where: { id: productId },
+            data: {
+              locationId: activeLocations.length === 1 ? activeLocations[0].currentLocationId : null,
+            },
+          });
+        }
       }
 
       // For moved_to_department: reassign all affected products to the destination department

@@ -19,16 +19,17 @@ const MOVEMENT_OPTIONS: { value: MovementType; label: string; color: string }[] 
   { value: 'stock_in',      label: 'Stock In',      color: 'bg-green-100 text-green-800' },
   { value: 'stock_out',     label: 'Stock Out',     color: 'bg-red-100 text-red-800' },
   { value: 'adjustment',    label: 'Adjustment',    color: 'bg-blue-100 text-blue-800' },
+  { value: 'borrowed',      label: 'Borrowed',      color: 'bg-violet-100 text-violet-800' },
   { value: 'returned',      label: 'Returned',      color: 'bg-teal-100 text-teal-800' },
+  { value: 'lost',          label: 'Lost',          color: 'bg-rose-100 text-rose-800' },
+  { value: 'found',         label: 'Found',         color: 'bg-white text-gray-800' },
+  { value: 'transfer',            label: 'Transfer to Location',    color: 'bg-purple-100 text-purple-800' },
+  { value: 'moved_to_department', label: 'Transfer to Department',  color: 'bg-sky-100 text-sky-800' },
   { value: 'damaged',       label: 'Damaged',       color: 'bg-orange-100 text-orange-800' },
-  { value: 'transfer',            label: 'Transfer',            color: 'bg-purple-100 text-purple-800' },
-  { value: 'moved_to_department', label: 'Moved to Department',  color: 'bg-sky-100 text-sky-800' },
-  { value: 'opening_stock', label: 'Opening Stock', color: 'bg-indigo-100 text-indigo-800' },
   { value: 'deployment',    label: 'Deployment',    color: 'bg-cyan-100 text-cyan-800' },
   { value: 'repair',        label: 'Repair',        color: 'bg-yellow-100 text-yellow-800' },
   { value: 'disposal',      label: 'Disposal',      color: 'bg-gray-100 text-gray-800' },
-  { value: 'borrowed',      label: 'Borrowed',      color: 'bg-violet-100 text-violet-800' },
-  { value: 'lost',          label: 'Lost',          color: 'bg-rose-100 text-rose-800' },
+  { value: 'opening_stock', label: 'Opening Stock', color: 'bg-indigo-100 text-indigo-800' },
 ];
 
 const FORM_MOVEMENT_OPTIONS = MOVEMENT_OPTIONS.filter(o => o.value !== 'opening_stock');
@@ -342,8 +343,11 @@ interface StockDetailItem {
   assetTag?: string;
 }
 
-const DEDUCTING_MOVEMENT_TYPES = ['stock_out', 'transfer', 'damaged', 'disposal', 'borrowed', 'lost', 'returned'];
-const RETURNING_STATUSES = ['borrowed'];
+const DEDUCTING_MOVEMENT_TYPES = ['stock_out', 'transfer', 'damaged', 'disposal', 'borrowed', 'lost', 'returned', 'found'];
+const RETURNING_STATUSES: Partial<Record<MovementType, string[]>> = {
+  returned: ['borrowed'],
+  found: ['lost'],
+};
 
 function StockDetailSearchDropdown({
   stockDetails,
@@ -814,9 +818,9 @@ export default function StockMovements() {
                           const newType = e.target.value as MovementType;
                           setFormData({ ...formData, movementType: newType, items: formData.items.map(it => ({ ...it, stockDetailId: '', productId: '', fromLocationId: '' })) });
                           setItemStockDetails({});
-                          if (newType === 'returned') {
+                          if (newType === 'returned' || newType === 'found') {
                             try {
-                              const res = await stockDetailsApi.getByStatus('borrowed');
+                              const res = await stockDetailsApi.getByStatus(newType === 'returned' ? 'borrowed' : 'lost');
                               setBorrowedProductIds(new Set((res.data as StockDetailItem[]).map(s => s.productId as string)));
                             } catch { setBorrowedProductIds(new Set()); }
                           } else {
@@ -872,12 +876,12 @@ export default function StockMovements() {
                             <div>
                               <label className="block text-xs font-medium text-[var(--text-muted)] mb-1">Product *</label>
                               <ProductSearchDropdown
-                                products={formData.movementType === 'returned' && borrowedProductIds.size > 0
+                                products={(formData.movementType === 'returned' || formData.movementType === 'found') && borrowedProductIds.size > 0
                                   ? products.filter(p => borrowedProductIds.has(p.id))
                                   : products}
                                 value={item.productId}
                                 excludeIds={(() => {
-                                  if (!DEDUCTING_MOVEMENT_TYPES.includes(formData.movementType) || formData.movementType === 'returned') return [];
+                                  if (!DEDUCTING_MOVEMENT_TYPES.includes(formData.movementType) || formData.movementType === 'returned' || formData.movementType === 'found') return [];
                                   const alloc: Record<string, number> = {};
                                   formData.items.forEach((it, i) => {
                                     if (i < idx && it.productId) alloc[it.productId] = (alloc[it.productId] || 0) + (it.stockDetailId ? 1 : (it.quantity || 0));
@@ -885,7 +889,7 @@ export default function StockMovements() {
                                   return products.filter(p => (alloc[p.id] || 0) >= p.currentStock).map(p => p.id);
                                 })()}
                                 allocatedCounts={(() => {
-                                  if (!DEDUCTING_MOVEMENT_TYPES.includes(formData.movementType) || formData.movementType === 'returned') return {};
+                                  if (!DEDUCTING_MOVEMENT_TYPES.includes(formData.movementType) || formData.movementType === 'returned' || formData.movementType === 'found') return {};
                                   const alloc: Record<string, number> = {};
                                   formData.items.forEach((it, i) => {
                                     if (i < idx && it.productId) alloc[it.productId] = (alloc[it.productId] || 0) + (it.stockDetailId ? 1 : (it.quantity || 0));
@@ -900,8 +904,9 @@ export default function StockMovements() {
                                   if (DEDUCTING_MOVEMENT_TYPES.includes(formData.movementType) && productId) {
                                     try {
                                       const res = await stockDetailsApi.getByProductId(productId);
-                                      const filtered = formData.movementType === 'returned'
-                                        ? (res.data as StockDetailItem[]).filter(s => RETURNING_STATUSES.includes(s.currentStatus))
+                                      const returningStatuses = RETURNING_STATUSES[formData.movementType] || [];
+                                      const filtered = returningStatuses.length > 0
+                                        ? (res.data as StockDetailItem[]).filter(s => returningStatuses.includes(s.currentStatus))
                                         : (res.data as StockDetailItem[]).filter(s => s.currentStatus === 'active');
                                       setItemStockDetails(prev => ({ ...prev, [idx]: filtered }));
                                     } catch { setItemStockDetails(prev => ({ ...prev, [idx]: [] })); }
@@ -922,6 +927,8 @@ export default function StockMovements() {
                                   <p className="text-xs text-orange-500 px-1">
                                     {formData.movementType === 'returned'
                                       ? 'No borrowed inventory items found for this product.'
+                                      : formData.movementType === 'found'
+                                        ? 'No lost inventory items found for this product.'
                                       : 'No active inventory items found for this product.'}
                                   </p>
                                 ) : (

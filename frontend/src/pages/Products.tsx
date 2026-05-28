@@ -18,12 +18,13 @@ const MOVEMENT_COLOR: Record<string, string> = {
   opening_stock: 'bg-indigo-100 text-indigo-800', deployment: 'bg-cyan-100 text-cyan-800',
   repair: 'bg-yellow-100 text-yellow-800', disposal: 'bg-gray-100 text-gray-800',
   borrowed: 'bg-violet-100 text-violet-800', lost: 'bg-rose-100 text-rose-800',
+  found: 'bg-white text-gray-800',
 };
 const MOVEMENT_LABEL: Record<string, string> = {
   stock_in: 'Stock In', stock_out: 'Stock Out', adjustment: 'Adjustment',
   returned: 'Returned', damaged: 'Damaged', transfer: 'Transfer',
   opening_stock: 'Opening Stock', deployment: 'Deployment', repair: 'Repair',
-  disposal: 'Disposal', borrowed: 'Borrowed', lost: 'Lost',
+  disposal: 'Disposal', borrowed: 'Borrowed', lost: 'Lost', found: 'Found',
 };
 
 const emptyForm = {
