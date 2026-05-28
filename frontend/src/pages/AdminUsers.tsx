@@ -325,11 +325,11 @@ export default function AdminUsers() {
                     <table className="w-full text-sm">
                       <thead className="bg-[var(--surface-2)] border-b border-[var(--border)]">
                         <tr>
-                          <th className="px-4 py-3 text-left font-semibold text-[var(--text)]">Code</th>
-                          <th className="px-4 py-3 text-left font-semibold text-[var(--text)]">Role</th>
-                          <th className="px-4 py-3 text-left font-semibold text-[var(--text)]">Created By</th>
-                          <th className="px-4 py-3 text-left font-semibold text-[var(--text)]">Expires</th>
-                          <th className="px-4 py-3 text-left font-semibold text-[var(--text)]">Actions</th>
+                          <th className="px-4 py-3 text-left text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wide">Code</th>
+                          <th className="px-4 py-3 text-left text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wide">Role</th>
+                          <th className="px-4 py-3 text-left text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wide">Created By</th>
+                          <th className="px-4 py-3 text-left text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wide">Expires</th>
+                          <th className="px-4 py-3 text-left text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wide">Actions</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-[var(--border)]">
@@ -384,10 +384,10 @@ export default function AdminUsers() {
                 <table className="w-full text-sm">
                   <thead className="bg-[var(--surface-2)] border-b border-[var(--border)]">
                     <tr>
-                      <th className="px-4 py-3 text-left font-semibold text-[var(--text)]">Code</th>
-                      <th className="px-4 py-3 text-left font-semibold text-[var(--text)]">Role</th>
-                      <th className="px-4 py-3 text-left font-semibold text-[var(--text)]">Used By</th>
-                      <th className="px-4 py-3 text-left font-semibold text-[var(--text)]">Date</th>
+                      <th className="px-4 py-3 text-left text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wide">Code</th>
+                      <th className="px-4 py-3 text-left text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wide">Role</th>
+                      <th className="px-4 py-3 text-left text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wide">Used By</th>
+                      <th className="px-4 py-3 text-left text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wide">Date</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-[var(--border)]">
@@ -424,11 +424,11 @@ export default function AdminUsers() {
                 <table className="w-full text-sm">
                   <thead className="bg-[var(--surface-2)] border-b border-[var(--border)]">
                     <tr>
-                      <th className="px-4 py-3 text-left font-semibold text-[var(--text)]">Name</th>
-                      <th className="px-4 py-3 text-left font-semibold text-[var(--text)]">Email</th>
-                      <th className="px-4 py-3 text-left font-semibold text-[var(--text)]">Role</th>
-                      <th className="px-4 py-3 text-left font-semibold text-[var(--text)]">Department</th>
-                      <th className="px-4 py-3 text-left font-semibold text-[var(--text)]">Created</th>
+                      <th className="px-4 py-3 text-left text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wide">Name</th>
+                      <th className="px-4 py-3 text-left text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wide">Email</th>
+                      <th className="px-4 py-3 text-left text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wide">Role</th>
+                      <th className="px-4 py-3 text-left text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wide">Department</th>
+                      <th className="px-4 py-3 text-left text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wide">Created</th>
                       <th className="px-4 py-3" />
                     </tr>
                   </thead>

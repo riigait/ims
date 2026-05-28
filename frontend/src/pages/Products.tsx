@@ -514,7 +514,7 @@ export default function Products() {
             {/* Body */}
             <div className="flex-1 overflow-y-auto px-6 py-4">
               {(editingItem || isCreating) ? (
-                <form onSubmit={handleSubmit} className="space-y-4">
+                <form id="product-form" onSubmit={handleSubmit} className="space-y-4">
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div>
                       <label className="block text-xs font-medium text-[var(--text-muted)] mb-1">SKU</label>
@@ -679,16 +679,6 @@ export default function Products() {
                     </div>
                   </div>
                   {formError && <p className="text-red-500 text-sm">{formError}</p>}
-                  <div className="flex gap-2">
-                    <button type="submit"
-                      className="px-4 py-2 bg-[var(--primary)] text-white text-sm rounded-lg hover:bg-[var(--primary-hover)]">
-                      Save
-                    </button>
-                    <button type="button" onClick={cancelEdit}
-                      className="px-4 py-2 border border-[var(--border)] text-sm rounded-lg text-[var(--text)] hover:bg-[var(--surface-2)]">
-                      Cancel
-                    </button>
-                  </div>
                 </form>
               ) : selectedItem && (
                 <div className="space-y-6">
@@ -740,10 +730,20 @@ export default function Products() {
               )}
             </div>
 
-            {/* Footer — view mode only */}
-            {!editingItem && !isCreating && (
-              <div className="px-6 py-4 border-t border-[var(--border)] flex-shrink-0">
-                {confirmingDelete ? (
+            {/* Footer */}
+            <div className="px-6 py-4 border-t border-[var(--border)] flex-shrink-0">
+              {(editingItem || isCreating) ? (
+                <div className="flex gap-2">
+                  <button type="submit" form="product-form"
+                    className="px-4 py-2 bg-[var(--primary)] text-white text-sm rounded-lg hover:bg-[var(--primary-hover)]">
+                    Save
+                  </button>
+                  <button type="button" onClick={cancelEdit}
+                    className="px-4 py-2 border border-[var(--border)] text-sm rounded-lg text-[var(--text)] hover:bg-[var(--surface-2)]">
+                    Cancel
+                  </button>
+                </div>
+              ) : confirmingDelete ? (
                   <div className="w-full">
                     <p className="text-sm font-medium text-[var(--text)] mb-3">Delete "{selectedItem?.name}"?</p>
                     <div className="flex gap-2">
@@ -783,7 +783,6 @@ export default function Products() {
                   </div>
                 )}
               </div>
-            )}
           </div>
         </div>
       )}
