@@ -258,7 +258,7 @@ export default function ImportPCLSF() {
     return hasDescription && matched.length >= 2;
   };
 
-  const convertInventoryListToUnifiedCsv = (csvContent: string, sourceFileName?: string) => {
+  const convertInventoryListToUnifiedCsv = (csvContent: string, sourceFileName?: string, startIndex = 1) => {
     const rows = parseCsvRows(csvContent);
     const now = new Date().toISOString();
     const locations = new Map<string, CsvRow>();
@@ -341,7 +341,7 @@ export default function ImportPCLSF() {
       ];
       const notes = notesFields.filter(([, v]) => v).map(([k, v]) => `${k}: ${v}`).join('; ');
 
-      const rowNo = String(products.length + 1).padStart(4, '0');
+      const rowNo = String(startIndex + products.length).padStart(4, '0');
 
       products.push({
         id: `csv-${rowNo}`,
@@ -407,9 +407,19 @@ export default function ImportPCLSF() {
         return;
       }
 
-      const corrected = convertInventoryListToUnifiedCsv(csvContent, correctorFile.name);
+      let startIndex = 1;
+      try {
+        const existing = (await productsApi.getAll()).data as Array<{ id: string }>;
+        const csvIds = existing
+          .map(p => p.id?.match(/^csv-(\d+)$/))
+          .filter(Boolean)
+          .map(m => Number.parseInt(m![1], 10));
+        if (csvIds.length > 0) startIndex = Math.max(...csvIds) + 1;
+      } catch { /* proceed with default if fetch fails */ }
+
+      const corrected = convertInventoryListToUnifiedCsv(csvContent, correctorFile.name, startIndex);
       downloadTextFile(corrected, `corrected-${randomCode()}-${timestampForFilename()}.csv`);
-      setCorrectorMessage('Corrected CSV downloaded. Review it, then import it from the Import tab.');
+      setCorrectorMessage(`Corrected CSV downloaded. IDs start at csv-${String(startIndex).padStart(4, '0')}. Review it, then import it from the Import tab.`);
     } catch (err) {
       console.error('CSV corrector error:', err);
       setError('Failed to correct CSV file.');

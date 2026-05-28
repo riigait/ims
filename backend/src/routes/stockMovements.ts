@@ -32,7 +32,12 @@ router.get('/', async (req: AuthRequest, res: Response) => {
         ]
       };
     } else if ((req.userRole === 'staff' || req.userRole === 'admin') && req.departmentId) {
-      whereFilter = { departmentId: req.departmentId };
+      whereFilter = {
+        OR: [
+          { departmentId: req.departmentId },
+          { departmentId: null }
+        ]
+      };
     }
     const movements = await prisma.stockMovement.findMany({
       where: whereFilter,
