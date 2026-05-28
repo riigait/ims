@@ -79,3 +79,19 @@ html {
   scrollbar-width: thin;
 }
 
+/* Drawer animations */
+@keyframes drawerSlideIn {
+  from { transform: translateX(100%); opacity: 0; }
+  to   { transform: translateX(0);    opacity: 1; }
+}
+@keyframes drawerFadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+.drawer-panel {
+  animation: drawerSlideIn 0.18s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.drawer-overlay {
+  animation: drawerFadeIn 0.18s ease-out;
+}
+

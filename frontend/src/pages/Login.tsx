@@ -1,16 +1,18 @@
 import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { authApi } from '@/services/api';
 import { validateEmail, validatePassword } from '@/utils/validation';
 import { useTheme } from '@/contexts/ThemeContext';
 
 export default function Login() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { theme } = useTheme();
   const [formData, setFormData] = useState({ email: '', password: '' });
-  const [error, setError] = useState('');
+  const [errors, setErrors] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const [setupMessage, setSetupMessage] = useState('');
+  const successMessage = (location.state as any)?.message || '';
 
   useEffect(() => {
     // On login page load, ensure superadmin exists
@@ -30,26 +32,26 @@ export default function Login() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setError('');
+    const errs: string[] = [];
 
-    if (!validateEmail(formData.email)) {
-      setError('Invalid email format');
-      return;
-    }
+    if (!formData.email.trim()) errs.push('Email is required');
+    else if (!validateEmail(formData.email)) errs.push('Invalid email format');
 
-    if (!validatePassword(formData.password)) {
-      setError('Password must be at least 6 characters');
-      return;
-    }
+    if (!formData.password) errs.push('Password is required');
+    else if (!validatePassword(formData.password)) errs.push('Password must be at least 6 characters');
 
+    if (errs.length > 0) { setErrors(errs); return; }
+
+    setErrors([]);
     setLoading(true);
     try {
       const response = await authApi.login(formData.email, formData.password);
       localStorage.setItem('token', response.data.token);
       localStorage.setItem('user', JSON.stringify(response.data.user));
       navigate('/dashboard');
-    } catch (err) {
-      setError('Invalid credentials');
+    } catch (err: any) {
+      const msg = err?.response?.data?.error || err?.message || 'Invalid credentials';
+      setErrors([msg]);
     } finally {
       setLoading(false);
     }
@@ -65,9 +67,21 @@ export default function Login() {
           Inventory Management System
         </h1>
 
-        {error && (
+        {errors.length > 0 && (
           <div className="bg-red-100 dark:bg-red-950 border border-red-400 dark:border-red-700 text-red-700 dark:text-red-200 px-4 py-3 rounded mb-4">
-            {error}
+            {errors.length === 1 ? (
+              <p className="text-sm">{errors[0]}</p>
+            ) : (
+              <ul className="text-sm list-disc list-inside space-y-1">
+                {errors.map((e, i) => <li key={i}>{e}</li>)}
+              </ul>
+            )}
+          </div>
+        )}
+
+        {successMessage && (
+          <div className="bg-green-100 dark:bg-green-950 border border-green-400 dark:border-green-700 text-green-700 dark:text-green-200 px-4 py-3 rounded mb-4">
+            <p className="text-sm">{successMessage}</p>
           </div>
         )}
 

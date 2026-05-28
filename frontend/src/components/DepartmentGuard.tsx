@@ -22,7 +22,17 @@ export default function DepartmentGuard({ children }: DepartmentGuardProps) {
     navigate('/login');
   };
 
-  const handleRefresh = () => {
+  const handleRefresh = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      const res = await fetch('/api/auth/me', {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) {
+        const userData = await res.json();
+        localStorage.setItem('user', JSON.stringify(userData));
+      }
+    } catch { /* ignore, just reload anyway */ }
     window.location.reload();
   };
 

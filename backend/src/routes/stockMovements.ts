@@ -104,22 +104,66 @@ router.post('/', async (req: AuthRequest, res: Response) => {
       for (const item of items) {
         let stockDetailId = item.stockDetailId;
 
-        // If no stockDetailId provided, create a StockDetail for this product
+        // If no stockDetailId provided, resolve or create a StockDetail for this product
         if (!stockDetailId && item.productId) {
-          console.log(`[STOCK MOVEMENT] Creating StockDetail for product ${item.productId}`);
-          const stockId = await generateStockId();
           const product = await tx.product.findUnique({ where: { id: item.productId } });
 
-          const stockDetail = await tx.stockDetail.create({
-            data: {
-              stockId,
-              productId: item.productId,
-              currentStatus: 'active',
-              currentLocationId: item.toLocationId || product?.locationId || null,
-            },
-          });
-          stockDetailId = stockDetail.id;
-          console.log(`[STOCK MOVEMENT] Auto-created stock detail: ${stockId} with ID ${stockDetailId}`);
+          if (DEDUCTING_TYPES.includes(movementType as MovementType)) {
+            // For deducting movements, look for an existing active StockDetail at the fromLocation
+            const existing = await tx.stockDetail.findFirst({
+              where: {
+                productId: item.productId,
+                currentStatus: 'active',
+                ...(item.fromLocationId ? { currentLocationId: item.fromLocationId } : {}),
+              },
+            });
+            if (existing) {
+              stockDetailId = existing.id;
+              // Mark the unit with the appropriate status based on movement type
+              const statusMap: Record<string, string> = {
+                stock_out: 'sold', damaged: 'damaged', disposal: 'disposed',
+                borrowed: 'borrowed', lost: 'lost', transfer: 'active',
+              };
+              const newStatus = statusMap[movementType] ?? 'sold';
+              await tx.stockDetail.update({
+                where: { id: existing.id },
+                data: {
+                  currentStatus: newStatus,
+                  currentLocationId: item.toLocationId || null,
+                },
+              });
+            } else {
+              // No existing unit — create a phantom record with appropriate status
+              const stockId = await generateStockId();
+              const statusMap: Record<string, string> = {
+                stock_out: 'sold', damaged: 'damaged', disposal: 'disposed',
+                borrowed: 'borrowed', lost: 'lost', transfer: 'active',
+              };
+              const stockDetail = await tx.stockDetail.create({
+                data: {
+                  stockId,
+                  productId: item.productId,
+                  currentStatus: statusMap[movementType] ?? 'sold',
+                  currentLocationId: item.toLocationId || product?.locationId || null,
+                },
+              });
+              stockDetailId = stockDetail.id;
+            }
+          } else {
+            // For adding/neutral movements, always create a new StockDetail unit
+            console.log(`[STOCK MOVEMENT] Creating StockDetail for product ${item.productId}`);
+            const stockId = await generateStockId();
+            const stockDetail = await tx.stockDetail.create({
+              data: {
+                stockId,
+                productId: item.productId,
+                currentStatus: 'active',
+                currentLocationId: item.toLocationId || product?.locationId || null,
+              },
+            });
+            stockDetailId = stockDetail.id;
+            console.log(`[STOCK MOVEMENT] Auto-created stock detail: ${stockId} with ID ${stockDetailId}`);
+          }
         }
 
         if (!stockDetailId) {

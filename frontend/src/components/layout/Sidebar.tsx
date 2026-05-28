@@ -76,12 +76,12 @@ export default function Sidebar({ collapsed, onToggle }: { collapsed: boolean; o
       )}
       <aside className={`fixed left-0 top-0 bottom-0 bg-[var(--surface)] border-r border-[var(--border)] flex flex-col overflow-hidden ${collapsed ? 'w-16' : 'w-60'}`}>
       {/* Logo */}
-      <div className="border-b border-[var(--border)] flex items-center px-3 py-3">
+      <div className="border-b border-[var(--border)] flex items-center justify-center px-3 py-3">
         <button
           onClick={() => navigate('/dashboard')}
-          className={`flex items-center gap-3 hover:bg-[var(--surface-2)] rounded-lg p-1 transition w-full min-w-0 ${collapsed ? 'justify-center' : ''}`}
+          className={`flex items-center gap-3 hover:bg-[var(--surface-2)] rounded-lg p-1 transition min-w-0 ${collapsed ? 'justify-center' : ''}`}
         >
-          <img src={theme === 'dark' ? '/icons/logo-img-white.svg' : '/icons/logo-img.svg'} alt="IMS" className="h-8 w-8 flex-shrink-0" />
+          <img src={theme === 'dark' ? '/icons/logo-img-white.svg' : '/icons/logo-img.svg'} alt="IMS" className="h-10 w-10 flex-shrink-0" />
           {!collapsed && (
             <div className="text-left min-w-0">
               <h1 className="text-base font-bold text-[var(--text)] tracking-tight">IMS</h1>

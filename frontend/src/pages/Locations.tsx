@@ -286,9 +286,9 @@ export default function Locations() {
 
       {/* Right-Side Drawer */}
       {isDrawerOpen && (selectedItem || isCreating) && (
-        <div className="fixed inset-0 z-50 flex">
+        <div className="fixed inset-0 z-50 flex drawer-overlay">
           <div className="flex-1 bg-black/30" onClick={closeDrawer} />
-          <div className="w-full max-w-lg bg-[var(--surface)] border-l border-[var(--border)] flex flex-col h-full overflow-hidden">
+          <div className="w-full max-w-lg bg-[var(--surface)] border-l border-[var(--border)] flex flex-col h-full overflow-hidden drawer-panel">
 
             {/* Header */}
             <div className="px-6 py-4 border-b border-[var(--border)] flex items-start justify-between flex-shrink-0">

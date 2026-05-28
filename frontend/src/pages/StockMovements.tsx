@@ -587,9 +587,9 @@ export default function StockMovements() {
 
       {/* Right-Side Drawer */}
       {drawerOpen && (
-        <div className="fixed inset-0 z-50 flex">
+        <div className="fixed inset-0 z-50 flex drawer-overlay">
           <div className="flex-1 bg-black/30" onClick={closeDrawer} />
-          <div className="w-full max-w-lg bg-[var(--surface)] border-l border-[var(--border)] flex flex-col h-full overflow-hidden">
+          <div className="w-full max-w-lg bg-[var(--surface)] border-l border-[var(--border)] flex flex-col h-full overflow-hidden drawer-panel">
 
             {/* Header */}
             <div className="px-6 py-4 border-b border-[var(--border)] flex items-start justify-between flex-shrink-0">
@@ -682,7 +682,7 @@ export default function StockMovements() {
                               <input type="number" min={1} value={item.quantity || ''}
                                 onChange={e => {
                                   const newItems = [...formData.items];
-                                  newItems[idx].quantity = parseInt(e.target.value) || 0;
+                                  newItems[idx] = { ...newItems[idx], quantity: parseInt(e.target.value) || 0 };
                                   setFormData({ ...formData, items: newItems });
                                 }}
                                 placeholder="0"
@@ -695,7 +695,7 @@ export default function StockMovements() {
                                 value={(item.fromLocationId as string) || ''}
                                 onChange={locationId => {
                                   const newItems = [...formData.items];
-                                  newItems[idx].fromLocationId = locationId;
+                                  newItems[idx] = { ...newItems[idx], fromLocationId: locationId };
                                   setFormData({ ...formData, items: newItems });
                                 }}
                               />
@@ -707,7 +707,7 @@ export default function StockMovements() {
                                 value={(item.toLocationId as string) || ''}
                                 onChange={locationId => {
                                   const newItems = [...formData.items];
-                                  newItems[idx].toLocationId = locationId;
+                                  newItems[idx] = { ...newItems[idx], toLocationId: locationId };
                                   setFormData({ ...formData, items: newItems });
                                 }}
                               />
