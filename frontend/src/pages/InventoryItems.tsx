@@ -788,7 +788,7 @@ export default function InventoryItems() {
 
               {editingItem ? (
                 /* Inline Edit Form */
-                <form id="inventory-form" onSubmit={handleSubmit} className="space-y-5">
+                <form onSubmit={handleSubmit} className="space-y-5">
                   {/* Identification */}
                   <div>
                     <h4 className="text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wider mb-2">Identification</h4>
@@ -906,6 +906,10 @@ export default function InventoryItems() {
                       className="w-full px-3 py-1.5 text-sm border border-[var(--border)] rounded-lg bg-[var(--surface)] text-[var(--text)]" />
                   </div>
                   {formError && <p className="text-red-500 text-sm">{formError}</p>}
+                  <div className="flex gap-2">
+                    <button type="submit" className="px-4 py-2 bg-[var(--primary)] text-white text-sm rounded-lg hover:bg-[var(--primary-hover)]">Save</button>
+                    <button type="button" onClick={() => setEditingItem(null)} className="px-4 py-2 border border-[var(--border)] text-sm rounded-lg text-[var(--text)] hover:bg-[var(--surface-2)]">Cancel</button>
+                  </div>
                 </form>
               ) : (
                 <>
@@ -1023,35 +1027,22 @@ export default function InventoryItems() {
             </div>
 
             {/* Drawer Actions */}
-            <div className="px-6 py-4 border-t border-[var(--border)] flex gap-2 flex-shrink-0">
-              {editingItem ? (
-                <>
-                  <button type="submit" form="inventory-form"
-                    className="px-4 py-2 bg-[var(--primary)] text-white text-sm rounded-lg hover:bg-[var(--primary-hover)]">
-                    Save
-                  </button>
-                  <button type="button" onClick={() => setEditingItem(null)}
-                    className="px-4 py-2 border border-[var(--border)] text-sm rounded-lg text-[var(--text)] hover:bg-[var(--surface-2)]">
-                    Cancel
-                  </button>
-                </>
-              ) : (
-                <>
-                  {user.role !== 'superadmin' && (
-                    <button
-                      onClick={() => openEdit(drawerItem)}
-                      className="flex items-center gap-2 px-4 py-2 bg-[var(--primary)] text-white text-sm rounded-lg hover:bg-[var(--primary-hover)]">
-                      <Edit size={14} /> Edit Details
-                    </button>
-                  )}
+            {!editingItem && (
+              <div className="px-6 py-4 border-t border-[var(--border)] flex gap-2 flex-shrink-0">
+                {user.role !== 'superadmin' && (
                   <button
-                    onClick={() => { closeDrawer(); navigate('/stock-movements'); }}
-                    className="flex items-center gap-2 px-4 py-2 border border-[var(--border)] text-sm rounded-lg text-[var(--text)] hover:bg-[var(--surface-2)]">
-                    <ArrowLeftRight size={14} /> Move Item
+                    onClick={() => openEdit(drawerItem)}
+                    className="flex items-center gap-2 px-4 py-2 bg-[var(--primary)] text-white text-sm rounded-lg hover:bg-[var(--primary-hover)]">
+                    <Edit size={14} /> Edit Details
                   </button>
-                </>
-              )}
-            </div>
+                )}
+                <button
+                  onClick={() => { closeDrawer(); navigate('/stock-movements'); }}
+                  className="flex items-center gap-2 px-4 py-2 border border-[var(--border)] text-sm rounded-lg text-[var(--text)] hover:bg-[var(--surface-2)]">
+                  <ArrowLeftRight size={14} /> Move Item
+                </button>
+              </div>
+            )}
           </div>
         </div>
       )}
