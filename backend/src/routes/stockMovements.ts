@@ -28,6 +28,7 @@ router.get('/', async (req: AuthRequest, res: Response) => {
       whereFilter = {
         OR: [
           { departmentId: { in: req.departmentIds } },
+          { toDepartmentId: { in: req.departmentIds } },
           { departmentId: null }
         ]
       };
@@ -35,6 +36,7 @@ router.get('/', async (req: AuthRequest, res: Response) => {
       whereFilter = {
         OR: [
           { departmentId: req.departmentId },
+          { toDepartmentId: req.departmentId },
           { departmentId: null }
         ]
       };
