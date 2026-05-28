@@ -3,7 +3,7 @@ import prisma from '../utils/prisma';
 import { AuthRequest } from '../middleware/auth';
 import { logAudit } from '../utils/audit';
 import { csvToJson, jsonToCsv } from '../utils/csv';
-import { generateStockId, generateMovementNo } from '../utils/idGenerator';
+import { generateStockId, generateMovementNo, generateProductSKU } from '../utils/idGenerator';
 
 const router = Router();
 
@@ -233,9 +233,10 @@ router.post('/', async (req: AuthRequest, res: Response) => {
 
     console.log(`[PRODUCT CREATE] Received request with currentStock: ${currentStock} (type: ${typeof currentStock}), userId: ${req.userId}`);
 
-    if (!sku || !name || !categoryId) {
-      return res.status(400).json({ error: 'sku, name, and categoryId are required' });
+    if (!name || !categoryId) {
+      return res.status(400).json({ error: 'name and categoryId are required' });
     }
+    const generatedSku = sku || await generateProductSKU(name);
 
     // Verify category exists and is accessible
     const category = await prisma.category.findUnique({ where: { id: categoryId } });
@@ -259,7 +260,7 @@ router.post('/', async (req: AuthRequest, res: Response) => {
 
     const product = await prisma.product.create({
       data: {
-        sku,
+        sku: generatedSku,
         name,
         description,
         categoryId,

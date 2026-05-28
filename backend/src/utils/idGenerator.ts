@@ -24,6 +24,29 @@ export async function generateStockId(): Promise<string> {
 }
 
 /**
+ * Generate next product SKU in format AAA-000001
+ * Prefix = first 3 alpha chars of product name (uppercased, padded with X)
+ * Number = globally sequential across all products
+ */
+export async function generateProductSKU(name: string): Promise<string> {
+  const prefix = (name.replace(/[^a-zA-Z]/g, '').toUpperCase() + 'XXX').slice(0, 3);
+
+  const lastProduct = await prisma.product.findFirst({
+    where: { sku: { contains: '-' } },
+    orderBy: { sku: 'desc' },
+    select: { sku: true },
+  });
+
+  let nextNum = 1;
+  if (lastProduct?.sku) {
+    const match = lastProduct.sku.match(/-(\d{6})$/);
+    if (match) nextNum = parseInt(match[1]) + 1;
+  }
+
+  return `${prefix}-${String(nextNum).padStart(6, '0')}`;
+}
+
+/**
  * Generate next movement number in format MVT-000001
  */
 export async function generateMovementNo(): Promise<string> {

@@ -5,8 +5,8 @@ import { productsApi, categoriesApi, locationsApi, deleteRequestsApi, department
 import Pagination from '@/components/Pagination';
 import { Product, Category, Location } from '@/types/inventory';
 import { ProductFilter, ProductSort } from '@/types/filters';
-import { validateProductName, validateSKU, validateStock } from '@/utils/validation';
-import { generateSKU, formatDate } from '@/utils/ids';
+import { validateProductName, validateStock } from '@/utils/validation';
+import { formatDate } from '@/utils/ids';
 import { filterAndSortProducts, clearProductFilters, UNASSIGNED_LOCATION } from '@/utils/filterHelpers';
 import DataPageLayout from '@/components/layout/DataPageLayout';
 import { ALL_DEPARTMENTS_ID } from '@/constants/app';
@@ -185,7 +185,6 @@ export default function Products() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!validateProductName(formData.name)) { setFormError('Invalid product name'); return; }
-    if (!validateSKU(formData.sku)) { setFormError('Invalid SKU'); return; }
     if (!formData.categoryId) { setFormError('Please select a category'); return; }
     if (!validateStock(formData.currentStock)) { setFormError('Invalid stock quantity'); return; }
     try {
@@ -547,20 +546,13 @@ export default function Products() {
               {(editingItem || isCreating) ? (
                 <form onSubmit={handleSubmit} className="space-y-4">
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-xs font-medium text-[var(--text-muted)] mb-1">SKU</label>
-                      <div className="flex gap-2">
-                        <input type="text" value={formData.sku}
-                          onChange={e => setFormData({ ...formData, sku: e.target.value })}
-                          className="flex-1 px-3 py-1.5 text-sm border border-[var(--border)] rounded-lg bg-[var(--surface)] text-[var(--text)]" />
-                        {isCreating && (
-                          <button type="button" onClick={() => setFormData({ ...formData, sku: generateSKU() })}
-                            className="px-3 py-1.5 text-sm bg-[var(--surface-2)] rounded-lg hover:bg-[var(--border)]">
-                            Gen
-                          </button>
-                        )}
+                    {editingItem && (
+                      <div>
+                        <label className="block text-xs font-medium text-[var(--text-muted)] mb-1">SKU</label>
+                        <input type="text" value={formData.sku} readOnly
+                          className="w-full px-3 py-1.5 text-sm border border-[var(--border)] rounded-lg bg-[var(--surface-2)] text-[var(--text-muted)] font-mono cursor-default" />
                       </div>
-                    </div>
+                    )}
                     <div>
                       <label className="block text-xs font-medium text-[var(--text-muted)] mb-1">Product Name *</label>
                       <input type="text" value={formData.name} required
