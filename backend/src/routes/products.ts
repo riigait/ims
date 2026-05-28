@@ -48,6 +48,37 @@ async function createOpeningStockForProduct(product: any, quantity: number, loca
   });
 }
 
+async function createDepartmentTransferMovement(
+  product: any,
+  fromDepartmentId: string | null,
+  toDepartmentId: string,
+  userId: string,
+) {
+  const movementNo = await generateMovementNo();
+  const stockDetails = await prisma.stockDetail.findMany({ where: { productId: product.id } });
+  if (stockDetails.length === 0) return;
+
+  await prisma.stockMovement.create({
+    data: {
+      movementNo,
+      movementType: 'moved_to_department',
+      status: 'pending',
+      remarks: `CSV re-import: department corrected`,
+      departmentId: fromDepartmentId || null,
+      toDepartmentId,
+      userId,
+      items: {
+        create: stockDetails.map((detail) => ({
+          stockDetailId: detail.id,
+          productId: product.id,
+          quantity: 1,
+          reason: 'Department correction via CSV re-import',
+        })),
+      },
+    },
+  });
+}
+
 async function resolveImportLocationId(row: any, req: AuthRequest) {
   const rawLocation = row.locationId || row.LocationID || row.locationID || row.location || row.Location;
   const locationValue = typeof rawLocation === 'string' ? rawLocation.trim() : rawLocation;
@@ -483,14 +514,17 @@ router.post('/import/csv', async (req: AuthRequest, res: Response) => {
 
         if (!existing) {
           await createOpeningStockForProduct(product, data.currentStock, data.locationId, req);
+        } else if (req.departmentId && existing.departmentId !== req.departmentId) {
+          // Department changed on re-import — create a moved_to_department movement
+          await createDepartmentTransferMovement(product, existing.departmentId, req.departmentId, req.userId!);
         }
 
         await logAudit({
           userId: req.userId,
-          action: existing ? 'UPDATE' : 'CREATE',
+          action: existing ? (req.departmentId && existing.departmentId !== req.departmentId ? 'MOVED_TO_DEPARTMENT' : 'UPDATE') : 'CREATE',
           entityType: 'product',
           entityId: product.id,
-          changes: { name: row.name, sku: row.sku, currentStock: data.currentStock, source: 'csv_import' },
+          changes: { name: row.name, sku: row.sku, currentStock: data.currentStock, source: 'csv_import', ...(existing && req.departmentId && existing.departmentId !== req.departmentId ? { fromDepartmentId: existing.departmentId, toDepartmentId: req.departmentId } : {}) },
         });
 
         created.push(product);
