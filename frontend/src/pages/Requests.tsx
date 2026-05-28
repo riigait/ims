@@ -129,7 +129,8 @@ export default function Requests() {
             <div key={req.id} className="grid grid-cols-1 md:grid-cols-7 gap-3 px-4 py-3 bg-[var(--surface)] border-b border-[var(--border)] items-center text-sm">
               <div className="md:col-span-2">
                 <p className="font-medium text-[var(--text)] truncate">{req.label || '—'}</p>
-                <p className="text-xs text-[var(--text-muted)] mt-0.5">{req.productIds?.length ?? 0} product{req.productIds?.length !== 1 ? 's' : ''} · {new Date(req.createdAt).toLocaleDateString()}</p>
+                <p className="text-xs text-[var(--text-muted)] mt-0.5 font-mono">{req.requestNo || req.csvImportId || '—'}</p>
+                <p className="text-xs text-[var(--text-muted)]">{req.productIds?.length ?? 0} product{req.productIds?.length !== 1 ? 's' : ''} · {new Date(req.createdAt).toLocaleDateString()}</p>
                 {req.notes && req.status === 'rejected' && (
                   <p className="text-xs text-red-600 mt-0.5 italic">Reason: {req.notes}</p>
                 )}

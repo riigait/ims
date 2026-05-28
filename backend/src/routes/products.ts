@@ -3,7 +3,7 @@ import prisma from '../utils/prisma';
 import { AuthRequest } from '../middleware/auth';
 import { logAudit } from '../utils/audit';
 import { csvToJson, jsonToCsv } from '../utils/csv';
-import { generateStockId, generateMovementNo, generateProductSKU } from '../utils/idGenerator';
+import { generateStockId, generateMovementNo, generateSku, generateRequestNo, generateImportBatchId } from '../utils/idGenerator';
 
 const router = Router();
 
@@ -236,7 +236,7 @@ router.post('/', async (req: AuthRequest, res: Response) => {
     if (!name || !categoryId) {
       return res.status(400).json({ error: 'name and categoryId are required' });
     }
-    const generatedSku = sku || await generateProductSKU(name);
+    const generatedSku = sku || await generateSku();
 
     // Verify category exists and is accessible
     const category = await prisma.category.findUnique({ where: { id: categoryId } });
@@ -298,8 +298,10 @@ router.post('/', async (req: AuthRequest, res: Response) => {
 
     await logAudit({ userId: req.userId, action: 'CREATE', entityType: 'product', entityId: product.id, changes: { name, sku, currentStock } });
 
+    const requestNo = await generateRequestNo();
     await prisma.importRequest.create({
       data: {
+        requestNo,
         type: 'product_add',
         status: 'pending',
         productIds: [product.id],
@@ -445,11 +447,8 @@ router.post('/import/csv', async (req: AuthRequest, res: Response) => {
     const created = [];
     const errors = [];
 
-    // Generate unique batch ID for this import session
     const now = new Date();
-    const datePart = now.toISOString().slice(0, 10).replace(/-/g, '');
-    const randPart = Math.random().toString(36).substring(2, 6).toUpperCase();
-    const csvImportId = `IMP-${datePart}-${randPart}`;
+    const csvImportId = await generateImportBatchId();
 
     for (let i = 0; i < rows.length; i++) {
       try {
@@ -502,8 +501,10 @@ router.post('/import/csv', async (req: AuthRequest, res: Response) => {
 
     const newProducts = created.filter((p: any) => p._isNew !== false);
     if (created.length > 0) {
+      const batchRequestNo = await generateRequestNo();
       await prisma.importRequest.create({
         data: {
+          requestNo: batchRequestNo,
           type: 'csv_import',
           status: 'pending',
           productIds: created.map((p: any) => p.id),

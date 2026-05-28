@@ -114,7 +114,7 @@ model Location {
 
 model StockMovement {
   id              String     @id @default(cuid())
-  movementNo      String?    @unique  // e.g., MVT-000001 (auto-generated)
+  movementNo      String?    @unique  // e.g., MVT-2026-000001 (auto-generated)
   movementType    String     // stock_in, stock_out, adjustment, transfer, damaged, returned, opening_stock
   status          String     @default("pending") // pending, committed, cancelled
   remarks         String?
@@ -317,6 +317,7 @@ model PasswordChangeRequest {
 
 model ImportRequest {
   id           String      @id @default(cuid())
+  requestNo    String?     @unique  // e.g., REQ-2026-000001 (auto-generated)
   type         String      // 'csv_import' | 'product_add'
   status       String      @default("pending") // 'pending' | 'approved' | 'rejected'
   productIds   String[]
