@@ -69,6 +69,22 @@ SCHEMAS = {
                              'repair', 'disposal', 'borrowed', 'lost'],
         },
     },
+    'stock-details': {
+        'required': ['productId'],
+        'optional': ['assetTag', 'barcode', 'modelNumber', 'serialNumber', 'macId',
+                     'dateStock', 'brand', 'itemType', 'condition', 'warrantyExpiry',
+                     'warrantyNotes', 'currentStatus', 'currentLocationId',
+                     'custodian', 'lastCheckedDate', 'checkedBy', 'notes'],
+        'all':      ['productId', 'assetTag', 'barcode', 'modelNumber', 'serialNumber',
+                     'macId', 'dateStock', 'brand', 'itemType', 'condition',
+                     'warrantyExpiry', 'warrantyNotes', 'currentStatus',
+                     'currentLocationId', 'custodian', 'lastCheckedDate', 'checkedBy', 'notes'],
+        'enums': {
+            'condition':     ['new', 'good', 'fair', 'poor'],
+            'currentStatus': ['active', 'damaged', 'sold', 'lost', 'returned',
+                              'deployed', 'borrowed', 'disposed', 'repair'],
+        },
+    },
     'floor-plans': {
         'required': ['name', 'width', 'height', 'planJson'],
         'optional': ['locationId', 'description'],
@@ -102,6 +118,7 @@ ALIASES = {
     'category': 'categoryId',
     'unit of measure': 'unit', 'unit_of_measure': 'unit', 'uom': 'unit', 'measure': 'unit',
     'stock': 'currentStock', 'current stock': 'currentStock', 'current_stock': 'currentStock',
+    'opening stock': 'currentStock', 'count': 'currentStock',
     'quantity': 'currentStock', 'qty': 'currentStock',
     'stock qty': 'currentStock', 'stock quantity': 'currentStock',
     'low stock': 'lowStockThreshold', 'low_stock': 'lowStockThreshold',
@@ -109,14 +126,16 @@ ALIASES = {
     'minimum stock': 'lowStockThreshold', 'min stock': 'lowStockThreshold',
     'reorder point': 'lowStockThreshold', 'reorder level': 'lowStockThreshold',
     'location id': 'locationId', 'location_id': 'locationId', 'loc id': 'locationId',
-    'location': 'locationId',
+    'location': 'locationId', 'current location': 'locationId',
+    'linked location': 'locationId',
     'vendor': 'supplier', 'vendor name': 'supplier', 'supplier name': 'supplier',
-    'brand': 'supplier',
+    'supplier / vendor': 'supplier', 'brand': 'supplier',
     'price': 'unitPrice', 'unit price': 'unitPrice', 'unit_price': 'unitPrice',
-    'cost': 'unitPrice', 'cost price': 'unitPrice',
-    'product status': 'status', 'item status': 'status',
+    'unit cost': 'unitPrice', 'cost': 'unitPrice', 'cost price': 'unitPrice',
+    'product status': 'status', 'item status': 'status', 'stock status': 'status',
     'expiry': 'expiryDate', 'expiry date': 'expiryDate', 'expiry_date': 'expiryDate',
     'expiration': 'expiryDate', 'expiration date': 'expiryDate',
+    'license expiration': 'expiryDate', 'license end date': 'expiryDate',
     'lead time': 'leadTimeDays', 'lead_time': 'leadTimeDays',
     'lead time days': 'leadTimeDays', 'lead_time_days': 'leadTimeDays',
     'product notes': 'notes', 'item notes': 'notes',
@@ -126,6 +145,28 @@ ALIASES = {
     'movement type': 'movementType', 'movement_type': 'movementType',
     'movement qty': 'quantity', 'movement quantity': 'quantity',
     'movement reason': 'reason', 'note': 'reason',
+    'movement no': 'reason', 'recorded date': 'reason',
+    'from location': 'locationId', 'to location': 'locationId',
+
+    # --- stock-details ---
+    'serial number': 'serialNumber', 'serial_number': 'serialNumber', 'serial': 'serialNumber',
+    'model number': 'modelNumber', 'model_number': 'modelNumber', 'model': 'modelNumber',
+    'mac id': 'macId', 'mac_id': 'macId', 'mac address': 'macId', 'mac': 'macId',
+    'asset tag': 'assetTag', 'asset_tag': 'assetTag', 'asset id': 'assetTag',
+    'inventory id': 'assetTag',
+    'stock id': 'stockId',
+    'condition': 'condition',
+    'date received': 'dateStock', 'purchase date': 'dateStock', 'date added': 'dateStock',
+    'warranty expiry': 'warrantyExpiry', 'warranty_expiry': 'warrantyExpiry',
+    'warranty expiration': 'warrantyExpiry',
+    'warranty notes': 'warrantyNotes', 'warranty_notes': 'warrantyNotes',
+    'item status': 'currentStatus', 'item condition': 'condition',
+    'current location id': 'currentLocationId', 'current_location_id': 'currentLocationId',
+    'assigned to': 'custodian',
+    'device type': 'itemType', 'kind': 'itemType', 'item type': 'itemType',
+    'last maintenance date': 'lastCheckedDate', 'last checked date': 'lastCheckedDate',
+    'next maintenance date': 'notes', 'maintenance notes': 'notes',
+    'checked by': 'checkedBy',
 
     # --- floor-plans ---
     'floor plan name': 'name', 'plan name': 'name',
@@ -133,6 +174,9 @@ ALIASES = {
     'floor plan height': 'height', 'plan height': 'height',
     'plan json': 'planJson', 'plan data': 'planJson',
     'floor plan data': 'planJson',
+    'linked location': 'locationId',
+    'floor plan status': 'notes', 'dimensions': 'notes',
+    'objects count': 'notes', 'score': 'notes', 'linked product': 'notes',
 }
 
 # Columns that strongly signal a particular section type
@@ -143,6 +187,8 @@ SIGNALS = {
                        'low stock threshold', 'categoryid', 'category id', 'unitprice'},
     'stock-movements':{'productid', 'product id', 'movementtype', 'movement type',
                        'movement_type'},
+    'stock-details':  {'serialnumber', 'serial number', 'assettag', 'asset tag',
+                       'stockid', 'stock id', 'macid', 'mac id'},
     'floor-plans':    {'planjson', 'plan json', 'plandata', 'plan data', 'width', 'height'},
 }
 
@@ -254,6 +300,7 @@ UNIQUE_FIELDS = {
     'locations':       ['name'],
     'products':        ['sku'],
     'stock-movements': [],
+    'stock-details':   ['serialNumber', 'assetTag'],
     'floor-plans':     ['name'],
 }
 
@@ -309,7 +356,12 @@ def slug(value: str, fallback: str) -> str:
 
 def is_inventory_list(headers: list) -> bool:
     normed = {norm(h) for h in headers}
-    return {'description', 'model number', 'serial number', 'mac id', 'location'} <= normed
+    has_description = 'description' in normed or 'item name' in normed or 'product name' in normed
+    per_unit_signals = {'model number', 'serial number', 'mac id', 'mac address',
+                        'asset tag', 'asset id', 'barcode', 'inventory id',
+                        'count', 'device type', 'condition'}
+    matched = per_unit_signals & normed
+    return has_description and len(matched) >= 2
 
 
 def write_unified_csv(path: str, sections: dict):
@@ -322,44 +374,149 @@ def write_unified_csv(path: str, sections: dict):
             f.write("\n")
 
 
+def _pick(row: dict, *keys: str) -> str:
+    """Return the first non-empty value from the row for any of the given keys."""
+    for k in keys:
+        v = (row.get(k) or '').strip()
+        if v:
+            return v
+    return ''
+
+
 def convert_inventory_list(rows: list) -> dict:
     now = datetime.now().isoformat(timespec='milliseconds') + 'Z'
-    category_id = 'csv-cat-imported-items'
     dept_id = ''
     locations = {}
+    categories = {}
     products = []
 
+    # Notes fields: per-unit details that have no product-level field
+    NOTES_FIELDS = [
+        ('Model Number', 'Model'), ('Serial Number', 'Serial'),
+        ('MAC ID', 'MAC'), ('MAC Address', 'MAC'),
+        ('Asset Tag', 'Asset Tag'), ('Barcode', 'Barcode'),
+        ('Inventory ID', 'Inventory ID'), ('Stock ID', 'Stock ID'),
+        ('Condition', 'Condition'), ('Custodian', 'Custodian'),
+        ('Assigned To', 'Assigned To'), ('Device Type', 'Device Type'),
+        ('Kind', 'Kind'), ('Item Type', 'Item Type'),
+        ('IMEI 1', 'IMEI 1'), ('IMEI 2', 'IMEI 2'),
+        ('Warranty Notes', 'Warranty Notes'),
+        ('Color', 'Color'), ('Size', 'Size'), ('Material', 'Material'),
+        ('Processor', 'Processor'), ('RAM', 'RAM'), ('Storage', 'Storage'),
+        ('Operating System', 'OS'), ('Software Version', 'SW Version'),
+        ('License Key', 'License Key'), ('License Type', 'License Type'),
+        ('License Seats', 'License Seats'),
+        ('License Start Date', 'License Start'), ('License End Date', 'License End'),
+        ('License Expiration', 'License Exp'),
+        ('Account Name', 'Account'), ('Account Number', 'Acct No'),
+        ('Telephone Number', 'Phone'), ('Plan', 'Plan'), ('Speed', 'Speed'),
+        ('Address', 'Address'), ('Place', 'Place'),
+        ('Purchase Order Number', 'PO No'), ('Invoice Number', 'Invoice No'),
+        ('Last Maintenance Date', 'Last Maint'), ('Next Maintenance Date', 'Next Maint'),
+        ('Maintenance Notes', 'Maint Notes'),
+        ('Remarks', 'Remarks'), ('Note', 'Note'),
+        ('Total Cost', 'Total Cost'), ('Total Value', 'Total Value'),
+        ('Currency', 'Currency'), ('Date Received', 'Date Received'),
+        ('Purchase Date', 'Purchase Date'), ('Date Added', 'Date Added'),
+    ]
+
     for idx, row in enumerate(rows, start=1):
-        description = (row.get('Description') or '').strip()
+        description = _pick(row, 'Description', 'Item Name', 'Product Name', 'Name', 'Product')
         if not description:
             continue
 
-        raw_location = (row.get('Location') or '').strip()
+        # Location: try several column names
+        raw_location = _pick(row, 'Location', 'Current Location', 'Location Name',
+                             'Place', 'Room', 'Area')
         location_name = raw_location or 'Unassigned'
         location_id = f"csv-loc-{slug(location_name, f'location-{idx}')}"
-        locations[location_id] = {
-            'id': location_id,
-            'name': location_name,
-            'type': 'room',
-            'parentId': '',
-            'departmentId': dept_id,
-            'notes': '',
-            'createdAt': now,
-            'updatedAt': now,
-            'parent': '',
-            'children': '[]',
-        }
+        if location_id not in locations:
+            locations[location_id] = {
+                'id': location_id,
+                'name': location_name,
+                'type': 'room',
+                'parentId': '',
+                'departmentId': dept_id,
+                'notes': '',
+                'createdAt': now,
+                'updatedAt': now,
+                'parent': '',
+                'children': '[]',
+            }
 
-        count_raw = (row.get('Count') or '').strip()
-        stock = int(count_raw) if count_raw.isdigit() else 1
-        model = (row.get('Model Number') or '').strip()
-        serial = (row.get('Serial Number') or '').strip()
-        mac = (row.get('MAC ID') or '').strip()
-        notes = '; '.join(part for part in [
-            f"Model: {model}" if model else '',
-            f"Serial: {serial}" if serial else '',
-            f"MAC: {mac}" if mac else '',
-        ] if part)
+        # Category: per unique Category/Kind/Category Name value
+        raw_cat = _pick(row, 'Category', 'Category Name', 'Kind')
+        cat_name = raw_cat or 'Imported Items'
+        cat_id = f"csv-cat-{slug(cat_name, 'imported-items')}"
+        if cat_id not in categories:
+            categories[cat_id] = {
+                'id': cat_id,
+                'name': cat_name,
+                'description': 'Imported from CSV',
+                'departmentId': dept_id,
+                'createdAt': now,
+                'updatedAt': now,
+            }
+
+        # Stock count
+        count_raw = _pick(row, 'Count', 'Quantity', 'Opening Stock', 'Current Stock', 'Stock')
+        try:
+            stock = int(float(count_raw)) if count_raw else 1
+        except ValueError:
+            stock = 1
+
+        # Low stock threshold
+        lst_raw = _pick(row, 'Low Stock Threshold')
+        try:
+            lst = int(float(lst_raw)) if lst_raw else 1
+        except ValueError:
+            lst = 1
+
+        # Unit
+        unit_val = _pick(row, 'Unit') or 'pcs'
+
+        # Supplier
+        supplier_val = _pick(row, 'Supplier', 'Vendor', 'Supplier / Vendor', 'Brand')
+
+        # Unit price
+        price_raw = _pick(row, 'Unit Cost', 'Unit Price', 'Cost')
+        try:
+            price_val = str(float(price_raw.replace(',', ''))) if price_raw else ''
+        except ValueError:
+            price_val = ''
+
+        # Status
+        raw_status = _pick(row, 'Status', 'Stock Status').lower().strip()
+        status_map = {
+            'active': 'active', 'discontinued': 'discontinued',
+            'obsolete': 'obsolete', 'on-backorder': 'on-backorder',
+            'on backorder': 'on-backorder', 'backorder': 'on-backorder',
+        }
+        status_val = status_map.get(raw_status, 'active')
+
+        # Expiry date
+        expiry_val = _pick(row, 'Warranty Expiry', 'License Expiration',
+                           'Expiry Date', 'License End Date')
+
+        # Lead time
+        lt_raw = _pick(row, 'Lead Time Days', 'Lead Time')
+        try:
+            lt_val = str(int(float(lt_raw))) if lt_raw else ''
+        except ValueError:
+            lt_val = ''
+
+        # Build notes from per-unit fields
+        note_parts = []
+        seen_values = set()
+        for col, label in NOTES_FIELDS:
+            v = (row.get(col) or '').strip()
+            if v and v not in seen_values:
+                note_parts.append(f"{label}: {v}")
+                seen_values.add(v)
+        # Also add any extra Note/Remarks columns
+        extra_note = _pick(row, 'Note', 'Remarks', 'Notes')
+        if extra_note and extra_note not in seen_values:
+            note_parts.append(extra_note)
 
         product_no = len(products) + 1
         products.append({
@@ -367,21 +524,21 @@ def convert_inventory_list(rows: list) -> dict:
             'sku': f"CSV-{product_no:04d}",
             'name': description[:80],
             'description': description,
-            'categoryId': category_id,
-            'category': '',
+            'categoryId': cat_id,
+            'category': cat_name,
             'departmentId': dept_id,
             'department': '',
-            'unit': 'pcs',
+            'unit': unit_val,
             'currentStock': str(stock),
-            'lowStockThreshold': '1',
+            'lowStockThreshold': str(lst),
             'locationId': location_id,
-            'location': '',
-            'supplier': '',
-            'unitPrice': '',
-            'status': 'active',
-            'expiryDate': '',
-            'leadTimeDays': '',
-            'notes': notes,
+            'location': location_name,
+            'supplier': supplier_val,
+            'unitPrice': price_val,
+            'status': status_val,
+            'expiryDate': expiry_val,
+            'leadTimeDays': lt_val,
+            'notes': '; '.join(note_parts),
             'createdAt': now,
             'updatedAt': now,
         })
@@ -389,14 +546,7 @@ def convert_inventory_list(rows: list) -> dict:
     return {
         'categories': {
             'fieldnames': ['id', 'name', 'description', 'departmentId', 'createdAt', 'updatedAt'],
-            'rows': [{
-                'id': category_id,
-                'name': 'Imported Items',
-                'description': 'Items converted from inventory CSV',
-                'departmentId': dept_id,
-                'createdAt': now,
-                'updatedAt': now,
-            }],
+            'rows': list(categories.values()),
         },
         'locations': {
             'fieldnames': ['id', 'name', 'type', 'parentId', 'departmentId', 'notes', 'createdAt', 'updatedAt', 'parent', 'children'],

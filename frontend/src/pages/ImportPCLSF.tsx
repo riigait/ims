@@ -245,12 +245,20 @@ export default function ImportPCLSF() {
   };
 
   const isInventoryListCsv = (csvContent: string) => {
-    const headers = csvContent.split(/\r?\n/)[0]?.split(',').map(normalizeCsvHeader) || [];
-    return ['count', 'description', 'model number', 'serial number', 'mac id', 'location', 'category', 'department']
-      .every(header => headers.includes(header));
+    const headers = new Set(csvContent.split(/\r?\n/)[0]?.split(',').map(normalizeCsvHeader) || []);
+    const hasDescription = headers.has('description') || headers.has('item name') || headers.has('product name') || headers.has('name');
+    const perUnitSignals = [
+      'model number', 'serial number', 'mac id', 'mac address', 'asset tag', 'asset id',
+      'barcode', 'inventory id', 'count', 'device type', 'condition', 'quantity',
+      'account number', 'account name', 'telephone number', 'telephone', 'phone number',
+      'phone', 'plan', 'address', 'place', 'speed', 'remarks', 'supplier', 'vendor',
+      'location', 'category', 'department', 'status', 'unit', 'brand',
+    ];
+    const matched = perUnitSignals.filter(s => headers.has(s));
+    return hasDescription && matched.length >= 2;
   };
 
-  const convertInventoryListToUnifiedCsv = (csvContent: string) => {
+  const convertInventoryListToUnifiedCsv = (csvContent: string, sourceFileName?: string) => {
     const rows = parseCsvRows(csvContent);
     const now = new Date().toISOString();
     const locations = new Map<string, CsvRow>();
@@ -258,10 +266,11 @@ export default function ImportPCLSF() {
     const products: CsvRow[] = [];
 
     rows.forEach((row, index) => {
-      const description = getCsvValue(row, 'Description');
+      const description = getCsvValue(row, 'Description', 'Product Name', 'Name', 'Item Name');
       if (!description.trim()) return;
 
-      const categoryName = getCsvValue(row, 'Category') || 'Imported Items';
+      const fileBaseName = sourceFileName ? sourceFileName.replace(/\.[^/.]+$/, '') : '';
+      const categoryName = getCsvValue(row, 'Category', 'Category Name', 'Kind') || fileBaseName || 'Imported Items';
       const categoryId = `csv-cat-${slug(categoryName, 'imported-items')}`;
       categories.set(categoryId, {
         id: categoryId,
@@ -272,12 +281,12 @@ export default function ImportPCLSF() {
         updatedAt: now,
       });
 
-      const locationName = getCsvValue(row, 'Location') || 'Unassigned';
+      const locationName = getCsvValue(row, 'Location', 'Current Location', 'Location Name', 'Place', 'Room', 'Area') || 'Unassigned';
       const locationId = `csv-loc-${slug(locationName, `location-${index + 1}`)}`;
       locations.set(locationId, {
         id: locationId,
         name: locationName,
-        type: 'room',
+        type: getCsvValue(row, 'Location Type') || 'room',
         parentId: '',
         departmentId: '',
         notes: '',
@@ -287,36 +296,72 @@ export default function ImportPCLSF() {
         children: '[]',
       });
 
-      const departmentName = getCsvValue(row, 'Department');
-      const notes = [
-        getCsvValue(row, 'Model Number') ? `Model: ${getCsvValue(row, 'Model Number')}` : '',
-        getCsvValue(row, 'Serial Number') ? `Serial: ${getCsvValue(row, 'Serial Number')}` : '',
-        getCsvValue(row, 'MAC ID') ? `MAC: ${getCsvValue(row, 'MAC ID')}` : '',
-        departmentName ? `Department: ${departmentName}` : '',
-      ].filter(Boolean).join('; ');
-      const count = Number.parseInt(getCsvValue(row, 'Count') || '', 10);
+      const countRaw = getCsvValue(row, 'Count', 'Quantity', 'Opening Stock', 'Current Stock', 'Stock');
+      const count = Number.parseInt(countRaw || '', 10);
       const stock = Number.isFinite(count) && count > 0 ? count : 1;
+      const lowStockRaw = Number.parseInt(getCsvValue(row, 'Low Stock Threshold') || '', 10);
+      const lowStock = Number.isFinite(lowStockRaw) && lowStockRaw > 0 ? String(lowStockRaw) : '1';
+      const unit = getCsvValue(row, 'Unit') || 'pcs';
+      const supplier = getCsvValue(row, 'Supplier', 'Vendor', 'Supplier / Vendor', 'Brand');
+      const unitPriceRaw = getCsvValue(row, 'Unit Cost', 'Unit Price', 'Cost');
+      const unitPrice = unitPriceRaw ? String(Number.parseFloat(unitPriceRaw.replace(/[^0-9.]/g, '')) || '') : '';
+      const rawStatus = getCsvValue(row, 'Status', 'Stock Status').toLowerCase();
+      const statusMap: Record<string, string> = { discontinued: 'discontinued', obsolete: 'obsolete', inactive: 'discontinued', 'on-backorder': 'on-backorder', 'on backorder': 'on-backorder' };
+      const status = statusMap[rawStatus] || 'active';
+      const expiryDate = getCsvValue(row, 'Warranty Expiry', 'License Expiration', 'Expiry Date', 'License End Date');
+      const leadTimeDays = getCsvValue(row, 'Lead Time Days', 'Lead Time');
+
+      const notesFields: Array<[string, string]> = [
+        ['Model', getCsvValue(row, 'Model', 'Model Number')],
+        ['Serial', getCsvValue(row, 'Serial Number')],
+        ['MAC', getCsvValue(row, 'MAC ID', 'MAC Address', 'Mac ID')],
+        ['Asset Tag', getCsvValue(row, 'Asset Tag', 'Asset ID', 'Inventory ID')],
+        ['Barcode', getCsvValue(row, 'Barcode')],
+        ['Condition', getCsvValue(row, 'Condition')],
+        ['Custodian', getCsvValue(row, 'Custodian', 'Assigned To')],
+        ['Device Type', getCsvValue(row, 'Device Type', 'Item Type', 'Kind')],
+        ['IMEI 1', getCsvValue(row, 'IMEI 1')],
+        ['IMEI 2', getCsvValue(row, 'IMEI 2')],
+        ['Color', getCsvValue(row, 'Color')],
+        ['Processor', getCsvValue(row, 'Processor')],
+        ['RAM', getCsvValue(row, 'RAM')],
+        ['Storage', getCsvValue(row, 'Storage')],
+        ['OS', getCsvValue(row, 'Operating System')],
+        ['License Key', getCsvValue(row, 'License Key')],
+        ['License Type', getCsvValue(row, 'License Type')],
+        ['Warranty Notes', getCsvValue(row, 'Warranty Notes')],
+        ['Account Name', getCsvValue(row, 'Account Name')],
+        ['Account No', getCsvValue(row, 'Account Number', 'Account No')],
+        ['Telephone', getCsvValue(row, 'Telephone Number', 'Telephone', 'Phone Number', 'Phone')],
+        ['Plan', getCsvValue(row, 'Plan')],
+        ['Address', getCsvValue(row, 'Address')],
+        ['Speed', getCsvValue(row, 'Speed')],
+        ['Department', getCsvValue(row, 'Department')],
+        ['Remarks', getCsvValue(row, 'Remarks', 'Note', 'Notes')],
+      ];
+      const notes = notesFields.filter(([, v]) => v).map(([k, v]) => `${k}: ${v}`).join('; ');
+
       const rowNo = String(products.length + 1).padStart(4, '0');
 
       products.push({
         id: `csv-${rowNo}`,
-        sku: `CSV-${rowNo}`,
+        sku: getCsvValue(row, 'SKU', 'Product Code') || `CSV-${rowNo}`,
         name: description.slice(0, 80),
         description,
         categoryId,
         category: '',
         departmentId: '',
         department: '',
-        unit: 'pcs',
+        unit,
         currentStock: String(stock),
-        lowStockThreshold: '1',
+        lowStockThreshold: lowStock,
         locationId,
         location: '',
-        supplier: '',
-        unitPrice: '',
-        status: 'active',
-        expiryDate: '',
-        leadTimeDays: '',
+        supplier,
+        unitPrice,
+        status,
+        expiryDate,
+        leadTimeDays,
         notes,
         createdAt: now,
         updatedAt: now,
@@ -358,11 +403,11 @@ export default function ImportPCLSF() {
       setCorrectorLoading(true);
       const csvContent = await parseCSV(correctorFile);
       if (!isInventoryListCsv(csvContent)) {
-        setError('CSV Corrector expects columns: Count, Description, Model Number, Serial Number, MAC ID, Location, Category, Department.');
+        setError('CSV Corrector could not detect an inventory list. File must have a Description (or Name/Item Name) column plus at least 2 of: Model Number, Serial Number, MAC ID, Asset Tag, Barcode, Count, Condition, Device Type.');
         return;
       }
 
-      const corrected = convertInventoryListToUnifiedCsv(csvContent);
+      const corrected = convertInventoryListToUnifiedCsv(csvContent, correctorFile.name);
       downloadTextFile(corrected, `corrected-${randomCode()}-${timestampForFilename()}.csv`);
       setCorrectorMessage('Corrected CSV downloaded. Review it, then import it from the Import tab.');
     } catch (err) {
@@ -418,7 +463,7 @@ export default function ImportPCLSF() {
 
       if (importType === 'unknown') {
         if (isInventoryListCsv(csvContent)) {
-          const correctedSections = parseUnifiedCsv(convertInventoryListToUnifiedCsv(csvContent));
+          const correctedSections = parseUnifiedCsv(convertInventoryListToUnifiedCsv(csvContent, file?.name));
           let created = 0;
           const errors: ImportResult['errors'] = [];
 
@@ -655,10 +700,46 @@ export default function ImportPCLSF() {
             </p>
           </div>
 
-          <div className="bg-[var(--surface-2)] rounded-lg p-4 border border-[var(--border)] text-sm text-[var(--text-muted)] space-y-2">
-            <p className="font-medium text-[var(--text)]">Expected columns</p>
-            <p>Count, Description, Model Number, Serial Number, MAC ID, Location, Category, Department</p>
-            <p>Rows without Description are skipped. Count defaults to 1 when blank.</p>
+          <div className="bg-[var(--surface-2)] rounded-lg p-4 border border-[var(--border)] text-sm text-[var(--text-muted)] space-y-3">
+            <p className="font-medium text-[var(--text)]">Required columns for detection</p>
+            <div className="space-y-2">
+              <p className="text-[var(--text)]">1 of these as the main item column:</p>
+              <ul className="list-disc list-inside space-y-0.5 ml-1">
+                <li>Description</li>
+                <li>Name</li>
+                <li>Item Name</li>
+                <li>Product Name</li>
+              </ul>
+            </div>
+            <div className="space-y-2">
+              <p className="text-[var(--text)]">Plus at least 2 of these:</p>
+              <ul className="list-disc list-inside space-y-0.5 ml-1 columns-2">
+                <li>Model Number</li>
+                <li>Serial Number</li>
+                <li>MAC ID / MAC Address</li>
+                <li>Asset Tag / Asset ID</li>
+                <li>Barcode</li>
+                <li>Inventory ID</li>
+                <li>Count / Quantity</li>
+                <li>Device Type</li>
+                <li>Condition</li>
+                <li>Account Number</li>
+                <li>Account Name</li>
+                <li>Telephone Number</li>
+                <li>Plan</li>
+                <li>Address</li>
+                <li>Speed</li>
+                <li>Location</li>
+                <li>Category</li>
+                <li>Department</li>
+                <li>Status</li>
+                <li>Unit</li>
+                <li>Brand</li>
+                <li>Supplier / Vendor</li>
+                <li>Remarks</li>
+              </ul>
+            </div>
+            <p>Extra columns (Supplier, Unit Cost, Warranty, Location, Category, etc.) are extracted automatically. Rows without a main item column are skipped. Count defaults to 1 when blank.</p>
           </div>
 
           <div className="border-2 border-dashed border-[var(--border)] rounded-lg p-8 text-center">
