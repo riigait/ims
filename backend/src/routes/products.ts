@@ -505,8 +505,13 @@ router.post('/import/csv', async (req: AuthRequest, res: Response) => {
             source: 'csv_import',
             csvImportId,
           } as any;
+        // Match existing product: by id first, then by SKU, then by exact name
         const existing = row.id
           ? await prisma.product.findUnique({ where: { id: row.id } })
+          : row.sku
+          ? await prisma.product.findFirst({ where: { sku: row.sku } })
+          : row.name
+          ? await prisma.product.findFirst({ where: { name: { equals: row.name, mode: 'insensitive' } } })
           : null;
         const product = existing
           ? await prisma.product.update({ where: { id: existing.id }, data })
