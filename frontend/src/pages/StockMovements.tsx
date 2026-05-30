@@ -18,20 +18,23 @@ interface Department {
 }
 
 const MOVEMENT_OPTIONS: { value: MovementType; label: string; color: string }[] = [
-  { value: 'stock_in',      label: 'Stock In',      color: 'bg-green-100 text-green-800' },
-  { value: 'stock_out',     label: 'Stock Out',     color: 'bg-red-100 text-red-800' },
-  { value: 'adjustment',    label: 'Adjustment',    color: 'bg-blue-100 text-blue-800' },
-  { value: 'borrowed',      label: 'Borrowed',      color: 'bg-violet-100 text-violet-800' },
-  { value: 'returned',      label: 'Returned',      color: 'bg-teal-100 text-teal-800' },
-  { value: 'lost',          label: 'Lost',          color: 'bg-rose-100 text-rose-800' },
-  { value: 'found',         label: 'Found',         color: 'bg-white text-gray-800' },
-  { value: 'transfer',            label: 'Transfer to Location',    color: 'bg-purple-100 text-purple-800' },
-  { value: 'moved_to_department', label: 'Transfer to Department',  color: 'bg-sky-100 text-sky-800' },
-  { value: 'damaged',       label: 'Damaged',       color: 'bg-orange-100 text-orange-800' },
-  { value: 'deployment',    label: 'Deployment',    color: 'bg-cyan-100 text-cyan-800' },
-  { value: 'repair',        label: 'Repair',        color: 'bg-yellow-100 text-yellow-800' },
-  { value: 'disposal',      label: 'Disposal',      color: 'bg-gray-100 text-gray-800' },
-  { value: 'opening_stock', label: 'Opening Stock', color: 'bg-indigo-100 text-indigo-800' },
+  { value: 'stock_in',            label: 'Stock In',              color: 'bg-green-100 text-green-800' },
+  { value: 'stock_out',           label: 'Stock Out',             color: 'bg-red-100 text-red-800' },
+  { value: 'adjustment',          label: 'Adjustment',            color: 'bg-blue-100 text-blue-800' },
+  { value: 'borrowed',            label: 'Borrowed',              color: 'bg-violet-100 text-violet-800' },
+  { value: 'returned',            label: 'Returned',              color: 'bg-teal-100 text-teal-800' },
+  { value: 'lost',                label: 'Lost',                  color: 'bg-rose-100 text-rose-800' },
+  { value: 'found',               label: 'Found',                 color: 'bg-white text-gray-800' },
+  { value: 'transfer',            label: 'Transfer to Location',  color: 'bg-purple-100 text-purple-800' },
+  { value: 'moved_to_department', label: 'Transfer to Department',color: 'bg-sky-100 text-sky-800' },
+  { value: 'pre_deployment',      label: 'Pre Deployment',        color: 'bg-cyan-100 text-cyan-800' },
+  { value: 'post_deployment',     label: 'Post Deployment',       color: 'bg-emerald-100 text-emerald-800' },
+  { value: 'repair_out',          label: 'Repair Out',            color: 'bg-yellow-100 text-yellow-800' },
+  { value: 'repair_return',       label: 'Repair Return',         color: 'bg-lime-100 text-lime-800' },
+  { value: 'damaged',             label: 'Damaged',               color: 'bg-orange-100 text-orange-800' },
+  { value: 'defective',           label: 'Defective',             color: 'bg-pink-100 text-pink-800' },
+  { value: 'disposal',            label: 'Disposal',              color: 'bg-gray-100 text-gray-800' },
+  { value: 'opening_stock',       label: 'Opening Stock',         color: 'bg-indigo-100 text-indigo-800' },
 ];
 
 const FORM_MOVEMENT_OPTIONS = MOVEMENT_OPTIONS.filter(o => o.value !== 'opening_stock');
@@ -345,11 +348,13 @@ interface StockDetailItem {
   assetTag?: string;
 }
 
-const DEDUCTING_MOVEMENT_TYPES: MovementType[] = ['stock_out', 'transfer', 'damaged', 'disposal', 'borrowed', 'lost', 'returned', 'found'];
-const SPECIFIC_ITEM_MOVEMENT_TYPES: MovementType[] = [...DEDUCTING_MOVEMENT_TYPES, 'deployment', 'moved_to_department'];
+const DEDUCTING_MOVEMENT_TYPES: MovementType[] = ['stock_out', 'transfer', 'damaged', 'defective', 'disposal', 'borrowed', 'lost', 'returned', 'found', 'repair_out'];
+const SPECIFIC_ITEM_MOVEMENT_TYPES: MovementType[] = [...DEDUCTING_MOVEMENT_TYPES, 'pre_deployment', 'post_deployment', 'repair_return', 'moved_to_department'];
 const RETURNING_STATUSES: Partial<Record<MovementType, string[]>> = {
   returned: ['borrowed'],
   found: ['lost'],
+  post_deployment: ['deployed'],
+  repair_return: ['repair'],
 };
 
 function StockDetailSearchDropdown({
@@ -535,6 +540,9 @@ export function MapLocationPicker({
     .sort((a, b) => Number(b.plan.isApproved) - Number(a.plan.isApproved) || b.linkedCount - a.linkedCount);
 
   const [selectedPlanId, setSelectedPlanId] = useState(plansWithLinks[0]?.plan.id || '');
+  const [locationSearch, setLocationSearch] = useState('');
+  const [locationPage, setLocationPage] = useState(1);
+  const [locationPageSize, setLocationPageSize] = useState(20);
   useEffect(() => {
     if (plansWithLinks.length > 0 && !plansWithLinks.some(entry => entry.plan.id === selectedPlanId)) {
       setSelectedPlanId(plansWithLinks[0].plan.id);
@@ -543,7 +551,22 @@ export function MapLocationPicker({
 
   const selectedPlan = plansWithLinks.find(entry => entry.plan.id === selectedPlanId)?.plan || plansWithLinks[0]?.plan;
   const locationName = (id?: string) => locations.find(location => location.id === id)?.name || 'Linked location';
+  const filteredLocations = locationSearch.trim()
+    ? locations.filter(location => {
+      const query = locationSearch.trim().toLowerCase();
+      return location.name.toLowerCase().includes(query) || location.type.toLowerCase().includes(query);
+    })
+    : locations;
+  const totalLocationPages = Math.max(1, Math.ceil(filteredLocations.length / locationPageSize));
+  const paginatedLocations = filteredLocations.slice((locationPage - 1) * locationPageSize, locationPage * locationPageSize);
   const rectFill: Record<string, string> = { room: '#e5e7eb', rack: '#fef3c7', shelf: '#dbeafe' };
+
+  useEffect(() => { setLocationPage(1); }, [locationSearch, locationPageSize]);
+  useEffect(() => {
+    if (locationPage > totalLocationPages) {
+      setLocationPage(totalLocationPages);
+    }
+  }, [locationPage, totalLocationPages]);
 
   const renderObject = (obj: FloorPlanObject) => {
     const linked = obj.linkedLocationId && locationIds.has(obj.linkedLocationId);
@@ -630,8 +653,35 @@ export function MapLocationPicker({
           </div>
           <div className="border-t lg:border-t-0 lg:border-l border-[var(--border)] p-3 overflow-y-auto">
             <p className="text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wider mb-2">Locations</p>
+            <div className="relative mb-2">
+              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--text-muted)]" />
+              <input
+                type="text"
+                value={locationSearch}
+                onChange={e => setLocationSearch(e.target.value)}
+                placeholder="Search locations..."
+                className="w-full pl-8 pr-3 py-2 border border-[var(--border)] rounded text-sm bg-[var(--surface)] text-[var(--text)]"
+              />
+            </div>
+            <div className="flex items-center justify-between gap-2 mb-2">
+              <p className="text-xs text-[var(--text-muted)]">{filteredLocations.length} locations</p>
+              <div className="flex gap-1">
+                {[20, 50, 100].map(size => (
+                  <button
+                    key={size}
+                    type="button"
+                    onClick={() => setLocationPageSize(size)}
+                    className={`text-xs px-1.5 py-0.5 rounded border transition-colors ${locationPageSize === size ? 'bg-[var(--primary)] text-white border-[var(--primary)]' : 'border-[var(--border)] text-[var(--text-muted)] hover:bg-[var(--surface-2)]'}`}
+                  >
+                    {size}
+                  </button>
+                ))}
+              </div>
+            </div>
             <div className="space-y-1">
-              {locations.map(location => (
+              {paginatedLocations.length === 0 ? (
+                <p className="text-sm text-[var(--text-muted)] text-center py-4">No locations match.</p>
+              ) : paginatedLocations.map(location => (
                 <button
                   key={location.id}
                   type="button"
@@ -642,6 +692,27 @@ export function MapLocationPicker({
                 </button>
               ))}
             </div>
+            {filteredLocations.length > locationPageSize && (
+              <div className="flex items-center justify-between gap-2 mt-3 pt-2 border-t border-[var(--border)]">
+                <button
+                  type="button"
+                  onClick={() => setLocationPage(page => Math.max(1, page - 1))}
+                  disabled={locationPage === 1}
+                  className="p-1 rounded border border-[var(--border)] text-[var(--text-muted)] hover:bg-[var(--surface-2)] disabled:opacity-40"
+                >
+                  <ChevronLeft size={14} />
+                </button>
+                <span className="text-xs text-[var(--text-muted)]">Page {locationPage} of {totalLocationPages}</span>
+                <button
+                  type="button"
+                  onClick={() => setLocationPage(page => Math.min(totalLocationPages, page + 1))}
+                  disabled={locationPage === totalLocationPages}
+                  className="p-1 rounded border border-[var(--border)] text-[var(--text-muted)] hover:bg-[var(--surface-2)] disabled:opacity-40"
+                >
+                  <ChevronRight size={14} />
+                </button>
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -691,7 +762,9 @@ export default function StockMovements() {
   const [itemsSearch, setItemsSearch] = useState('');
   const [itemStockDetails, setItemStockDetails] = useState<Record<number, StockDetailItem[]>>({});
   const [borrowedProductIds, setBorrowedProductIds] = useState<Set<string>>(new Set());
+  const [postDeploymentFromAddress, setPostDeploymentFromAddress] = useState<Record<number, string>>({});
   const [deploymentMapOpen, setDeploymentMapOpen] = useState(false);
+  const [repairMapOpen, setRepairMapOpen] = useState(false);
   const currentDepartmentId = localStorage.getItem('currentDepartmentId') || user.departmentId || '';
   const currentDepartmentName = departments.find(d => d.id === currentDepartmentId)?.name || 'Current department';
   const currentDepartmentLocations = locations.filter(l => !currentDepartmentId || !l.departmentId || l.departmentId === currentDepartmentId);
@@ -777,17 +850,9 @@ export default function StockMovements() {
       setFormError('Please select at least one product and enter a valid quantity');
       return;
     }
-    if (formData.movementType === 'deployment' && validItems.some(item => !item.stockDetailId)) {
-      setFormError('Please select the specific inventory item to deploy');
-      return;
-    }
     if (formData.movementType === 'moved_to_department') {
       if (!formData.toDepartmentId) {
         setFormError('Please select a destination department');
-        return;
-      }
-      if (validItems.some(item => !item.stockDetailId)) {
-        setFormError('Please select the specific inventory item to transfer');
         return;
       }
       if (validItems.some(item => !item.toLocationId)) {
@@ -910,7 +975,24 @@ export default function StockMovements() {
               deploymentLongitude: longitude.toFixed(6),
             });
           }}
+          onAddressFound={(name) => setFormData(prev => ({ ...prev, deploymentAddress: name }))}
           onClose={() => setDeploymentMapOpen(false)}
+        />
+      )}
+
+      {repairMapOpen && (
+        <DeploymentMapPicker
+          latitude={formData.deploymentLatitude ? Number(formData.deploymentLatitude) : null}
+          longitude={formData.deploymentLongitude ? Number(formData.deploymentLongitude) : null}
+          onChange={({ latitude, longitude }) => {
+            setFormData({
+              ...formData,
+              deploymentLatitude: latitude.toFixed(6),
+              deploymentLongitude: longitude.toFixed(6),
+            });
+          }}
+          onAddressFound={(name) => setFormData(prev => ({ ...prev, deploymentAddress: name }))}
+          onClose={() => setRepairMapOpen(false)}
         />
       )}
 
@@ -1024,9 +1106,10 @@ export default function StockMovements() {
                           const newType = e.target.value as MovementType;
                           setFormData({ ...formData, movementType: newType, items: formData.items.map(it => ({ ...it, stockDetailId: '', productId: '', fromLocationId: '', toLocationId: '' })) });
                           setItemStockDetails({});
-                          if (newType === 'returned' || newType === 'found') {
+                          if (newType === 'returned' || newType === 'found' || newType === 'post_deployment' || newType === 'repair_return') {
                             try {
-                              const res = await stockDetailsApi.getByStatus(newType === 'returned' ? 'borrowed' : 'lost');
+                              const status = newType === 'returned' ? 'borrowed' : newType === 'post_deployment' ? 'deployed' : newType === 'repair_return' ? 'repair' : 'lost';
+                              const res = await stockDetailsApi.getByStatus(status);
                               setBorrowedProductIds(new Set((res.data as StockDetailItem[]).map(s => s.productId as string)));
                             } catch { setBorrowedProductIds(new Set()); }
                           } else {
@@ -1046,11 +1129,15 @@ export default function StockMovements() {
                         {formData.movementType === 'damaged' && 'Remove quantity — marks item as damaged, removed from available stock'}
                         {formData.movementType === 'transfer' && 'Move item between locations — no quantity change'}
                         {formData.movementType === 'moved_to_department' && 'Reassign product to a different department — no quantity change, keeps the same product ID'}
-                        {formData.movementType === 'deployment' && 'Mark item as deployed or in use — no quantity change'}
-                        {formData.movementType === 'repair' && 'Mark item as under repair — no quantity change'}
+                        {formData.movementType === 'pre_deployment' && 'Send item out for deployment — deducts from stock'}
+                        {formData.movementType === 'post_deployment' && 'Return deployed item back to active stock — restores quantity'}
+                        {formData.movementType === 'repair_out' && 'Send item out for repair — deducts from stock, status changes to Under Repair'}
+                        {formData.movementType === 'repair_return' && 'Return item from repair back to active stock — restores quantity'}
+                        {formData.movementType === 'defective' && 'Mark item as defective — deducts from stock permanently'}
                         {formData.movementType === 'disposal' && 'Remove quantity — mark item as disposed or retired'}
                         {formData.movementType === 'borrowed' && 'Remove quantity — mark item as temporarily borrowed or issued'}
                         {formData.movementType === 'lost' && 'Remove quantity — mark item as lost or missing'}
+                        {formData.movementType === 'found' && 'Restore a lost item - record where it was found, then choose its final location'}
                       </p>
                     </div>
                     <div>
@@ -1060,7 +1147,7 @@ export default function StockMovements() {
                         placeholder="e.g., Purchase order #123, Batch adjustment..."
                         className="w-full px-3 py-2 border border-[var(--border)] rounded-lg text-sm bg-[var(--surface)] text-[var(--text)]" />
                     </div>
-                    {formData.movementType === 'deployment' && (
+                    {formData.movementType === 'pre_deployment' && (
                       <div className="space-y-3">
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                           <div>
@@ -1152,12 +1239,12 @@ export default function StockMovements() {
                             <div>
                               <label className="block text-xs font-medium text-[var(--text-muted)] mb-1">Product *</label>
                               <ProductSearchDropdown
-                                products={(formData.movementType === 'returned' || formData.movementType === 'found') && borrowedProductIds.size > 0
+                                products={(formData.movementType === 'returned' || formData.movementType === 'found' || formData.movementType === 'post_deployment' || formData.movementType === 'repair_return') && borrowedProductIds.size > 0
                                   ? products.filter(p => borrowedProductIds.has(p.id))
                                   : products}
                                 value={item.productId}
                                 excludeIds={(() => {
-                                  if (!SPECIFIC_ITEM_MOVEMENT_TYPES.includes(formData.movementType) || formData.movementType === 'returned' || formData.movementType === 'found') return [];
+                                  if (!SPECIFIC_ITEM_MOVEMENT_TYPES.includes(formData.movementType) || formData.movementType === 'returned' || formData.movementType === 'found' || formData.movementType === 'post_deployment' || formData.movementType === 'repair_return') return [];
                                   const alloc: Record<string, number> = {};
                                   formData.items.forEach((it, i) => {
                                     if (i < idx && it.productId) alloc[it.productId] = (alloc[it.productId] || 0) + (it.stockDetailId ? 1 : (it.quantity || 0));
@@ -1165,7 +1252,7 @@ export default function StockMovements() {
                                   return products.filter(p => (alloc[p.id] || 0) >= p.currentStock).map(p => p.id);
                                 })()}
                                 allocatedCounts={(() => {
-                                  if (!SPECIFIC_ITEM_MOVEMENT_TYPES.includes(formData.movementType) || formData.movementType === 'returned' || formData.movementType === 'found') return {};
+                                  if (!SPECIFIC_ITEM_MOVEMENT_TYPES.includes(formData.movementType) || formData.movementType === 'returned' || formData.movementType === 'found' || formData.movementType === 'post_deployment' || formData.movementType === 'repair_return') return {};
                                   const alloc: Record<string, number> = {};
                                   formData.items.forEach((it, i) => {
                                     if (i < idx && it.productId) alloc[it.productId] = (alloc[it.productId] || 0) + (it.stockDetailId ? 1 : (it.quantity || 0));
@@ -1198,10 +1285,14 @@ export default function StockMovements() {
                                 }}
                               />
                             </div>
-                            {SPECIFIC_ITEM_MOVEMENT_TYPES.includes(formData.movementType) && item.productId && (
+                            {(SPECIFIC_ITEM_MOVEMENT_TYPES.includes(formData.movementType) || (formData.movementType === 'adjustment' && item.quantity < 0)) && item.productId && (
                               <div>
                                 <label className="block text-xs font-medium text-[var(--text-muted)] mb-1">
-                                  {formData.movementType === 'moved_to_department' ? 'Specific Item' : 'Inventory Item'} <span className="text-[var(--text-muted)] font-normal normal-case">(which specific unit?)</span>
+                                  {formData.movementType === 'moved_to_department' ? 'Specific Item' : 'Inventory Item'} <span className="text-[var(--text-muted)] font-normal normal-case">
+                                    {formData.movementType === 'found' || formData.movementType === 'returned'
+                                      ? '(optional - choose a unit or use quantity)'
+                                      : '(which specific unit?)'}
+                                  </span>
                                 </label>
                                 {itemStockDetails[idx] === undefined ? (
                                   <p className="text-xs text-[var(--text-muted)] italic px-1">Loading items…</p>
@@ -1211,17 +1302,49 @@ export default function StockMovements() {
                                       ? 'No borrowed inventory items found for this product.'
                                       : formData.movementType === 'found'
                                         ? 'No lost inventory items found for this product.'
+                                      : formData.movementType === 'post_deployment'
+                                        ? 'No deployed inventory items found for this product.'
+                                      : formData.movementType === 'repair_return'
+                                        ? 'No under-repair inventory items found for this product.'
                                       : 'No active inventory items found for this product.'}
                                   </p>
                                 ) : (
                                   <StockDetailSearchDropdown
-                                    stockDetails={itemStockDetails[idx]}
+                                    stockDetails={(() => {
+                                      const details = itemStockDetails[idx] || [];
+                                      const otherSelected = new Set(
+                                        formData.items
+                                          .filter((it, i) => i !== idx && it.stockDetailId)
+                                          .map(it => it.stockDetailId)
+                                      );
+                                      const available = details.filter(d => !otherSelected.has(d.id) || d.id === item.stockDetailId);
+                                      const unspecifiedQty = formData.items
+                                        .filter((it, i) => i !== idx && it.productId === item.productId && !it.stockDetailId)
+                                        .reduce((sum, it) => sum + (it.quantity || 0), 0);
+                                      const limit = Math.max(0, available.length - unspecifiedQty);
+                                      const sliced = available.slice(0, limit);
+                                      if (item.stockDetailId && !sliced.some(d => d.id === item.stockDetailId)) {
+                                        const sel = available.find(d => d.id === item.stockDetailId);
+                                        if (sel) sliced.unshift(sel);
+                                      }
+                                      return sliced;
+                                    })()}
                                     value={item.stockDetailId}
-                                    excludeIds={formData.items.filter((_, i) => i < idx).map(it => it.stockDetailId).filter(Boolean)}
-                                    onChange={(stockDetailId, locationId) => {
+                                    excludeIds={[]}
+                                    onChange={async (stockDetailId, locationId) => {
                                       const newItems = [...formData.items];
-                                      newItems[idx] = { ...newItems[idx], stockDetailId, quantity: 1, fromLocationId: locationId || newItems[idx].fromLocationId };
+                                      const qty = formData.movementType === 'adjustment' && newItems[idx].quantity < 0 ? -1
+                                               : STATUS_CHANGE_ONLY_TYPES.includes(formData.movementType) ? 0
+                                               : 1;
+                                      newItems[idx] = { ...newItems[idx], stockDetailId, quantity: qty, fromLocationId: locationId || newItems[idx].fromLocationId };
                                       setFormData({ ...formData, items: newItems });
+                                      if (formData.movementType === 'post_deployment' && stockDetailId) {
+                                        try {
+                                          const res = await stockDetailsApi.getDeployment(stockDetailId);
+                                          const addr = res.data?.deploymentAddress || res.data?.deploymentSiteName || '';
+                                          setPostDeploymentFromAddress(prev => ({ ...prev, [idx]: addr }));
+                                        } catch { setPostDeploymentFromAddress(prev => ({ ...prev, [idx]: '' })); }
+                                      }
                                     }}
                                   />
                                 )}
@@ -1231,17 +1354,33 @@ export default function StockMovements() {
                               <label className="block text-xs font-medium text-[var(--text-muted)] mb-1">Quantity *</label>
                               {item.stockDetailId ? (
                                 <div className="w-full px-2 py-1.5 text-sm border border-[var(--border)] rounded bg-[var(--surface-2)] text-[var(--text-muted)] select-none">
-                                  1 <span className="text-xs">(fixed — 1 specific unit)</span>
+                                  {STATUS_CHANGE_ONLY_TYPES.includes(formData.movementType)
+                                    ? <span>0 <span className="text-xs">(no stock change — status update only)</span></span>
+                                    : <span>{item.quantity < 0 ? '−1' : '1'} <span className="text-xs">(fixed — 1 specific unit)</span></span>}
                                 </div>
                               ) : formData.movementType === 'adjustment' ? (
                                 <div className="flex gap-1.5">
                                   <button
                                     type="button"
-                                    onClick={() => {
+                                    onClick={async () => {
                                       const newItems = [...formData.items];
-                                      const abs = Math.abs(newItems[idx].quantity || 0);
+                                      const abs = Math.abs(newItems[idx].quantity || 0) || 1;
                                       const isNeg = newItems[idx].quantity < 0;
-                                      newItems[idx] = { ...newItems[idx], quantity: isNeg ? abs : -abs };
+                                      if (isNeg) {
+                                        // going positive — clear specific item
+                                        newItems[idx] = { ...newItems[idx], quantity: abs, stockDetailId: '' };
+                                        setItemStockDetails(prev => { const n = { ...prev }; delete n[idx]; return n; });
+                                      } else {
+                                        // going negative — load stock details if product selected
+                                        newItems[idx] = { ...newItems[idx], quantity: -abs };
+                                        if (newItems[idx].productId) {
+                                          try {
+                                            const res = await stockDetailsApi.getByProductId(newItems[idx].productId!);
+                                            const active = (res.data as StockDetailItem[]).filter(s => s.currentStatus === 'active');
+                                            setItemStockDetails(prev => ({ ...prev, [idx]: active }));
+                                          } catch { /* ignore */ }
+                                        }
+                                      }
                                       setFormData({ ...formData, items: newItems });
                                     }}
                                     className={`flex-shrink-0 w-9 h-[34px] rounded text-sm font-bold border transition-colors ${item.quantity < 0 ? 'bg-red-500 text-white border-red-500' : 'bg-green-500 text-white border-green-500'}`}
@@ -1276,9 +1415,19 @@ export default function StockMovements() {
                             </div>
                             <div>
                               <label className="block text-xs font-medium text-[var(--text-muted)] mb-1">
-                                {formData.movementType === 'moved_to_department' ? 'Current Location' : 'From Location'}
+                                {formData.movementType === 'moved_to_department'
+                                  ? 'Current Location'
+                                  : formData.movementType === 'found'
+                                    ? 'Found at Location'
+                                    : formData.movementType === 'post_deployment'
+                                      ? 'From (Deployment Address)'
+                                      : 'From Location'}
                               </label>
-                              {formData.movementType === 'moved_to_department' && item.stockDetailId ? (
+                              {formData.movementType === 'post_deployment' ? (
+                                <div className="w-full px-2 py-1.5 text-sm border border-[var(--border)] rounded bg-[var(--surface-2)] text-[var(--text-muted)] min-h-[34px]">
+                                  {postDeploymentFromAddress[idx] || (item.stockDetailId ? 'No deployment address found' : '— Select an item first —')}
+                                </div>
+                              ) : formData.movementType === 'moved_to_department' && item.stockDetailId ? (
                                 <div className="w-full px-2 py-1.5 text-sm border border-[var(--border)] rounded bg-[var(--surface-2)] text-[var(--text-muted)]">
                                   {locations.find(l => l.id === item.fromLocationId)?.name || 'No location'}
                                 </div>
@@ -1294,21 +1443,41 @@ export default function StockMovements() {
                                 />
                               )}
                             </div>
-                            {formData.movementType !== 'deployment' && (
+                            {formData.movementType !== 'pre_deployment' && (
                             <div>
                               <label className="block text-xs font-medium text-[var(--text-muted)] mb-1">
                                 {formData.movementType === 'moved_to_department' ? 'New Location' : 'To Location'}
                               </label>
-                              <LocationSearchDropdown
-                                locations={formData.movementType === 'moved_to_department' ? destinationLocations : locations}
-                                value={(item.toLocationId as string) || ''}
-                                onChange={locationId => {
-                                  const newItems = [...formData.items];
-                                  newItems[idx] = { ...newItems[idx], toLocationId: locationId };
-                                  setFormData({ ...formData, items: newItems });
-                                }}
-                                placeholder={formData.movementType === 'moved_to_department' && !formData.toDepartmentId ? 'Select department first' : 'No location'}
-                              />
+                              {formData.movementType === 'repair_out' ? (
+                                <div className="space-y-1">
+                                  <button
+                                    type="button"
+                                    onClick={() => setRepairMapOpen(true)}
+                                    className="w-full px-2 py-1.5 text-sm border border-[var(--border)] rounded bg-[var(--surface)] text-left flex items-center gap-2 hover:border-[var(--primary)] transition-colors"
+                                  >
+                                    <MapPin size={13} className="flex-shrink-0 text-[var(--text-muted)]" />
+                                    <span className={formData.deploymentAddress ? 'text-[var(--text)] truncate' : 'text-[var(--text-muted)]'}>
+                                      {formData.deploymentAddress || 'Select repair location on map…'}
+                                    </span>
+                                  </button>
+                                  {formData.deploymentLatitude && formData.deploymentLongitude && (
+                                    <p className="text-xs text-[var(--text-muted)] px-1">
+                                      {Number(formData.deploymentLatitude).toFixed(6)}, {Number(formData.deploymentLongitude).toFixed(6)}
+                                    </p>
+                                  )}
+                                </div>
+                              ) : (
+                                <LocationSearchDropdown
+                                  locations={formData.movementType === 'moved_to_department' ? destinationLocations : locations}
+                                  value={(item.toLocationId as string) || ''}
+                                  onChange={locationId => {
+                                    const newItems = [...formData.items];
+                                    newItems[idx] = { ...newItems[idx], toLocationId: locationId };
+                                    setFormData({ ...formData, items: newItems });
+                                  }}
+                                  placeholder={formData.movementType === 'moved_to_department' && !formData.toDepartmentId ? 'Select department first' : 'No location'}
+                                />
+                              )}
                             </div>
                             )}
                           </div>

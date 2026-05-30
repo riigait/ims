@@ -52,7 +52,7 @@ export interface Location {
   updatedAt: string;
 }
 
-export type MovementType = 'stock_in' | 'stock_out' | 'adjustment' | 'transfer' | 'damaged' | 'returned' | 'found' | 'opening_stock' | 'deployment' | 'repair' | 'disposal' | 'borrowed' | 'lost' | 'moved_to_department';
+export type MovementType = 'stock_in' | 'stock_out' | 'adjustment' | 'borrowed' | 'returned' | 'lost' | 'found' | 'transfer' | 'moved_to_department' | 'pre_deployment' | 'post_deployment' | 'repair_out' | 'repair_return' | 'damaged' | 'defective' | 'disposal' | 'opening_stock';
 
 export interface StockMovementItem {
   id: string;

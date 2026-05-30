@@ -7,14 +7,14 @@ import { generateStockId, generateMovementNo, generateSku } from '../utils/idGen
 
 const router = Router();
 
-const VALID_MOVEMENT_TYPES = ['stock_in', 'stock_out', 'adjustment', 'transfer', 'damaged', 'returned', 'found', 'opening_stock', 'deployment', 'repair', 'disposal', 'borrowed', 'lost', 'moved_to_department'] as const;
+const VALID_MOVEMENT_TYPES = ['stock_in', 'stock_out', 'adjustment', 'borrowed', 'returned', 'lost', 'found', 'transfer', 'moved_to_department', 'pre_deployment', 'post_deployment', 'repair_out', 'repair_return', 'damaged', 'defective', 'disposal', 'opening_stock'] as const;
 type MovementType = typeof VALID_MOVEMENT_TYPES[number];
 
-const DEDUCTING_TYPES: MovementType[] = ['stock_out', 'damaged', 'disposal', 'borrowed', 'lost'];
-const ADDING_TYPES: MovementType[] = ['stock_in', 'returned', 'found', 'adjustment', 'opening_stock'];
-const NEUTRAL_TYPES: MovementType[] = ['transfer', 'deployment', 'repair', 'moved_to_department'];
-const STATUS_ONLY_TYPES: MovementType[] = ['deployment', 'repair'];
-const RESTORING_TYPES: Partial<Record<MovementType, string>> = { returned: 'borrowed', found: 'lost' };
+const DEDUCTING_TYPES: MovementType[] = ['stock_out', 'damaged', 'defective', 'disposal', 'borrowed', 'lost', 'pre_deployment', 'repair_out'];
+const ADDING_TYPES: MovementType[] = ['stock_in', 'returned', 'found', 'adjustment', 'opening_stock', 'post_deployment', 'repair_return'];
+const NEUTRAL_TYPES: MovementType[] = ['transfer', 'moved_to_department'];
+const STATUS_ONLY_TYPES: MovementType[] = [];
+const RESTORING_TYPES: Partial<Record<MovementType, string>> = { returned: 'borrowed', found: 'lost', post_deployment: 'deployed', repair_return: 'repair' };
 
 function stockDelta(type: MovementType, quantity: number): number {
   if (DEDUCTING_TYPES.includes(type)) return -quantity;
@@ -121,10 +121,7 @@ router.post('/', async (req: AuthRequest, res: Response) => {
       return res.status(400).json({ error: 'New location is required for moved_to_department' });
     }
 
-    if (movementType === 'deployment') {
-      if (items.some((item: any) => !item.stockDetailId)) {
-        return res.status(400).json({ error: 'Deployment requires selecting a specific inventory item' });
-      }
+    if (movementType === 'pre_deployment') {
       if (deploymentLatitude !== undefined && deploymentLatitude !== null && deploymentLatitude !== '') {
         const latitude = Number(deploymentLatitude);
         if (!Number.isFinite(latitude) || latitude < -90 || latitude > 90) {
@@ -145,9 +142,9 @@ router.post('/', async (req: AuthRequest, res: Response) => {
       });
     }
 
-    if ((movementType === 'returned' || movementType === 'found') && items.some((item: any) => !item.stockDetailId)) {
+    if ((movementType === 'returned' || movementType === 'found') && items.some((item: any) => !item.stockDetailId && (!item.productId || item.quantity <= 0))) {
       return res.status(400).json({
-        error: `${movementType === 'returned' ? 'Returned' : 'Found'} movements must select the original inventory item so the stock ID is preserved.`,
+        error: `${movementType === 'returned' ? 'Returned' : 'Found'} movements must select an inventory item or enter a product quantity.`,
       });
     }
 
@@ -186,8 +183,11 @@ router.post('/', async (req: AuthRequest, res: Response) => {
         fromLocationId: string | null; toLocationId: string | null; reason: string | null;
       }> = [];
 
-      // Track IDs already committed in this transaction to avoid reuse
-      const usedIds = new Set<string>();
+      // Track IDs already committed in this transaction to avoid reuse.
+      // Pre-seed with all explicitly specified stockDetailIds so random pickers never steal them.
+      const usedIds = new Set<string>(
+        items.filter((it: any) => it.stockDetailId).map((it: any) => it.stockDetailId)
+      );
       const generatedStockIds = new Set<string>();
       const generatedSkus = new Set<string>();
       const departmentTransferTotals = new Map<string, { destinationProductId: string; quantity: number }>();
@@ -277,7 +277,7 @@ router.post('/', async (req: AuthRequest, res: Response) => {
 
       const statusMap: Record<string, string> = {
         stock_out: 'sold', damaged: 'damaged', disposal: 'disposed',
-        borrowed: 'borrowed', lost: 'lost', deployment: 'deployed', repair: 'repair',
+        borrowed: 'borrowed', lost: 'lost', pre_deployment: 'deployed', repair_out: 'repair', defective: 'defective',
       };
 
       for (const item of items) {
@@ -291,7 +291,7 @@ router.post('/', async (req: AuthRequest, res: Response) => {
           if (!existing || existing.productId !== item.productId) {
             throw new Error('Selected inventory item does not match the selected product.');
           }
-          if (item.fromLocationId && existing.currentLocationId !== item.fromLocationId) {
+          if (movementType !== 'found' && item.fromLocationId && existing.currentLocationId !== item.fromLocationId) {
             throw new Error('Selected inventory item is not in the source location.');
           }
 
@@ -332,7 +332,8 @@ router.post('/', async (req: AuthRequest, res: Response) => {
           } else if (RESTORING_TYPES[movementType as MovementType]) {
             const expectedStatus = RESTORING_TYPES[movementType as MovementType];
             if (existing.currentStatus !== expectedStatus) {
-              throw new Error(`${movementType === 'returned' ? 'Returned' : 'Found'} movements require an item currently marked ${expectedStatus}.`);
+              const labelMap: Partial<Record<MovementType, string>> = { returned: 'Returned', post_deployment: 'Post Deployment', repair_return: 'Repair Return', found: 'Found' };
+              throw new Error(`${labelMap[movementType as MovementType] ?? movementType} movements require an item currently marked ${expectedStatus}.`);
             }
             await tx.stockDetail.update({
               where: { id: item.stockDetailId },
@@ -340,6 +341,14 @@ router.post('/', async (req: AuthRequest, res: Response) => {
                 currentStatus: 'active',
                 currentLocationId: item.toLocationId || null,
               },
+            });
+          } else if (movementType === 'adjustment' && qty < 0) {
+            if (existing.currentStatus !== 'active') {
+              throw new Error('Cannot update item status. The selected item is not active.');
+            }
+            await tx.stockDetail.update({
+              where: { id: item.stockDetailId },
+              data: { currentStatus: 'sold', currentLocationId: item.toLocationId || null },
             });
           } else if (DEDUCTING_TYPES.includes(movementType as MovementType) || STATUS_ONLY_TYPES.includes(movementType as MovementType)) {
             if (existing.currentStatus !== 'active') {
@@ -357,7 +366,7 @@ router.post('/', async (req: AuthRequest, res: Response) => {
           processedItems.push({
             stockDetailId: item.stockDetailId,
             productId: item.productId,
-            quantity: 1,
+            quantity: STATUS_ONLY_TYPES.includes(movementType as MovementType) ? 0 : qty < 0 ? -1 : 1,
             fromLocationId: item.fromLocationId || existing.currentLocationId || null,
             toLocationId: item.toLocationId || null,
             reason: item.reason || null,
@@ -436,7 +445,37 @@ router.post('/', async (req: AuthRequest, res: Response) => {
               });
             }
           } else if (RESTORING_TYPES[movementType as MovementType]) {
-            throw new Error(`${movementType === 'returned' ? 'Returned' : 'Found'} movements must select the original inventory item so the stock ID is preserved.`);
+            const expectedStatus = RESTORING_TYPES[movementType as MovementType];
+            const movementLabel = movementType === 'returned' ? 'returned' : 'found';
+            for (let i = 0; i < qty; i++) {
+              const existing = await tx.stockDetail.findFirst({
+                where: {
+                  productId: item.productId,
+                  currentStatus: expectedStatus,
+                  id: { notIn: [...usedIds] },
+                },
+                orderBy: { createdAt: 'desc' },
+              });
+              if (!existing) {
+                throw new Error(`Cannot mark ${qty} item(s) as ${movementLabel}. Only ${i} ${expectedStatus} item(s) available for this product.`);
+              }
+              await tx.stockDetail.update({
+                where: { id: existing.id },
+                data: {
+                  currentStatus: 'active',
+                  currentLocationId: item.toLocationId || null,
+                },
+              });
+              usedIds.add(existing.id);
+              processedItems.push({
+                stockDetailId: existing.id,
+                productId: item.productId,
+                quantity: 1,
+                fromLocationId: item.fromLocationId || existing.currentLocationId || null,
+                toLocationId: item.toLocationId || null,
+                reason: item.reason || null,
+              });
+            }
           } else if (DEDUCTING_TYPES.includes(movementType as MovementType) || STATUS_ONLY_TYPES.includes(movementType as MovementType)) {
             // Find and mark exactly `qty` individual active units, skipping already-used ones
             for (let i = 0; i < qty; i++) {
@@ -547,7 +586,7 @@ router.post('/', async (req: AuthRequest, res: Response) => {
         include: { items: { include: { product: true, stockDetail: true } }, user: true, department: true, toDepartment: true },
       });
 
-      if (movementType === 'deployment') {
+      if (movementType === 'pre_deployment') {
         const latitudeValue = deploymentLatitude !== undefined && deploymentLatitude !== null && deploymentLatitude !== '' ? Number(deploymentLatitude) : null;
         const longitudeValue = deploymentLongitude !== undefined && deploymentLongitude !== null && deploymentLongitude !== '' ? Number(deploymentLongitude) : null;
 
@@ -592,20 +631,18 @@ router.post('/', async (req: AuthRequest, res: Response) => {
         });
       }
 
-      if (movementType === 'transfer') {
-        for (const productId of productTotals.keys()) {
-          const activeLocations = await tx.stockDetail.findMany({
-            where: { productId, currentStatus: 'active' },
-            distinct: ['currentLocationId'],
-            select: { currentLocationId: true },
-          });
-          await tx.product.update({
-            where: { id: productId },
-            data: {
-              locationId: activeLocations.length === 1 ? activeLocations[0].currentLocationId : null,
-            },
-          });
-        }
+      for (const productId of productTotals.keys()) {
+        const activeLocations = await tx.stockDetail.findMany({
+          where: { productId, currentStatus: 'active' },
+          distinct: ['currentLocationId'],
+          select: { currentLocationId: true },
+        });
+        await tx.product.update({
+          where: { id: productId },
+          data: {
+            locationId: activeLocations.length === 1 ? activeLocations[0].currentLocationId : null,
+          },
+        });
       }
 
       // For moved_to_department, move only the selected units into a destination product.

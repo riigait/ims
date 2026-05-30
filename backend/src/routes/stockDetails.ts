@@ -53,6 +53,20 @@ router.get('/product/:productId', async (req: AuthRequest, res: Response) => {
   }
 });
 
+router.get('/:id/deployment', async (req: AuthRequest, res: Response) => {
+  try {
+    const record = await prisma.deployedStock.findFirst({
+      where: { inventoryItemId: req.params.id },
+      orderBy: { createdAt: 'desc' },
+      select: { deploymentAddress: true, deploymentSiteName: true, deploymentLatitude: true, deploymentLongitude: true, deployedToName: true },
+    });
+    res.json(record || null);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 // Get single stock detail
 router.get('/by-status/:status', async (req: AuthRequest, res: Response) => {
   try {

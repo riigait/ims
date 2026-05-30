@@ -101,6 +101,7 @@ export const stockDetailsApi = {
   getByStatus: (status: string) => api.get(`/stock-details/by-status/${status}`),
   getById: (id: string) => api.get(`/stock-details/${id}`),
   getMovements: (id: string) => api.get(`/stock-details/${id}/movements`),
+  getDeployment: (id: string) => api.get(`/stock-details/${id}/deployment`),
   create: (data: any) => api.post('/stock-details', data),
   update: (id: string, data: any) => api.put(`/stock-details/${id}`, data),
   delete: (id: string) => api.delete(`/stock-details/${id}`),
@@ -119,6 +120,12 @@ export const floorPlansApi = {
     api.post(`/floor-plans/${id}/feedback`, data),
   regenerate: (id: string) => api.post(`/floor-plans/${id}/regenerate`, {}),
   getRules: () => api.get('/floor-plans/rules'),
+};
+
+// Map Search
+export const mapApi = {
+  search: (query: string) => api.get('/map/search', { params: { q: query } }),
+  reverse: (lat: number, lng: number) => api.get('/map/reverse', { params: { lat, lng } }),
 };
 
 // Dashboard
