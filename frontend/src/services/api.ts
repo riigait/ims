@@ -18,7 +18,7 @@ api.interceptors.request.use((config) => {
 
   // Add current department header for admins
   const currentDeptId = localStorage.getItem('currentDepartmentId');
-  if (currentDeptId) {
+  if (currentDeptId && !config.headers['X-Department-Id']) {
     config.headers['X-Department-Id'] = currentDeptId;
   }
 
@@ -78,6 +78,7 @@ export const categoriesApi = {
 // Locations
 export const locationsApi = {
   getAll: () => api.get('/locations'),
+  getForDepartment: (departmentId: string) => api.get('/locations', { headers: { 'X-Department-Id': departmentId } }),
   getById: (id: string) => api.get(`/locations/${id}`),
   create: (data: any) => api.post('/locations', data),
   update: (id: string, data: any) => api.put(`/locations/${id}`, data),

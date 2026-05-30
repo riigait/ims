@@ -179,6 +179,31 @@ model StockDetail {
   @@index([stockId])
 }
 
+model DeployedStock {
+  id                    String   @id @default(cuid())
+  stockId               String
+  inventoryItemId       String
+  productId             String?
+  deployedToName        String?
+  deployedToDepartmentId String?
+  deployedToLocationId  String?
+  deploymentSiteName    String?
+  deploymentAddress     String?
+  deploymentLatitude    Float?
+  deploymentLongitude   Float?
+  deploymentDate        DateTime @default(now())
+  returnedDate          DateTime?
+  status                String   @default("DEPLOYED")
+  notes                 String?
+  createdByUserId       String?
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  @@index([stockId])
+  @@index([inventoryItemId])
+  @@index([status])
+}
+
 model AuditLog {
   id         String   @id @default(cuid())
   userId     String?

@@ -1,13 +1,15 @@
 import { useState, useEffect, useRef } from 'react';
-import { X, Trash2, Search, ChevronLeft, ChevronRight } from 'lucide-react';
+import { X, Trash2, Search, ChevronLeft, ChevronRight, MapPin } from 'lucide-react';
 import { stockMovementsApi, productsApi, locationsApi, departmentsApi, stockDetailsApi } from '@/services/api';
 import { StockMovement, MovementType, Product, Location } from '@/types/inventory';
 import { StockMovementFilter } from '@/types/filters';
+import { FloorPlan, FloorPlanObject } from '@/types/floorplan';
 import { formatDate } from '@/utils/ids';
 import { filterStockMovements, sortStockMovements } from '@/utils/filterHelpers';
 import DataPageLayout from '@/components/layout/DataPageLayout';
 import Pagination from '@/components/Pagination';
 import StockDetails from '@/components/StockDetails';
+import DeploymentMapPicker from '@/components/maps/DeploymentMapPicker';
 import { ALL_DEPARTMENTS_ID } from '@/constants/app';
 
 interface Department {
@@ -343,7 +345,8 @@ interface StockDetailItem {
   assetTag?: string;
 }
 
-const DEDUCTING_MOVEMENT_TYPES = ['stock_out', 'transfer', 'damaged', 'disposal', 'borrowed', 'lost', 'returned', 'found'];
+const DEDUCTING_MOVEMENT_TYPES: MovementType[] = ['stock_out', 'transfer', 'damaged', 'disposal', 'borrowed', 'lost', 'returned', 'found'];
+const SPECIFIC_ITEM_MOVEMENT_TYPES: MovementType[] = [...DEDUCTING_MOVEMENT_TYPES, 'deployment', 'moved_to_department'];
 const RETURNING_STATUSES: Partial<Record<MovementType, string[]>> = {
   returned: ['borrowed'],
   found: ['lost'],
@@ -509,10 +512,153 @@ function StockDetailSearchDropdown({
   );
 }
 
+export function MapLocationPicker({
+  locations,
+  floorPlans,
+  selectedLocationId,
+  onSelect,
+  onClose,
+}: {
+  locations: Location[];
+  floorPlans: FloorPlan[];
+  selectedLocationId: string;
+  onSelect: (locationId: string) => void;
+  onClose: () => void;
+}) {
+  const locationIds = new Set(locations.map(location => location.id));
+  const plansWithLinks = floorPlans
+    .map(plan => ({
+      plan,
+      linkedCount: (plan.objects || []).filter(obj => obj.linkedLocationId && locationIds.has(obj.linkedLocationId)).length,
+    }))
+    .filter(entry => entry.linkedCount > 0)
+    .sort((a, b) => Number(b.plan.isApproved) - Number(a.plan.isApproved) || b.linkedCount - a.linkedCount);
+
+  const [selectedPlanId, setSelectedPlanId] = useState(plansWithLinks[0]?.plan.id || '');
+  useEffect(() => {
+    if (plansWithLinks.length > 0 && !plansWithLinks.some(entry => entry.plan.id === selectedPlanId)) {
+      setSelectedPlanId(plansWithLinks[0].plan.id);
+    }
+  }, [plansWithLinks, selectedPlanId]);
+
+  const selectedPlan = plansWithLinks.find(entry => entry.plan.id === selectedPlanId)?.plan || plansWithLinks[0]?.plan;
+  const locationName = (id?: string) => locations.find(location => location.id === id)?.name || 'Linked location';
+  const rectFill: Record<string, string> = { room: '#e5e7eb', rack: '#fef3c7', shelf: '#dbeafe' };
+
+  const renderObject = (obj: FloorPlanObject) => {
+    const linked = obj.linkedLocationId && locationIds.has(obj.linkedLocationId);
+    const selected = !!obj.linkedLocationId && obj.linkedLocationId === selectedLocationId;
+    const common = {
+      key: obj.id,
+      onClick: linked ? () => onSelect(obj.linkedLocationId as string) : undefined,
+      style: { cursor: linked ? 'pointer' : 'default' },
+    };
+
+    if (obj.type === 'wall') {
+      return <line {...common} x1={obj.startX} y1={obj.startY} x2={obj.endX} y2={obj.endY} stroke={selected ? '#2563eb' : obj.color || '#1e293b'} strokeWidth={Math.max(1, obj.thickness)} strokeLinecap="round" />;
+    }
+    if (obj.type === 'room' || obj.type === 'rack' || obj.type === 'shelf') {
+      return (
+        <g {...common}>
+          <rect
+            x={obj.x}
+            y={obj.y}
+            width={obj.width}
+            height={obj.height}
+            fill={selected ? '#bfdbfe' : obj.color || rectFill[obj.type]}
+            stroke={selected ? '#2563eb' : linked ? '#0f766e' : '#64748b'}
+            strokeWidth={selected ? 4 : linked ? 2 : 1}
+            opacity={linked ? 0.9 : 0.55}
+          />
+          {(obj.label || obj.linkedLocationId) && obj.width > 48 && obj.height > 24 && (
+            <text x={obj.x + obj.width / 2} y={obj.y + obj.height / 2} textAnchor="middle" dominantBaseline="middle" fontSize={14} fill="#334155">
+              {(obj.label || locationName(obj.linkedLocationId)).slice(0, 24)}
+            </text>
+          )}
+        </g>
+      );
+    }
+    if (obj.type === 'label') {
+      return <text {...common} x={obj.x} y={obj.y} fontSize={obj.fontSize} fill={obj.color || '#475569'}>{obj.text}</text>;
+    }
+    if (obj.type === 'marker') {
+      return (
+        <g {...common}>
+          <circle cx={obj.x} cy={obj.y} r={selected ? 12 : 8} fill={selected ? '#2563eb' : linked ? '#0f766e' : '#94a3b8'} />
+          {linked && <text x={obj.x + 12} y={obj.y + 4} fontSize={12} fill="#334155">{locationName(obj.linkedLocationId).slice(0, 18)}</text>}
+        </g>
+      );
+    }
+    const shape = obj as any;
+    return <line {...common} x1={shape.x - shape.width / 2} y1={shape.y} x2={shape.x + shape.width / 2} y2={shape.y} stroke={obj.type === 'window' ? '#38bdf8' : '#16a34a'} strokeWidth={4} transform={`rotate(${((shape.angle || 0) * 180) / Math.PI} ${shape.x} ${shape.y})`} />;
+  };
+
+  return (
+    <div className="fixed inset-0 z-[70] bg-black/50 flex items-center justify-center p-4">
+      <div className="w-full max-w-6xl h-[88vh] bg-[var(--surface)] rounded-lg shadow-2xl border border-[var(--border)] flex flex-col overflow-hidden">
+        <div className="px-4 py-3 border-b border-[var(--border)] flex items-center justify-between">
+          <div>
+            <h3 className="text-sm font-semibold text-[var(--text)]">Map Select Location</h3>
+            <p className="text-xs text-[var(--text-muted)]">Click a linked area or choose from the location list.</p>
+          </div>
+          <button type="button" onClick={onClose} className="p-1.5 rounded-lg hover:bg-[var(--surface-2)] text-[var(--text-muted)]">
+            <X size={18} />
+          </button>
+        </div>
+        <div className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-[1fr_280px]">
+          <div className="min-h-0 p-4 bg-[var(--surface-2)]">
+            {selectedPlan ? (
+              <div className="h-full flex flex-col gap-3">
+                {plansWithLinks.length > 1 && (
+                  <select value={selectedPlan.id} onChange={e => setSelectedPlanId(e.target.value)}
+                    className="w-full max-w-sm px-3 py-2 border border-[var(--border)] rounded text-sm bg-[var(--surface)] text-[var(--text)]">
+                    {plansWithLinks.map(({ plan }) => <option key={plan.id} value={plan.id}>{plan.name}</option>)}
+                  </select>
+                )}
+                <div className="flex-1 min-h-0 bg-white rounded border border-[var(--border)] overflow-auto">
+                  <svg viewBox={`0 0 ${selectedPlan.width} ${selectedPlan.height}`} className="w-full h-full min-h-[420px]">
+                    <rect x="0" y="0" width={selectedPlan.width} height={selectedPlan.height} fill="#f8fafc" />
+                    {(selectedPlan.objects || []).map(renderObject)}
+                  </svg>
+                </div>
+              </div>
+            ) : (
+              <div className="h-full flex items-center justify-center text-sm text-[var(--text-muted)]">
+                No linked floor-plan locations found.
+              </div>
+            )}
+          </div>
+          <div className="border-t lg:border-t-0 lg:border-l border-[var(--border)] p-3 overflow-y-auto">
+            <p className="text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wider mb-2">Locations</p>
+            <div className="space-y-1">
+              {locations.map(location => (
+                <button
+                  key={location.id}
+                  type="button"
+                  onClick={() => onSelect(location.id)}
+                  className={`w-full text-left px-3 py-2 rounded text-sm transition-colors ${location.id === selectedLocationId ? 'bg-[var(--primary)] text-white' : 'hover:bg-[var(--surface-2)] text-[var(--text)]'}`}
+                >
+                  {location.name}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 const emptyForm = {
   movementType: 'stock_in' as MovementType,
   remarks: '',
   toDepartmentId: '',
+  deploymentSiteName: '',
+  deploymentAddress: '',
+  deploymentLatitude: '',
+  deploymentLongitude: '',
+  deployedToName: '',
+  deploymentNotes: '',
   items: [{ stockDetailId: '', productId: '', quantity: 0, fromLocationId: '', toLocationId: '', reason: '' }],
 };
 
@@ -545,6 +691,27 @@ export default function StockMovements() {
   const [itemsSearch, setItemsSearch] = useState('');
   const [itemStockDetails, setItemStockDetails] = useState<Record<number, StockDetailItem[]>>({});
   const [borrowedProductIds, setBorrowedProductIds] = useState<Set<string>>(new Set());
+  const [deploymentMapOpen, setDeploymentMapOpen] = useState(false);
+  const currentDepartmentId = localStorage.getItem('currentDepartmentId') || user.departmentId || '';
+  const currentDepartmentName = departments.find(d => d.id === currentDepartmentId)?.name || 'Current department';
+  const currentDepartmentLocations = locations.filter(l => !currentDepartmentId || !l.departmentId || l.departmentId === currentDepartmentId);
+  const destinationLocations = formData.toDepartmentId
+    ? locations.filter(l => !l.departmentId || l.departmentId === formData.toDepartmentId)
+    : [];
+
+  const loadDepartmentLocations = async (departmentId: string) => {
+    if (!departmentId) return;
+    try {
+      const res = await locationsApi.getForDepartment(departmentId);
+      setLocations(prev => {
+        const byId = new Map(prev.map(location => [location.id, location]));
+        (res.data as Location[]).forEach(location => byId.set(location.id, location));
+        return Array.from(byId.values());
+      });
+    } catch {
+      setFormError('Could not load destination locations for the selected department');
+    }
+  };
 
   const fetchData = async () => {
     try {
@@ -610,11 +777,35 @@ export default function StockMovements() {
       setFormError('Please select at least one product and enter a valid quantity');
       return;
     }
+    if (formData.movementType === 'deployment' && validItems.some(item => !item.stockDetailId)) {
+      setFormError('Please select the specific inventory item to deploy');
+      return;
+    }
+    if (formData.movementType === 'moved_to_department') {
+      if (!formData.toDepartmentId) {
+        setFormError('Please select a destination department');
+        return;
+      }
+      if (validItems.some(item => !item.stockDetailId)) {
+        setFormError('Please select the specific inventory item to transfer');
+        return;
+      }
+      if (validItems.some(item => !item.toLocationId)) {
+        setFormError('Please select the new location for the transferred item');
+        return;
+      }
+    }
     try {
       await stockMovementsApi.create({
         movementType: formData.movementType,
         remarks: formData.remarks || null,
         toDepartmentId: formData.toDepartmentId || undefined,
+        deploymentSiteName: formData.deploymentSiteName || undefined,
+        deploymentAddress: formData.deploymentAddress || undefined,
+        deploymentLatitude: formData.deploymentLatitude ? Number(formData.deploymentLatitude) : undefined,
+        deploymentLongitude: formData.deploymentLongitude ? Number(formData.deploymentLongitude) : undefined,
+        deployedToName: formData.deployedToName || undefined,
+        deploymentNotes: formData.deploymentNotes || undefined,
         items: validItems,
       });
       await fetchData();
@@ -706,6 +897,21 @@ export default function StockMovements() {
             </div>
           </div>
         </div>
+      )}
+
+      {deploymentMapOpen && (
+        <DeploymentMapPicker
+          latitude={formData.deploymentLatitude ? Number(formData.deploymentLatitude) : null}
+          longitude={formData.deploymentLongitude ? Number(formData.deploymentLongitude) : null}
+          onChange={({ latitude, longitude }) => {
+            setFormData({
+              ...formData,
+              deploymentLatitude: latitude.toFixed(6),
+              deploymentLongitude: longitude.toFixed(6),
+            });
+          }}
+          onClose={() => setDeploymentMapOpen(false)}
+        />
       )}
 
       <DataPageLayout
@@ -816,7 +1022,7 @@ export default function StockMovements() {
                       <select value={formData.movementType}
                         onChange={async e => {
                           const newType = e.target.value as MovementType;
-                          setFormData({ ...formData, movementType: newType, items: formData.items.map(it => ({ ...it, stockDetailId: '', productId: '', fromLocationId: '' })) });
+                          setFormData({ ...formData, movementType: newType, items: formData.items.map(it => ({ ...it, stockDetailId: '', productId: '', fromLocationId: '', toLocationId: '' })) });
                           setItemStockDetails({});
                           if (newType === 'returned' || newType === 'found') {
                             try {
@@ -854,15 +1060,85 @@ export default function StockMovements() {
                         placeholder="e.g., Purchase order #123, Batch adjustment..."
                         className="w-full px-3 py-2 border border-[var(--border)] rounded-lg text-sm bg-[var(--surface)] text-[var(--text)]" />
                     </div>
+                    {formData.movementType === 'deployment' && (
+                      <div className="space-y-3">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                          <div>
+                            <label className="block text-xs font-medium text-[var(--text-muted)] mb-1">Deployment Site Name</label>
+                            <input type="text" value={formData.deploymentSiteName}
+                              onChange={e => setFormData({ ...formData, deploymentSiteName: e.target.value })}
+                              className="w-full px-3 py-2 border border-[var(--border)] rounded-lg text-sm bg-[var(--surface)] text-[var(--text)]" />
+                          </div>
+                          <div>
+                            <label className="block text-xs font-medium text-[var(--text-muted)] mb-1">Deployed To / Client / Person</label>
+                            <input type="text" value={formData.deployedToName}
+                              onChange={e => setFormData({ ...formData, deployedToName: e.target.value })}
+                              className="w-full px-3 py-2 border border-[var(--border)] rounded-lg text-sm bg-[var(--surface)] text-[var(--text)]" />
+                          </div>
+                        </div>
+                        <div>
+                          <label className="block text-xs font-medium text-[var(--text-muted)] mb-1">Deployment Address</label>
+                          <input type="text" value={formData.deploymentAddress}
+                            onChange={e => setFormData({ ...formData, deploymentAddress: e.target.value })}
+                            className="w-full px-3 py-2 border border-[var(--border)] rounded-lg text-sm bg-[var(--surface)] text-[var(--text)]" />
+                        </div>
+                        <div className="grid grid-cols-1 sm:grid-cols-[1fr_1fr_auto] gap-3 items-end">
+                          <div>
+                            <label className="block text-xs font-medium text-[var(--text-muted)] mb-1">Latitude</label>
+                            <input type="number" step="any" value={formData.deploymentLatitude}
+                              onChange={e => setFormData({ ...formData, deploymentLatitude: e.target.value })}
+                              className="w-full px-3 py-2 border border-[var(--border)] rounded-lg text-sm bg-[var(--surface)] text-[var(--text)]" />
+                          </div>
+                          <div>
+                            <label className="block text-xs font-medium text-[var(--text-muted)] mb-1">Longitude</label>
+                            <input type="number" step="any" value={formData.deploymentLongitude}
+                              onChange={e => setFormData({ ...formData, deploymentLongitude: e.target.value })}
+                              className="w-full px-3 py-2 border border-[var(--border)] rounded-lg text-sm bg-[var(--surface)] text-[var(--text)]" />
+                          </div>
+                          <button type="button"
+                            onClick={() => setDeploymentMapOpen(true)}
+                            className="h-[38px] px-3 border border-[var(--border)] rounded-lg bg-[var(--surface)] hover:bg-[var(--surface-2)] text-[var(--text)] flex items-center gap-1.5 text-sm">
+                            <MapPin size={14} />
+                            Map
+                          </button>
+                        </div>
+                        <div>
+                          <label className="block text-xs font-medium text-[var(--text-muted)] mb-1">Deployment Notes</label>
+                          <textarea value={formData.deploymentNotes}
+                            onChange={e => setFormData({ ...formData, deploymentNotes: e.target.value })}
+                            rows={2}
+                            className="w-full px-3 py-2 border border-[var(--border)] rounded-lg text-sm bg-[var(--surface)] text-[var(--text)] resize-none" />
+                        </div>
+                      </div>
+                    )}
                     {formData.movementType === 'moved_to_department' && (
-                      <div>
-                        <label className="block text-xs font-medium text-[var(--text-muted)] mb-1">Move To Department *</label>
-                        <select value={formData.toDepartmentId}
-                          onChange={e => setFormData({ ...formData, toDepartmentId: e.target.value })}
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div>
+                          <label className="block text-xs font-medium text-[var(--text-muted)] mb-1">Current Department</label>
+                          <div className="w-full px-3 py-2 border border-[var(--border)] rounded-lg text-sm bg-[var(--surface-2)] text-[var(--text-muted)]">
+                            {currentDepartmentName}
+                          </div>
+                        </div>
+                        <div>
+                          <label className="block text-xs font-medium text-[var(--text-muted)] mb-1">Move To Department *</label>
+                          <select value={formData.toDepartmentId}
+                          onChange={async e => {
+                            const toDepartmentId = e.target.value;
+                            setFormData({
+                              ...formData,
+                              toDepartmentId,
+                              items: formData.items.map(it => ({ ...it, toLocationId: '' })),
+                            });
+                            setFormError('');
+                            await loadDepartmentLocations(toDepartmentId);
+                          }}
                           className="w-full px-3 py-2 border border-[var(--border)] rounded-lg text-sm bg-[var(--surface)] text-[var(--text)]">
                           <option value="">— Select destination department —</option>
-                          {departments.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
-                        </select>
+                          {departments
+                            .filter(d => d.id !== currentDepartmentId)
+                            .map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
+                          </select>
+                        </div>
                       </div>
                     )}
                   </div>
@@ -881,7 +1157,7 @@ export default function StockMovements() {
                                   : products}
                                 value={item.productId}
                                 excludeIds={(() => {
-                                  if (!DEDUCTING_MOVEMENT_TYPES.includes(formData.movementType) || formData.movementType === 'returned' || formData.movementType === 'found') return [];
+                                  if (!SPECIFIC_ITEM_MOVEMENT_TYPES.includes(formData.movementType) || formData.movementType === 'returned' || formData.movementType === 'found') return [];
                                   const alloc: Record<string, number> = {};
                                   formData.items.forEach((it, i) => {
                                     if (i < idx && it.productId) alloc[it.productId] = (alloc[it.productId] || 0) + (it.stockDetailId ? 1 : (it.quantity || 0));
@@ -889,7 +1165,7 @@ export default function StockMovements() {
                                   return products.filter(p => (alloc[p.id] || 0) >= p.currentStock).map(p => p.id);
                                 })()}
                                 allocatedCounts={(() => {
-                                  if (!DEDUCTING_MOVEMENT_TYPES.includes(formData.movementType) || formData.movementType === 'returned' || formData.movementType === 'found') return {};
+                                  if (!SPECIFIC_ITEM_MOVEMENT_TYPES.includes(formData.movementType) || formData.movementType === 'returned' || formData.movementType === 'found') return {};
                                   const alloc: Record<string, number> = {};
                                   formData.items.forEach((it, i) => {
                                     if (i < idx && it.productId) alloc[it.productId] = (alloc[it.productId] || 0) + (it.stockDetailId ? 1 : (it.quantity || 0));
@@ -899,9 +1175,15 @@ export default function StockMovements() {
                                 onChange={async productId => {
                                   const newItems = [...formData.items];
                                   const selectedProduct = products.find(p => p.id === productId);
-                                  newItems[idx] = { ...item, productId, stockDetailId: '', fromLocationId: selectedProduct?.locationId || '' };
+                                  newItems[idx] = {
+                                    ...item,
+                                    productId,
+                                    stockDetailId: '',
+                                    fromLocationId: selectedProduct?.locationId || '',
+                                    quantity: SPECIFIC_ITEM_MOVEMENT_TYPES.includes(formData.movementType) ? 1 : item.quantity,
+                                  };
                                   setFormData({ ...formData, items: newItems });
-                                  if (DEDUCTING_MOVEMENT_TYPES.includes(formData.movementType) && productId) {
+                                  if (SPECIFIC_ITEM_MOVEMENT_TYPES.includes(formData.movementType) && productId) {
                                     try {
                                       const res = await stockDetailsApi.getByProductId(productId);
                                       const returningStatuses = RETURNING_STATUSES[formData.movementType] || [];
@@ -916,10 +1198,10 @@ export default function StockMovements() {
                                 }}
                               />
                             </div>
-                            {DEDUCTING_MOVEMENT_TYPES.includes(formData.movementType) && item.productId && (
+                            {SPECIFIC_ITEM_MOVEMENT_TYPES.includes(formData.movementType) && item.productId && (
                               <div>
                                 <label className="block text-xs font-medium text-[var(--text-muted)] mb-1">
-                                  Inventory Item <span className="text-[var(--text-muted)] font-normal normal-case">(which specific unit?)</span>
+                                  {formData.movementType === 'moved_to_department' ? 'Specific Item' : 'Inventory Item'} <span className="text-[var(--text-muted)] font-normal normal-case">(which specific unit?)</span>
                                 </label>
                                 {itemStockDetails[idx] === undefined ? (
                                   <p className="text-xs text-[var(--text-muted)] italic px-1">Loading items…</p>
@@ -993,29 +1275,42 @@ export default function StockMovements() {
                               )}
                             </div>
                             <div>
-                              <label className="block text-xs font-medium text-[var(--text-muted)] mb-1">From Location</label>
-                              <LocationSearchDropdown
-                                locations={locations}
-                                value={(item.fromLocationId as string) || ''}
-                                onChange={locationId => {
-                                  const newItems = [...formData.items];
-                                  newItems[idx] = { ...newItems[idx], fromLocationId: locationId };
-                                  setFormData({ ...formData, items: newItems });
-                                }}
-                              />
+                              <label className="block text-xs font-medium text-[var(--text-muted)] mb-1">
+                                {formData.movementType === 'moved_to_department' ? 'Current Location' : 'From Location'}
+                              </label>
+                              {formData.movementType === 'moved_to_department' && item.stockDetailId ? (
+                                <div className="w-full px-2 py-1.5 text-sm border border-[var(--border)] rounded bg-[var(--surface-2)] text-[var(--text-muted)]">
+                                  {locations.find(l => l.id === item.fromLocationId)?.name || 'No location'}
+                                </div>
+                              ) : (
+                                <LocationSearchDropdown
+                                  locations={formData.movementType === 'moved_to_department' ? currentDepartmentLocations : locations}
+                                  value={(item.fromLocationId as string) || ''}
+                                  onChange={locationId => {
+                                    const newItems = [...formData.items];
+                                    newItems[idx] = { ...newItems[idx], fromLocationId: locationId };
+                                    setFormData({ ...formData, items: newItems });
+                                  }}
+                                />
+                              )}
                             </div>
+                            {formData.movementType !== 'deployment' && (
                             <div>
-                              <label className="block text-xs font-medium text-[var(--text-muted)] mb-1">To Location</label>
+                              <label className="block text-xs font-medium text-[var(--text-muted)] mb-1">
+                                {formData.movementType === 'moved_to_department' ? 'New Location' : 'To Location'}
+                              </label>
                               <LocationSearchDropdown
-                                locations={locations}
+                                locations={formData.movementType === 'moved_to_department' ? destinationLocations : locations}
                                 value={(item.toLocationId as string) || ''}
                                 onChange={locationId => {
                                   const newItems = [...formData.items];
                                   newItems[idx] = { ...newItems[idx], toLocationId: locationId };
                                   setFormData({ ...formData, items: newItems });
                                 }}
+                                placeholder={formData.movementType === 'moved_to_department' && !formData.toDepartmentId ? 'Select department first' : 'No location'}
                               />
                             </div>
+                            )}
                           </div>
                           {formData.items.length > 1 && (
                             <button type="button"

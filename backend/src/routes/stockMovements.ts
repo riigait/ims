@@ -3,7 +3,7 @@ import prisma from '../utils/prisma';
 import { AuthRequest } from '../middleware/auth';
 import { logAudit } from '../utils/audit';
 import { csvToJson, jsonToCsv } from '../utils/csv';
-import { generateStockId, generateMovementNo } from '../utils/idGenerator';
+import { generateStockId, generateMovementNo, generateSku } from '../utils/idGenerator';
 
 const router = Router();
 
@@ -14,6 +14,7 @@ const DEDUCTING_TYPES: MovementType[] = ['stock_out', 'damaged', 'disposal', 'bo
 const ADDING_TYPES: MovementType[] = ['stock_in', 'returned', 'found', 'adjustment', 'opening_stock'];
 const NEUTRAL_TYPES: MovementType[] = ['transfer', 'deployment', 'repair', 'moved_to_department'];
 const STATUS_ONLY_TYPES: MovementType[] = ['deployment', 'repair'];
+const RESTORING_TYPES: Partial<Record<MovementType, string>> = { returned: 'borrowed', found: 'lost' };
 
 function stockDelta(type: MovementType, quantity: number): number {
   if (DEDUCTING_TYPES.includes(type)) return -quantity;
@@ -27,6 +28,14 @@ function incrementStockId(stockId: string): string {
 
   const nextNum = parseInt(match[1]) + 1;
   return `STK-${String(nextNum).padStart(6, '0')}`;
+}
+
+function incrementSku(sku: string): string {
+  const match = sku.match(/SKU-(\d+)/);
+  if (!match) return 'SKU-000001';
+
+  const nextNum = parseInt(match[1]) + 1;
+  return `SKU-${String(nextNum).padStart(6, '0')}`;
 }
 
 // Get all stock movements
@@ -85,7 +94,18 @@ router.get('/:id', async (req: AuthRequest, res: Response) => {
 // Create stock movement with items
 router.post('/', async (req: AuthRequest, res: Response) => {
   try {
-    const { movementType, remarks, items, toDepartmentId } = req.body;
+    const {
+      movementType,
+      remarks,
+      items,
+      toDepartmentId,
+      deploymentSiteName,
+      deploymentAddress,
+      deploymentLatitude,
+      deploymentLongitude,
+      deployedToName,
+      deploymentNotes,
+    } = req.body;
     const userId = req.userId!;
 
     // Validate input
@@ -97,9 +117,37 @@ router.post('/', async (req: AuthRequest, res: Response) => {
       return res.status(400).json({ error: 'toDepartmentId is required for moved_to_department' });
     }
 
+    if (movementType === 'moved_to_department' && items.some((item: any) => !item.toLocationId)) {
+      return res.status(400).json({ error: 'New location is required for moved_to_department' });
+    }
+
+    if (movementType === 'deployment') {
+      if (items.some((item: any) => !item.stockDetailId)) {
+        return res.status(400).json({ error: 'Deployment requires selecting a specific inventory item' });
+      }
+      if (deploymentLatitude !== undefined && deploymentLatitude !== null && deploymentLatitude !== '') {
+        const latitude = Number(deploymentLatitude);
+        if (!Number.isFinite(latitude) || latitude < -90 || latitude > 90) {
+          return res.status(400).json({ error: 'deploymentLatitude must be between -90 and 90' });
+        }
+      }
+      if (deploymentLongitude !== undefined && deploymentLongitude !== null && deploymentLongitude !== '') {
+        const longitude = Number(deploymentLongitude);
+        if (!Number.isFinite(longitude) || longitude < -180 || longitude > 180) {
+          return res.status(400).json({ error: 'deploymentLongitude must be between -180 and 180' });
+        }
+      }
+    }
+
     if (!VALID_MOVEMENT_TYPES.includes(movementType as MovementType)) {
       return res.status(400).json({
         error: `movementType must be one of: ${VALID_MOVEMENT_TYPES.join(', ')}`,
+      });
+    }
+
+    if ((movementType === 'returned' || movementType === 'found') && items.some((item: any) => !item.stockDetailId)) {
+      return res.status(400).json({
+        error: `${movementType === 'returned' ? 'Returned' : 'Found'} movements must select the original inventory item so the stock ID is preserved.`,
       });
     }
 
@@ -141,6 +189,8 @@ router.post('/', async (req: AuthRequest, res: Response) => {
       // Track IDs already committed in this transaction to avoid reuse
       const usedIds = new Set<string>();
       const generatedStockIds = new Set<string>();
+      const generatedSkus = new Set<string>();
+      const departmentTransferTotals = new Map<string, { destinationProductId: string; quantity: number }>();
 
       const nextStockId = async () => {
         let stockId = await generateStockId();
@@ -154,6 +204,77 @@ router.post('/', async (req: AuthRequest, res: Response) => {
         return stockId;
       };
 
+      const nextSku = async () => {
+        let sku = await generateSku();
+        while (
+          generatedSkus.has(sku) ||
+          await tx.product.findUnique({ where: { sku }, select: { id: true } })
+        ) {
+          sku = incrementSku(sku);
+        }
+        generatedSkus.add(sku);
+        return sku;
+      };
+
+      const findOrCreateDestinationProduct = async (sourceProduct: any, toLocationId: string | null) => {
+        if (!toDepartmentId) throw new Error('toDepartmentId is required for moved_to_department');
+
+        let categoryId = sourceProduct.categoryId;
+        if (sourceProduct.category) {
+          let destinationCategory = await tx.category.findFirst({
+            where: { name: sourceProduct.category.name, departmentId: toDepartmentId },
+          });
+          if (!destinationCategory) {
+            destinationCategory = await tx.category.create({
+              data: {
+                name: sourceProduct.category.name,
+                description: sourceProduct.category.description || null,
+                departmentId: toDepartmentId,
+              },
+            });
+          }
+          categoryId = destinationCategory.id;
+        }
+
+        const existingDestinationProduct = await tx.product.findFirst({
+          where: {
+            name: sourceProduct.name,
+            categoryId,
+            departmentId: toDepartmentId,
+          },
+        });
+        if (existingDestinationProduct) return existingDestinationProduct;
+
+        return tx.product.create({
+          data: {
+            sku: await nextSku(),
+            name: sourceProduct.name,
+            description: sourceProduct.description,
+            categoryId,
+            departmentId: toDepartmentId,
+            unit: sourceProduct.unit,
+            currentStock: 0,
+            lowStockThreshold: sourceProduct.lowStockThreshold,
+            locationId: toLocationId,
+            supplier: sourceProduct.supplier,
+            unitPrice: sourceProduct.unitPrice,
+            status: sourceProduct.status,
+            expiryDate: sourceProduct.expiryDate,
+            leadTimeDays: sourceProduct.leadTimeDays,
+            notes: sourceProduct.notes,
+            source: 'department_transfer',
+          },
+        });
+      };
+
+      const trackDepartmentTransfer = (sourceProductId: string, destinationProductId: string) => {
+        const current = departmentTransferTotals.get(sourceProductId);
+        departmentTransferTotals.set(sourceProductId, {
+          destinationProductId,
+          quantity: (current?.quantity ?? 0) + 1,
+        });
+      };
+
       const statusMap: Record<string, string> = {
         stock_out: 'sold', damaged: 'damaged', disposal: 'disposed',
         borrowed: 'borrowed', lost: 'lost', deployment: 'deployed', repair: 'repair',
@@ -164,32 +285,64 @@ router.post('/', async (req: AuthRequest, res: Response) => {
 
         if (item.stockDetailId) {
           // Explicit unit selected by the user — always qty 1
+          const existing = await tx.stockDetail.findUnique({
+            where: { id: item.stockDetailId },
+          });
+          if (!existing || existing.productId !== item.productId) {
+            throw new Error('Selected inventory item does not match the selected product.');
+          }
+          if (item.fromLocationId && existing.currentLocationId !== item.fromLocationId) {
+            throw new Error('Selected inventory item is not in the source location.');
+          }
+
           if (movementType === 'transfer') {
-            const existing = await tx.stockDetail.findFirst({
-              where: {
-                id: item.stockDetailId,
-                productId: item.productId,
-                currentStatus: 'active',
-                ...(item.fromLocationId ? { currentLocationId: item.fromLocationId } : {}),
-              },
-            });
-            if (!existing) {
+            if (existing.currentStatus !== 'active') {
               throw new Error('Cannot transfer an item that is not active in the source location.');
             }
             await tx.stockDetail.update({
               where: { id: item.stockDetailId },
               data: { currentLocationId: item.toLocationId || null },
             });
-          } else if (DEDUCTING_TYPES.includes(movementType as MovementType) || STATUS_ONLY_TYPES.includes(movementType as MovementType)) {
-            const existing = await tx.stockDetail.findFirst({
-              where: {
-                id: item.stockDetailId,
-                productId: item.productId,
-                currentStatus: 'active',
-                ...(item.fromLocationId ? { currentLocationId: item.fromLocationId } : {}),
+          } else if (movementType === 'moved_to_department') {
+            if (existing.currentStatus !== 'active') {
+              throw new Error('Only active inventory items can be transferred to another department.');
+            }
+            const sourceProduct = await tx.product.findUnique({
+              where: { id: existing.productId },
+              include: { category: true },
+            });
+            if (!sourceProduct) {
+              throw new Error('Product not found for selected inventory item.');
+            }
+            if (item.toLocationId) {
+              const toLocation = await tx.location.findUnique({ where: { id: item.toLocationId }, select: { departmentId: true } });
+              if (!toLocation || toLocation.departmentId !== toDepartmentId) {
+                throw new Error('New location must belong to the destination department.');
+              }
+            }
+            const destinationProduct = await findOrCreateDestinationProduct(sourceProduct, item.toLocationId || null);
+            await tx.stockDetail.update({
+              where: { id: item.stockDetailId },
+              data: {
+                productId: destinationProduct.id,
+                currentLocationId: item.toLocationId || null,
               },
             });
-            if (!existing) {
+            trackDepartmentTransfer(sourceProduct.id, destinationProduct.id);
+          } else if (RESTORING_TYPES[movementType as MovementType]) {
+            const expectedStatus = RESTORING_TYPES[movementType as MovementType];
+            if (existing.currentStatus !== expectedStatus) {
+              throw new Error(`${movementType === 'returned' ? 'Returned' : 'Found'} movements require an item currently marked ${expectedStatus}.`);
+            }
+            await tx.stockDetail.update({
+              where: { id: item.stockDetailId },
+              data: {
+                currentStatus: 'active',
+                currentLocationId: item.toLocationId || null,
+              },
+            });
+          } else if (DEDUCTING_TYPES.includes(movementType as MovementType) || STATUS_ONLY_TYPES.includes(movementType as MovementType)) {
+            if (existing.currentStatus !== 'active') {
               throw new Error('Cannot update item status. The selected item is not active in the source location.');
             }
             await tx.stockDetail.update({
@@ -199,26 +352,18 @@ router.post('/', async (req: AuthRequest, res: Response) => {
                 currentLocationId: item.toLocationId || (STATUS_ONLY_TYPES.includes(movementType as MovementType) ? existing.currentLocationId : null),
               },
             });
-          } else if (movementType === 'returned' || movementType === 'found') {
-            await tx.stockDetail.update({
-              where: { id: item.stockDetailId },
-              data: {
-                currentStatus: 'active',
-                currentLocationId: item.toLocationId || null,
-              },
-            });
           }
           usedIds.add(item.stockDetailId);
           processedItems.push({
             stockDetailId: item.stockDetailId,
             productId: item.productId,
             quantity: 1,
-            fromLocationId: item.fromLocationId || null,
+            fromLocationId: item.fromLocationId || existing.currentLocationId || null,
             toLocationId: item.toLocationId || null,
             reason: item.reason || null,
           });
         } else if (item.productId) {
-          const product = await tx.product.findUnique({ where: { id: item.productId } });
+          const product = await tx.product.findUnique({ where: { id: item.productId }, include: { category: true } });
 
           if (movementType === 'transfer') {
             for (let i = 0; i < qty; i++) {
@@ -229,6 +374,7 @@ router.post('/', async (req: AuthRequest, res: Response) => {
                   id: { notIn: [...usedIds] },
                   ...(item.fromLocationId ? { currentLocationId: item.fromLocationId } : {}),
                 },
+                orderBy: { createdAt: 'desc' },
               });
               if (!existing) {
                 throw new Error(`Cannot transfer ${qty} item(s). Only ${i} active item(s) available in the source location.`);
@@ -247,6 +393,50 @@ router.post('/', async (req: AuthRequest, res: Response) => {
                 reason: item.reason || null,
               });
             }
+          } else if (movementType === 'moved_to_department') {
+            if (!product) {
+              throw new Error('Product not found.');
+            }
+            for (let i = 0; i < qty; i++) {
+              const existing = await tx.stockDetail.findFirst({
+                where: {
+                  productId: item.productId,
+                  currentStatus: 'active',
+                  id: { notIn: [...usedIds] },
+                  ...(item.fromLocationId ? { currentLocationId: item.fromLocationId } : {}),
+                },
+                orderBy: { createdAt: 'desc' },
+              });
+              if (!existing) {
+                throw new Error(`Cannot transfer ${qty} item(s). Only ${i} active item(s) available in the source department.`);
+              }
+              if (item.toLocationId) {
+                const toLocation = await tx.location.findUnique({ where: { id: item.toLocationId }, select: { departmentId: true } });
+                if (!toLocation || toLocation.departmentId !== toDepartmentId) {
+                  throw new Error('New location must belong to the destination department.');
+                }
+              }
+              const destinationProduct = await findOrCreateDestinationProduct(product, item.toLocationId || null);
+              await tx.stockDetail.update({
+                where: { id: existing.id },
+                data: {
+                  productId: destinationProduct.id,
+                  currentLocationId: item.toLocationId || null,
+                },
+              });
+              trackDepartmentTransfer(product.id, destinationProduct.id);
+              usedIds.add(existing.id);
+              processedItems.push({
+                stockDetailId: existing.id,
+                productId: item.productId,
+                quantity: 1,
+                fromLocationId: item.fromLocationId || existing.currentLocationId || null,
+                toLocationId: item.toLocationId || null,
+                reason: item.reason || null,
+              });
+            }
+          } else if (RESTORING_TYPES[movementType as MovementType]) {
+            throw new Error(`${movementType === 'returned' ? 'Returned' : 'Found'} movements must select the original inventory item so the stock ID is preserved.`);
           } else if (DEDUCTING_TYPES.includes(movementType as MovementType) || STATUS_ONLY_TYPES.includes(movementType as MovementType)) {
             // Find and mark exactly `qty` individual active units, skipping already-used ones
             for (let i = 0; i < qty; i++) {
@@ -257,6 +447,7 @@ router.post('/', async (req: AuthRequest, res: Response) => {
                   id: { notIn: [...usedIds] },
                   ...(item.fromLocationId ? { currentLocationId: item.fromLocationId } : {}),
                 },
+                orderBy: { createdAt: 'desc' },
               });
               let unitId: string;
               if (existing) {
@@ -269,18 +460,7 @@ router.post('/', async (req: AuthRequest, res: Response) => {
                   },
                 });
               } else {
-                // No remaining active unit — create a phantom with correct status
                 throw new Error(`Cannot stock out ${qty} item(s). Only ${i} active item(s) available.`);
-                const stockId = await nextStockId();
-                const phantom = await tx.stockDetail.create({
-                  data: {
-                    stockId,
-                    productId: item.productId,
-                    currentStatus: statusMap[movementType] ?? 'sold',
-                    currentLocationId: item.toLocationId || product?.locationId || null,
-                  },
-                });
-                unitId = phantom.id;
               }
               usedIds.add(unitId);
               processedItems.push({
@@ -303,6 +483,7 @@ router.post('/', async (req: AuthRequest, res: Response) => {
                   id: { notIn: [...usedIds] },
                   ...(item.fromLocationId ? { currentLocationId: item.fromLocationId } : {}),
                 },
+                orderBy: { createdAt: 'desc' },
               });
               let unitId: string;
               if (existing) {
@@ -313,11 +494,6 @@ router.post('/', async (req: AuthRequest, res: Response) => {
                 });
               } else {
                 throw new Error(`Cannot stock out ${absQty} item(s). Only ${i} active item(s) available.`);
-                const stockId = await nextStockId();
-                const phantom = await tx.stockDetail.create({
-                  data: { stockId, productId: item.productId, currentStatus: 'sold', currentLocationId: item.toLocationId || product?.locationId || null },
-                });
-                unitId = phantom.id;
               }
               usedIds.add(unitId);
               processedItems.push({
@@ -371,6 +547,36 @@ router.post('/', async (req: AuthRequest, res: Response) => {
         include: { items: { include: { product: true, stockDetail: true } }, user: true, department: true, toDepartment: true },
       });
 
+      if (movementType === 'deployment') {
+        const latitudeValue = deploymentLatitude !== undefined && deploymentLatitude !== null && deploymentLatitude !== '' ? Number(deploymentLatitude) : null;
+        const longitudeValue = deploymentLongitude !== undefined && deploymentLongitude !== null && deploymentLongitude !== '' ? Number(deploymentLongitude) : null;
+
+        for (const item of processedItems) {
+          const stockDetail = await tx.stockDetail.findUnique({
+            where: { id: item.stockDetailId },
+            select: { stockId: true, productId: true },
+          });
+          if (!stockDetail?.stockId) {
+            throw new Error('Selected deployment item has no stock ID.');
+          }
+
+          await tx.deployedStock.create({
+            data: {
+              stockId: stockDetail.stockId,
+              inventoryItemId: item.stockDetailId,
+              productId: stockDetail.productId,
+              deployedToName: deployedToName || null,
+              deploymentSiteName: deploymentSiteName || null,
+              deploymentAddress: deploymentAddress || null,
+              deploymentLatitude: latitudeValue,
+              deploymentLongitude: longitudeValue,
+              notes: deploymentNotes || remarks || null,
+              createdByUserId: userId,
+            },
+          });
+        }
+      }
+
       // Update currentStock for each affected product
       const productTotals = new Map<string, number>();
       for (const item of processedItems) {
@@ -402,13 +608,47 @@ router.post('/', async (req: AuthRequest, res: Response) => {
         }
       }
 
-      // For moved_to_department: reassign all affected products to the destination department
+      // For moved_to_department, move only the selected units into a destination product.
       if (movementType === 'moved_to_department' && toDepartmentId) {
-        const productIds = [...productTotals.keys()];
-        await tx.product.updateMany({
-          where: { id: { in: productIds } },
-          data: { departmentId: toDepartmentId },
-        });
+        const destinationProductIds = new Set<string>();
+        for (const [sourceProductId, transfer] of departmentTransferTotals) {
+          destinationProductIds.add(transfer.destinationProductId);
+
+          await tx.product.update({
+            where: { id: sourceProductId },
+            data: { currentStock: { decrement: transfer.quantity } },
+          });
+          await tx.product.update({
+            where: { id: transfer.destinationProductId },
+            data: { currentStock: { increment: transfer.quantity } },
+          });
+
+          const sourceLocations = await tx.stockDetail.findMany({
+            where: { productId: sourceProductId, currentStatus: 'active' },
+            distinct: ['currentLocationId'],
+            select: { currentLocationId: true },
+          });
+          await tx.product.update({
+            where: { id: sourceProductId },
+            data: {
+              locationId: sourceLocations.length === 1 ? sourceLocations[0].currentLocationId : null,
+            },
+          });
+        }
+
+        for (const destinationProductId of destinationProductIds) {
+          const destinationLocations = await tx.stockDetail.findMany({
+            where: { productId: destinationProductId, currentStatus: 'active' },
+            distinct: ['currentLocationId'],
+            select: { currentLocationId: true },
+          });
+          await tx.product.update({
+            where: { id: destinationProductId },
+            data: {
+              locationId: destinationLocations.length === 1 ? destinationLocations[0].currentLocationId : null,
+            },
+          });
+        }
       }
 
       return movement;
