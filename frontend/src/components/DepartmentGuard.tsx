@@ -1,6 +1,7 @@
-import { ReactNode } from 'react';
-import { LogOut, Mail, HelpCircle, RefreshCw } from 'lucide-react';
+import { ReactNode, useEffect, useState } from 'react';
+import { LogOut, Mail, HelpCircle, RefreshCw, Activity } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import { ALL_DEPARTMENTS_ID } from '@/constants/app';
 
 interface DepartmentGuardProps {
   children: ReactNode;
@@ -8,7 +9,64 @@ interface DepartmentGuardProps {
 
 export default function DepartmentGuard({ children }: DepartmentGuardProps) {
   const navigate = useNavigate();
-  const user = JSON.parse(localStorage.getItem('user') || '{}');
+  const [user, setUser] = useState(() => JSON.parse(localStorage.getItem('user') || '{}'));
+  const [checkingUser, setCheckingUser] = useState(true);
+
+  const syncDepartmentSelection = (userData: any) => {
+    if (userData.role !== 'admin' && userData.role !== 'staff') return;
+
+    const userDepts = userData.role === 'admin' ? userData.adminDepartments : userData.staffDepartments;
+    if (!userDepts || userDepts.length === 0) {
+      localStorage.removeItem('currentDepartmentId');
+      return;
+    }
+
+    const saved = localStorage.getItem('currentDepartmentId');
+    const assignedIds = userDepts.map((dept: any) => dept.departmentId);
+    const savedIsValid = saved === ALL_DEPARTMENTS_ID
+      ? userDepts.length > 1
+      : Boolean(saved && assignedIds.includes(saved));
+
+    if (!savedIsValid) {
+      localStorage.setItem('currentDepartmentId', userDepts.length === 1 ? userDepts[0].departmentId : ALL_DEPARTMENTS_ID);
+    }
+  };
+
+  useEffect(() => {
+    let active = true;
+    const refreshUser = async () => {
+      try {
+        const token = localStorage.getItem('token');
+        if (!token) {
+          navigate('/login');
+          return;
+        }
+
+        const res = await fetch('/api/auth/me', {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (res.status === 401) {
+          localStorage.removeItem('token');
+          localStorage.removeItem('user');
+          localStorage.removeItem('currentDepartmentId');
+          navigate('/login');
+          return;
+        }
+        if (res.ok) {
+          const userData = await res.json();
+          syncDepartmentSelection(userData);
+          localStorage.setItem('user', JSON.stringify(userData));
+          if (active) setUser(userData);
+        }
+      } catch { /* keep stored user if refresh fails */ }
+      finally {
+        if (active) setCheckingUser(false);
+      }
+    };
+
+    refreshUser();
+    return () => { active = false; };
+  }, [navigate]);
 
   // Check if user is unassigned
   const isUnassigned = (user.role === 'admin' || user.role === 'staff') &&
@@ -30,11 +88,23 @@ export default function DepartmentGuard({ children }: DepartmentGuardProps) {
       });
       if (res.ok) {
         const userData = await res.json();
+        syncDepartmentSelection(userData);
         localStorage.setItem('user', JSON.stringify(userData));
       }
     } catch { /* ignore, just reload anyway */ }
     window.location.reload();
   };
+
+  if (checkingUser) {
+    return (
+      <div className="min-h-screen bg-[var(--bg)] flex items-center justify-center">
+        <div className="text-center space-y-3">
+          <Activity size={32} className="text-[var(--primary)] mx-auto animate-pulse" />
+          <p className="text-[var(--text-muted)] text-sm">Checking access...</p>
+        </div>
+      </div>
+    );
+  }
 
   if (isUnassigned) {
     return (

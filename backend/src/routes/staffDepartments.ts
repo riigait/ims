@@ -12,6 +12,19 @@ router.get('/staff/:staffId', authMiddleware, async (req: AuthRequest, res: Resp
       return res.status(403).json({ error: 'Unauthorized' });
     }
 
+    if (user.role === 'admin') {
+      const departmentIds = req.accessibleDepartmentIds || [];
+      const allowed = await prisma.staffDepartment.findFirst({
+        where: {
+          userId: req.params.staffId,
+          departmentId: { in: departmentIds },
+        },
+      });
+      if (!allowed) {
+        return res.status(403).json({ error: 'Unauthorized' });
+      }
+    }
+
     const staffDepts = await prisma.staffDepartment.findMany({
       where: { userId: req.params.staffId },
       include: { department: true },

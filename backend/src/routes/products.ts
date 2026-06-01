@@ -1,6 +1,6 @@
 import { Router, Response } from 'express';
 import prisma from '../utils/prisma';
-import { AuthRequest } from '../middleware/auth';
+import { AuthRequest, canAccessDepartment } from '../middleware/auth';
 import { logAudit } from '../utils/audit';
 import { csvToJson, jsonToCsv } from '../utils/csv';
 import { generateStockId, generateMovementNo, generateSku, generateRequestNo, generateImportBatchId } from '../utils/idGenerator';
@@ -259,8 +259,7 @@ router.get('/:id', async (req: AuthRequest, res: Response) => {
     });
     if (!product) return res.status(404).json({ error: 'Product not found' });
 
-    // Check department access if departmentId is set
-    if (req.departmentId && product.departmentId !== req.departmentId) {
+    if (!canAccessDepartment(req, product.departmentId, true)) {
       return res.status(403).json({ error: 'Access denied' });
     }
 
@@ -278,7 +277,7 @@ router.get('/:id/movements', async (req: AuthRequest, res: Response) => {
     const product = await prisma.product.findUnique({ where: { id: req.params.id } });
     if (!product) return res.status(404).json({ error: 'Product not found' });
 
-    if (req.departmentId && product.departmentId !== req.departmentId) {
+    if (!canAccessDepartment(req, product.departmentId, true)) {
       return res.status(403).json({ error: 'Access denied' });
     }
 
@@ -470,10 +469,9 @@ router.post('/', async (req: AuthRequest, res: Response) => {
 // Update product — currentStock excluded; use stock movements to change stock levels
 router.put('/:id', async (req: AuthRequest, res: Response) => {
   try {
-    // Check department access for staff
     const existing = await prisma.product.findUnique({ where: { id: req.params.id } });
     if (!existing) return res.status(404).json({ error: 'Product not found' });
-    if (req.userRole === 'staff' && existing.departmentId !== req.departmentId) {
+    if (!canAccessDepartment(req, existing.departmentId)) {
       return res.status(403).json({ error: 'Access denied' });
     }
 
@@ -536,6 +534,12 @@ router.delete('/:id', async (req: AuthRequest, res: Response) => {
   try {
     if (req.userRole !== 'admin') {
       return res.status(403).json({ error: 'Staff must submit a delete request instead' });
+    }
+
+    const existing = await prisma.product.findUnique({ where: { id: req.params.id } });
+    if (!existing) return res.status(404).json({ error: 'Product not found' });
+    if (!canAccessDepartment(req, existing.departmentId)) {
+      return res.status(403).json({ error: 'Access denied' });
     }
 
     await prisma.product.delete({ where: { id: req.params.id } });

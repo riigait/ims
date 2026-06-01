@@ -1,6 +1,6 @@
 import { Router, Response } from 'express';
 import prisma from '../utils/prisma';
-import { AuthRequest } from '../middleware/auth';
+import { AuthRequest, canAccessDepartment } from '../middleware/auth';
 import { logAudit } from '../utils/audit';
 import { csvToJson, jsonToCsv } from '../utils/csv';
 import { generateStockId, generateMovementNo, generateSku } from '../utils/idGenerator';
@@ -15,6 +15,15 @@ const ADDING_TYPES: MovementType[] = ['stock_in', 'returned', 'found', 'adjustme
 const NEUTRAL_TYPES: MovementType[] = ['transfer', 'moved_to_department'];
 const STATUS_ONLY_TYPES: MovementType[] = [];
 const RESTORING_TYPES: Partial<Record<MovementType, string>> = { returned: 'borrowed', found: 'lost', post_deployment: 'deployed', repair_return: 'repair' };
+
+function canViewMovement(req: AuthRequest, movement: { departmentId: string | null; toDepartmentId?: string | null }) {
+  return canAccessDepartment(req, movement.departmentId, true)
+    || canAccessDepartment(req, movement.toDepartmentId);
+}
+
+function canModifyMovement(req: AuthRequest, movement: { departmentId: string | null }) {
+  return canAccessDepartment(req, movement.departmentId);
+}
 
 function stockDelta(type: MovementType, quantity: number): number {
   if (DEDUCTING_TYPES.includes(type)) return -quantity;
@@ -80,7 +89,7 @@ router.get('/:id', async (req: AuthRequest, res: Response) => {
     });
     if (!movement) return res.status(404).json({ error: 'Stock movement not found' });
 
-    if (req.departmentId && movement.departmentId !== req.departmentId) {
+    if (!canViewMovement(req, movement)) {
       return res.status(403).json({ error: 'Access denied' });
     }
 
@@ -719,7 +728,7 @@ router.put('/:id', async (req: AuthRequest, res: Response) => {
 
     if (!oldMovement) return res.status(404).json({ error: 'Stock movement not found' });
 
-    if (req.departmentId && oldMovement.departmentId !== req.departmentId) {
+    if (!canModifyMovement(req, oldMovement)) {
       return res.status(403).json({ error: 'Access denied' });
     }
 
@@ -767,7 +776,7 @@ router.delete('/:id', async (req: AuthRequest, res: Response) => {
 
     if (!movement) return res.status(404).json({ error: 'Stock movement not found' });
 
-    if (req.departmentId && movement.departmentId !== req.departmentId) {
+    if (!canModifyMovement(req, movement)) {
       return res.status(403).json({ error: 'Access denied' });
     }
 

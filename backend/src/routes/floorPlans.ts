@@ -1,6 +1,6 @@
 import express, { Router, Request, Response } from 'express';
 import prisma from '../utils/prisma';
-import { AuthRequest } from '../middleware/auth';
+import { AuthRequest, canAccessDepartment } from '../middleware/auth';
 import { csvToJson } from '../utils/csv';
 
 const router = Router();
@@ -888,7 +888,7 @@ router.get('/:id', async (req: AuthRequest, res: Response) => {
       return res.status(404).json({ error: 'Floor plan not found' });
     }
 
-    if (req.departmentId && floorPlan.departmentId !== req.departmentId) {
+    if (!canAccessDepartment(req, floorPlan.departmentId, true)) {
       return res.status(403).json({ error: 'Access denied' });
     }
 

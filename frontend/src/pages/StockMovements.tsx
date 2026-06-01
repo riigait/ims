@@ -351,6 +351,7 @@ interface StockDetailItem {
 
 const DEDUCTING_MOVEMENT_TYPES: MovementType[] = ['stock_out', 'transfer', 'damaged', 'defective', 'disposal', 'borrowed', 'lost', 'returned', 'found', 'repair_out'];
 const SPECIFIC_ITEM_MOVEMENT_TYPES: MovementType[] = [...DEDUCTING_MOVEMENT_TYPES, 'pre_deployment', 'post_deployment', 'repair_return', 'moved_to_department'];
+const STATUS_CHANGE_ONLY_TYPES: MovementType[] = [];
 const RETURNING_STATUSES: Partial<Record<MovementType, string[]>> = {
   returned: ['borrowed'],
   found: ['lost'],

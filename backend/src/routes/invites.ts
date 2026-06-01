@@ -51,7 +51,10 @@ router.get('/', authMiddleware, async (req: AuthRequest, res: Response) => {
       return res.status(403).json({ error: 'Only admins can view invites' });
     }
 
+    const whereClause = user.role === 'superadmin' ? {} : { createdBy: req.userId!, role: 'staff' };
+
     const invites = await prisma.inviteCode.findMany({
+      where: whereClause,
       include: { creator: { select: { id: true, name: true, email: true } } },
       orderBy: { createdAt: 'desc' },
     });
@@ -74,6 +77,9 @@ router.delete('/:id', authMiddleware, async (req: AuthRequest, res: Response) =>
     const invite = await prisma.inviteCode.findUnique({ where: { id: req.params.id } });
     if (!invite) return res.status(404).json({ error: 'Invite not found' });
     if (invite.usedAt) return res.status(400).json({ error: 'Cannot revoke used invite' });
+    if (user.role === 'admin' && (invite.createdBy !== req.userId || invite.role !== 'staff')) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
 
     await prisma.inviteCode.delete({ where: { id: req.params.id } });
     res.json({ message: 'Invite revoked' });
@@ -140,6 +146,7 @@ router.post('/redeem', async (req: Request, res: Response) => {
         email,
         passwordHash: hashedPassword,
         role: invite.role as 'admin' | 'staff',
+        initialSetupComplete: true,
       },
     });
 

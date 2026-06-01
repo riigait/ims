@@ -16,9 +16,10 @@ api.interceptors.request.use((config) => {
     config.headers.Authorization = `Bearer ${token}`;
   }
 
-  // Add current department header for admins
+  // Auth endpoints refresh the user's actual role/assignments and should not carry a stale department header.
   const currentDeptId = localStorage.getItem('currentDepartmentId');
-  if (currentDeptId && !config.headers['X-Department-Id']) {
+  const isAuthEndpoint = String(config.url || '').startsWith('/auth/');
+  if (!isAuthEndpoint && currentDeptId && !config.headers['X-Department-Id']) {
     config.headers['X-Department-Id'] = currentDeptId;
   }
 

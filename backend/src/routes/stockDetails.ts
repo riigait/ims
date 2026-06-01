@@ -1,6 +1,6 @@
 import { Router, Response } from 'express';
 import prisma from '../utils/prisma';
-import { AuthRequest } from '../middleware/auth';
+import { AuthRequest, canAccessDepartment } from '../middleware/auth';
 import { logAudit } from '../utils/audit';
 import { generateStockId } from '../utils/idGenerator';
 
@@ -92,8 +92,7 @@ router.get('/:id', async (req: AuthRequest, res: Response) => {
 
     if (!stockDetail) return res.status(404).json({ error: 'Stock detail not found' });
 
-    // Check department access
-    if (req.departmentId && stockDetail.product.departmentId !== req.departmentId) {
+    if (!canAccessDepartment(req, stockDetail.product.departmentId)) {
       return res.status(403).json({ error: 'Access denied' });
     }
 
@@ -113,7 +112,7 @@ router.get('/:id/movements', async (req: AuthRequest, res: Response) => {
     });
     if (!stockDetail) return res.status(404).json({ error: 'Stock detail not found' });
 
-    if (req.departmentId && stockDetail.product.departmentId !== req.departmentId) {
+    if (!canAccessDepartment(req, stockDetail.product.departmentId)) {
       return res.status(403).json({ error: 'Access denied' });
     }
 
@@ -206,8 +205,7 @@ router.put('/:id', async (req: AuthRequest, res: Response) => {
 
     if (!stockDetail) return res.status(404).json({ error: 'Stock detail not found' });
 
-    // Check department access
-    if (req.departmentId && stockDetail.product.departmentId !== req.departmentId) {
+    if (!canAccessDepartment(req, stockDetail.product.departmentId)) {
       return res.status(403).json({ error: 'Access denied' });
     }
 
@@ -260,8 +258,7 @@ router.delete('/:id', async (req: AuthRequest, res: Response) => {
 
     if (!stockDetail) return res.status(404).json({ error: 'Stock detail not found' });
 
-    // Check department access
-    if (req.departmentId && stockDetail.product.departmentId !== req.departmentId) {
+    if (!canAccessDepartment(req, stockDetail.product.departmentId)) {
       return res.status(403).json({ error: 'Access denied' });
     }
 

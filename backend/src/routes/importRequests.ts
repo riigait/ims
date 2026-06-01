@@ -27,7 +27,11 @@ router.get('/', async (req: AuthRequest, res: Response) => {
 
     let whereFilter: any = {};
     if (req.userRole === 'admin') {
-      whereFilter = { departmentId: req.departmentId };
+      if (req.departmentIds && req.departmentIds.length > 0) {
+        whereFilter = { departmentId: { in: req.departmentIds } };
+      } else {
+        whereFilter = { departmentId: req.departmentId };
+      }
     } else if (req.userRole === 'staff') {
       whereFilter = { submittedBy: req.userId };
     }
@@ -61,6 +65,16 @@ router.get('/:id', async (req: AuthRequest, res: Response) => {
       },
     });
     if (!request) return res.status(404).json({ error: 'Request not found' });
+
+    if (req.userRole === 'admin') {
+      const allowedDepartmentIds = req.departmentId ? [req.departmentId] : req.departmentIds || [];
+      if (!request.departmentId || !allowedDepartmentIds.includes(request.departmentId)) {
+        return res.status(403).json({ error: 'Access denied' });
+      }
+    } else if (req.userRole === 'staff' && request.submittedBy !== req.userId) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
     res.json(request);
   } catch (error) {
     console.error(error);

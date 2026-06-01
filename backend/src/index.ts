@@ -71,7 +71,11 @@ app.use((err: Error & { status?: number }, req: Request, res: Response, next: Ne
     return res.status(503).json({ error: 'Database is not available. Please try again later.' });
   }
   console.error(err);
-  res.status((err as any).status || 500).json({ error: err.message || 'Internal server error' });
+  const status = (err as any).status || 500;
+  const message = process.env.NODE_ENV === 'production' && status >= 500
+    ? 'Internal server error'
+    : err.message || 'Internal server error';
+  res.status(status).json({ error: message });
 });
 
 checkDatabaseConnection().then(() => {

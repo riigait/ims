@@ -1,6 +1,6 @@
 import express, { Router, Request, Response } from 'express';
 import prisma from '../utils/prisma';
-import { AuthRequest } from '../middleware/auth';
+import { AuthRequest, canAccessDepartment } from '../middleware/auth';
 import { csvToJson, jsonToCsv } from '../utils/csv';
 
 const router = Router();
@@ -43,7 +43,7 @@ router.get('/:id', async (req: AuthRequest, res: Response) => {
       return res.status(404).json({ error: 'Location not found' });
     }
 
-    if (req.departmentId && location.departmentId !== req.departmentId) {
+    if (!canAccessDepartment(req, location.departmentId, true)) {
       return res.status(403).json({ error: 'Access denied' });
     }
 
@@ -85,7 +85,7 @@ router.put('/:id', async (req: AuthRequest, res: Response) => {
   try {
     const existing = await prisma.location.findUnique({ where: { id: req.params.id } });
     if (!existing) return res.status(404).json({ error: 'Location not found' });
-    if (req.userRole !== 'admin' && existing.departmentId !== req.departmentId) {
+    if (!canAccessDepartment(req, existing.departmentId)) {
       return res.status(403).json({ error: 'Access denied' });
     }
 
@@ -113,6 +113,12 @@ router.delete('/:id', async (req: AuthRequest, res: Response) => {
   try {
     if (req.userRole !== 'admin') {
       return res.status(403).json({ error: 'Staff must submit a delete request instead' });
+    }
+
+    const existing = await prisma.location.findUnique({ where: { id: req.params.id } });
+    if (!existing) return res.status(404).json({ error: 'Location not found' });
+    if (!canAccessDepartment(req, existing.departmentId)) {
+      return res.status(403).json({ error: 'Access denied' });
     }
 
     await prisma.location.delete({

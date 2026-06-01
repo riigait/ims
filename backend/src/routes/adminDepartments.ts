@@ -8,7 +8,7 @@ const router = Router();
 router.get('/admin/:adminId', authMiddleware, async (req: AuthRequest, res: Response) => {
   try {
     const user = await prisma.user.findUnique({ where: { id: req.userId } });
-    if (!user || !['superadmin', 'admin'].includes(user.role)) {
+    if (!user || user.role !== 'superadmin') {
       return res.status(403).json({ error: 'Unauthorized' });
     }
 

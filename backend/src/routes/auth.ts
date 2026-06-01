@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
+import crypto from 'crypto';
 import prisma from '../utils/prisma';
 import { authMiddleware, AuthRequest, getJwtSecret } from '../middleware/auth';
 
@@ -10,9 +11,20 @@ function signToken(userId: string, role: string, departmentId?: string): string 
   return jwt.sign({ userId, role, departmentId }, getJwtSecret(), { expiresIn: '7d' });
 }
 
+function isLocalSetupRequest(req: Request): boolean {
+  const address = req.ip || req.socket.remoteAddress || '';
+  return ['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(address);
+}
+
 // Check if superadmin exists; create default if not
 router.post('/ensure-superadmin', async (req: Request, res: Response) => {
   try {
+    const bootstrapAllowed = process.env.NODE_ENV !== 'production' || process.env.ALLOW_SUPERADMIN_BOOTSTRAP === 'true';
+    const remoteBootstrapAllowed = process.env.ALLOW_REMOTE_SUPERADMIN_BOOTSTRAP === 'true';
+    if (!bootstrapAllowed || (!remoteBootstrapAllowed && !isLocalSetupRequest(req))) {
+      return res.status(403).json({ error: 'Superadmin bootstrap is disabled' });
+    }
+
     const existingSuperadmin = await prisma.user.findFirst({
       where: { role: 'superadmin' },
     });
@@ -22,7 +34,8 @@ router.post('/ensure-superadmin', async (req: Request, res: Response) => {
     }
 
     // Create default superadmin if none exists
-    const hashedPassword = await bcrypt.hash('changeme123', 10);
+    const temporaryPassword = process.env.DEFAULT_SUPERADMIN_PASSWORD || crypto.randomBytes(18).toString('base64url');
+    const hashedPassword = await bcrypt.hash(temporaryPassword, 10);
     await prisma.user.create({
       data: {
         name: 'Superadmin',
@@ -33,7 +46,13 @@ router.post('/ensure-superadmin', async (req: Request, res: Response) => {
       },
     });
 
-    res.json({ exists: false, created: true, message: 'Default superadmin created. Please login with admin@ims.local / changeme123' });
+    res.json({
+      exists: false,
+      created: true,
+      email: 'admin@ims.local',
+      temporaryPassword,
+      message: 'Temporary superadmin created. Complete initial setup immediately.',
+    });
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: 'Internal server error' });

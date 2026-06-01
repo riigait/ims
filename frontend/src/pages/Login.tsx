@@ -20,7 +20,11 @@ export default function Login() {
       try {
         const response = await authApi.ensureSuperadmin();
         if (!response.data.exists && response.data.created) {
-          setSetupMessage('Default superadmin created. Please login with admin@ims.local / changeme123');
+          const email = response.data.email || 'admin@ims.local';
+          const password = response.data.temporaryPassword;
+          setSetupMessage(password
+            ? `Temporary superadmin created. Please login with ${email} / ${password} and complete setup immediately.`
+            : response.data.message || 'Temporary superadmin created. Complete setup immediately.');
         }
       } catch (err) {
         // Silently fail - it's optional

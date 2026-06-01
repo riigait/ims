@@ -1,45 +1,57 @@
-import { Router, Request, Response } from 'express';
+import { Router, Response } from 'express';
 import prisma from '../utils/prisma';
 import { authMiddleware, AuthRequest } from '../middleware/auth';
-import bcrypt from 'bcryptjs';
 
 const router = Router();
+
+const USER_SELECT = {
+  id: true,
+  name: true,
+  email: true,
+  role: true,
+  departmentId: true,
+  adminDepartments: {
+    select: {
+      departmentId: true,
+      department: { select: { id: true, name: true, description: true } },
+    },
+  },
+  staffDepartments: {
+    select: {
+      departmentId: true,
+      department: { select: { id: true, name: true, description: true } },
+    },
+  },
+  createdAt: true,
+};
+
+function assignedStaffWhere(departmentIds: string[]) {
+  return {
+    role: 'staff',
+    staffDepartments: {
+      some: { departmentId: { in: departmentIds } },
+    },
+  };
+}
+
+function adminCanManageUser(targetUser: any, departmentIds: string[]) {
+  return targetUser.role === 'staff'
+    && targetUser.staffDepartments.some((dept: { departmentId: string }) => departmentIds.includes(dept.departmentId));
+}
 
 // List all users (admin/superadmin only) — superadmin sees all, admin sees admin+staff only
 router.get('/', authMiddleware, async (req: AuthRequest, res: Response) => {
   try {
-    const user = await prisma.user.findUnique({ where: { id: req.userId } });
-    if (!user || !['admin', 'superadmin'].includes(user.role)) {
+    if (!req.userRole || !['admin', 'superadmin'].includes(req.userRole)) {
       return res.status(403).json({ error: 'Only admins can view users' });
     }
 
-    // Build where clause based on user role
-    const whereClause = user.role === 'superadmin'
-      ? {} // Superadmin sees all users
-      : { role: { in: ['admin', 'staff'] } }; // Admin sees only admin and staff
+    const departmentIds = req.accessibleDepartmentIds || [];
+    const whereClause = req.userRole === 'superadmin' ? {} : assignedStaffWhere(departmentIds);
 
     const users = await prisma.user.findMany({
       where: whereClause,
-      select: {
-        id: true,
-        name: true,
-        email: true,
-        role: true,
-        departmentId: true,
-        adminDepartments: {
-          select: {
-            departmentId: true,
-            department: { select: { id: true, name: true, description: true } },
-          },
-        },
-        staffDepartments: {
-          select: {
-            departmentId: true,
-            department: { select: { id: true, name: true, description: true } },
-          },
-        },
-        createdAt: true,
-      },
+      select: USER_SELECT,
       orderBy: { createdAt: 'desc' },
     });
 
@@ -53,20 +65,19 @@ router.get('/', authMiddleware, async (req: AuthRequest, res: Response) => {
 // Get single user (admin/superadmin or self)
 router.get('/:id', authMiddleware, async (req: AuthRequest, res: Response) => {
   try {
-    const requester = await prisma.user.findUnique({ where: { id: req.userId } });
-    if (!requester) return res.status(404).json({ error: 'User not found' });
-
-    // Allow users to view themselves or admins/superadmins to view anyone
-    if (req.userId !== req.params.id && !['admin', 'superadmin'].includes(requester.role)) {
-      return res.status(403).json({ error: 'Unauthorized' });
-    }
-
     const user = await prisma.user.findUnique({
       where: { id: req.params.id },
-      select: { id: true, name: true, email: true, role: true, createdAt: true },
+      select: USER_SELECT,
     });
 
     if (!user) return res.status(404).json({ error: 'User not found' });
+    if (req.userId !== req.params.id && req.userRole !== 'superadmin') {
+      const departmentIds = req.accessibleDepartmentIds || [];
+      if (req.userRole !== 'admin' || !adminCanManageUser(user, departmentIds)) {
+        return res.status(403).json({ error: 'Unauthorized' });
+      }
+    }
+
     res.json(user);
   } catch (error) {
     console.error(error);
@@ -77,8 +88,18 @@ router.get('/:id', authMiddleware, async (req: AuthRequest, res: Response) => {
 // Update user (admin/superadmin only, cannot change own role)
 router.patch('/:id', authMiddleware, async (req: AuthRequest, res: Response) => {
   try {
-    const requester = await prisma.user.findUnique({ where: { id: req.userId } });
-    if (!requester || !['admin', 'superadmin'].includes(requester.role)) {
+    if (!req.userRole || !['admin', 'superadmin'].includes(req.userRole)) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    const existing = await prisma.user.findUnique({
+      where: { id: req.params.id },
+      select: USER_SELECT,
+    });
+    if (!existing) return res.status(404).json({ error: 'User not found' });
+
+    const departmentIds = req.accessibleDepartmentIds || [];
+    if (req.userRole === 'admin' && !adminCanManageUser(existing, departmentIds)) {
       return res.status(403).json({ error: 'Access denied' });
     }
 
@@ -88,18 +109,25 @@ router.patch('/:id', authMiddleware, async (req: AuthRequest, res: Response) => 
     if (name) updates.name = name;
     if (email) updates.email = email;
     if (role && ['admin', 'staff'].includes(role)) {
-      // Prevent admin from changing their own role
       if (req.params.id === req.userId) {
         return res.status(400).json({ error: 'Cannot change your own role' });
       }
+      if (req.userRole === 'admin' && role !== existing.role) {
+        return res.status(403).json({ error: 'Admins cannot change user roles' });
+      }
       updates.role = role;
     }
-    if (departmentId !== undefined) updates.departmentId = departmentId;
+    if (departmentId !== undefined) {
+      if (req.userRole === 'admin' && departmentId && !departmentIds.includes(departmentId)) {
+        return res.status(403).json({ error: 'Access denied for selected department' });
+      }
+      updates.departmentId = departmentId;
+    }
 
     const user = await prisma.user.update({
       where: { id: req.params.id },
       data: updates,
-      select: { id: true, name: true, email: true, role: true, createdAt: true },
+      select: USER_SELECT,
     });
 
     res.json(user);
@@ -115,13 +143,23 @@ router.patch('/:id', authMiddleware, async (req: AuthRequest, res: Response) => 
 // Delete user (admin/superadmin only, cannot delete self)
 router.delete('/:id', authMiddleware, async (req: AuthRequest, res: Response) => {
   try {
-    const requester = await prisma.user.findUnique({ where: { id: req.userId } });
-    if (!requester || !['admin', 'superadmin'].includes(requester.role)) {
+    if (!req.userRole || !['admin', 'superadmin'].includes(req.userRole)) {
       return res.status(403).json({ error: 'Access denied' });
     }
 
     if (req.params.id === req.userId) {
       return res.status(400).json({ error: 'Cannot delete your own account' });
+    }
+
+    const target = await prisma.user.findUnique({
+      where: { id: req.params.id },
+      select: USER_SELECT,
+    });
+    if (!target) return res.status(404).json({ error: 'User not found' });
+
+    const departmentIds = req.accessibleDepartmentIds || [];
+    if (req.userRole === 'admin' && !adminCanManageUser(target, departmentIds)) {
+      return res.status(403).json({ error: 'Access denied' });
     }
 
     await prisma.user.delete({ where: { id: req.params.id } });
