@@ -7,6 +7,48 @@ import { generateStockId, generateMovementNo, generateSku, generateRequestNo, ge
 
 const router = Router();
 
+async function attachLiveProductLocations(products: any[]) {
+  const productIds = products.map(product => product.id).filter(Boolean);
+  if (productIds.length === 0) return products;
+
+  const activeStockDetails = await prisma.stockDetail.findMany({
+    where: {
+      productId: { in: productIds },
+      currentStatus: 'active',
+    },
+    select: {
+      productId: true,
+      currentLocationId: true,
+      currentLocation: true,
+    },
+  });
+
+  const locationsByProduct = new Map<string, Map<string, any>>();
+  for (const detail of activeStockDetails) {
+    const locationKey = detail.currentLocationId || '__unassigned__';
+    if (!locationsByProduct.has(detail.productId)) {
+      locationsByProduct.set(detail.productId, new Map());
+    }
+    locationsByProduct.get(detail.productId)!.set(locationKey, detail.currentLocation);
+  }
+
+  return products.map(product => {
+    const activeLocations = locationsByProduct.get(product.id);
+    if (!activeLocations) return product;
+
+    if (activeLocations.size === 1) {
+      const [[locationId, location]] = Array.from(activeLocations.entries());
+      return {
+        ...product,
+        locationId: locationId === '__unassigned__' ? null : locationId,
+        location,
+      };
+    }
+
+    return { ...product, locationId: null, location: null };
+  });
+}
+
 async function createOpeningStockForProduct(product: any, quantity: number, locationId: string | null, req: AuthRequest) {
   if (quantity <= 0) return;
 
@@ -177,7 +219,7 @@ router.get('/', async (req: AuthRequest, res: Response) => {
         updatedAt: true,
       },
     });
-    res.json(products);
+    res.json(await attachLiveProductLocations(products));
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: 'Internal server error' });
@@ -222,7 +264,8 @@ router.get('/:id', async (req: AuthRequest, res: Response) => {
       return res.status(403).json({ error: 'Access denied' });
     }
 
-    res.json(product);
+    const [productWithLiveLocation] = await attachLiveProductLocations([product]);
+    res.json(productWithLiveLocation);
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: 'Internal server error' });

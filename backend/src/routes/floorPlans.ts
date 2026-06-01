@@ -153,6 +153,11 @@ function getDepartmentFilter(req: AuthRequest) {
   return {};
 }
 
+function canManageFloorPlan(req: AuthRequest, departmentId: string | null) {
+  if (req.userRole === 'superadmin') return true;
+  return req.userRole === 'admin' && Boolean(req.departmentId) && departmentId === req.departmentId;
+}
+
 function classifyLocation(name: string) {
   const normalized = name.toLowerCase();
   if (normalized.includes('rack')) return 'rack';
@@ -693,6 +698,11 @@ router.post('/import/csv', async (req: AuthRequest, res: Response) => {
       return res.status(400).json({ error: 'CSV data required' });
     }
 
+    const departmentId = req.departmentId || (req.userRole === 'superadmin' ? req.body.departmentId : undefined);
+    if (!departmentId) {
+      return res.status(400).json({ error: 'Select a department before importing floor plans' });
+    }
+
     const rows = csvToJson<any>(req.body.csv);
     const created = [];
     const errors = [];
@@ -712,7 +722,7 @@ router.post('/import/csv', async (req: AuthRequest, res: Response) => {
             width,
             height,
             locationId: row.locationId || null,
-            departmentId: req.departmentId,
+            departmentId,
             planJson: row.planJson || '[]',
           };
         const floorPlan = row.id
@@ -895,10 +905,20 @@ router.get('/:id', async (req: AuthRequest, res: Response) => {
 // Create floor plan
 router.post('/', async (req: AuthRequest, res: Response) => {
   try {
-    const { name, width, height, scale, objects, locationId } = req.body;
+    const { name, width, height, scale, objects, locationId, departmentId: requestedDepartmentId } = req.body;
 
     if (!name || !width || !height) {
       return res.status(400).json({ error: 'Missing required fields' });
+    }
+
+    const departmentId = req.departmentId || (req.userRole === 'superadmin' ? requestedDepartmentId : undefined);
+    if (!departmentId) {
+      return res.status(400).json({ error: 'Select a department before creating a floor plan' });
+    }
+
+    const department = await prisma.department.findUnique({ where: { id: departmentId } });
+    if (!department) {
+      return res.status(404).json({ error: 'Department not found' });
     }
 
     const floorPlan = await prisma.floorPlan.create({
@@ -907,7 +927,7 @@ router.post('/', async (req: AuthRequest, res: Response) => {
         width,
         height,
         locationId: locationId || null,
-        departmentId: req.departmentId,
+        departmentId,
         planJson: JSON.stringify(objects || []),
       },
     });
@@ -931,6 +951,9 @@ router.post('/:id/feedback', async (req: AuthRequest, res: Response) => {
 
     const floorPlan = await prisma.floorPlan.findUnique({ where: { id: req.params.id } });
     if (!floorPlan) return res.status(404).json({ error: 'Floor plan not found' });
+    if (!canManageFloorPlan(req, floorPlan.departmentId)) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
 
     const templateType = determineTemplateType(floorPlan.name);
 
@@ -974,6 +997,9 @@ router.post('/:id/regenerate', async (req: AuthRequest, res: Response) => {
 
     const floorPlan = await prisma.floorPlan.findUnique({ where: { id: req.params.id } });
     if (!floorPlan) return res.status(404).json({ error: 'Floor plan not found' });
+    if (!canManageFloorPlan(req, floorPlan.departmentId)) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
 
     const departmentId = floorPlan.departmentId;
     if (!departmentId) return res.status(400).json({ error: 'Floor plan has no department' });
@@ -1045,7 +1071,7 @@ router.put('/:id', async (req: AuthRequest, res: Response) => {
   try {
     const existing = await prisma.floorPlan.findUnique({ where: { id: req.params.id } });
     if (!existing) return res.status(404).json({ error: 'Floor plan not found' });
-    if (req.userRole !== 'admin' && existing.departmentId !== req.departmentId) {
+    if (!canManageFloorPlan(req, existing.departmentId)) {
       return res.status(403).json({ error: 'Access denied' });
     }
 
@@ -1075,11 +1101,13 @@ router.put('/:id', async (req: AuthRequest, res: Response) => {
   }
 });
 
-// Delete floor plan (admin only)
+// Delete floor plan (admin or superadmin)
 router.delete('/:id', async (req: AuthRequest, res: Response) => {
   try {
-    if (req.userRole !== 'admin') {
-      return res.status(403).json({ error: 'Staff must submit a delete request instead' });
+    const existing = await prisma.floorPlan.findUnique({ where: { id: req.params.id } });
+    if (!existing) return res.status(404).json({ error: 'Floor plan not found' });
+    if (!canManageFloorPlan(req, existing.departmentId)) {
+      return res.status(403).json({ error: 'Access denied' });
     }
 
     await prisma.floorPlan.delete({

@@ -60,6 +60,36 @@ export const authMiddleware = async (req: AuthRequest, res: Response, next: Next
   }
 };
 
+const WRITE_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
+
+export const requireSpecificDepartmentForWrite = (req: AuthRequest, res: Response, next: NextFunction) => {
+  if (!WRITE_METHODS.has(req.method)) {
+    return next();
+  }
+
+  if ((req.userRole === 'admin' || req.userRole === 'staff') && !req.departmentId) {
+    return res.status(403).json({
+      error: 'Select a specific department before creating or modifying records',
+    });
+  }
+
+  return next();
+};
+
+export const requireDepartmentScopedWriteAccess = (req: AuthRequest, res: Response, next: NextFunction) => {
+  if (!WRITE_METHODS.has(req.method)) {
+    return next();
+  }
+
+  if (req.userRole === 'superadmin') {
+    return res.status(403).json({
+      error: 'Superadmin access is view and report only for this page',
+    });
+  }
+
+  return requireSpecificDepartmentForWrite(req, res, next);
+};
+
 export const adminMiddleware = (req: AuthRequest, res: Response, next: NextFunction) => {
   if (req.userRole === 'admin' || req.userRole === 'superadmin') {
     next();

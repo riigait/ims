@@ -1,7 +1,7 @@
 import express, { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
 import 'dotenv/config';
-import { authMiddleware } from './middleware/auth';
+import { authMiddleware, requireDepartmentScopedWriteAccess, requireSpecificDepartmentForWrite } from './middleware/auth';
 import { checkDatabaseConnection } from './utils/prisma';
 import authRoutes from './routes/auth';
 import productsRoutes from './routes/products';
@@ -21,6 +21,7 @@ import staffDepartmentsRoutes from './routes/staffDepartments';
 import passwordRequestsRoutes from './routes/passwordRequests';
 import settingsRoutes from './routes/settings';
 import importRequestsRoutes from './routes/importRequests';
+import mapRoutes from './routes/map';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -39,12 +40,12 @@ app.use('/api/auth', authRoutes);
 app.use('/api/invites', invitesRoutes);
 
 // Protected routes
-app.use('/api/products', authMiddleware, productsRoutes);
-app.use('/api/categories', authMiddleware, categoriesRoutes);
-app.use('/api/locations', authMiddleware, locationsRoutes);
-app.use('/api/stock-movements', authMiddleware, stockMovementsRoutes);
-app.use('/api/stock-details', authMiddleware, stockDetailsRoutes);
-app.use('/api/floor-plans', authMiddleware, floorPlansRoutes);
+app.use('/api/products', authMiddleware, requireDepartmentScopedWriteAccess, productsRoutes);
+app.use('/api/categories', authMiddleware, requireDepartmentScopedWriteAccess, categoriesRoutes);
+app.use('/api/locations', authMiddleware, requireDepartmentScopedWriteAccess, locationsRoutes);
+app.use('/api/stock-movements', authMiddleware, requireDepartmentScopedWriteAccess, stockMovementsRoutes);
+app.use('/api/stock-details', authMiddleware, requireDepartmentScopedWriteAccess, stockDetailsRoutes);
+app.use('/api/floor-plans', authMiddleware, requireSpecificDepartmentForWrite, floorPlansRoutes);
 app.use('/api/dashboard', authMiddleware, dashboardRoutes);
 app.use('/api/audit-logs', authMiddleware, auditLogsRoutes);
 app.use('/api/users', authMiddleware, usersRoutes);
@@ -55,6 +56,7 @@ app.use('/api/staff-departments', authMiddleware, staffDepartmentsRoutes);
 app.use('/api/password-requests', authMiddleware, passwordRequestsRoutes);
 app.use('/api/settings', authMiddleware, settingsRoutes);
 app.use('/api/import-requests', authMiddleware, importRequestsRoutes);
+app.use('/api/map', authMiddleware, mapRoutes);
 
 // Health check
 app.get('/api/health', (req, res) => {

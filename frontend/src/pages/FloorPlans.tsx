@@ -115,7 +115,7 @@ export default function FloorPlans() {
   const navigate = useNavigate();
   const user = JSON.parse(localStorage.getItem('user') || '{}');
   const currentDepartmentId = localStorage.getItem('currentDepartmentId');
-  const canManageFloorPlans = (user.role === 'admin' || user.role === 'superadmin') && currentDepartmentId !== ALL_DEPARTMENTS_ID;
+  const canManageFloorPlans = user.role === 'superadmin' || (user.role === 'admin' && Boolean(currentDepartmentId) && currentDepartmentId !== ALL_DEPARTMENTS_ID);
   const [searchParams] = useSearchParams();
   const locationId = searchParams.get('locationId');
 
@@ -123,7 +123,7 @@ export default function FloorPlans() {
   const [departments, setDepartments] = useState<Department[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
-  const [formData, setFormData] = useState({ name: '', width: 1200, height: 800 });
+  const [formData, setFormData] = useState({ name: '', width: 1200, height: 800, departmentId: '' });
   const [searchTerm, setSearchTerm] = useState('');
   const [departmentFilter, setDepartmentFilter] = useState('');
   const [sortBy, setSortBy] = useState('recently-added');
@@ -194,10 +194,20 @@ export default function FloorPlans() {
     return () => window.removeEventListener('storage', handleStorageChange);
   }, [locationId, navigate]);
 
+  const openCreateForm = () => {
+    setFormData(current => ({
+      ...current,
+      departmentId: user.role === 'superadmin' ? departmentFilter : current.departmentId,
+    }));
+    setShowForm(true);
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formData.name.trim()) { alert('Floor plan name is required'); return; }
     if (formData.width <= 0 || formData.height <= 0) { alert('Width and height must be positive'); return; }
+    const selectedDepartmentId = user.role === 'superadmin' ? formData.departmentId : undefined;
+    if (user.role === 'superadmin' && !selectedDepartmentId) { alert('Department is required'); return; }
     try {
       const response = await floorPlansApi.create({
         name: formData.name,
@@ -205,6 +215,7 @@ export default function FloorPlans() {
         height: formData.height,
         scale: { pixelsPerMeter: 50 },
         objects: [],
+        ...(selectedDepartmentId ? { departmentId: selectedDepartmentId } : {}),
       });
       navigate(`/floor-plans/${response.data.id}/edit`);
     } catch (error) {
@@ -225,7 +236,8 @@ export default function FloorPlans() {
   };
 
   const openAutoGenerateConfirm = () => {
-    if (!currentDepartmentId || currentDepartmentId === ALL_DEPARTMENTS_ID) {
+    const selectedDepartmentId = user.role === 'superadmin' ? departmentFilter : currentDepartmentId;
+    if (!selectedDepartmentId || selectedDepartmentId === ALL_DEPARTMENTS_ID) {
       setAutoGenerateStatus({ type: 'error', message: 'Select one department before auto-generating floor plans.' });
       return;
     }
@@ -233,7 +245,8 @@ export default function FloorPlans() {
   };
 
   const handleAutoGenerate = async () => {
-    if (!currentDepartmentId || currentDepartmentId === ALL_DEPARTMENTS_ID) {
+    const selectedDepartmentId = user.role === 'superadmin' ? departmentFilter : currentDepartmentId;
+    if (!selectedDepartmentId || selectedDepartmentId === ALL_DEPARTMENTS_ID) {
       setAutoGenerateStatus({ type: 'error', message: 'Select one department before auto-generating floor plans.' });
       return;
     }
@@ -245,6 +258,7 @@ export default function FloorPlans() {
       const response = await floorPlansApi.autoGenerate({
         count: autoGenerateCount,
         templates: autoGenerateTemplates,
+        ...(user.role === 'superadmin' ? { departmentId: selectedDepartmentId } : {}),
       });
       setAutoGenerateStatus({ type: 'info', message: 'Validating and scoring generated layouts...' });
       await wait(700);
@@ -363,7 +377,7 @@ export default function FloorPlans() {
             >
               <Sparkles size={20} /> {autoGenerating ? 'Generating...' : 'Auto Generate'}
             </button>
-            <button onClick={() => setShowForm(true)}
+            <button onClick={openCreateForm}
               className="flex items-center gap-2 bg-[var(--primary)] text-white px-4 py-2 rounded-lg hover:bg-[var(--primary-hover)]">
               <Plus size={20} /> New Floor Plan
             </button>
@@ -515,6 +529,24 @@ export default function FloorPlans() {
           <h2 className="text-xl font-semibold mb-4 text-[var(--text)]">Create Floor Plan</h2>
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              {user.role === 'superadmin' && (
+                <div>
+                  <label htmlFor="plan-department" className="block text-sm font-medium text-[var(--text)] mb-1">Department *</label>
+                  <select
+                    id="plan-department"
+                    name="departmentId"
+                    value={formData.departmentId}
+                    required
+                    onChange={e => setFormData({ ...formData, departmentId: e.target.value })}
+                    className="w-full px-4 py-2 border border-[var(--border)] rounded-lg bg-[var(--surface)] text-[var(--text)]"
+                  >
+                    <option value="">Select department</option>
+                    {departments.map(dept => (
+                      <option key={dept.id} value={dept.id}>{dept.name}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
               <div>
                 <label htmlFor="plan-name" className="block text-sm font-medium text-[var(--text)] mb-1">Floor Plan Name *</label>
                 <input id="plan-name" name="name" type="text" value={formData.name} required
@@ -623,10 +655,10 @@ export default function FloorPlans() {
           {filteredAndSortedPlans.length === 0 ? (
             <div className="col-span-full text-center py-16 bg-[var(--surface)] rounded-lg shadow">
               <p className="text-[var(--text-muted)] text-lg mb-1">{floorPlans.length === 0 ? 'No floor plans yet' : 'No floor plans match your filters'}</p>
-              {floorPlans.length === 0 && user.role === 'admin' && localStorage.getItem('currentDepartmentId') !== ALL_DEPARTMENTS_ID && (
+              {floorPlans.length === 0 && canManageFloorPlans && (
                 <>
                   <p className="text-[var(--text-muted)] text-sm mb-4">Create one to start mapping your warehouse</p>
-                  <button onClick={() => setShowForm(true)}
+                  <button onClick={openCreateForm}
                     className="px-4 py-2 bg-[var(--primary)] text-white rounded-lg hover:bg-[var(--primary-hover)]">
                     Create your first floor plan
                   </button>
@@ -690,7 +722,7 @@ export default function FloorPlans() {
                     {plan.name}
                   </h3>
 
-                  {(user.role === 'admin' || user.role === 'superadmin') && (
+                  {canManageFloorPlans && (
                     confirmingDeleteId === plan.id ? (
                       <div className="flex gap-1" onClick={e => e.stopPropagation()}>
                         <span className="text-xs text-[var(--text-muted)] flex-1 leading-tight">Delete?</span>
@@ -873,7 +905,7 @@ export default function FloorPlans() {
                       </td>
                       <td className="px-4 py-2 text-[var(--text-muted)] text-sm">{formatDate(plan.createdAt)}</td>
                       <td className="px-4 py-2 text-right">
-                        {(user.role === 'admin' || user.role === 'superadmin') && (
+                        {canManageFloorPlans && (
                           confirmingDeleteId === plan.id ? (
                             <span className="inline-flex gap-2 items-center">
                               <span className="text-xs text-[var(--text-muted)]">Delete?</span>
