@@ -7,6 +7,7 @@ import Register from '@/pages/Register';
 import InitialSetup from '@/pages/InitialSetup';
 import Dashboard from '@/pages/Dashboard';
 import Products from '@/pages/Products';
+import BulkAddProducts from '@/pages/BulkAddProducts';
 import Categories from '@/pages/Categories';
 import Locations from '@/pages/Locations';
 import StockMovements from '@/pages/StockMovements';
@@ -99,6 +100,18 @@ function App() {
               <DepartmentGuard>
                 <Layout>
                   <Products />
+                </Layout>
+              </DepartmentGuard>
+            </PrivateRoute>
+          }
+        />
+        <Route
+          path="/products/bulk-add"
+          element={
+            <PrivateRoute>
+              <DepartmentGuard>
+                <Layout>
+                  <BulkAddProducts />
                 </Layout>
               </DepartmentGuard>
             </PrivateRoute>

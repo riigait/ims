@@ -38,19 +38,14 @@ export default function Sidebar({ collapsed, onToggle }: { collapsed: boolean; o
   };
 
   const navItems = [
-    // Overview
     { path: '/dashboard',       icon: LayoutDashboard, label: 'Dashboard',       roles: ['superadmin', 'admin', 'staff'], section: 'main' },
-    // Master Data
     { path: '/categories',      icon: Tag,             label: 'Categories',      roles: ['superadmin', 'admin', 'staff'], section: 'main' },
-    { path: '/products',        icon: Package,         label: 'Products',        roles: ['superadmin', 'admin', 'staff'], section: 'main' },
     { path: '/locations',       icon: MapPin,          label: 'Locations',       roles: ['superadmin', 'admin', 'staff'], section: 'main' },
-    // Operations
+    { path: '/products',        icon: Package,         label: 'Products',        roles: ['superadmin', 'admin', 'staff'], section: 'main' },
     { path: '/inventory-items', icon: Boxes,           label: 'Inventory Items', roles: ['superadmin', 'admin', 'staff'], section: 'main' },
     { path: '/stock-movements', icon: ArrowLeftRight,  label: 'Stock Movements', roles: ['superadmin', 'admin', 'staff'], section: 'main' },
-    // Visual
     { path: '/floor-plans',     icon: Map,             label: 'Floor Plans',     roles: ['superadmin', 'admin', 'staff'], section: 'main' },
-    // Utilities
-    { path: '/import-pclsf',    icon: Upload,          label: 'Import PCLSF',    roles: ['admin', 'staff'], section: 'main' },
+    { path: '/import-pclsf',    icon: Upload,          label: 'Import / Export',    roles: ['admin', 'staff'], section: 'main' },
     { path: '/admin/requests',    icon: ClipboardList, label: 'Requests',         roles: ['superadmin', 'admin'], section: 'admin' },
     { path: '/admin/departments', icon: Building2, label: 'Departments', roles: ['superadmin', 'admin'], section: 'admin' },
     { path: '/admin/users', icon: Users, label: 'Users', roles: ['superadmin', 'admin'], section: 'admin' },

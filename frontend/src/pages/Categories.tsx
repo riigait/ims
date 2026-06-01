@@ -160,6 +160,14 @@ export default function Categories() {
 
   const filterContent = (
     <>
+      <p className="text-sm text-[var(--text-muted)]">
+        {filteredAndSortedCategories.length !== categories.length
+          ? <><span className="text-[var(--primary)] font-medium">{filteredAndSortedCategories.length} filtered</span> of {categories.length} total</>
+          : <>{categories.length} total</>
+        }
+        {categories.filter(c => c.departmentId).length > 0 && <> · <span className="text-blue-600">{categories.filter(c => c.departmentId).length} with department</span></>}
+        {categories.filter(c => !c.departmentId).length > 0 && <> · <span className="text-[var(--text-muted)]">{categories.filter(c => !c.departmentId).length} unassigned</span></>}
+      </p>
       <div className="flex gap-2">
         <input
           type="text"

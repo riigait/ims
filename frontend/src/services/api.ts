@@ -62,6 +62,7 @@ export const productsApi = {
   getById: (id: string) => api.get(`/products/${id}`),
   getMovements: (id: string) => api.get(`/products/${id}/movements`),
   create: (data: any) => api.post('/products', data),
+  bulkCreate: (data: any[]) => api.post('/products/bulk', { products: data }),
   update: (id: string, data: any) => api.put(`/products/${id}`, data),
   delete: (id: string) => api.delete(`/products/${id}`),
 };

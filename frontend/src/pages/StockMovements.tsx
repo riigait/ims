@@ -914,8 +914,27 @@ export default function StockMovements() {
 
   if (loading) return <div className="text-center py-12">Loading...</div>;
 
+  const mvCount = (type: string) => movements.filter(m => m.movementType === type).length;
+
   const filterContent = (
     <>
+      <p className="text-sm text-[var(--text-muted)]">
+        {filteredAndSortedMovements.length !== movements.length
+          ? <><span className="text-[var(--primary)] font-medium">{filteredAndSortedMovements.length} filtered</span> of {movements.length} total</>
+          : <>{movements.length} total</>
+        }
+        {' · '}<span className="text-green-600">{mvCount('stock_in')} stock in</span>
+        {' · '}<span className="text-red-500">{mvCount('stock_out')} stock out</span>
+        {' · '}<span className="text-purple-600">{mvCount('transfer')} transfers</span>
+        {' · '}<span className="text-cyan-600">{mvCount('pre_deployment') + mvCount('post_deployment')} deployments</span>
+        {' · '}<span className="text-violet-600">{mvCount('borrowed')} borrowed</span>
+        {' · '}<span className="text-teal-600">{mvCount('returned')} returned</span>
+        {' · '}<span className="text-yellow-600">{mvCount('repair_out') + mvCount('repair_return')} repairs</span>
+        {' · '}<span className="text-blue-600">{mvCount('adjustment')} adjustments</span>
+        {(mvCount('damaged') + mvCount('defective') + mvCount('disposal') + mvCount('lost')) > 0 && (
+          <> · <span className="text-orange-600">{mvCount('damaged') + mvCount('defective') + mvCount('disposal') + mvCount('lost')} losses</span></>
+        )}
+      </p>
       <div className="flex gap-2">
         <input type="text" placeholder="Search by product name…"
           value={filters.search} onChange={e => { setFilters({ ...filters, search: e.target.value }); setCurrentPage(1); }}

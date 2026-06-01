@@ -10,6 +10,7 @@ interface DataPageLayoutProps {
   formContent: React.ReactNode;
   filterContent: React.ReactNode;
   children: React.ReactNode;
+  actions?: React.ReactNode;
 }
 
 export default function DataPageLayout({
@@ -21,6 +22,7 @@ export default function DataPageLayout({
   formContent,
   filterContent,
   children,
+  actions,
 }: DataPageLayoutProps) {
   return (
     <div className="space-y-6">
@@ -32,14 +34,14 @@ export default function DataPageLayout({
 
       <div className="flex justify-between items-center">
         <h1 className="text-3xl font-bold text-[var(--text)]">{title}</h1>
-        {showAddButton && (
+        {actions ?? (showAddButton && (
           <button
             onClick={onAddClick}
             className="flex items-center gap-2 bg-[var(--primary)] text-white px-4 py-2 rounded-lg hover:bg-[var(--primary-hover)]"
           >
             <Plus size={20} /> Add {title.slice(0, -1)}
           </button>
-        )}
+        ))}
       </div>
 
       {showForm && (

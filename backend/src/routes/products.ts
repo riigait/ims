@@ -300,6 +300,77 @@ router.get('/:id/movements', async (req: AuthRequest, res: Response) => {
   }
 });
 
+// Bulk create products
+router.post('/bulk', async (req: AuthRequest, res: Response) => {
+  const { products: rows } = req.body;
+  if (!Array.isArray(rows) || rows.length === 0) {
+    return res.status(400).json({ error: 'No products provided' });
+  }
+
+  const results: Array<{ index: number; success: boolean; name?: string; error?: string }> = [];
+
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i];
+    try {
+      const name = (row.name || '').trim();
+      if (!name) {
+        results.push({ index: i, success: false, error: 'Product name is required' });
+        continue;
+      }
+
+      let sku = (row.sku || '').trim();
+      if (!sku) {
+        sku = await generateSku();
+      } else {
+        const existing = await prisma.product.findFirst({ where: { sku } });
+        if (existing) {
+          results.push({ index: i, success: false, name, error: `SKU "${sku}" already exists` });
+          continue;
+        }
+      }
+
+      const quantity = Math.max(0, parseInt(row.quantity) || 0);
+
+      const product = await prisma.product.create({
+        data: {
+          sku,
+          name,
+          description: row.description || null,
+          categoryId: row.categoryId || null,
+          unit: row.unit || 'pcs',
+          currentStock: quantity,
+          lowStockThreshold: parseInt(row.lowStockThreshold) || 10,
+          supplier: row.supplier || null,
+          unitPrice: parseFloat(row.unitPrice) || 0,
+          status: 'active',
+          notes: row.notes || null,
+          departmentId: req.departmentId || null,
+        },
+      });
+
+      if (quantity > 0) {
+        await createOpeningStockForProduct(product, quantity, row.locationId || null, req);
+      }
+
+      await logAudit({
+        userId: req.userId,
+        action: 'CREATE',
+        entityType: 'product',
+        entityId: product.id,
+        changes: { sku, name, quantity },
+      });
+
+      results.push({ index: i, success: true, name });
+    } catch (err: any) {
+      results.push({ index: i, success: false, error: err?.message || 'Unexpected error' });
+    }
+  }
+
+  const successCount = results.filter(r => r.success).length;
+  const errorCount = results.filter(r => !r.success).length;
+  res.json({ successCount, errorCount, results });
+});
+
 // Create product
 router.post('/', async (req: AuthRequest, res: Response) => {
   try {

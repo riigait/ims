@@ -252,8 +252,45 @@ export default function Products() {
 
   if (loading) return <div className="text-center py-12">Loading...</div>;
 
+  const headerActions = user.role !== 'superadmin' && localStorage.getItem('currentDepartmentId') !== ALL_DEPARTMENTS_ID ? (
+    <div className="flex items-center gap-2">
+      <button
+        onClick={() => navigate('/products/bulk-add')}
+        className="flex items-center gap-2 border border-[var(--border)] text-[var(--text)] px-4 py-2 rounded-lg hover:bg-[var(--surface-2)] transition-colors">
+        <Plus size={18} /> Bulk Add
+      </button>
+      <button
+        onClick={openNewDrawer}
+        className="flex items-center gap-2 bg-[var(--primary)] text-white px-4 py-2 rounded-lg hover:bg-[var(--primary-hover)] transition-colors">
+        <Plus size={20} /> Add Product
+      </button>
+    </div>
+  ) : null;
+
+  const activeProductCount = products.filter(p => p.status === 'active').length;
+  const discontinuedCount = products.filter(p => p.status === 'discontinued').length;
+  const obsoleteCount = products.filter(p => p.status === 'obsolete').length;
+  const backorderCount = products.filter(p => p.status === 'on-backorder').length;
+
+  const statsLine = (
+    <p className="text-sm text-[var(--text-muted)]">
+      {filteredProducts.length !== products.length
+        ? <><span className="text-[var(--primary)] font-medium">{filteredProducts.length} filtered</span> of {products.length} products</>
+        : <>{products.length} products</>
+      }
+      {' · '}<span className="text-green-600">{activeProductCount} active</span>
+      {discontinuedCount > 0 && <> · <span className="text-orange-500">{discontinuedCount} discontinued</span></>}
+      {obsoleteCount > 0 && <> · <span className="text-red-500">{obsoleteCount} obsolete</span></>}
+      {backorderCount > 0 && <> · <span className="text-yellow-600">{backorderCount} on backorder</span></>}
+      {' · '}<span className="text-yellow-600">{lowStockCount} low stock</span>
+      {' · '}<span className="text-red-600">{outOfStockCount} out of stock</span>
+      {negativeStockCount > 0 && <> · <span className="text-purple-600">{negativeStockCount} negative</span></>}
+    </p>
+  );
+
   const filterContent = (
     <>
+      {statsLine}
       {/* Row 1: Search + Sort + Clear */}
       <div className="flex gap-2">
         <input type="text" placeholder="Search by name or SKU…" value={filters.search}
@@ -403,27 +440,6 @@ export default function Products() {
 
   return (
     <>
-      {/* Header with stats */}
-      <div className="flex justify-between items-center mb-6">
-        <div>
-          <h1 className="text-3xl font-bold text-[var(--text)]">Products</h1>
-          <p className="text-sm text-[var(--text-muted)] mt-2">
-            {filteredProducts.length !== products.length
-              ? <><span className="text-[var(--primary)] font-medium">{filteredProducts.length} filtered</span> of {products.length} products</>
-              : <>{products.length} products</>
-            } · <span className="text-yellow-600">{lowStockCount} low stock</span> · <span className="text-red-600">{outOfStockCount} out of stock</span>
-            {negativeStockCount > 0 && <> · <span className="text-purple-600">{negativeStockCount} negative</span></>}
-          </p>
-        </div>
-        {user.role !== 'superadmin' && localStorage.getItem('currentDepartmentId') !== ALL_DEPARTMENTS_ID && (
-          <button
-            onClick={openNewDrawer}
-            className="flex items-center gap-2 bg-[var(--primary)] text-white px-4 py-2 rounded-lg hover:bg-[var(--primary-hover)] transition-colors">
-            <Plus size={20} /> Add Product
-          </button>
-        )}
-      </div>
-
       <DataPageLayout
         title="Products"
         error={error}
@@ -431,6 +447,7 @@ export default function Products() {
         formContent={null}
         onAddClick={openNewDrawer}
         showAddButton={false}
+        actions={headerActions}
         filterContent={filterContent}>
         <div className="space-y-0">
           {filteredProducts.length === 0 ? (

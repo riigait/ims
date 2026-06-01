@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { X, Edit, ArrowLeftRight, ChevronRight, ChevronDown } from 'lucide-react';
+import DataPageLayout from '@/components/layout/DataPageLayout';
 import { stockDetailsApi, locationsApi, productsApi, categoriesApi, departmentsApi } from '@/services/api';
 import { ALL_DEPARTMENTS_ID } from '@/constants/app';
 import Pagination from '@/components/Pagination';
@@ -466,24 +467,31 @@ export default function InventoryItems() {
   if (loading) return <div className="text-center py-12 text-[var(--text-muted)]">Loading...</div>;
 
   return (
-    <div className="p-6">
-      {/* Header */}
-      <div className="mb-6">
-        <h1 className="text-3xl font-bold text-[var(--text)]">Inventory Items</h1>
-        <p className="text-sm text-[var(--text-muted)] mt-2">
-          {items.length} total ·{' '}
-          <span className="text-green-600">{statusCounts.active} active</span> ·{' '}
-          <span className="text-cyan-600">{statusCounts.deployed} deployed</span> ·{' '}
-          <span className="text-yellow-600">{statusCounts['under-repair']} under repair</span> ·{' '}
-          <span className="text-rose-600">{statusCounts.lost} lost</span>
-        </p>
-        <p className="text-xs text-[var(--text-muted)] mt-1">
-          Each row is one physical unit. Click any row to view details and edit.
-        </p>
-      </div>
-
-      {/* Filters */}
-      <div className="flex flex-col gap-2 mb-4">
+    <>
+      <DataPageLayout
+        title="Inventory Items"
+        error=""
+        showForm={false}
+        formContent={null}
+        onAddClick={() => {}}
+        showAddButton={false}
+        filterContent={
+          <>
+            <p className="text-sm text-[var(--text-muted)]">
+              {items.length} total ·{' '}
+              <span className="text-green-600">{statusCounts.active} active</span> ·{' '}
+              <span className="text-emerald-600">{statusCounts.available} available</span> ·{' '}
+              <span className="text-cyan-600">{statusCounts.deployed} deployed</span> ·{' '}
+              <span className="text-violet-600">{statusCounts.borrowed} borrowed</span> ·{' '}
+              <span className="text-indigo-600">{statusCounts.reserved} reserved</span> ·{' '}
+              <span className="text-teal-600">{statusCounts.returned} returned</span> ·{' '}
+              <span className="text-yellow-600">{statusCounts['under-repair']} under repair</span> ·{' '}
+              <span className="text-rose-600">{statusCounts.lost} lost</span> ·{' '}
+              <span className="text-orange-600">{statusCounts.disposed} disposed</span> ·{' '}
+              <span className="text-blue-600">{statusCounts.sold} sold</span> ·{' '}
+              <span className="text-slate-500">{statusCounts.archived} archived</span>
+            </p>
+            <div className="flex flex-col gap-2">
         {/* Row 1: Search + Sort + Clear */}
         <div className="flex gap-2">
           <input type="text" value={search} onChange={e => { setSearch(e.target.value); setCurrentPage(1); }}
@@ -711,6 +719,8 @@ export default function InventoryItems() {
           </div>
         )}
       </div>
+          </>
+        }>
 
       {/* Table */}
       {filtered.length === 0 ? (
@@ -761,6 +771,8 @@ export default function InventoryItems() {
       <div className="mt-4">
         <Pagination currentPage={currentPage} totalItems={filtered.length} pageSize={pageSize} onPageChange={setCurrentPage} onPageSizeChange={(size) => { setPageSize(size); setCurrentPage(1); }} />
       </div>
+
+      </DataPageLayout>
 
       {/* Side Drawer */}
       {drawerItem && (
@@ -1109,6 +1121,6 @@ export default function InventoryItems() {
           </div>
         </div>
       )}
-    </div>
+    </>
   );
 }

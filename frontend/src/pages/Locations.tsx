@@ -175,8 +175,20 @@ export default function Locations() {
 
   if (loading) return <div className="text-center py-12">Loading...</div>;
 
+  const rootCount = locations.filter(l => !l.parentId).length;
+  const subCount = locations.filter(l => !!l.parentId).length;
+
   const filterContent = (
     <>
+      <p className="text-sm text-[var(--text-muted)]">
+        {filteredLocations.length !== locations.length
+          ? <><span className="text-[var(--primary)] font-medium">{filteredLocations.length} filtered</span> of {locations.length} total</>
+          : <>{locations.length} total</>
+        }
+        {rootCount > 0 && <> · <span className="text-blue-600">{rootCount} top-level</span></>}
+        {subCount > 0 && <> · <span className="text-violet-600">{subCount} sub-locations</span></>}
+        {locationTypes.length > 0 && <> · <span className="text-[var(--text-muted)]">{locationTypes.length} type{locationTypes.length !== 1 ? 's' : ''}</span></>}
+      </p>
       <div className="flex gap-2">
         <input
           type="text"
