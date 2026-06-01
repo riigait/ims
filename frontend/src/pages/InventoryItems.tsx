@@ -1100,7 +1100,7 @@ export default function InventoryItems() {
                   </button>
                 )}
                 <button
-                  onClick={() => { closeDrawer(); navigate('/stock-movements'); }}
+                  onClick={() => { closeDrawer(); navigate('/stock-movements', { state: { search: drawerItem.stockId || drawerItem.assetTag || '' } }); }}
                   className="flex items-center gap-2 px-4 py-2 border border-[var(--border)] text-sm rounded-lg text-[var(--text)] hover:bg-[var(--surface-2)]">
                   <ArrowLeftRight size={14} /> Move Item
                 </button>

@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { useLocation } from 'react-router-dom';
 import { X, Trash2, Search, ChevronLeft, ChevronRight, MapPin } from 'lucide-react';
 import { stockMovementsApi, productsApi, locationsApi, departmentsApi, stockDetailsApi } from '@/services/api';
 import { StockMovement, MovementType, Product, Location } from '@/types/inventory';
@@ -735,6 +736,8 @@ const emptyForm = {
 
 export default function StockMovements() {
   const user = JSON.parse(localStorage.getItem('user') || '{}');
+  const routeLocation = useLocation();
+  const routeState = (routeLocation.state as any) || {};
   const [movements, setMovements] = useState<StockMovement[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [locations, setLocations] = useState<Location[]>([]);
@@ -743,7 +746,7 @@ export default function StockMovements() {
   const [showStockDetails, setShowStockDetails] = useState(false);
   const [selectedProductId, setSelectedProductId] = useState<string | null>(null);
   const [filters, setFilters] = useState<StockMovementFilter & { departmentId?: string }>({
-    search: '', movementType: undefined, dateRange: 'all', departmentId: undefined,
+    search: routeState.search ?? '', movementType: undefined, dateRange: 'all', departmentId: undefined,
   });
   const [sortBy, setSortBy] = useState('recently-added');
   const [error, setError] = useState('');

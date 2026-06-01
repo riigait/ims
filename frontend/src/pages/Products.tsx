@@ -873,7 +873,7 @@ export default function Products() {
                         <Trash2 size={14} /> Request Delete
                       </button>
                     ) : null}
-                    <button type="button" onClick={() => { closeDrawer(); navigate('/stock-movements'); }}
+                    <button type="button" onClick={() => { closeDrawer(); navigate('/stock-movements', { state: { search: selectedItem.name } }); }}
                       className="px-4 py-2 border border-[var(--border)] text-sm rounded-lg text-[var(--text)] hover:bg-[var(--surface-2)]">
                       View Movements
                     </button>
