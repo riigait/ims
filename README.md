@@ -1,242 +1,130 @@
 # Inventory Management System
 
-An open-source Inventory Management System built for IT asset tracking, office equipment inventory, and multi-department stock management.
+Local Inventory Management System for products, inventory items, locations, stock movements, users, departments, and floor plans.
 
-This app is currently under active development. You can use it, test it, and contribute to it, but some features may still change or contain bugs. Please report any issues you find through GitHub Issues.
+## Requirements
 
----
+### Software
 
-## About the Project
+* Git
+* Node.js
+* npm
+* PostgreSQL
+* Prisma
 
-Inventory Management System is designed to help companies, offices, IT departments, and government organizations manage assets and inventory records in a structured way.
+### Hardware
 
-It can be used for tracking:
+No special hardware is required.
 
-- IT equipment
-- Office supplies
-- Network devices
-- Stock movements
-- Department-assigned assets
-- Locations and storage areas
-- Product categories
-- Inventory item details
+Recommended for local use:
 
-The goal of this project is to provide a practical, open-source inventory platform that can be improved and customized based on real operational needs.
+* Desktop, laptop, mini PC, or Raspberry Pi
+* At least 4GB RAM
+* SSD or NVMe storage recommended for the database
 
----
+## Project Structure
 
-## Main Features
-
-- Product and inventory item management
-- Category management
-- Location management
-- Department-based organization
-- Stock movement tracking
-- Asset tag, barcode, serial number, MAC address, and model number fields
-- Item status and condition tracking
-- Warranty and date received tracking
-- Role-based access structure
-- Dashboard-style inventory monitoring
-- Search, filter, and sorting support
-- Designed for company and government office inventory workflows
-
----
-
-## Project Status
-
-This project is under active development.
-
-Current focus areas include:
-
-- Improving inventory workflows
-- Enhancing product, category, and location management
-- Improving stock movement tracking
-- Cleaning up UI behavior
-- Improving data validation
-- Strengthening security and role-based access
-- Preparing the system for more production-ready use
-
-Breaking changes may happen while the project is still being improved.
-
----
-
-## Tech Stack
-
-- **Frontend:** React, TypeScript, Vite
-- **Backend:** Node.js, Express, TypeScript
-- **Database:** PostgreSQL via Prisma ORM
-- **Authentication:** JWT-based with role-based access
-- **API:** REST
-
----
-
-## Use Cases
-
-This system is useful for:
-
-- IT asset tracking
-- Office equipment inventory
-- Government office inventory
-- Company stock management
-- Multi-department asset monitoring
-- Equipment assignment tracking
-- Basic warehouse or storage room inventory
-
----
-
-## Security Notice
-
-This repository should only contain safe public information.
-
-Do not commit or expose:
-
-- `.env` files
-- API keys
-- Database passwords
-- JWT secrets
-- Admin credentials
-- Private server IP addresses
-- Internal-only URLs
-- Cloud access tokens
-- Personal user data
-- Production database dumps
-- Real confidential inventory records
-
-Use `.env.example` instead of `.env`.
-
-Example:
-
-```env
-DATABASE_URL="your-database-url-here"
-JWT_SECRET="your-jwt-secret-here"
-PORT=3001
+```txt
+ims/
+├── backend/
+├── frontend/
+├── csv-corrector/
+├── docker-compose.yml
+└── README.md
 ```
 
-Never place real secrets inside the README, source code, screenshots, documentation, or GitHub Issues.
-
----
-
-## Installation
+## Local Installation
 
 Clone the repository:
 
 ```bash
-git clone <your-repository-url>
-cd <repository-folder>
+git clone <repository-url>
+cd ims
 ```
 
-Install dependencies:
-
-```bash
-npm install
-```
-
-Create an environment file:
-
-```bash
-cp backend/.env.example backend/.env
-```
-
-Update the `.env` file with your local development values.
-
-Run database setup:
+## Backend Setup
 
 ```bash
 cd backend
+npm install
+cp .env.example .env
+```
+
+Edit `.env`:
+
+```env
+DATABASE_URL="postgresql://user:password@localhost:5432/ims"
+JWT_SECRET="your-jwt-secret"
+PORT=3001
+```
+
+Run Prisma:
+
+```bash
 npx prisma generate
 npx prisma migrate dev
 ```
 
-Start the development server:
+Start the backend:
 
 ```bash
 npm run dev
 ```
 
-If the frontend and backend are separated, install and run each one separately based on your project structure.
+Backend runs on:
 
----
-
-## Recommended Environment Files
-
-Use this structure:
-
-```
-.env
-.env.example
+```txt
+http://localhost:3001
 ```
 
-The `.env` file should be ignored by Git.
+## Frontend Setup
 
-The `.env.example` file should contain only placeholder values.
+Open another terminal:
 
-Example `.gitignore` entries:
-
+```bash
+cd frontend
+npm install
+npm run dev
 ```
+
+Frontend runs on:
+
+```txt
+http://localhost:5173
+```
+
+## Docker Local Setup
+
+You can also run the app locally using Docker:
+
+```bash
+docker-compose up
+```
+
+## Environment Notes
+
+Do not commit `.env` files.
+
+Keep these private:
+
+```txt
 .env
 .env.local
-.env.production
-.env.development
-node_modules
-dist
-build
-coverage
-logs
-uploads
-temp
-cache
+database passwords
+JWT secrets
+admin credentials
+private server IPs
 ```
 
----
+## Usage
 
-## Contributing
-
-Contributions are welcome.
-
-You can help by:
-
-- Reporting bugs
-- Suggesting improvements
-- Improving documentation
-- Fixing UI issues
-- Improving backend logic
-- Adding tests
-- Improving security
-- Refactoring code safely
-
-Before submitting changes, please make sure your code does not expose secrets, private data, or environment-specific configuration.
-
----
-
-## Bug Reports
-
-When reporting bugs, please include:
-
-- What page or feature has the issue
-- Steps to reproduce the problem
-- Expected result
-- Actual result
-- Screenshot if helpful
-- Browser or environment used
-
-Do not include passwords, tokens, private URLs, or real confidential data in bug reports.
-
----
-
-## Development Notes
-
-This project is still evolving. Some modules, database fields, UI components, and API routes may be updated as the system improves.
-
-The goal is to keep the system clean, secure, practical, and useful for real inventory operations.
-
----
+1. Start PostgreSQL.
+2. Start the backend.
+3. Start the frontend.
+4. Open the frontend URL in your browser.
+5. Complete the initial setup.
+6. Login and use the system locally.
 
 ## License
 
-This project is open source. Add your selected license here (e.g., MIT License).
-
----
-
-## Disclaimer
-
-This software is provided as-is while under active development. Use it carefully, review the code before production deployment, and configure your own security settings properly.
+Add your selected license here.
