@@ -95,6 +95,7 @@ export interface StockMovement {
   department?: Department;
   toDepartmentId?: string;
   toDepartment?: Department;
+  status?: string;
   createdAt: string;
 }
 

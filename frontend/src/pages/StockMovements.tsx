@@ -746,8 +746,9 @@ export default function StockMovements() {
   const [loading, setLoading] = useState(true);
   const [showStockDetails, setShowStockDetails] = useState(false);
   const [selectedProductId, setSelectedProductId] = useState<string | null>(null);
-  const [filters, setFilters] = useState<StockMovementFilter & { departmentId?: string }>({
+  const [filters, setFilters] = useState<StockMovementFilter & { departmentId?: string; movementStatus?: string }>({
     search: routeState.search ?? '', movementType: undefined, dateRange: 'all', departmentId: undefined,
+    movementStatus: routeState.notifFilter === 'movement:pending' ? 'pending' : undefined,
   });
   const [sortBy, setSortBy] = useState('recently-added');
   const [error, setError] = useState('');
@@ -908,7 +909,7 @@ export default function StockMovements() {
   const paginatedMovements = filteredAndSortedMovements.slice((currentPage - 1) * pageSize, currentPage * pageSize);
 
   const clearAllFilters = () => {
-    setFilters({ search: '', movementType: undefined, dateRange: 'all', departmentId: undefined });
+    setFilters({ search: '', movementType: undefined, dateRange: 'all', departmentId: undefined, movementStatus: undefined });
     setSortBy('recently-added');
     setCurrentPage(1);
   };
@@ -916,6 +917,7 @@ export default function StockMovements() {
   if (loading) return <div className="text-center py-12">Loading...</div>;
 
   const mvCount = (type: string) => movements.filter(m => m.movementType === type).length;
+  const pendingCount = movements.filter(m => m.status === 'pending').length;
 
   const filterContent = (
     <>
@@ -924,6 +926,9 @@ export default function StockMovements() {
           ? <><span className="text-[var(--primary)] font-medium">{filteredAndSortedMovements.length} filtered</span> of {movements.length} total</>
           : <>{movements.length} total</>
         }
+        {pendingCount > 0 && (
+          <> · <span className="text-orange-500 font-medium">{pendingCount} pending</span></>
+        )}
         {' · '}<span className="text-green-600">{mvCount('stock_in')} stock in</span>
         {' · '}<span className="text-red-500">{mvCount('stock_out')} stock out</span>
         {' · '}<span className="text-purple-600">{mvCount('transfer')} transfers</span>
@@ -956,6 +961,15 @@ export default function StockMovements() {
           className="px-3 py-2 border border-[var(--border)] rounded text-sm bg-[var(--surface)] text-[var(--text)]">
           <option value="">All Movement Types</option>
           {MOVEMENT_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+        </select>
+        <select
+          value={(filters as any).movementStatus || ''}
+          onChange={e => { setFilters({ ...filters, movementStatus: e.target.value || undefined } as any); setCurrentPage(1); }}
+          className={`px-3 py-2 border rounded text-sm bg-[var(--surface)] text-[var(--text)] ${(filters as any).movementStatus ? 'border-orange-400 font-semibold text-orange-600' : 'border-[var(--border)]'}`}>
+          <option value="">All Statuses</option>
+          <option value="pending">Pending (uncommitted)</option>
+          <option value="committed">Committed</option>
+          <option value="cancelled">Cancelled</option>
         </select>
         {user.role === 'superadmin' && (
           <select value={filters.departmentId || ''}

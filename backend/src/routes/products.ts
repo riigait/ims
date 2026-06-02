@@ -72,7 +72,7 @@ async function createOpeningStockForProduct(product: any, quantity: number, loca
     data: {
       movementNo,
       movementType: 'opening_stock',
-      status: 'pending',
+      status: 'committed',
       remarks: 'Opening stock',
       departmentId: req.departmentId || null,
       userId: req.userId!,
@@ -104,7 +104,7 @@ async function createDepartmentTransferMovement(
     data: {
       movementNo,
       movementType: 'moved_to_department',
-      status: 'pending',
+      status: 'committed',
       remarks: `CSV re-import: department corrected`,
       departmentId: fromDepartmentId || null,
       toDepartmentId,
@@ -118,6 +118,12 @@ async function createDepartmentTransferMovement(
         })),
       },
     },
+  });
+
+  // Clear old-department locations from all items so they don't remain linked to stale locations
+  await prisma.stockDetail.updateMany({
+    where: { productId: product.id },
+    data: { currentLocationId: null },
   });
 }
 
@@ -729,7 +735,7 @@ router.post('/:id/create-opening-stock', async (req: AuthRequest, res: Response)
       data: {
         movementNo,
         movementType: 'adjustment',
-        status: 'pending',
+        status: 'committed',
         remarks: 'Opening stock',
         departmentId: product.departmentId || null,
         userId: req.userId!,

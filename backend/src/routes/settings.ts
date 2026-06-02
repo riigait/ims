@@ -129,4 +129,33 @@ router.post('/danger/delete-department-data', async (req: AuthRequest, res: Resp
   }
 });
 
+router.post('/sync-stock-counts', async (req: AuthRequest, res: Response) => {
+  try {
+    if (req.userRole !== 'superadmin') {
+      return res.status(403).json({ error: 'Superadmin only' });
+    }
+
+    const finalStatuses = ['sold', 'disposed', 'lost'];
+
+    const products = await prisma.product.findMany({
+      where: { stockDetails: { some: {} } },
+      select: { id: true, currentStock: true, _count: { select: { stockDetails: { where: { currentStatus: { notIn: finalStatuses } } } } } },
+    });
+
+    let synced = 0;
+    for (const p of products) {
+      const correct = p._count.stockDetails;
+      if (p.currentStock !== correct) {
+        await prisma.product.update({ where: { id: p.id }, data: { currentStock: correct } });
+        synced++;
+      }
+    }
+
+    res.json({ message: `Synced stock counts for ${synced} product${synced !== 1 ? 's' : ''}.`, synced, total: products.length });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Failed to sync stock counts' });
+  }
+});
+
 export default router;

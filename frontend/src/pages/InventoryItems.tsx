@@ -175,29 +175,56 @@ export default function InventoryItems() {
   const [formData, setFormData] = useState(emptyForm);
   const [formError, setFormError] = useState('');
 
+  // Map notification filter key → filter state values
+  function notifToItemFilters(nf: string | undefined) {
+    if (!nf) return {};
+    const m: Record<string, Record<string, string>> = {
+      'item:poor-condition':        { filterCondition: 'poor' },
+      'item:overdue-repair':        { filterStatus: 'under-repair' },
+      'item:overdue-borrowed':      { filterStatus: 'borrowed' },
+      'item:warranty-expired':      { filterWarranty: 'expired' },
+      'item:warranty-expiring-soon':{ filterWarranty: 'expiring-soon' },
+      'item:lost':                  { filterStatus: 'lost' },
+      'item:damaged':               { filterStatus: 'damaged' },
+      'item:unresolved-lost-damage':{ filterStatus: 'lost' },
+      'item:repair':                { filterStatus: 'under-repair' },
+      'item:borrowed':              { filterStatus: 'borrowed' },
+      'item:missing-custodian':     { filterCustodian: 'unassigned' },
+      'item:deployed':              { filterStatus: 'deployed' },
+      'item:overdue-deployed':      { filterStatus: 'deployed' },
+      'item:missing-all-details':   { filterDataQuality: 'incomplete' },
+      'item:no-identification':     { filterDataQuality: 'no-serial' },
+      'item:warranty-missing':      { filterWarranty: 'no-date' },
+      'item:old-unverified':        { filterAuditStatus: 'not-checked-3months' },
+      'item:duplicate-serial':      { filterDataQuality: 'duplicate-serial' },
+    };
+    return m[nf] || {};
+  }
+  const _nf = notifToItemFilters(routeState.notifFilter);
+
   // Filters — main
   const [search, setSearch] = useState('');
   const [filterCategory, setFilterCategory] = useState('');
   const [filterProduct, setFilterProduct] = useState('');
-  const [filterStatus, setFilterStatus] = useState(routeState.filterStatus ?? '');
-  const [filterCondition, setFilterCondition] = useState('');
+  const [filterStatus, setFilterStatus] = useState(_nf.filterStatus ?? routeState.filterStatus ?? '');
+  const [filterCondition, setFilterCondition] = useState(_nf.filterCondition ?? '');
   const [filterLocation, setFilterLocation] = useState('');
-  const [filterWarranty, setFilterWarranty] = useState(routeState.filterWarranty ?? '');
+  const [filterWarranty, setFilterWarranty] = useState(_nf.filterWarranty ?? routeState.filterWarranty ?? '');
   // Filters — advanced
   const [filterDepartment, setFilterDepartment] = useState('');
   const [filterAssignment, setFilterAssignment] = useState('');
   const [filterStockLevel, setFilterStockLevel] = useState('');
   const [filterDateRange, setFilterDateRange] = useState('');
   const [filterIdentifier, setFilterIdentifier] = useState('');
-  const [filterCustodian, setFilterCustodian] = useState('');
+  const [filterCustodian, setFilterCustodian] = useState(_nf.filterCustodian ?? '');
   const [filterItemType, setFilterItemType] = useState('');
   const [filterBrand, setFilterBrand] = useState('');
   const [filterSupplier, setFilterSupplier] = useState('');
-  const [filterAuditStatus, setFilterAuditStatus] = useState('');
+  const [filterAuditStatus, setFilterAuditStatus] = useState(_nf.filterAuditStatus ?? '');
   const [filterDateAdded, setFilterDateAdded] = useState('');
   const [filterMovementType, setFilterMovementType] = useState('');
   const [filterCostStatus, setFilterCostStatus] = useState('');
-  const [filterDataQuality, setFilterDataQuality] = useState(routeState.filterDataQuality ?? '');
+  const [filterDataQuality, setFilterDataQuality] = useState(_nf.filterDataQuality ?? routeState.filterDataQuality ?? '');
   const [sortBy, setSortBy] = useState('recently-added');
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
@@ -295,6 +322,14 @@ export default function InventoryItems() {
       setFormError(err?.response?.data?.error || 'Failed to update item');
     }
   };
+
+  // Compute duplicate serial numbers once for the duplicate-serial filter
+  const dupeSerialSet: Set<string> = (() => {
+    if (filterDataQuality !== 'duplicate-serial') return new Set<string>();
+    const counts = new Map<string, number>();
+    for (const i of items) { if (i.serialNumber) counts.set(i.serialNumber, (counts.get(i.serialNumber) || 0) + 1); }
+    return new Set([...counts.entries()].filter(([, c]) => c > 1).map(([s]) => s));
+  })();
 
   const filtered = items.filter(item => {
     if (filterCategory && item.product?.categoryId !== filterCategory) return false;
@@ -431,6 +466,7 @@ export default function InventoryItems() {
       if (filterDataQuality === 'no-cost' && (item.unitCost != null && parseFloat(item.unitCost) > 0)) return false;
       if (filterDataQuality === 'no-location' && item.currentLocationId) return false;
       if (filterDataQuality === 'test-data' && !isTestData) return false;
+      if (filterDataQuality === 'duplicate-serial' && !(item.serialNumber && dupeSerialSet.has(item.serialNumber))) return false;
     }
 
     if (search) {

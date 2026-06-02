@@ -9,6 +9,7 @@ import { validateProductName, validateStock } from '@/utils/validation';
 import { formatDate, formatPhp } from '@/utils/ids';
 import { filterAndSortProducts, clearProductFilters, UNASSIGNED_LOCATION } from '@/utils/filterHelpers';
 import DataPageLayout from '@/components/layout/DataPageLayout';
+import SearchableSelect from '@/components/SearchableSelect';
 import { ALL_DEPARTMENTS_ID } from '@/constants/app';
 
 const MOVEMENT_COLOR: Record<string, string> = {
@@ -61,8 +62,24 @@ export default function Products() {
   const [departments, setDepartments] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const routeState = (routeLocation.state as any) || {};
+
+  function notifToProductFilter(nf: string | undefined): Partial<ProductFilter> {
+    if (!nf) return {};
+    if (nf === 'product:negative-stock')          return { stockStatus: 'negative-stock' };
+    if (nf === 'product:out-of-stock')            return { stockStatus: 'out-of-stock' };
+    if (nf === 'product:low-stock')               return { stockStatus: 'low-stock' };
+    if (nf === 'product:no-location')             return { dataQuality: 'missing-location' };
+    if (nf === 'product:expired')                 return { dataQuality: 'expiry-expired' };
+    if (nf === 'product:expiring-soon')           return { dataQuality: 'expiry-soon' };
+    if (nf === 'product:backorder')               return { productStatus: 'on-backorder' };
+    if (nf === 'product:discontinued-with-stock') return { dataQuality: 'discontinued-with-stock' };
+    if (nf === 'product:no-threshold')            return { dataQuality: 'no-threshold' };
+    return {};
+  }
+
   const [filters, setFilters] = useState<ProductFilter>({
     search: routeState.search ?? '', categoryId: undefined, locationId: routeState.locationId ?? undefined, stockStatus: routeState.stockStatus ?? undefined, departmentId: undefined, unit: undefined, dateRange: 'all',
+    ...notifToProductFilter(routeState.notifFilter),
   });
   const [sort, setSort] = useState<ProductSort>({ field: 'date', order: 'desc' });
   const [error, setError] = useState('');
@@ -621,12 +638,13 @@ export default function Products() {
                     </div>
                     <div>
                       <label className="block text-xs font-medium text-[var(--text-muted)] mb-1">Location</label>
-                      <select value={formData.locationId}
-                        onChange={e => setFormData({ ...formData, locationId: e.target.value })}
-                        className="w-full px-3 py-1.5 text-sm border border-[var(--border)] rounded-lg bg-[var(--surface)] text-[var(--text)]">
-                        <option value="">— No location —</option>
-                        {locations.map(loc => <option key={loc.id} value={loc.id}>{loc.name} ({loc.type})</option>)}
-                      </select>
+                      <SearchableSelect
+                        value={formData.locationId}
+                        onChange={val => setFormData({ ...formData, locationId: val })}
+                        options={locations.map(loc => ({ value: loc.id, label: loc.name, sub: loc.type }))}
+                        placeholder="Search locations…"
+                        emptyLabel="— No location —"
+                      />
                     </div>
                     <div>
                       <label className="block text-xs font-medium text-[var(--text-muted)] mb-1">Unit</label>

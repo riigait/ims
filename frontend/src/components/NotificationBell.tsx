@@ -1,5 +1,5 @@
-import { useState, useEffect, useRef } from 'react';
-import { Bell, X, AlertTriangle, AlertCircle, Info, ChevronRight } from 'lucide-react';
+import { useState, useEffect, useRef, useCallback } from 'react';
+import { Bell, X, AlertTriangle, AlertCircle, Info, ChevronRight, CheckCheck } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import api from '@/services/api';
 
@@ -12,14 +12,10 @@ interface Notification {
   count: number;
   actionPath: string;
   actionTab?: string;
+  actionFilter?: string;
 }
 
-interface Summary {
-  total: number;
-  alerts: number;
-  critical: number;
-  high: number;
-}
+type ReadStore = Record<string, number>;
 
 const SEVERITY_COLOR: Record<string, string> = {
   critical: 'text-red-600 dark:text-red-400',
@@ -37,6 +33,48 @@ const SEVERITY_BG: Record<string, string> = {
   info:     'bg-[var(--surface-2)] border-[var(--border)]',
 };
 
+const SEVERITY_RING: Record<string, string> = {
+  critical: 'ring-1 ring-red-400 dark:ring-red-600',
+  high:     'ring-1 ring-orange-400 dark:ring-orange-600',
+  medium:   'ring-1 ring-yellow-400 dark:ring-yellow-600',
+  low:      'ring-1 ring-blue-400 dark:ring-blue-600',
+  info:     'ring-1 ring-[var(--border)]',
+};
+
+const SEVERITY_WEIGHT: Record<string, number> = {
+  critical: 5, high: 4, medium: 3, low: 2, info: 1,
+};
+
+function getUserId(): string {
+  try {
+    const u = JSON.parse(localStorage.getItem('user') || '{}');
+    return u.id || 'anon';
+  } catch { return 'anon'; }
+}
+
+function loadReadStore(): ReadStore {
+  try {
+    return JSON.parse(localStorage.getItem(`ims_notif_read_${getUserId()}`) || '{}');
+  } catch { return {}; }
+}
+
+function saveReadStore(store: ReadStore) {
+  localStorage.setItem(`ims_notif_read_${getUserId()}`, JSON.stringify(store));
+}
+
+function isUnread(n: Notification, store: ReadStore): boolean {
+  return !(n.key in store) || store[n.key] < n.count;
+}
+
+function sortNotifications(data: Notification[], store: ReadStore): Notification[] {
+  return [...data].sort((a, b) => {
+    const aU = isUnread(a, store) ? 1 : 0;
+    const bU = isUnread(b, store) ? 1 : 0;
+    if (aU !== bU) return bU - aU;
+    return (SEVERITY_WEIGHT[b.severity] || 0) - (SEVERITY_WEIGHT[a.severity] || 0);
+  });
+}
+
 function SeverityIcon({ severity }: { severity: string }) {
   const cls = `w-4 h-4 flex-shrink-0 ${SEVERITY_COLOR[severity]}`;
   if (severity === 'critical' || severity === 'high') return <AlertCircle className={cls} />;
@@ -47,38 +85,56 @@ function SeverityIcon({ severity }: { severity: string }) {
 export default function NotificationBell({ collapsed }: { collapsed: boolean }) {
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
-  const [summary, setSummary] = useState<Summary | null>(null);
   const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [readStore, setReadStoreState] = useState<ReadStore>(loadReadStore);
   const [loading, setLoading] = useState(false);
+  const [bellBounce, setBellBounce] = useState(false);
+  const prevKeysRef = useRef<Set<string>>(new Set());
   const ref = useRef<HTMLDivElement>(null);
 
-  const fetchSummary = async () => {
-    try {
-      const res = await api.get('/notifications/summary');
-      setSummary(res.data);
-    } catch { /* silent */ }
-  };
-
-  const fetchNotifications = async () => {
-    setLoading(true);
+  const fetchNotifications = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true);
     try {
       const res = await api.get('/notifications');
-      setNotifications(res.data);
-    } catch { /* silent */ } finally {
-      setLoading(false);
-    }
-  };
+      const data: Notification[] = res.data;
+      const store = loadReadStore();
 
-  useEffect(() => {
-    fetchSummary();
-    const interval = setInterval(fetchSummary, 60000);
-    return () => clearInterval(interval);
+      // Detect if any new unread alert arrived since last fetch
+      const hadPrev = prevKeysRef.current.size > 0;
+      const hasNew = data.some(n => {
+        const isNewKey = !prevKeysRef.current.has(n.key);
+        const isCountUp = n.key in store && store[n.key] < n.count;
+        return (isNewKey || isCountUp) && isUnread(n, store);
+      });
+
+      if (hadPrev && hasNew) {
+        setBellBounce(true);
+        setTimeout(() => setBellBounce(false), 1500);
+      }
+
+      prevKeysRef.current = new Set(data.map(n => n.key));
+      setNotifications(sortNotifications(data, store));
+    } catch { /* silent */ } finally {
+      if (!silent) setLoading(false);
+    }
   }, []);
 
+  // Initial load + 60s background refresh
   useEffect(() => {
-    if (open) fetchNotifications();
-  }, [open]);
+    fetchNotifications();
+    const interval = setInterval(() => fetchNotifications(true), 60000);
+    return () => clearInterval(interval);
+  }, [fetchNotifications]);
 
+  // Extra 30s poll while dropdown is open (catch new arrivals)
+  useEffect(() => {
+    if (!open) return;
+    fetchNotifications();
+    const interval = setInterval(() => fetchNotifications(true), 30000);
+    return () => clearInterval(interval);
+  }, [open, fetchNotifications]);
+
+  // Outside click closes
   useEffect(() => {
     const handler = (e: MouseEvent) => {
       if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
@@ -87,23 +143,39 @@ export default function NotificationBell({ collapsed }: { collapsed: boolean }) 
     return () => document.removeEventListener('mousedown', handler);
   }, []);
 
-  const badgeCount = summary?.total ?? 0;
-  const badgeLabel = badgeCount > 99 ? '99+' : String(badgeCount);
-  const hasCritical = (summary?.critical ?? 0) > 0;
-  const hasHigh = (summary?.high ?? 0) > 0;
-  const badgeColor = hasCritical
-    ? 'bg-red-600'
-    : hasHigh
-    ? 'bg-orange-500'
-    : 'bg-[var(--primary)]';
+  const unreadCount = notifications.filter(n => isUnread(n, readStore)).length;
+  const badgeLabel = unreadCount > 99 ? '99+' : String(unreadCount);
+  const hasCritical = notifications.some(n => isUnread(n, readStore) && n.severity === 'critical');
+  const hasHigh = notifications.some(n => isUnread(n, readStore) && n.severity === 'high');
+  const badgeColor = hasCritical ? 'bg-red-600' : hasHigh ? 'bg-orange-500' : 'bg-[var(--primary)]';
+
+  const updateStore = (store: ReadStore) => {
+    saveReadStore(store);
+    setReadStoreState({ ...store });
+    setNotifications(prev => sortNotifications(prev, store));
+  };
+
+  const markRead = (n: Notification) => {
+    const store = loadReadStore();
+    store[n.key] = n.count;
+    updateStore(store);
+  };
+
+  const markAllRead = () => {
+    const store = loadReadStore();
+    for (const n of notifications) store[n.key] = n.count;
+    updateStore(store);
+  };
 
   const handleNavigate = (n: Notification) => {
+    markRead(n);
     setOpen(false);
-    if (n.actionTab) {
-      navigate(n.actionPath, { state: { tab: n.actionTab } });
-    } else {
-      navigate(n.actionPath);
-    }
+    navigate(n.actionPath, {
+      state: {
+        ...(n.actionTab ? { tab: n.actionTab } : {}),
+        ...(n.actionFilter ? { notifFilter: n.actionFilter } : {}),
+      },
+    });
   };
 
   return (
@@ -115,8 +187,8 @@ export default function NotificationBell({ collapsed }: { collapsed: boolean }) 
           collapsed ? 'w-full p-2' : 'flex-1 px-3 py-2'
         } ${open ? 'bg-[var(--surface-2)]' : ''}`}
       >
-        <Bell size={16} />
-        {badgeCount > 0 && (
+        <Bell size={16} className={bellBounce ? 'animate-bounce' : ''} />
+        {unreadCount > 0 && (
           <span className={`absolute -top-0.5 -right-0.5 min-w-[16px] h-4 px-0.5 flex items-center justify-center text-[10px] font-bold text-white rounded-full ${badgeColor}`}>
             {badgeLabel}
           </span>
@@ -130,15 +202,29 @@ export default function NotificationBell({ collapsed }: { collapsed: boolean }) 
             <div className="flex items-center gap-2">
               <Bell size={16} className="text-[var(--text-muted)]" />
               <span className="font-semibold text-sm text-[var(--text)]">Notifications</span>
-              {badgeCount > 0 && (
+              {unreadCount > 0 && (
                 <span className={`text-xs font-bold text-white px-1.5 py-0.5 rounded-full ${badgeColor}`}>
-                  {badgeLabel}
+                  {badgeLabel} unread
                 </span>
               )}
             </div>
-            <button onClick={() => setOpen(false)} className="text-[var(--text-muted)] hover:text-[var(--text)] p-1 rounded">
-              <X size={14} />
-            </button>
+            <div className="flex items-center gap-1">
+              {unreadCount > 0 && (
+                <button
+                  onClick={markAllRead}
+                  title="Mark all as read"
+                  className="p-1 rounded text-[var(--text-muted)] hover:text-[var(--text)] hover:bg-[var(--surface-2)] transition-colors"
+                >
+                  <CheckCheck size={14} />
+                </button>
+              )}
+              <button
+                onClick={() => setOpen(false)}
+                className="text-[var(--text-muted)] hover:text-[var(--text)] p-1 rounded transition-colors"
+              >
+                <X size={14} />
+              </button>
+            </div>
           </div>
 
           {/* Body */}
@@ -152,27 +238,42 @@ export default function NotificationBell({ collapsed }: { collapsed: boolean }) 
               </div>
             ) : (
               <div className="p-2 space-y-1.5">
-                {notifications.map(n => (
-                  <button
-                    key={n.key}
-                    onClick={() => handleNavigate(n)}
-                    className={`w-full text-left flex items-start gap-3 p-3 rounded-lg border transition-colors hover:opacity-90 ${SEVERITY_BG[n.severity]}`}
-                  >
-                    <SeverityIcon severity={n.severity} />
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center justify-between gap-1">
-                        <span className="text-xs font-semibold text-[var(--text)] truncate">{n.title}</span>
-                        {n.count > 1 && (
-                          <span className={`text-xs font-bold px-1.5 py-0.5 rounded-full bg-white/60 dark:bg-black/20 ${SEVERITY_COLOR[n.severity]} flex-shrink-0`}>
-                            {n.count}
-                          </span>
+                {notifications.map(n => {
+                  const unread = isUnread(n, readStore);
+                  return (
+                    <button
+                      key={n.key}
+                      onClick={() => handleNavigate(n)}
+                      className={`w-full text-left flex items-start gap-3 p-3 rounded-lg border transition-all hover:opacity-90 ${SEVERITY_BG[n.severity]} ${
+                        unread ? SEVERITY_RING[n.severity] : 'opacity-60'
+                      }`}
+                    >
+                      {/* Icon + unread dot */}
+                      <div className="relative flex-shrink-0 mt-0.5">
+                        <SeverityIcon severity={n.severity} />
+                        {unread && (
+                          <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-[var(--primary)] border border-[var(--surface)]" />
                         )}
                       </div>
-                      <p className="text-xs text-[var(--text-muted)] mt-0.5 leading-relaxed">{n.message}</p>
-                    </div>
-                    <ChevronRight size={12} className="text-[var(--text-muted)] flex-shrink-0 mt-0.5" />
-                  </button>
-                ))}
+
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center justify-between gap-1">
+                          <span className={`text-xs truncate ${unread ? 'font-bold text-[var(--text)]' : 'font-medium text-[var(--text-muted)]'}`}>
+                            {n.title}
+                          </span>
+                          {n.count > 1 && (
+                            <span className={`text-xs font-bold px-1.5 py-0.5 rounded-full bg-white/60 dark:bg-black/20 ${SEVERITY_COLOR[n.severity]} flex-shrink-0`}>
+                              {n.count}
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-xs text-[var(--text-muted)] mt-0.5 leading-relaxed">{n.message}</p>
+                      </div>
+
+                      <ChevronRight size={12} className="text-[var(--text-muted)] flex-shrink-0 mt-1" />
+                    </button>
+                  );
+                })}
               </div>
             )}
           </div>
@@ -180,7 +281,9 @@ export default function NotificationBell({ collapsed }: { collapsed: boolean }) 
           {/* Footer */}
           {notifications.length > 0 && (
             <div className="border-t border-[var(--border)] px-4 py-2 flex-shrink-0">
-              <p className="text-xs text-[var(--text-muted)] text-center">{notifications.length} active alert{notifications.length > 1 ? 's' : ''} · refreshes every minute</p>
+              <p className="text-xs text-[var(--text-muted)] text-center">
+                {notifications.length} active alert{notifications.length > 1 ? 's' : ''} · refreshes every minute
+              </p>
             </div>
           )}
         </div>

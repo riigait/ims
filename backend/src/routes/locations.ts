@@ -22,7 +22,7 @@ router.get('/', async (req: AuthRequest, res: Response) => {
     }
     const locations = await prisma.location.findMany({
       where: whereFilter,
-      include: { parent: true, children: true, department: { select: { name: true } } },
+      include: { parent: true, children: true, department: { select: { name: true } }, _count: { select: { products: true, stockDetails: true } } },
     });
     res.json(locations);
   } catch (error) {
@@ -85,7 +85,7 @@ router.put('/:id', async (req: AuthRequest, res: Response) => {
   try {
     const existing = await prisma.location.findUnique({ where: { id: req.params.id } });
     if (!existing) return res.status(404).json({ error: 'Location not found' });
-    if (!canAccessDepartment(req, existing.departmentId)) {
+    if (!canAccessDepartment(req, existing.departmentId, true)) {
       return res.status(403).json({ error: 'Access denied' });
     }
 
@@ -117,7 +117,7 @@ router.delete('/:id', async (req: AuthRequest, res: Response) => {
 
     const existing = await prisma.location.findUnique({ where: { id: req.params.id } });
     if (!existing) return res.status(404).json({ error: 'Location not found' });
-    if (!canAccessDepartment(req, existing.departmentId)) {
+    if (!canAccessDepartment(req, existing.departmentId, true)) {
       return res.status(403).json({ error: 'Access denied' });
     }
 

@@ -6,6 +6,15 @@ import { generateStockId } from '../utils/idGenerator';
 
 const router = Router();
 
+const FINAL_STATUSES = ['sold', 'disposed', 'lost'];
+
+async function recalculateProductStock(productId: string): Promise<void> {
+  const count = await prisma.stockDetail.count({
+    where: { productId, currentStatus: { notIn: FINAL_STATUSES } },
+  });
+  await prisma.product.update({ where: { id: productId }, data: { currentStock: count } });
+}
+
 // Get all stock details (optionally filter by department)
 router.get('/', async (req: AuthRequest, res: Response) => {
   try {
@@ -178,6 +187,8 @@ router.post('/', async (req: AuthRequest, res: Response) => {
       include: { product: { include: { category: true, department: true } }, currentLocation: true },
     });
 
+    await recalculateProductStock(stockDetail.productId);
+
     await logAudit({
       userId: req.userId,
       action: 'CREATE',
@@ -233,6 +244,10 @@ router.put('/:id', async (req: AuthRequest, res: Response) => {
       include: { product: { include: { category: true, department: true } }, currentLocation: true },
     });
 
+    if (currentStatus !== undefined) {
+      await recalculateProductStock(updated.productId);
+    }
+
     await logAudit({
       userId: req.userId,
       action: 'UPDATE',
@@ -262,13 +277,8 @@ router.delete('/:id', async (req: AuthRequest, res: Response) => {
       return res.status(403).json({ error: 'Access denied' });
     }
 
-    await prisma.$transaction([
-      prisma.stockDetail.delete({ where: { id: req.params.id } }),
-      prisma.product.update({
-        where: { id: stockDetail.productId },
-        data: { currentStock: { decrement: 1 } },
-      }),
-    ]);
+    await prisma.stockDetail.delete({ where: { id: req.params.id } });
+    await recalculateProductStock(stockDetail.productId);
 
     await logAudit({
       userId: req.userId,

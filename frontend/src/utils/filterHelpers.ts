@@ -137,7 +137,20 @@ export const filterProducts = (products: Product[], filter: ProductFilter): Prod
       if (filter.dataQuality === 'missing-price') return (product as any).unitPrice == null;
       if (filter.dataQuality === 'zero-price') return unitPrice === 0;
       if (filter.dataQuality === 'missing-threshold') return !product.lowStockThreshold && product.lowStockThreshold !== 0;
+      if (filter.dataQuality === 'no-threshold') return (product as any).lowStockThreshold === 0;
       if (filter.dataQuality === 'test-data') return isTest;
+      if (filter.dataQuality === 'expiry-expired') {
+        const exp = (product as any).expiryDate;
+        return exp && new Date(exp) < new Date() && (product as any).status === 'active';
+      }
+      if (filter.dataQuality === 'expiry-soon') {
+        const exp = (product as any).expiryDate;
+        const in30 = new Date(); in30.setDate(in30.getDate() + 30);
+        return exp && new Date(exp) >= new Date() && new Date(exp) <= in30;
+      }
+      if (filter.dataQuality === 'discontinued-with-stock') {
+        return ['discontinued', 'obsolete'].includes((product as any).status || '') && (product.currentStock ?? 0) > 0;
+      }
       return true;
     })();
 
@@ -266,12 +279,13 @@ export const filterStockMovements = (
       matchesSearch = itemTokens.includes(search) || movementNo.includes(search) || remarks.includes(search);
     }
     const matchesType = !filter.movementType || movement.movementType === filter.movementType;
+    const matchesStatus = !filter.movementStatus || movement.status === filter.movementStatus;
     const matchesDateRange = isWithinDateRange(
       movement.createdAt || new Date().toISOString(),
       filter.dateRange
     );
 
-    return matchesSearch && matchesType && matchesDateRange;
+    return matchesSearch && matchesType && matchesStatus && matchesDateRange;
   });
 };
 

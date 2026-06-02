@@ -111,7 +111,14 @@ export const requireSpecificDepartmentForWrite = (req: AuthRequest, res: Respons
     return next();
   }
 
-  if ((req.userRole === 'admin' || req.userRole === 'staff') && !req.departmentId) {
+  // Allow if a specific dept is selected OR if the user has actual department assignments
+  const hasDeptAccess =
+    req.departmentId ||
+    (req.departmentIds &&
+      req.departmentIds.length > 0 &&
+      !req.departmentIds.includes(NO_DEPARTMENT_ACCESS_ID));
+
+  if ((req.userRole === 'admin' || req.userRole === 'staff') && !hasDeptAccess) {
     return res.status(403).json({
       error: 'Select a specific department before creating or modifying records',
     });

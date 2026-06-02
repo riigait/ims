@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { AlertTriangle, ChevronDown, ChevronUp, ChevronsUpDown, Database, Search, ShieldAlert, Skull, X, XCircle } from 'lucide-react';
+import { AlertTriangle, ChevronDown, ChevronUp, ChevronsUpDown, Database, RefreshCw, Search, ShieldAlert, Skull, X, XCircle } from 'lucide-react';
 import { departmentsApi, settingsApi } from '@/services/api';
 
 type DeleteState = 'idle' | 'armed' | 'countdown' | 'deleting' | 'done' | 'error';
@@ -21,6 +21,10 @@ export default function SuperadminSettings() {
   const [deptMessage, setDeptMessage] = useState('');
   const [departments, setDepartments] = useState<{ id: string; name: string }[]>([]);
   const [selectedDeptId, setSelectedDeptId] = useState('');
+
+  // Sync stock counts
+  const [syncState, setSyncState] = useState<'idle' | 'running' | 'done' | 'error'>('idle');
+  const [syncMessage, setSyncMessage] = useState('');
 
   // Department list controls
   const [search, setSearch] = useState('');
@@ -120,6 +124,19 @@ export default function SuperadminSettings() {
     } catch (error: any) {
       setDeptMessage(error.response?.data?.error || 'Delete failed.');
       setDeptDeleteState('error');
+    }
+  };
+
+  const runSyncStockCounts = async () => {
+    setSyncState('running');
+    setSyncMessage('');
+    try {
+      const res = await settingsApi.syncStockCounts();
+      setSyncMessage(res.data.message || 'Done.');
+      setSyncState('done');
+    } catch (err: any) {
+      setSyncMessage(err.response?.data?.error || 'Sync failed.');
+      setSyncState('error');
     }
   };
 
@@ -434,6 +451,41 @@ export default function SuperadminSettings() {
                 {deptDeleteState === 'error' && <XCircle size={18} />}
                 <p className="font-semibold">{deptMessage}</p>
               </div>
+            </div>
+          )}
+        </div>
+      </section>
+
+      {/* ── Data Integrity ── */}
+      <section className="bg-[var(--surface)] border border-[var(--border)] rounded-xl p-6 space-y-4">
+        <div>
+          <h2 className="text-lg font-semibold text-[var(--text)] flex items-center gap-2">
+            <RefreshCw size={18} /> Data Integrity
+          </h2>
+          <p className="text-sm text-[var(--text-muted)] mt-1">Fix inconsistencies in computed data fields.</p>
+        </div>
+
+        <div className="border border-[var(--border)] rounded-lg p-4 space-y-3">
+          <div>
+            <p className="text-sm font-medium text-[var(--text)]">Sync Stock Counts</p>
+            <p className="text-xs text-[var(--text-muted)] mt-0.5">
+              Recalculates <code className="bg-[var(--surface-2)] px-1 rounded">currentStock</code> for all products that have individual item records,
+              based on the actual count of active items. Fixes the "Stock Count Mismatch" alert.
+            </p>
+          </div>
+
+          <button
+            onClick={runSyncStockCounts}
+            disabled={syncState === 'running'}
+            className="flex items-center gap-2 px-4 py-2 text-sm rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 transition-colors"
+          >
+            <RefreshCw size={14} className={syncState === 'running' ? 'animate-spin' : ''} />
+            {syncState === 'running' ? 'Syncing…' : 'Sync Stock Counts'}
+          </button>
+
+          {(syncState === 'done' || syncState === 'error') && (
+            <div className={`rounded-lg border p-3 text-sm ${syncState === 'done' ? 'border-green-300/40 bg-green-500/10 text-green-400' : 'border-orange-300/40 bg-black/20 text-orange-400'}`}>
+              {syncMessage}
             </div>
           )}
         </div>

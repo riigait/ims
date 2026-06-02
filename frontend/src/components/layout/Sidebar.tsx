@@ -242,19 +242,6 @@ export default function Sidebar({ collapsed, onToggle }: { collapsed: boolean; o
             >
               <KeyRound size={16} />
             </button>
-            {user.role === 'superadmin' && (
-              <button
-                onClick={() => navigate('/admin/settings')}
-                title="Settings"
-                className={`w-full flex items-center justify-center p-2 rounded-lg transition-colors ${
-                  isActive('/admin/settings')
-                    ? 'bg-[var(--primary)] text-white'
-                    : 'text-[var(--text-muted)] hover:bg-[var(--surface-2)]'
-                }`}
-              >
-                <Settings size={16} />
-              </button>
-            )}
             <button
               onClick={handleLogout}
               title="Logout"
@@ -311,20 +298,6 @@ export default function Sidebar({ collapsed, onToggle }: { collapsed: boolean; o
               >
                 <KeyRound size={16} />
               </button>
-              {user.role === 'superadmin' && (
-                <button
-                  onClick={() => navigate('/admin/settings')}
-                  aria-label="Settings"
-                  className={`flex-1 flex items-center justify-center px-3 py-2 rounded-lg transition-colors ${
-                    isActive('/admin/settings')
-                      ? 'bg-[var(--primary)] text-white'
-                      : 'text-[var(--text-muted)] hover:bg-[var(--surface-2)]'
-                  }`}
-                  title="Settings"
-                >
-                  <Settings size={16} />
-                </button>
-              )}
               <button
                 onClick={handleLogout}
                 aria-label="Logout"

@@ -106,8 +106,11 @@ export default function FloorPlanEditor() {
   }, [locations]);
 
   useEffect(() => {
-    loadFloorPlan();
-    loadSideData();
+    const init = async () => {
+      const fp = await loadFloorPlan();
+      await loadSideData(fp?.departmentId ?? undefined);
+    };
+    init();
   }, [id]);
 
   useEffect(() => {
@@ -270,23 +273,25 @@ export default function FloorPlanEditor() {
   }, []);
 
   const loadFloorPlan = async () => {
-    if (!id) return;
+    if (!id) return null;
     try {
       const res = await floorPlansApi.getById(id);
       setCurrentFloorPlan(res.data);
+      return res.data;
     } catch {
       alert('Failed to load floor plan');
       navigate('/floor-plans');
+      return null;
     } finally {
       setLoading(false);
     }
   };
 
-  const loadSideData = async () => {
+  const loadSideData = async (deptId?: string) => {
     try {
       const [locRes, prodRes] = await Promise.all([
-        locationsApi.getAll(),
-        productsApi.getAll(),
+        deptId ? locationsApi.getForDepartment(deptId) : locationsApi.getAll(),
+        deptId ? productsApi.getAllForDepartment(deptId) : productsApi.getAll(),
       ]);
       setLocations(locRes.data);
       setProducts(prodRes.data);

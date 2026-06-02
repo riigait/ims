@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useLocation as useRouteLocation } from 'react-router-dom';
 import { X, Edit, Trash2, ChevronRight } from 'lucide-react';
 import { locationsApi, departmentsApi } from '@/services/api';
 import { formatDate } from '@/utils/ids';
@@ -13,6 +14,8 @@ interface Department {
 }
 
 export default function Locations() {
+  const routeLocation = useRouteLocation();
+  const routeState = (routeLocation.state as any) || {};
   const user = JSON.parse(localStorage.getItem('user') || '{}');
   const [locations, setLocations] = useState<Location[]>([]);
   const [departments, setDepartments] = useState<Department[]>([]);
@@ -20,6 +23,7 @@ export default function Locations() {
   const [searchTerm, setSearchTerm] = useState('');
   const [typeFilter, setTypeFilter] = useState('');
   const [departmentFilter, setDepartmentFilter] = useState('');
+  const [showEmptyOnly, setShowEmptyOnly] = useState(routeState.notifFilter === 'location:empty');
   const [sortBy, setSortBy] = useState('recently-added');
   const [error, setError] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
@@ -148,7 +152,9 @@ export default function Locations() {
     const matchesSearch = loc.name.toLowerCase().includes(searchTerm.toLowerCase());
     const matchesType = !typeFilter || loc.type === typeFilter;
     const matchesDept = !departmentFilter || loc.departmentId === departmentFilter;
-    return matchesSearch && matchesType && matchesDept;
+    const count = (loc as any)._count;
+    const matchesEmpty = !showEmptyOnly || (count && count.products === 0 && count.stockDetails === 0);
+    return matchesSearch && matchesType && matchesDept && matchesEmpty;
   });
 
   const sortedLocations = [...filteredLocations].sort((a, b) => {
@@ -164,6 +170,7 @@ export default function Locations() {
     setSearchTerm('');
     setTypeFilter('');
     setDepartmentFilter('');
+    setShowEmptyOnly(false);
     setSortBy('recently-added');
     setCurrentPage(1);
   };

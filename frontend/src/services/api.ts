@@ -68,6 +68,7 @@ export const authApi = {
 // Products
 export const productsApi = {
   getAll: (params?: any) => api.get('/products', { params }),
+  getAllForDepartment: (departmentId: string) => api.get('/products', { headers: { 'X-Department-Id': departmentId } }),
   getById: (id: string) => api.get(`/products/${id}`),
   getMovements: (id: string) => api.get(`/products/${id}/movements`),
   create: (data: any) => api.post('/products', data),
@@ -205,6 +206,8 @@ export const settingsApi = {
     api.post('/settings/danger/delete-data', { confirmPhrase }),
   deleteDepartmentData: (departmentId: string, confirmPhrase: string) =>
     api.post('/settings/danger/delete-department-data', { departmentId, confirmPhrase }),
+  syncStockCounts: () =>
+    api.post('/settings/sync-stock-counts'),
 };
 
 export default api;
