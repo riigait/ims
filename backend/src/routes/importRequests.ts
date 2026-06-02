@@ -11,9 +11,16 @@ async function autoApproveExpired() {
   const now = new Date();
   const expired = await prisma.importRequest.findMany({
     where: { status: 'pending', expiresAt: { lte: now } },
-    select: { id: true },
+    select: { id: true, productIds: true },
   });
   if (expired.length === 0) return;
+  const allProductIds = expired.flatMap(r => r.productIds);
+  if (allProductIds.length > 0) {
+    await prisma.product.updateMany({
+      where: { id: { in: allProductIds } },
+      data: { pendingApproval: false },
+    });
+  }
   await prisma.importRequest.updateMany({
     where: { id: { in: expired.map(r => r.id) } },
     data: { status: 'approved', reviewedAt: now, notes: 'Auto-approved after 30 days' },

@@ -4,6 +4,7 @@ import { LayoutDashboard, Package, Tag, MapPin, ArrowLeftRight, Map, Building2, 
 import { useTheme } from '@/contexts/ThemeContext';
 import { ALL_DEPARTMENTS_ID } from '@/constants/app';
 import ConfirmDialog from '../ConfirmDialog';
+import NotificationBell from '../NotificationBell';
 
 export default function Sidebar({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => void }) {
   const navigate = useNavigate();
@@ -229,6 +230,7 @@ export default function Sidebar({ collapsed, onToggle }: { collapsed: boolean; o
             >
               {theme === 'light' ? <Moon size={16} /> : <Sun size={16} />}
             </button>
+            <NotificationBell collapsed={true} />
             <button
               onClick={() => navigate('/change-password')}
               title="Change Password"
@@ -286,7 +288,7 @@ export default function Sidebar({ collapsed, onToggle }: { collapsed: boolean; o
               </button>
             </div>
 
-            {/* Theme Toggle + Change Password + Settings + Logout */}
+            {/* Theme Toggle + Bell + Change Password + Settings + Logout */}
             <div className="flex gap-2">
               <button
                 onClick={toggleTheme}
@@ -296,6 +298,7 @@ export default function Sidebar({ collapsed, onToggle }: { collapsed: boolean; o
               >
                 {theme === 'light' ? <Moon size={16} /> : <Sun size={16} />}
               </button>
+              <NotificationBell collapsed={false} />
               <button
                 onClick={() => navigate('/change-password')}
                 aria-label="Change Password"

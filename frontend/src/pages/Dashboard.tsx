@@ -228,14 +228,21 @@ export default function Dashboard() {
     return () => window.removeEventListener('storage', fetchData);
   }, []);
 
+  const [now, setNow] = useState(new Date());
+  useEffect(() => {
+    const timer = setInterval(() => setNow(new Date()), 1000);
+    return () => clearInterval(timer);
+  }, []);
+
   const greeting = () => {
-    const h = new Date().getHours();
+    const h = now.getHours();
     if (h < 12) return 'Good morning';
     if (h < 18) return 'Good afternoon';
     return 'Good evening';
   };
 
-  const today = new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+  const today = now.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+  const timeStr = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 
   if (loading) return (
     <div className="flex items-center justify-center h-64">
@@ -271,7 +278,7 @@ export default function Dashboard() {
     { label: 'Add Stock',       icon: Plus,           path: '/stock-movements', color: 'bg-green-50 text-green-600 hover:bg-green-100 border-green-200 dark:bg-green-950 dark:text-green-400 dark:border-green-900' },
     { label: 'Move Item',       icon: ArrowLeftRight, path: '/stock-movements', color: 'bg-purple-50 text-purple-600 hover:bg-purple-100 border-purple-200 dark:bg-purple-950 dark:text-purple-400 dark:border-purple-900' },
     { label: 'Scan Barcode',    icon: ScanLine,       path: '/inventory-items', color: 'bg-teal-50 text-teal-600 hover:bg-teal-100 border-teal-200 dark:bg-teal-950 dark:text-teal-400 dark:border-teal-900' },
-    { label: 'Import / Export', icon: FileDown,       path: '/import-export',   color: 'bg-orange-50 text-orange-600 hover:bg-orange-100 border-orange-200 dark:bg-orange-950 dark:text-orange-400 dark:border-orange-900' },
+    { label: 'Import / Export', icon: FileDown,       path: '/import-pclsf',   color: 'bg-orange-50 text-orange-600 hover:bg-orange-100 border-orange-200 dark:bg-orange-950 dark:text-orange-400 dark:border-orange-900' },
   ];
 
   return (
@@ -279,7 +286,10 @@ export default function Dashboard() {
 
       {/* Header */}
       <div>
-        <p className="text-sm text-[var(--text-muted)]">{today}</p>
+        <p className="text-sm text-[var(--text-muted)]">
+          {today} &nbsp;
+          <span className="font-mono">{timeStr}</span>
+        </p>
         <h1 className="text-2xl font-bold text-[var(--text)] mt-0.5">
           {greeting()}{user.name ? `, ${user.name}` : ''} 👋
         </h1>

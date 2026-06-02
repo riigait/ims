@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useLocation } from 'react-router-dom';
 import { CheckCircle, XCircle, Clock, RefreshCw, Check, X } from 'lucide-react';
 import { importRequestsApi, deleteRequestsApi, passwordRequestsApi, editRequestsApi, exportRequestsApi } from '@/services/api';
 import ConfirmDialog from '@/components/ConfirmDialog';
@@ -71,8 +72,9 @@ export default function Requests() {
   const user = JSON.parse(localStorage.getItem('user') || '{}');
   const isSuperadmin = user.role === 'superadmin';
   const isStaff = user.role === 'staff';
+  const routeState = (useLocation().state as any) || {};
 
-  const defaultTab: RequestTab = isStaff ? 'delete' : 'import';
+  const defaultTab: RequestTab = (routeState.tab as RequestTab) || (isStaff ? 'delete' : 'import');
   const [activeTab, setActiveTab] = useState<RequestTab>(defaultTab);
 
   // Import state
