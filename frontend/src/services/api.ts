@@ -163,6 +163,27 @@ export const passwordRequestsApi = {
     api.patch(`/password-requests/${id}/reject`),
 };
 
+// Edit Requests
+export const editRequestsApi = {
+  getAll: (status?: string) => api.get('/edit-requests', { params: { status } }),
+  create: (productId: string, proposedChanges: Record<string, any>, reason?: string) =>
+    api.post('/edit-requests', { productId, proposedChanges, reason }),
+  approve: (id: string) => api.patch(`/edit-requests/${id}/approve`),
+  reject: (id: string, rejectionReason?: string) =>
+    api.patch(`/edit-requests/${id}/reject`, { rejectionReason }),
+};
+
+// Export Requests
+export const exportRequestsApi = {
+  getAll: () => api.get('/export-requests'),
+  create: (type: string, label: string, csvData: string) =>
+    api.post('/export-requests', { type, label, csvData }),
+  approve: (id: string) => api.patch(`/export-requests/${id}/approve`),
+  reject: (id: string, rejectionReason?: string) =>
+    api.patch(`/export-requests/${id}/reject`, { rejectionReason }),
+  downloadUrl: (id: string) => `/api/export-requests/${id}/download`,
+};
+
 // Import Requests
 export const importRequestsApi = {
   getAll: () => api.get('/import-requests'),

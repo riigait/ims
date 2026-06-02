@@ -175,11 +175,12 @@ router.get('/', async (req: AuthRequest, res: Response) => {
     // For admins without a selected department, fetch all products they have access to
     // For staff, only fetch products from their department(s)
     // For superadmins, fetch all products
-    let whereFilter: any = {};
+    let whereFilter: any = { pendingApproval: false };
 
     if (req.departmentIds && req.departmentIds.length > 0) {
       // Staff viewing all assigned departments - include products with null departmentId
       whereFilter = {
+        pendingApproval: false,
         OR: [
           { departmentId: { in: req.departmentIds } },
           { departmentId: null }
@@ -187,9 +188,9 @@ router.get('/', async (req: AuthRequest, res: Response) => {
       };
     } else if (req.departmentId) {
       // Single department filter (staff or admin with selected department)
-      whereFilter = { departmentId: req.departmentId };
+      whereFilter = { pendingApproval: false, departmentId: req.departmentId };
     }
-    // For superadmin or admin/staff without selected department: no filter (show all)
+    // For superadmin or admin/staff without selected department: no dept filter, but still hide pending
 
     const products = await prisma.product.findMany({
       where: whereFilter,
@@ -230,7 +231,7 @@ router.get('/', async (req: AuthRequest, res: Response) => {
 router.get('/:id', async (req: AuthRequest, res: Response) => {
   try {
     const product = await prisma.product.findUnique({
-      where: { id: req.params.id },
+      where: { id: req.params.id, pendingApproval: false },
       select: {
         id: true,
         sku: true,
@@ -622,6 +623,7 @@ router.post('/import/csv', async (req: AuthRequest, res: Response) => {
             notes: row.notes || null,
             source: 'csv_import',
             csvImportId,
+            pendingApproval: true,
           } as any;
         // Match existing product: by id first, then by SKU, then by exact name
         const existing = row.id

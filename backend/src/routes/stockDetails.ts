@@ -9,11 +9,11 @@ const router = Router();
 // Get all stock details (optionally filter by department)
 router.get('/', async (req: AuthRequest, res: Response) => {
   try {
-    let whereFilter: any = {};
+    let whereFilter: any = { product: { pendingApproval: false } };
     if (req.departmentIds && req.departmentIds.length > 0) {
-      whereFilter = { product: { departmentId: { in: req.departmentIds } } };
+      whereFilter = { product: { departmentId: { in: req.departmentIds }, pendingApproval: false } };
     } else if (req.departmentId) {
-      whereFilter = { product: { departmentId: req.departmentId } };
+      whereFilter = { product: { departmentId: req.departmentId, pendingApproval: false } };
     }
     const stockDetails = await prisma.stockDetail.findMany({
       where: whereFilter,

@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { X, Edit, Trash2, Plus, ChevronRight } from 'lucide-react';
-import { productsApi, categoriesApi, locationsApi, deleteRequestsApi, departmentsApi } from '@/services/api';
+import { productsApi, categoriesApi, locationsApi, deleteRequestsApi, editRequestsApi, departmentsApi } from '@/services/api';
 import Pagination from '@/components/Pagination';
 import { Product, Category, Location } from '@/types/inventory';
 import { ProductFilter, ProductSort } from '@/types/filters';
@@ -78,6 +78,8 @@ export default function Products() {
   const [isCreating, setIsCreating] = useState(false);
   const [formData, setFormData] = useState(emptyForm);
   const [formError, setFormError] = useState('');
+  const [isEditRequest, setIsEditRequest] = useState(false);
+  const [editRequestReason, setEditRequestReason] = useState('');
   const [drawerMovements, setDrawerMovements] = useState<any[]>([]);
   const [drawerMovementsLoading, setDrawerMovementsLoading] = useState(false);
   const [mvSearch, setMvSearch] = useState('');
@@ -160,6 +162,19 @@ export default function Products() {
     setSelectedItem(product);
     setEditingItem(product);
     setIsCreating(false);
+    setIsEditRequest(false);
+    setEditRequestReason('');
+    setFormData(buildFormData(product));
+    setFormError('');
+    setIsDrawerOpen(true);
+  };
+
+  const openRequestEdit = (product: Product) => {
+    setSelectedItem(product);
+    setEditingItem(product);
+    setIsCreating(false);
+    setIsEditRequest(true);
+    setEditRequestReason('');
     setFormData(buildFormData(product));
     setFormError('');
     setIsDrawerOpen(true);
@@ -168,6 +183,8 @@ export default function Products() {
   const cancelEdit = () => {
     if (isCreating) { closeDrawer(); return; }
     setEditingItem(null);
+    setIsEditRequest(false);
+    setEditRequestReason('');
     setFormError('');
   };
 
@@ -176,6 +193,8 @@ export default function Products() {
     setSelectedItem(null);
     setEditingItem(null);
     setIsCreating(false);
+    setIsEditRequest(false);
+    setEditRequestReason('');
     setConfirmingDelete(false);
     setFormData(emptyForm);
     setFormError('');
@@ -190,7 +209,21 @@ export default function Products() {
     if (!validateStock(formData.currentStock)) { setFormError('Invalid stock quantity'); return; }
     try {
       const payload = { ...formData, locationId: formData.locationId || null };
-      if (editingItem) {
+      if (isEditRequest && editingItem) {
+        const { sku: _sku, currentStock: _cs, ...rawChanges } = payload;
+        const proposedChanges: Record<string, any> = {};
+        for (const [key, val] of Object.entries(rawChanges)) {
+          proposedChanges[key] = val === '' ? null : val;
+        }
+        await editRequestsApi.create(editingItem.id, proposedChanges, editRequestReason || undefined);
+        setEditingItem(null);
+        setIsEditRequest(false);
+        setEditRequestReason('');
+        setFormError('');
+        if (selectedItem) {
+          setSelectedItem({ ...selectedItem });
+        }
+      } else if (editingItem) {
         const res = await productsApi.update(editingItem.id, payload);
         setSelectedItem(res.data ?? { ...editingItem, ...payload } as Product);
         setEditingItem(null);
@@ -548,7 +581,7 @@ export default function Products() {
                   )}
                 </div>
                 <h2 className="text-lg font-semibold text-[var(--text)] mt-0.5 truncate">
-                  {isCreating ? 'New Product' : editingItem ? 'Edit Product' : selectedItem?.name}
+                  {isCreating ? 'New Product' : editingItem ? (isEditRequest ? 'Request Edit' : 'Edit Product') : selectedItem?.name}
                 </h2>
                 {selectedItem && !editingItem && !isCreating && (
                   <p className="text-sm text-[var(--text-muted)]">{categoriesMap.get(selectedItem.categoryId)?.name ?? '—'}</p>
@@ -719,11 +752,23 @@ export default function Products() {
                       </div>
                     </div>
                   </div>
+                  {isEditRequest && (
+                    <div>
+                      <label className="block text-sm font-medium text-[var(--text)] mb-1">Reason (Optional)</label>
+                      <textarea
+                        value={editRequestReason}
+                        onChange={e => setEditRequestReason(e.target.value)}
+                        rows={2}
+                        className="w-full px-3 py-2 border border-[var(--border)] rounded-lg bg-[var(--surface)] text-[var(--text)] placeholder-[var(--text-muted)] text-sm focus:outline-none focus:ring-2 focus:ring-[var(--primary)]"
+                        placeholder="Explain what you need changed and why (optional)"
+                      />
+                    </div>
+                  )}
                   {formError && <p className="text-red-500 text-sm">{formError}</p>}
                   <div className="flex gap-2">
                     <button type="submit"
                       className="px-4 py-2 bg-[var(--primary)] text-white text-sm rounded-lg hover:bg-[var(--primary-hover)]">
-                      Save
+                      {isEditRequest ? 'Submit Edit Request' : 'Save'}
                     </button>
                     <button type="button" onClick={cancelEdit}
                       className="px-4 py-2 border border-[var(--border)] text-sm rounded-lg text-[var(--text)] hover:bg-[var(--surface-2)]">
@@ -873,10 +918,16 @@ export default function Products() {
                   </div>
                 ) : selectedItem && (
                   <div className="flex gap-2">
-                    {user.role !== 'superadmin' && (
+                    {user.role === 'admin' && (
                       <button type="button" onClick={() => openEdit(selectedItem)}
                         className="flex items-center gap-2 px-4 py-2 bg-[var(--primary)] text-white text-sm rounded-lg hover:bg-[var(--primary-hover)]">
                         <Edit size={14} /> Edit Details
+                      </button>
+                    )}
+                    {user.role === 'staff' && (
+                      <button type="button" onClick={() => openRequestEdit(selectedItem)}
+                        className="flex items-center gap-2 px-4 py-2 bg-[var(--primary)] text-white text-sm rounded-lg hover:bg-[var(--primary-hover)]">
+                        <Edit size={14} /> Request Edit
                       </button>
                     )}
                     {user.role === 'admin' ? (

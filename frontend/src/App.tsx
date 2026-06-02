@@ -244,11 +244,11 @@ function App() {
         <Route
           path="/admin/requests"
           element={
-            <AdminRoute>
+            <PrivateRoute>
               <Layout>
                 <Requests />
               </Layout>
-            </AdminRoute>
+            </PrivateRoute>
           }
         />
         <Route

@@ -31,11 +31,14 @@ router.post('/', authMiddleware, async (req: AuthRequest, res: Response) => {
   }
 });
 
-// List delete requests (admin only)
-router.get('/', authMiddleware, adminMiddleware, async (req: AuthRequest, res: Response) => {
+// List delete requests (admin sees all, staff sees own)
+router.get('/', authMiddleware, async (req: AuthRequest, res: Response) => {
   try {
     const status = req.query.status as string;
-    const where = status ? { status } : {};
+    let where: any = status ? { status } : {};
+    if (req.userRole === 'staff') {
+      where = { ...where, requestedBy: req.userId };
+    }
 
     const deleteRequests = await prisma.deleteRequest.findMany({
       where,

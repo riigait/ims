@@ -94,6 +94,14 @@ router.patch('/:id/approve', async (req: AuthRequest, res: Response) => {
       return res.status(400).json({ error: `Request is already ${request.status}` });
     }
 
+    // Make imported products visible in the main app
+    if (request.productIds.length > 0) {
+      await prisma.product.updateMany({
+        where: { id: { in: request.productIds } },
+        data: { pendingApproval: false },
+      });
+    }
+
     const updated = await prisma.importRequest.update({
       where: { id: req.params.id },
       data: { status: 'approved', reviewedBy: req.userId, reviewedAt: new Date() },

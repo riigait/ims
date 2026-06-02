@@ -50,12 +50,16 @@ router.post('/', authMiddleware, async (req: AuthRequest, res: Response) => {
 // List password change requests — admin/superadmin only
 router.get('/', authMiddleware, async (req: AuthRequest, res: Response) => {
   try {
-    const user = await prisma.user.findUnique({ where: { id: req.userId } });
-    if (!user || !['admin', 'superadmin'].includes(user.role)) {
-      return res.status(403).json({ error: 'Only admin/superadmin can view requests' });
+    const role = req.userRole;
+    let where: any = {};
+    if (role === 'staff') {
+      where = { requestedBy: req.userId };
+    } else if (!['admin', 'superadmin'].includes(role || '')) {
+      return res.status(403).json({ error: 'Access denied' });
     }
 
     const requests = await prisma.passwordChangeRequest.findMany({
+      where,
       include: {
         requester: { select: { id: true, name: true, email: true, role: true } },
         approver: { select: { id: true, name: true, email: true } },

@@ -3,13 +3,14 @@ import { Navigate } from 'react-router-dom';
 import { Download, Upload } from 'lucide-react';
 import api, {
   categoriesApi,
+  exportRequestsApi,
   floorPlansApi,
   locationsApi,
   productsApi,
   stockDetailsApi,
   stockMovementsApi,
 } from '@/services/api';
-import { convertToCSV, downloadCsv, parseCSV } from '@/utils/csv';
+import { convertToCSV, parseCSV } from '@/utils/csv';
 import DataPageLayout from '@/components/layout/DataPageLayout';
 import { ALL_DEPARTMENTS_ID } from '@/constants/app';
 
@@ -532,11 +533,12 @@ export default function ImportPCLSF() {
       setExportLoading(type);
       setExportMessage('');
       const rows = normalizeRows(await getExportData(type));
-      downloadCsv(rows, `${type}-export.csv`);
-      setExportMessage(`${TYPE_LABELS[type]} exported.`);
+      const csvData = convertToCSV(rows);
+      await exportRequestsApi.create(type, `${TYPE_LABELS[type]} Export`, csvData);
+      setExportMessage(`Export request submitted for ${TYPE_LABELS[type]}. Awaiting Superadmin approval. Check Requests page to download when approved.`);
     } catch (err) {
       console.error('Export error:', err);
-      setError(`Failed to export ${TYPE_LABELS[type]}.`);
+      setError(`Failed to submit export request for ${TYPE_LABELS[type]}.`);
     } finally {
       setExportLoading(null);
     }
@@ -547,11 +549,11 @@ export default function ImportPCLSF() {
       setExportLoading('unified');
       setExportMessage('');
       const csv = await buildUnifiedCsv();
-      downloadTextFile(csv, 'ims-unified-export.csv');
-      setExportMessage('Unified export downloaded as one CSV file.');
+      await exportRequestsApi.create('unified', 'Unified IMS Export', csv);
+      setExportMessage('Unified export request submitted. Awaiting Superadmin approval. Check Requests page to download when approved.');
     } catch (err) {
       console.error('Unified export error:', err);
-      setError('Failed to complete unified export.');
+      setError('Failed to submit unified export request.');
     } finally {
       setExportLoading(null);
     }

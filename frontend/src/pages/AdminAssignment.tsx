@@ -219,7 +219,7 @@ export default function AdminAssignment() {
       <div className="max-w-5xl mx-auto p-6 space-y-6">
         <div className="flex items-center gap-4">
           <button
-            onClick={() => navigate('/scanner')}
+            onClick={() => navigate('/dashboard')}
             className="p-2 hover:bg-[var(--surface-2)] rounded-lg transition"
             title="Back to Scanner"
           >

@@ -69,7 +69,10 @@ router.get('/', async (req: AuthRequest, res: Response) => {
       };
     }
     const movements = await prisma.stockMovement.findMany({
-      where: whereFilter,
+      where: {
+        ...whereFilter,
+        items: { none: { product: { pendingApproval: true } } },
+      },
       include: { items: { include: { product: true, stockDetail: true, fromLocation: true, toLocation: true } }, user: true, department: true, toDepartment: true },
       orderBy: { createdAt: 'desc' },
     });

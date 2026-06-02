@@ -80,132 +80,132 @@ export default function ChangePassword() {
 
   return (
     <div className="max-w-2xl mx-auto">
-        <div className="bg-white rounded-lg shadow p-6">
-          <h1 className="text-2xl font-bold text-gray-900 mb-6">
-            {isStaff ? 'Request Password Change' : 'Change Password'}
-          </h1>
+      <div className="bg-[var(--surface)] border border-[var(--border)] rounded-lg p-6">
+        <h1 className="text-2xl font-bold text-[var(--text)] mb-6">
+          {isStaff ? 'Request Password Change' : 'Change Password'}
+        </h1>
 
-          {error && (
-            <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded mb-4">
-              {error}
+        {error && (
+          <div className="bg-red-100 dark:bg-red-900/30 border border-red-300 dark:border-red-700 text-red-700 dark:text-red-300 px-4 py-3 rounded-lg mb-4 text-sm">
+            {error}
+          </div>
+        )}
+
+        {success && (
+          <div className="bg-green-100 dark:bg-green-900/30 border border-green-300 dark:border-green-700 text-green-700 dark:text-green-300 px-4 py-3 rounded-lg mb-4 text-sm">
+            {success}
+          </div>
+        )}
+
+        {isStaff ? (
+          <form onSubmit={handleRequestPassword} className="space-y-4">
+            <div>
+              <label htmlFor="change-password-reason" className="block text-sm font-medium text-[var(--text)] mb-2">
+                Reason (Optional)
+              </label>
+              <textarea
+                id="change-password-reason"
+                name="reason"
+                value={form.reason}
+                onChange={handleChange}
+                rows={4}
+                className="w-full px-4 py-2 border border-[var(--border)] rounded-lg bg-[var(--surface)] text-[var(--text)] placeholder-[var(--text-muted)] focus:outline-none focus:ring-2 focus:ring-[var(--primary)]"
+                placeholder="Explain why you need to change your password (optional)"
+              />
             </div>
-          )}
 
-          {success && (
-            <div className="bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded mb-4">
-              {success}
+            <div className="flex gap-4 pt-4">
+              <button
+                type="submit"
+                disabled={loading}
+                className="flex-1 bg-[var(--primary)] hover:bg-[var(--primary-hover)] disabled:opacity-50 text-white font-medium py-2 rounded-lg transition"
+              >
+                {loading ? 'Submitting...' : 'Submit Request'}
+              </button>
+              <button
+                type="button"
+                onClick={() => navigate('/dashboard')}
+                className="flex-1 bg-[var(--surface-2)] hover:bg-[var(--border)] text-[var(--text)] font-medium py-2 rounded-lg transition"
+              >
+                Cancel
+              </button>
             </div>
-          )}
-
-          {isStaff ? (
-            <form onSubmit={handleRequestPassword} className="space-y-4">
-              <div>
-                <label htmlFor="change-password-reason" className="block text-sm font-medium text-gray-700 mb-2">
-                  Reason (Optional)
-                </label>
-                <textarea
-                  id="change-password-reason"
-                  name="reason"
-                  value={form.reason}
+          </form>
+        ) : (
+          <form onSubmit={handleChangePassword} className="space-y-4">
+            <div>
+              <label htmlFor="current-password" className="block text-sm font-medium text-[var(--text)] mb-2">
+                Current Password
+              </label>
+              <div className="relative">
+                <Lock size={18} className="absolute left-3 top-2.5 text-[var(--text-muted)]" />
+                <input
+                  id="current-password"
+                  type="password"
+                  name="currentPassword"
+                  value={form.currentPassword}
                   onChange={handleChange}
-                  rows={4}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  placeholder="Explain why you need to change your password (optional)"
+                  className="w-full pl-10 pr-4 py-2 border border-[var(--border)] rounded-lg bg-[var(--surface)] text-[var(--text)] placeholder-[var(--text-muted)] focus:outline-none focus:ring-2 focus:ring-[var(--primary)]"
+                  placeholder="Enter current password"
                 />
               </div>
+            </div>
 
-              <div className="flex gap-4 pt-4">
-                <button
-                  type="submit"
-                  disabled={loading}
-                  className="flex-1 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white font-medium py-2 rounded-lg transition"
-                >
-                  {loading ? 'Submitting...' : 'Submit Request'}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => navigate('/dashboard')}
-                  className="flex-1 bg-gray-300 hover:bg-gray-400 text-gray-900 font-medium py-2 rounded-lg transition"
-                >
-                  Cancel
-                </button>
+            <div>
+              <label htmlFor="new-password" className="block text-sm font-medium text-[var(--text)] mb-2">
+                New Password
+              </label>
+              <div className="relative">
+                <Lock size={18} className="absolute left-3 top-2.5 text-[var(--text-muted)]" />
+                <input
+                  id="new-password"
+                  type="password"
+                  name="newPassword"
+                  value={form.newPassword}
+                  onChange={handleChange}
+                  className="w-full pl-10 pr-4 py-2 border border-[var(--border)] rounded-lg bg-[var(--surface)] text-[var(--text)] placeholder-[var(--text-muted)] focus:outline-none focus:ring-2 focus:ring-[var(--primary)]"
+                  placeholder="Enter new password (min 8 characters)"
+                />
               </div>
-            </form>
-          ) : (
-            <form onSubmit={handleChangePassword} className="space-y-4">
-              <div>
-                <label htmlFor="current-password" className="block text-sm font-medium text-gray-700 mb-2">
-                  Current Password
-                </label>
-                <div className="relative">
-                  <Lock size={18} className="absolute left-3 top-3 text-gray-400" />
-                  <input
-                    id="current-password"
-                    type="password"
-                    name="currentPassword"
-                    value={form.currentPassword}
-                    onChange={handleChange}
-                    className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    placeholder="Enter current password"
-                  />
-                </div>
-              </div>
+            </div>
 
-              <div>
-                <label htmlFor="new-password" className="block text-sm font-medium text-gray-700 mb-2">
-                  New Password
-                </label>
-                <div className="relative">
-                  <Lock size={18} className="absolute left-3 top-3 text-gray-400" />
-                  <input
-                    id="new-password"
-                    type="password"
-                    name="newPassword"
-                    value={form.newPassword}
-                    onChange={handleChange}
-                    className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    placeholder="Enter new password (min 8 characters)"
-                  />
-                </div>
+            <div>
+              <label htmlFor="confirm-password" className="block text-sm font-medium text-[var(--text)] mb-2">
+                Confirm New Password
+              </label>
+              <div className="relative">
+                <Lock size={18} className="absolute left-3 top-2.5 text-[var(--text-muted)]" />
+                <input
+                  id="confirm-password"
+                  type="password"
+                  name="confirmPassword"
+                  value={form.confirmPassword}
+                  onChange={handleChange}
+                  className="w-full pl-10 pr-4 py-2 border border-[var(--border)] rounded-lg bg-[var(--surface)] text-[var(--text)] placeholder-[var(--text-muted)] focus:outline-none focus:ring-2 focus:ring-[var(--primary)]"
+                  placeholder="Confirm new password"
+                />
               </div>
+            </div>
 
-              <div>
-                <label htmlFor="confirm-password" className="block text-sm font-medium text-gray-700 mb-2">
-                  Confirm New Password
-                </label>
-                <div className="relative">
-                  <Lock size={18} className="absolute left-3 top-3 text-gray-400" />
-                  <input
-                    id="confirm-password"
-                    type="password"
-                    name="confirmPassword"
-                    value={form.confirmPassword}
-                    onChange={handleChange}
-                    className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    placeholder="Confirm new password"
-                  />
-                </div>
-              </div>
-
-              <div className="flex gap-4 pt-4">
-                <button
-                  type="submit"
-                  disabled={loading}
-                  className="flex-1 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white font-medium py-2 rounded-lg transition"
-                >
-                  {loading ? 'Changing...' : 'Change Password'}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => navigate('/dashboard')}
-                  className="flex-1 bg-gray-300 hover:bg-gray-400 text-gray-900 font-medium py-2 rounded-lg transition"
-                >
-                  Cancel
-                </button>
-              </div>
-            </form>
-          )}
-        </div>
+            <div className="flex gap-4 pt-4">
+              <button
+                type="submit"
+                disabled={loading}
+                className="flex-1 bg-[var(--primary)] hover:bg-[var(--primary-hover)] disabled:opacity-50 text-white font-medium py-2 rounded-lg transition"
+              >
+                {loading ? 'Changing...' : 'Change Password'}
+              </button>
+              <button
+                type="button"
+                onClick={() => navigate('/dashboard')}
+                className="flex-1 bg-[var(--surface-2)] hover:bg-[var(--border)] text-[var(--text)] font-medium py-2 rounded-lg transition"
+              >
+                Cancel
+              </button>
+            </div>
+          </form>
+        )}
       </div>
+    </div>
   );
 }

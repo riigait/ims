@@ -28,6 +28,7 @@ model Department {
   receivedMovements StockMovement[] @relation("MovementToDepartment")
   floorPlans     FloorPlan[]
   importRequests ImportRequest[]
+  exportRequests ExportRequest[]
 }
 
 model User {
@@ -51,6 +52,10 @@ model User {
   passwordApprovals          PasswordChangeRequest[] @relation("passwordApprovedBy")
   importRequests             ImportRequest[]         @relation("importSubmittedBy")
   reviewedImportRequests     ImportRequest[]         @relation("importReviewedBy")
+  editRequests               EditRequest[]           @relation("editRequestedBy")
+  reviewedEditRequests       EditRequest[]           @relation("editReviewedBy")
+  exportRequests             ExportRequest[]         @relation("exportRequestedBy")
+  reviewedExportRequests     ExportRequest[]         @relation("exportReviewedBy")
 }
 
 model Product {
@@ -75,10 +80,12 @@ model Product {
   notes               String?    // Product-specific notes
   source              String?    // manual, csv_import, unknown
   csvImportId         String?    // batch ID assigned per CSV import session
+  pendingApproval     Boolean    @default(false)
   createdAt           DateTime   @default(now())
   updatedAt           DateTime   @updatedAt
   movementItems       StockMovementItem[] @relation("ProductMovementItems")
   stockDetails        StockDetail[]
+  editRequests        EditRequest[]
 }
 
 model Category {
@@ -343,6 +350,22 @@ model PasswordChangeRequest {
   createdAt     DateTime   @default(now())
 }
 
+model EditRequest {
+  id               String    @id @default(cuid())
+  productId        String
+  product          Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
+  requestedBy      String
+  requester        User      @relation("editRequestedBy", fields: [requestedBy], references: [id], onDelete: Cascade)
+  proposedChanges  Json
+  reason           String?
+  status           String    @default("pending") // pending, approved, rejected
+  rejectionReason  String?
+  reviewedBy       String?
+  reviewer         User?     @relation("editReviewedBy", fields: [reviewedBy], references: [id], onDelete: SetNull)
+  reviewedAt       DateTime?
+  createdAt        DateTime  @default(now())
+}
+
 model ImportRequest {
   id           String      @id @default(cuid())
   requestNo    String?     @unique  // e.g., REQ-2026-000001 (auto-generated)
@@ -362,4 +385,21 @@ model ImportRequest {
   reviewedAt   DateTime?
   createdAt    DateTime    @default(now())
   updatedAt    DateTime    @updatedAt
+}
+
+model ExportRequest {
+  id              String      @id @default(cuid())
+  type            String      // products, categories, locations, unified
+  label           String
+  csvData         String      // generated CSV content stored at request time
+  requestedBy     String
+  requester       User        @relation("exportRequestedBy", fields: [requestedBy], references: [id], onDelete: Cascade)
+  departmentId    String?
+  department      Department? @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+  status          String      @default("pending") // pending, approved, rejected
+  rejectionReason String?
+  reviewedBy      String?
+  reviewer        User?       @relation("exportReviewedBy", fields: [reviewedBy], references: [id], onDelete: SetNull)
+  reviewedAt      DateTime?
+  createdAt       DateTime    @default(now())
 }

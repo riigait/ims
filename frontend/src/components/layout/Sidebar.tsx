@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { LayoutDashboard, Package, Tag, MapPin, ArrowLeftRight, Map, Building2, Users, UserCheck, Sun, Moon, LogOut, ChevronDown, Upload, Boxes, ChevronLeft, ChevronRight, Settings, ClipboardList } from 'lucide-react';
+import { LayoutDashboard, Package, Tag, MapPin, ArrowLeftRight, Map, Building2, Users, UserCheck, Sun, Moon, LogOut, ChevronDown, Upload, Boxes, ChevronLeft, ChevronRight, Settings, ClipboardList, KeyRound } from 'lucide-react';
 import { useTheme } from '@/contexts/ThemeContext';
 import { ALL_DEPARTMENTS_ID } from '@/constants/app';
 import ConfirmDialog from '../ConfirmDialog';
@@ -46,7 +46,7 @@ export default function Sidebar({ collapsed, onToggle }: { collapsed: boolean; o
     { path: '/stock-movements', icon: ArrowLeftRight,  label: 'Stock Movements', roles: ['superadmin', 'admin', 'staff'], section: 'main' },
     { path: '/floor-plans',     icon: Map,             label: 'Floor Plans',     roles: ['superadmin', 'admin', 'staff'], section: 'main' },
     { path: '/import-pclsf',    icon: Upload,          label: 'Import / Export',    roles: ['admin', 'staff'], section: 'main' },
-    { path: '/admin/requests',    icon: ClipboardList, label: 'Requests',         roles: ['superadmin', 'admin'], section: 'admin' },
+    { path: '/admin/requests',    icon: ClipboardList, label: 'Requests',         roles: ['superadmin', 'admin', 'staff'], section: 'admin' },
     { path: '/admin/departments', icon: Building2, label: 'Departments', roles: ['superadmin', 'admin'], section: 'admin' },
     { path: '/admin/users', icon: Users, label: 'Users', roles: ['superadmin', 'admin'], section: 'admin' },
     { path: '/admin/assignment', icon: UserCheck, label: 'Role Assignments', roles: ['superadmin'], section: 'admin' },
@@ -229,6 +229,17 @@ export default function Sidebar({ collapsed, onToggle }: { collapsed: boolean; o
             >
               {theme === 'light' ? <Moon size={16} /> : <Sun size={16} />}
             </button>
+            <button
+              onClick={() => navigate('/change-password')}
+              title="Change Password"
+              className={`w-full flex items-center justify-center p-2 rounded-lg transition-colors ${
+                isActive('/change-password')
+                  ? 'bg-[var(--primary)] text-white'
+                  : 'text-[var(--text-muted)] hover:bg-[var(--surface-2)]'
+              }`}
+            >
+              <KeyRound size={16} />
+            </button>
             {user.role === 'superadmin' && (
               <button
                 onClick={() => navigate('/admin/settings')}
@@ -275,7 +286,7 @@ export default function Sidebar({ collapsed, onToggle }: { collapsed: boolean; o
               </button>
             </div>
 
-            {/* Theme Toggle + Logout */}
+            {/* Theme Toggle + Change Password + Settings + Logout */}
             <div className="flex gap-2">
               <button
                 onClick={toggleTheme}
@@ -284,6 +295,18 @@ export default function Sidebar({ collapsed, onToggle }: { collapsed: boolean; o
                 title="Toggle theme"
               >
                 {theme === 'light' ? <Moon size={16} /> : <Sun size={16} />}
+              </button>
+              <button
+                onClick={() => navigate('/change-password')}
+                aria-label="Change Password"
+                className={`flex-1 flex items-center justify-center px-3 py-2 rounded-lg transition-colors ${
+                  isActive('/change-password')
+                    ? 'bg-[var(--primary)] text-white'
+                    : 'text-[var(--text-muted)] hover:bg-[var(--surface-2)]'
+                }`}
+                title="Change Password"
+              >
+                <KeyRound size={16} />
               </button>
               {user.role === 'superadmin' && (
                 <button

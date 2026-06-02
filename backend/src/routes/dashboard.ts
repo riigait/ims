@@ -20,9 +20,11 @@ router.get('/stats', authMiddleware, async (req: AuthRequest, res: Response) => 
       departmentFilter = { departmentId: req.departmentId };
     }
 
-    const stockDetailFilter = Object.keys(departmentFilter).length > 0
-      ? { product: departmentFilter }
-      : {};
+    const productFilter = Object.keys(departmentFilter).length > 0
+      ? { ...departmentFilter, pendingApproval: false }
+      : { pendingApproval: false };
+
+    const stockDetailFilter = { product: { ...departmentFilter, pendingApproval: false } };
 
     const now = new Date();
     const thirtyDaysFromNow = new Date(now);
@@ -40,12 +42,12 @@ router.get('/stats', authMiddleware, async (req: AuthRequest, res: Response) => 
       categoryGroups, locationGroups,
       missingDetailsCount,
     ] = await Promise.all([
-      prisma.product.count({ where: departmentFilter }),
-      prisma.product.aggregate({ _sum: { currentStock: true }, where: departmentFilter }),
+      prisma.product.count({ where: productFilter }),
+      prisma.product.aggregate({ _sum: { currentStock: true }, where: productFilter }),
       prisma.location.count({ where: departmentFilter }),
       prisma.floorPlan.count({ where: departmentFilter }),
       prisma.product.findMany({
-        where: departmentFilter,
+        where: productFilter,
         select: { currentStock: true, lowStockThreshold: true, unitPrice: true, locationId: true },
       }),
       prisma.stockDetail.count({ where: stockDetailFilter }),
@@ -63,7 +65,7 @@ router.get('/stats', authMiddleware, async (req: AuthRequest, res: Response) => 
       }),
       prisma.product.groupBy({
         by: ['categoryId'],
-        where: departmentFilter,
+        where: productFilter,
         _count: { id: true },
         _sum: { currentStock: true },
         orderBy: { _count: { id: 'desc' } },
@@ -184,7 +186,10 @@ router.get('/recent-movements', authMiddleware, async (req: AuthRequest, res: Re
         items: { include: { product: true } },
         user: { select: { name: true } },
       },
-      where: departmentFilter,
+      where: {
+        ...departmentFilter,
+        items: { none: { product: { pendingApproval: true } } },
+      },
       orderBy: { createdAt: 'desc' },
       take: 10,
     });
