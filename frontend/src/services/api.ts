@@ -26,10 +26,18 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
-// Handle token expiration (401)
+// Handle network errors and token expiration
 api.interceptors.response.use(
   (response) => response,
   (error) => {
+    // Backend is not running (ECONNREFUSED / ERR_NETWORK / no response)
+    if (!error.response) {
+      const networkError = new Error(
+        'Cannot connect to the server. Please make sure the backend is running and try again.'
+      );
+      (networkError as any).isOffline = true;
+      return Promise.reject(networkError);
+    }
     if (error.response?.status === 401) {
       localStorage.removeItem('token');
       localStorage.removeItem('user');

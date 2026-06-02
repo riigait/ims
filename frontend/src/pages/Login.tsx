@@ -4,6 +4,8 @@ import { authApi } from '@/services/api';
 import { validateEmail, validatePassword } from '@/utils/validation';
 import { useTheme } from '@/contexts/ThemeContext';
 
+type ServerStatus = 'checking' | 'online' | 'offline';
+
 export default function Login() {
   const navigate = useNavigate();
   const location = useLocation();
@@ -12,13 +14,16 @@ export default function Login() {
   const [errors, setErrors] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const [setupMessage, setSetupMessage] = useState('');
+  const [serverStatus, setServerStatus] = useState<ServerStatus>('checking');
   const successMessage = (location.state as any)?.message || '';
 
   useEffect(() => {
-    // On login page load, ensure superadmin exists
-    const ensureSuperadmin = async () => {
+    let retryTimer: ReturnType<typeof setTimeout>;
+
+    const checkServer = async () => {
       try {
         const response = await authApi.ensureSuperadmin();
+        setServerStatus('online');
         if (!response.data.exists && response.data.created) {
           const email = response.data.email || 'admin@ims.local';
           const password = response.data.temporaryPassword;
@@ -26,12 +31,20 @@ export default function Login() {
             ? `Temporary superadmin created. Please login with ${email} / ${password} and complete setup immediately.`
             : response.data.message || 'Temporary superadmin created. Complete setup immediately.');
         }
-      } catch (err) {
-        // Silently fail - it's optional
+      } catch (err: any) {
+        if (err?.isOffline) {
+          setServerStatus('offline');
+          // retry every 5 seconds until the backend comes up
+          retryTimer = setTimeout(checkServer, 5000);
+        } else {
+          // Backend is up but returned an error (e.g. 500) — still online
+          setServerStatus('online');
+        }
       }
     };
 
-    ensureSuperadmin();
+    checkServer();
+    return () => clearTimeout(retryTimer);
   }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -54,8 +67,13 @@ export default function Login() {
       localStorage.setItem('user', JSON.stringify(response.data.user));
       navigate('/dashboard');
     } catch (err: any) {
-      const msg = err?.response?.data?.error || err?.message || 'Invalid credentials';
-      setErrors([msg]);
+      if (err?.isOffline) {
+        setServerStatus('offline');
+        setErrors(['Cannot connect to the server. Please start the backend and try again.']);
+      } else {
+        const msg = err?.response?.data?.error || err?.message || 'Invalid credentials';
+        setErrors([msg]);
+      }
     } finally {
       setLoading(false);
     }
@@ -70,6 +88,24 @@ export default function Login() {
         <h1 className="text-3xl font-bold text-center text-[var(--text)] mb-8">
           Inventory Management System
         </h1>
+
+        {/* Server status banner */}
+        {serverStatus === 'checking' && (
+          <div className="bg-blue-50 dark:bg-blue-950 border border-blue-300 dark:border-blue-700 text-blue-700 dark:text-blue-300 px-4 py-3 rounded mb-4 flex items-center gap-2 text-sm">
+            <span className="inline-block w-2 h-2 rounded-full bg-blue-500 animate-pulse flex-shrink-0" />
+            Connecting to server…
+          </div>
+        )}
+        {serverStatus === 'offline' && (
+          <div className="bg-red-50 dark:bg-red-950 border border-red-400 dark:border-red-700 text-red-700 dark:text-red-300 px-4 py-3 rounded mb-4 text-sm">
+            <div className="flex items-center gap-2 font-semibold mb-1">
+              <span className="inline-block w-2 h-2 rounded-full bg-red-500 flex-shrink-0" />
+              Backend server is offline
+            </div>
+            <p>Start the backend server then this page will reconnect automatically.</p>
+            <code className="block mt-1 text-xs opacity-75">cd backend &amp;&amp; npm run dev</code>
+          </div>
+        )}
 
         {errors.length > 0 && (
           <div className="bg-red-100 dark:bg-red-950 border border-red-400 dark:border-red-700 text-red-700 dark:text-red-200 px-4 py-3 rounded mb-4">
@@ -132,10 +168,10 @@ export default function Login() {
 
           <button
             type="submit"
-            disabled={loading}
+            disabled={loading || serverStatus !== 'online'}
             className="w-full bg-[var(--primary)] text-white py-2 rounded-lg font-semibold hover:bg-[var(--primary-hover)] disabled:opacity-50"
           >
-            {loading ? 'Logging in...' : 'Login'}
+            {loading ? 'Logging in…' : serverStatus === 'checking' ? 'Connecting…' : serverStatus === 'offline' ? 'Server Offline' : 'Login'}
           </button>
         </form>
 
