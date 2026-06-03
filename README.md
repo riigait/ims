@@ -61,7 +61,21 @@ npm run dev
 
 Frontend runs on `http://localhost:5173`
 
-### Docker (recommended for production)
+### Docker — pre-built images (recommended, fastest)
+
+Uses pre-built images from GitHub Container Registry. No cloning or building required.
+
+```bash
+curl -O https://raw.githubusercontent.com/riigait/ims/main/docker-compose.prod.yml
+curl -O https://raw.githubusercontent.com/riigait/ims/main/.env.example
+cp .env.example .env
+# Edit .env — set POSTGRES_PASSWORD and JWT_SECRET
+docker-compose -f docker-compose.prod.yml up -d
+```
+
+### Docker — build from source
+
+Clones the repo and builds images locally. Use this for development or if you want to modify the code.
 
 ```bash
 cp .env.example .env
