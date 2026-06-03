@@ -1,4 +1,4 @@
-import { Router, Request, Response } from 'express';
+import { Router, Request, Response, NextFunction } from 'express';
 import prisma from '../utils/prisma';
 import { authMiddleware, AuthRequest } from '../middleware/auth';
 import crypto from 'crypto';
@@ -7,7 +7,7 @@ import bcrypt from 'bcryptjs';
 const router = Router();
 
 // Generate invite code (admin only)
-router.post('/generate', authMiddleware, async (req: AuthRequest, res: Response) => {
+router.post('/generate', authMiddleware, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const user = await prisma.user.findUnique({ where: { id: req.userId } });
     if (!user || !['superadmin', 'admin'].includes(user.role)) {
@@ -38,13 +38,12 @@ router.post('/generate', authMiddleware, async (req: AuthRequest, res: Response)
 
     res.json({ id: invite.id, code: invite.code, role: invite.role, expiresAt: invite.expiresAt });
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Internal server error' });
+    next(error);
   }
 });
 
 // List invites (admin only)
-router.get('/', authMiddleware, async (req: AuthRequest, res: Response) => {
+router.get('/', authMiddleware, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const user = await prisma.user.findUnique({ where: { id: req.userId } });
     if (!user || !['superadmin', 'admin'].includes(user.role)) {
@@ -70,13 +69,12 @@ router.get('/', authMiddleware, async (req: AuthRequest, res: Response) => {
 
     res.json({ data: invites, total, page, limit });
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Internal server error' });
+    next(error);
   }
 });
 
 // Revoke invite (admin only)
-router.delete('/:id', authMiddleware, async (req: AuthRequest, res: Response) => {
+router.delete('/:id', authMiddleware, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const user = await prisma.user.findUnique({ where: { id: req.userId } });
     if (!user || !['superadmin', 'admin'].includes(user.role)) {
@@ -93,13 +91,12 @@ router.delete('/:id', authMiddleware, async (req: AuthRequest, res: Response) =>
     await prisma.inviteCode.delete({ where: { id: req.params.id } });
     res.json({ message: 'Invite revoked' });
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Internal server error' });
+    next(error);
   }
 });
 
 // Validate invite code
-router.post('/validate', async (req: Request, res: Response) => {
+router.post('/validate', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { code } = req.body;
     if (!code) return res.status(400).json({ error: 'Missing invite code' });
@@ -111,13 +108,12 @@ router.post('/validate', async (req: Request, res: Response) => {
 
     res.json({ valid: true, role: invite.role });
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Internal server error' });
+    next(error);
   }
 });
 
 // Redeem invite code to create account
-router.post('/redeem', async (req: Request, res: Response) => {
+router.post('/redeem', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { code, name, email, password } = req.body;
 
@@ -173,8 +169,7 @@ router.post('/redeem', async (req: Request, res: Response) => {
       user: { id: user.id, name: user.name, email: user.email, role: user.role },
     });
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Internal server error' });
+    next(error);
   }
 });
 

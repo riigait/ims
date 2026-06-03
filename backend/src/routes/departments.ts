@@ -1,24 +1,23 @@
-﻿import { Router, Request, Response } from 'express';
+﻿import { Router, Request, Response, NextFunction } from 'express';
 import prisma from '../utils/prisma';
 import { authMiddleware, AuthRequest, adminMiddleware } from '../middleware/auth';
 
 const router = Router();
 
 // List all departments (admin only)
-router.get('/', authMiddleware, adminMiddleware, async (req: AuthRequest, res: Response) => {
+router.get('/', authMiddleware, adminMiddleware, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const departments = await prisma.department.findMany({
       orderBy: { name: 'asc' },
     });
     res.json(departments);
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Internal server error' });
+    next(error);
   }
 });
 
 // Get single department (authenticated users can view departments they have access to)
-router.get('/:id', authMiddleware, async (req: AuthRequest, res: Response) => {
+router.get('/:id', authMiddleware, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const user = await prisma.user.findUnique({ where: { id: req.userId } });
     if (!user) return res.status(404).json({ error: 'User not found' });
@@ -36,13 +35,12 @@ router.get('/:id', authMiddleware, async (req: AuthRequest, res: Response) => {
     if (!department) return res.status(404).json({ error: 'Department not found' });
     res.json(department);
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Internal server error' });
+    next(error);
   }
 });
 
 // Create department (admin only)
-router.post('/', authMiddleware, adminMiddleware, async (req: AuthRequest, res: Response) => {
+router.post('/', authMiddleware, adminMiddleware, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const name = (req.body.name || '').trim();
     const description = (req.body.description || '').trim();
@@ -62,13 +60,12 @@ router.post('/', authMiddleware, adminMiddleware, async (req: AuthRequest, res: 
 
     res.status(201).json(department);
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Internal server error' });
+    next(error);
   }
 });
 
 // Update department (admin only)
-router.patch('/:id', authMiddleware, adminMiddleware, async (req: AuthRequest, res: Response) => {
+router.patch('/:id', authMiddleware, adminMiddleware, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const updates: any = {};
 
@@ -88,13 +85,12 @@ router.patch('/:id', authMiddleware, adminMiddleware, async (req: AuthRequest, r
     if (error.code === 'P2002') {
       return res.status(400).json({ error: 'Department name already exists' });
     }
-    console.error(error);
-    res.status(500).json({ error: 'Internal server error' });
+    next(error);
   }
 });
 
 // Delete department (admin only)
-router.delete('/:id', authMiddleware, adminMiddleware, async (req: AuthRequest, res: Response) => {
+router.delete('/:id', authMiddleware, adminMiddleware, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     await prisma.department.delete({ where: { id: req.params.id } });
     res.json({ message: 'Department deleted' });
@@ -102,8 +98,7 @@ router.delete('/:id', authMiddleware, adminMiddleware, async (req: AuthRequest, 
     if (error.code === 'P2025') {
       return res.status(404).json({ error: 'Department not found' });
     }
-    console.error(error);
-    res.status(500).json({ error: 'Internal server error' });
+    next(error);
   }
 });
 

@@ -1,11 +1,11 @@
-import { Router, Request, Response } from 'express';
+import { Router, Request, Response, NextFunction } from 'express';
 import prisma from '../utils/prisma';
 import { authMiddleware, AuthRequest } from '../middleware/auth';
 
 const router = Router();
 
 // Get staff's assigned departments
-router.get('/staff/:staffId', authMiddleware, async (req: AuthRequest, res: Response) => {
+router.get('/staff/:staffId', authMiddleware, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const user = await prisma.user.findUnique({ where: { id: req.userId } });
     if (!user || !['superadmin', 'admin'].includes(user.role)) {
@@ -32,13 +32,12 @@ router.get('/staff/:staffId', authMiddleware, async (req: AuthRequest, res: Resp
 
     res.json(staffDepts);
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Internal server error' });
+    next(error);
   }
 });
 
 // Assign department to staff
-router.post('/', authMiddleware, async (req: AuthRequest, res: Response) => {
+router.post('/', authMiddleware, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const user = await prisma.user.findUnique({ where: { id: req.userId } });
     if (!user || user.role !== 'superadmin') {
@@ -73,13 +72,12 @@ router.post('/', authMiddleware, async (req: AuthRequest, res: Response) => {
     if (error.code === 'P2002') {
       return res.status(400).json({ error: 'Staff already assigned to this department' });
     }
-    console.error(error);
-    res.status(500).json({ error: 'Internal server error' });
+    next(error);
   }
 });
 
 // Remove department assignment
-router.delete('/:staffId/:departmentId', authMiddleware, async (req: AuthRequest, res: Response) => {
+router.delete('/:staffId/:departmentId', authMiddleware, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const user = await prisma.user.findUnique({ where: { id: req.userId } });
     if (!user || user.role !== 'superadmin') {
@@ -94,8 +92,7 @@ router.delete('/:staffId/:departmentId', authMiddleware, async (req: AuthRequest
 
     res.json({ message: 'Department assignment removed' });
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Internal server error' });
+    next(error);
   }
 });
 

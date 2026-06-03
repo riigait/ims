@@ -1,4 +1,4 @@
-import { Router, Response } from 'express';
+import { Router, Response, NextFunction } from 'express';
 import { AuthRequest } from '../middleware/auth';
 
 const router = Router();
@@ -66,7 +66,7 @@ function formatResults(results: NominatimResult[]): MapSearchResult[] {
     .filter((item): item is MapSearchResult => item !== null);
 }
 
-router.get('/search', async (req: AuthRequest, res: Response) => {
+router.get('/search', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const query = String(req.query.q || '').trim();
     if (!query) {
@@ -109,12 +109,11 @@ router.get('/search', async (req: AuthRequest, res: Response) => {
 
     return res.json(results);
   } catch (error) {
-    console.error('Map search failed:', error);
-    return res.status(500).json({ error: 'Failed to search location' });
+    return    next(error);
   }
 });
 
-router.get('/reverse', async (req: AuthRequest, res: Response) => {
+router.get('/reverse', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const lat = Number(req.query.lat);
     const lng = Number(req.query.lng);
@@ -148,8 +147,7 @@ router.get('/reverse', async (req: AuthRequest, res: Response) => {
 
     return res.json(result[0] || null);
   } catch (error) {
-    console.error('Map reverse geocode failed:', error);
-    return res.status(500).json({ error: 'Failed to reverse geocode' });
+    return    next(error);
   }
 });
 

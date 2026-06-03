@@ -1,11 +1,11 @@
-import { Router, Response } from 'express';
+import { Router, Response, NextFunction } from 'express';
 import prisma from '../utils/prisma';
 import { authMiddleware, AuthRequest } from '../middleware/auth';
 
 const router = Router();
 
 // Create export request (admin only)
-router.post('/', authMiddleware, async (req: AuthRequest, res: Response) => {
+router.post('/', authMiddleware, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     if (req.userRole !== 'admin') {
       return res.status(403).json({ error: 'Only admin users can create export requests' });
@@ -33,13 +33,12 @@ router.post('/', authMiddleware, async (req: AuthRequest, res: Response) => {
 
     res.status(201).json(exportRequest);
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Internal server error' });
+    next(error);
   }
 });
 
 // List export requests
-router.get('/', authMiddleware, async (req: AuthRequest, res: Response) => {
+router.get('/', authMiddleware, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     let where: any = {};
     if (req.userRole === 'admin') {
@@ -72,13 +71,12 @@ router.get('/', authMiddleware, async (req: AuthRequest, res: Response) => {
     const sanitized = requests.map(({ csvData: _, ...r }) => r);
     res.json({ data: sanitized, total, page, limit });
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Internal server error' });
+    next(error);
   }
 });
 
 // Approve (superadmin only)
-router.patch('/:id/approve', authMiddleware, async (req: AuthRequest, res: Response) => {
+router.patch('/:id/approve', authMiddleware, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     if (req.userRole !== 'superadmin') {
       return res.status(403).json({ error: 'Only superadmin can approve export requests' });
@@ -102,13 +100,12 @@ router.patch('/:id/approve', authMiddleware, async (req: AuthRequest, res: Respo
     const { csvData: _, ...sanitized } = updated;
     res.json(sanitized);
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Internal server error' });
+    next(error);
   }
 });
 
 // Reject (superadmin only)
-router.patch('/:id/reject', authMiddleware, async (req: AuthRequest, res: Response) => {
+router.patch('/:id/reject', authMiddleware, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     if (req.userRole !== 'superadmin') {
       return res.status(403).json({ error: 'Only superadmin can reject export requests' });
@@ -133,13 +130,12 @@ router.patch('/:id/reject', authMiddleware, async (req: AuthRequest, res: Respon
     const { csvData: _, ...sanitized } = updated;
     res.json(sanitized);
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Internal server error' });
+    next(error);
   }
 });
 
 // Download CSV (approved only, requester or superadmin)
-router.get('/:id/download', authMiddleware, async (req: AuthRequest, res: Response) => {
+router.get('/:id/download', authMiddleware, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const exportRequest = await prisma.exportRequest.findUnique({ where: { id: req.params.id } });
     if (!exportRequest) return res.status(404).json({ error: 'Export request not found' });
@@ -157,8 +153,7 @@ router.get('/:id/download', authMiddleware, async (req: AuthRequest, res: Respon
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
     res.send(exportRequest.csvData);
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Internal server error' });
+    next(error);
   }
 });
 

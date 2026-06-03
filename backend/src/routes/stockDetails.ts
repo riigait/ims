@@ -1,4 +1,4 @@
-import { Router, Response } from 'express';
+import { Router, Response, NextFunction } from 'express';
 import prisma from '../utils/prisma';
 import { AuthRequest, canAccessDepartment } from '../middleware/auth';
 import { logAudit } from '../utils/audit';
@@ -16,7 +16,7 @@ async function recalculateProductStock(productId: string): Promise<void> {
 }
 
 // Get all stock details (optionally filter by department)
-router.get('/', async (req: AuthRequest, res: Response) => {
+router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const page = Math.max(1, parseInt(req.query.page as string) || 1);
     const limit = Math.min(Math.max(1, parseInt(req.query.limit as string) || 50), 200);
@@ -63,13 +63,12 @@ router.get('/', async (req: AuthRequest, res: Response) => {
 
     res.json({ data: stockDetails, total, page, limit });
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Internal server error' });
+    next(error);
   }
 });
 
 // Get all stock details for a product
-router.get('/product/:productId', async (req: AuthRequest, res: Response) => {
+router.get('/product/:productId', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const { productId } = req.params;
 
@@ -89,12 +88,11 @@ router.get('/product/:productId', async (req: AuthRequest, res: Response) => {
 
     res.json(stockDetails);
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Internal server error' });
+    next(error);
   }
 });
 
-router.get('/:id/deployment', async (req: AuthRequest, res: Response) => {
+router.get('/:id/deployment', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const record = await prisma.deployedStock.findFirst({
       where: { inventoryItemId: req.params.id },
@@ -103,13 +101,12 @@ router.get('/:id/deployment', async (req: AuthRequest, res: Response) => {
     });
     res.json(record || null);
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Internal server error' });
+    next(error);
   }
 });
 
 // Get single stock detail
-router.get('/by-status/:status', async (req: AuthRequest, res: Response) => {
+router.get('/by-status/:status', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const where: any = { currentStatus: req.params.status };
     if (req.departmentId) where.product = { departmentId: req.departmentId };
@@ -119,12 +116,11 @@ router.get('/by-status/:status', async (req: AuthRequest, res: Response) => {
     });
     res.json(items);
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Internal server error' });
+    next(error);
   }
 });
 
-router.get('/:id', async (req: AuthRequest, res: Response) => {
+router.get('/:id', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const stockDetail = await prisma.stockDetail.findUnique({
       where: { id: req.params.id },
@@ -139,13 +135,12 @@ router.get('/:id', async (req: AuthRequest, res: Response) => {
 
     res.json(stockDetail);
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Internal server error' });
+    next(error);
   }
 });
 
 // Get movement history for a stock detail
-router.get('/:id/movements', async (req: AuthRequest, res: Response) => {
+router.get('/:id/movements', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const stockDetail = await prisma.stockDetail.findUnique({
       where: { id: req.params.id },
@@ -169,13 +164,12 @@ router.get('/:id/movements', async (req: AuthRequest, res: Response) => {
 
     res.json(movements);
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Internal server error' });
+    next(error);
   }
 });
 
 // Bulk verify — set lastCheckedDate = today for given IDs (or all accessible items)
-router.post('/bulk-verify', async (req: AuthRequest, res: Response) => {
+router.post('/bulk-verify', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const { ids } = req.body;
     const now = new Date();
@@ -198,13 +192,12 @@ router.post('/bulk-verify', async (req: AuthRequest, res: Response) => {
 
     res.json({ count: result.count });
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Internal server error' });
+    next(error);
   }
 });
 
 // Create stock detail
-router.post('/', async (req: AuthRequest, res: Response) => {
+router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const { productId, modelNumber, serialNumber, macId, dateStock, currentStatus, currentLocationId, notes, assetTag, barcode, condition, warrantyExpiry, warrantyNotes, brand, itemType, custodian, lastCheckedDate, checkedBy } = req.body;
 
@@ -260,13 +253,12 @@ router.post('/', async (req: AuthRequest, res: Response) => {
 
     res.status(201).json(stockDetail);
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Internal server error' });
+    next(error);
   }
 });
 
 // Update stock detail
-router.put('/:id', async (req: AuthRequest, res: Response) => {
+router.put('/:id', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const { modelNumber, serialNumber, macId, dateStock, currentStatus, currentLocationId, notes, assetTag, barcode, condition, warrantyExpiry, warrantyNotes, brand, itemType, custodian, lastCheckedDate, checkedBy } = req.body;
 
@@ -319,13 +311,12 @@ router.put('/:id', async (req: AuthRequest, res: Response) => {
 
     res.json(updated);
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Internal server error' });
+    next(error);
   }
 });
 
 // Delete stock detail
-router.delete('/:id', async (req: AuthRequest, res: Response) => {
+router.delete('/:id', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const stockDetail = await prisma.stockDetail.findUnique({
       where: { id: req.params.id },
@@ -351,8 +342,7 @@ router.delete('/:id', async (req: AuthRequest, res: Response) => {
 
     res.json({ message: 'Stock detail deleted' });
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Internal server error' });
+    next(error);
   }
 });
 

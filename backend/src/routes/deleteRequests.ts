@@ -1,11 +1,11 @@
-﻿import { Router, Request, Response } from 'express';
+﻿import { Router, Request, Response, NextFunction } from 'express';
 import prisma from '../utils/prisma';
 import { authMiddleware, AuthRequest, adminMiddleware } from '../middleware/auth';
 
 const router = Router();
 
 // Submit delete request (staff)
-router.post('/', authMiddleware, async (req: AuthRequest, res: Response) => {
+router.post('/', authMiddleware, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const { entityType, entityId, entityName, reason } = req.body;
 
@@ -26,13 +26,12 @@ router.post('/', authMiddleware, async (req: AuthRequest, res: Response) => {
 
     res.status(201).json(deleteRequest);
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Internal server error' });
+    next(error);
   }
 });
 
 // List delete requests (admin sees all, staff sees own)
-router.get('/', authMiddleware, async (req: AuthRequest, res: Response) => {
+router.get('/', authMiddleware, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const status = req.query.status as string;
     let where: any = status ? { status } : {};
@@ -60,13 +59,12 @@ router.get('/', authMiddleware, async (req: AuthRequest, res: Response) => {
 
     res.json({ data: deleteRequests, total, page, limit });
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Internal server error' });
+    next(error);
   }
 });
 
 // Approve delete request (admin only)
-router.patch('/:id/approve', authMiddleware, adminMiddleware, async (req: AuthRequest, res: Response) => {
+router.patch('/:id/approve', authMiddleware, adminMiddleware, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const deleteRequest = await prisma.deleteRequest.findUnique({
       where: { id: req.params.id },
@@ -113,13 +111,12 @@ router.patch('/:id/approve', authMiddleware, adminMiddleware, async (req: AuthRe
     if (error.code === 'P2025') {
       return res.status(404).json({ error: 'Entity not found' });
     }
-    console.error(error);
-    res.status(500).json({ error: 'Internal server error' });
+    next(error);
   }
 });
 
 // Reject delete request (admin only)
-router.patch('/:id/reject', authMiddleware, adminMiddleware, async (req: AuthRequest, res: Response) => {
+router.patch('/:id/reject', authMiddleware, adminMiddleware, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const { reason } = req.body;
 
@@ -150,8 +147,7 @@ router.patch('/:id/reject', authMiddleware, adminMiddleware, async (req: AuthReq
     if (error.code === 'P2025') {
       return res.status(404).json({ error: 'Delete request not found' });
     }
-    console.error(error);
-    res.status(500).json({ error: 'Internal server error' });
+    next(error);
   }
 });
 

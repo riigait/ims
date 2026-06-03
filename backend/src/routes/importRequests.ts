@@ -1,4 +1,4 @@
-import { Router, Response } from 'express';
+import { Router, Response, NextFunction } from 'express';
 import prisma from '../utils/prisma';
 import { AuthRequest } from '../middleware/auth';
 import { logAudit } from '../utils/audit';
@@ -28,7 +28,7 @@ async function autoApproveExpired() {
 }
 
 // GET / — list requests
-router.get('/', async (req: AuthRequest, res: Response) => {
+router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     await autoApproveExpired();
 
@@ -64,13 +64,12 @@ router.get('/', async (req: AuthRequest, res: Response) => {
     ]);
     res.json({ data: requests, total, page, limit });
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Internal server error' });
+    next(error);
   }
 });
 
 // GET /:id — single request
-router.get('/:id', async (req: AuthRequest, res: Response) => {
+router.get('/:id', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const request = await prisma.importRequest.findUnique({
       where: { id: req.params.id },
@@ -93,13 +92,12 @@ router.get('/:id', async (req: AuthRequest, res: Response) => {
 
     res.json(request);
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Internal server error' });
+    next(error);
   }
 });
 
 // PATCH /:id/approve — superadmin only
-router.patch('/:id/approve', async (req: AuthRequest, res: Response) => {
+router.patch('/:id/approve', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     if (req.userRole !== 'superadmin') {
       return res.status(403).json({ error: 'Only superadmin can approve requests' });
@@ -126,13 +124,12 @@ router.patch('/:id/approve', async (req: AuthRequest, res: Response) => {
     await logAudit({ userId: req.userId, action: 'APPROVE', entityType: 'import_request', entityId: req.params.id, changes: { productCount: request.productIds.length } });
     res.json(updated);
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Internal server error' });
+    next(error);
   }
 });
 
 // PATCH /:id/reject — superadmin only, deletes the products
-router.patch('/:id/reject', async (req: AuthRequest, res: Response) => {
+router.patch('/:id/reject', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     if (req.userRole !== 'superadmin') {
       return res.status(403).json({ error: 'Only superadmin can reject requests' });
@@ -175,8 +172,7 @@ router.patch('/:id/reject', async (req: AuthRequest, res: Response) => {
     await logAudit({ userId: req.userId, action: 'REJECT', entityType: 'import_request', entityId: req.params.id, changes: { deletedProductCount: productIds.length, reason } });
     res.json({ message: `Rejected and deleted ${productIds.length} products` });
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Internal server error' });
+    next(error);
   }
 });
 

@@ -1,4 +1,4 @@
-import express, { Router, Request, Response } from 'express';
+import express, { Router, Request, Response, NextFunction } from 'express';
 import prisma from '../utils/prisma';
 import { AuthRequest, canAccessDepartment } from '../middleware/auth';
 import { csvToJson, jsonToCsv } from '../utils/csv';
@@ -6,7 +6,7 @@ import { csvToJson, jsonToCsv } from '../utils/csv';
 const router = Router();
 
 // Get all locations
-router.get('/', async (req: AuthRequest, res: Response) => {
+router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const page = Math.max(1, parseInt(req.query.page as string) || 1);
     const limit = Math.min(Math.max(1, parseInt(req.query.limit as string) || 200), 500);
@@ -37,13 +37,12 @@ router.get('/', async (req: AuthRequest, res: Response) => {
     ]);
     res.json({ data: locations, total, page, limit });
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Internal server error' });
+    next(error);
   }
 });
 
 // Get location by ID
-router.get('/:id', async (req: AuthRequest, res: Response) => {
+router.get('/:id', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const location = await prisma.location.findUnique({
       where: { id: req.params.id },
@@ -60,13 +59,12 @@ router.get('/:id', async (req: AuthRequest, res: Response) => {
 
     res.json(location);
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Internal server error' });
+    next(error);
   }
 });
 
 // Create location
-router.post('/', async (req: AuthRequest, res: Response) => {
+router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const { name, type, parentId, notes } = req.body;
 
@@ -86,13 +84,12 @@ router.post('/', async (req: AuthRequest, res: Response) => {
 
     res.status(201).json(location);
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Internal server error' });
+    next(error);
   }
 });
 
 // Update location
-router.put('/:id', async (req: AuthRequest, res: Response) => {
+router.put('/:id', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const existing = await prisma.location.findUnique({ where: { id: req.params.id } });
     if (!existing) return res.status(404).json({ error: 'Location not found' });
@@ -114,13 +111,12 @@ router.put('/:id', async (req: AuthRequest, res: Response) => {
 
     res.json(location);
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Internal server error' });
+    next(error);
   }
 });
 
 // Delete location (admin only)
-router.delete('/:id', async (req: AuthRequest, res: Response) => {
+router.delete('/:id', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     if (req.userRole !== 'admin') {
       return res.status(403).json({ error: 'Staff must submit a delete request instead' });
@@ -137,13 +133,12 @@ router.delete('/:id', async (req: AuthRequest, res: Response) => {
     });
     res.json({ message: 'Location deleted' });
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Internal server error' });
+    next(error);
   }
 });
 
 // Export locations as CSV
-router.get('/export/csv', async (req: AuthRequest, res: Response) => {
+router.get('/export/csv', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const locations = await prisma.location.findMany({
       select: {
@@ -161,13 +156,12 @@ router.get('/export/csv', async (req: AuthRequest, res: Response) => {
     res.setHeader('Content-Disposition', 'attachment; filename="locations.csv"');
     res.send(csv);
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Failed to export locations' });
+    next(error);
   }
 });
 
 // Import locations from CSV
-router.post('/import/csv', async (req: AuthRequest, res: Response) => {
+router.post('/import/csv', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     if (!req.body.csv) {
       return res.status(400).json({ error: 'CSV data required' });
@@ -206,8 +200,7 @@ router.post('/import/csv', async (req: AuthRequest, res: Response) => {
       message: `Imported ${created.length} locations${errors.length > 0 ? ` with ${errors.length} errors` : ''}`,
     });
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Failed to import locations' });
+    next(error);
   }
 });
 

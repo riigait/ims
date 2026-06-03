@@ -1,4 +1,4 @@
-import { Router, Response } from 'express';
+import { Router, Response, NextFunction } from 'express';
 import prisma from '../utils/prisma';
 import { AuthRequest, canAccessDepartment } from '../middleware/auth';
 import { logAudit } from '../utils/audit';
@@ -48,7 +48,7 @@ function incrementSku(sku: string): string {
 }
 
 // Get all stock movements
-router.get('/', async (req: AuthRequest, res: Response) => {
+router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const page = Math.max(1, parseInt(req.query.page as string) || 1);
     const limit = Math.min(Math.max(1, parseInt(req.query.limit as string) || 50), 200);
@@ -99,13 +99,12 @@ router.get('/', async (req: AuthRequest, res: Response) => {
 
     res.json({ data: movements, total, page, limit });
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Internal server error' });
+    next(error);
   }
 });
 
 // Get stock movement by ID
-router.get('/:id', async (req: AuthRequest, res: Response) => {
+router.get('/:id', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const movement = await prisma.stockMovement.findUnique({
       where: { id: req.params.id },
@@ -119,13 +118,12 @@ router.get('/:id', async (req: AuthRequest, res: Response) => {
 
     res.json(movement);
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Internal server error' });
+    next(error);
   }
 });
 
 // Create stock movement with items
-router.post('/', async (req: AuthRequest, res: Response) => {
+router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const {
       movementType,
@@ -734,13 +732,12 @@ router.post('/', async (req: AuthRequest, res: Response) => {
 
     res.status(201).json(result);
   } catch (error: any) {
-    console.error(error);
-    res.status(500).json({ error: error.message || 'Internal server error' });
+    next(error);
   }
 });
 
 // Update stock movement header (status, remarks only)
-router.put('/:id', async (req: AuthRequest, res: Response) => {
+router.put('/:id', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const { status, remarks, movementType } = req.body;
     const movementId = req.params.id;
@@ -776,13 +773,12 @@ router.put('/:id', async (req: AuthRequest, res: Response) => {
 
     res.json(updated);
   } catch (error: any) {
-    console.error(error);
-    res.status(500).json({ error: 'Internal server error' });
+    next(error);
   }
 });
 
 // Delete stock movement
-router.delete('/:id', async (req: AuthRequest, res: Response) => {
+router.delete('/:id', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const movement = await prisma.stockMovement.findUnique({
       where: { id: req.params.id },
@@ -851,13 +847,12 @@ router.delete('/:id', async (req: AuthRequest, res: Response) => {
 
     res.json({ message: 'Stock movement deleted successfully' });
   } catch (error: any) {
-    console.error(error);
-    res.status(500).json({ error: 'Internal server error' });
+    next(error);
   }
 });
 
 // Export stock movements as CSV
-router.get('/export/csv', async (req: AuthRequest, res: Response) => {
+router.get('/export/csv', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const movements = await prisma.stockMovement.findMany({
       select: {
@@ -877,13 +872,12 @@ router.get('/export/csv', async (req: AuthRequest, res: Response) => {
     res.setHeader('Content-Disposition', 'attachment; filename="stock-movements.csv"');
     res.send(csv);
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Failed to export stock movements' });
+    next(error);
   }
 });
 
 // Import stock movements from CSV
-router.post('/import/csv', async (req: AuthRequest, res: Response) => {
+router.post('/import/csv', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     if (!req.body.csv) {
       return res.status(400).json({ error: 'CSV data required' });
@@ -929,8 +923,7 @@ router.post('/import/csv', async (req: AuthRequest, res: Response) => {
       message: `Imported ${created.length} stock movements${errors.length > 0 ? ` with ${errors.length} errors` : ''}`,
     });
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Failed to import stock movements' });
+    next(error);
   }
 });
 

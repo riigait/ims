@@ -1,11 +1,11 @@
-import { Router, Request, Response } from 'express';
+import { Router, Request, Response, NextFunction } from 'express';
 import prisma from '../utils/prisma';
 import { authMiddleware, AuthRequest } from '../middleware/auth';
 
 const router = Router();
 
 // Create password change request — staff only
-router.post('/', authMiddleware, async (req: AuthRequest, res: Response) => {
+router.post('/', authMiddleware, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     if (!req.userId) {
       return res.status(401).json({ error: 'Unauthorized' });
@@ -42,13 +42,12 @@ router.post('/', authMiddleware, async (req: AuthRequest, res: Response) => {
 
     res.status(201).json(request);
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Internal server error' });
+    next(error);
   }
 });
 
 // List password change requests — admin/superadmin only
-router.get('/', authMiddleware, async (req: AuthRequest, res: Response) => {
+router.get('/', authMiddleware, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const role = req.userRole;
     let where: any = {};
@@ -78,13 +77,12 @@ router.get('/', authMiddleware, async (req: AuthRequest, res: Response) => {
 
     res.json({ data: requests, total, page, limit });
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Internal server error' });
+    next(error);
   }
 });
 
 // Approve password change request — admin/superadmin
-router.patch('/:id/approve', authMiddleware, async (req: AuthRequest, res: Response) => {
+router.patch('/:id/approve', authMiddleware, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     if (!req.userId) {
       return res.status(401).json({ error: 'Unauthorized' });
@@ -137,13 +135,12 @@ router.patch('/:id/approve', authMiddleware, async (req: AuthRequest, res: Respo
       temporaryPassword, // Send back to admin to share with staff
     });
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Internal server error' });
+    next(error);
   }
 });
 
 // Reject password change request
-router.patch('/:id/reject', authMiddleware, async (req: AuthRequest, res: Response) => {
+router.patch('/:id/reject', authMiddleware, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     if (!req.userId) {
       return res.status(401).json({ error: 'Unauthorized' });
@@ -178,8 +175,7 @@ router.patch('/:id/reject', authMiddleware, async (req: AuthRequest, res: Respon
 
     res.json({ message: 'Password change request rejected', request: updated });
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Internal server error' });
+    next(error);
   }
 });
 

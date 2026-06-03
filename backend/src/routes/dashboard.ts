@@ -1,10 +1,10 @@
-import { Router, Response } from 'express';
+import { Router, Response, NextFunction } from 'express';
 import prisma from '../utils/prisma';
 import { authMiddleware, AuthRequest } from '../middleware/auth';
 
 const router = Router();
 
-router.get('/stats', authMiddleware, async (req: AuthRequest, res: Response) => {
+router.get('/stats', authMiddleware, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     let departmentFilter: any = {};
     if (req.departmentIds && req.departmentIds.length > 0) {
@@ -196,12 +196,11 @@ router.get('/stats', authMiddleware, async (req: AuthRequest, res: Response) => 
       totalCategories,
     });
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Internal server error' });
+    next(error);
   }
 });
 
-router.get('/recent-movements', authMiddleware, async (req: AuthRequest, res: Response) => {
+router.get('/recent-movements', authMiddleware, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     let departmentFilter: any = {};
     if (req.departmentIds && req.departmentIds.length > 0) {
@@ -237,12 +236,11 @@ router.get('/recent-movements', authMiddleware, async (req: AuthRequest, res: Re
 
     res.json(formatted);
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Internal server error' });
+    next(error);
   }
 });
 
-router.get('/recent-requests', authMiddleware, async (req: AuthRequest, res: Response) => {
+router.get('/recent-requests', authMiddleware, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     if (req.userRole === 'staff') return res.json([]);
 
@@ -285,8 +283,7 @@ router.get('/recent-requests', authMiddleware, async (req: AuthRequest, res: Res
     combined.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
     res.json(combined.slice(0, 8));
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Internal server error' });
+    next(error);
   }
 });
 

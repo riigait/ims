@@ -1,4 +1,4 @@
-import { Router, Response } from 'express';
+import { Router, Response, NextFunction } from 'express';
 import prisma from '../utils/prisma';
 import { authMiddleware, AuthRequest } from '../middleware/auth';
 
@@ -40,7 +40,7 @@ function adminCanManageUser(targetUser: any, departmentIds: string[]) {
 }
 
 // List all users (admin/superadmin only) — superadmin sees all, admin sees admin+staff only
-router.get('/', authMiddleware, async (req: AuthRequest, res: Response) => {
+router.get('/', authMiddleware, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     if (!req.userRole || !['admin', 'superadmin'].includes(req.userRole)) {
       return res.status(403).json({ error: 'Only admins can view users' });
@@ -66,13 +66,12 @@ router.get('/', authMiddleware, async (req: AuthRequest, res: Response) => {
 
     res.json({ data: users, total, page, limit });
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Internal server error' });
+    next(error);
   }
 });
 
 // Get single user (admin/superadmin or self)
-router.get('/:id', authMiddleware, async (req: AuthRequest, res: Response) => {
+router.get('/:id', authMiddleware, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const user = await prisma.user.findUnique({
       where: { id: req.params.id },
@@ -89,13 +88,12 @@ router.get('/:id', authMiddleware, async (req: AuthRequest, res: Response) => {
 
     res.json(user);
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Internal server error' });
+    next(error);
   }
 });
 
 // Update user (admin/superadmin only, cannot change own role)
-router.patch('/:id', authMiddleware, async (req: AuthRequest, res: Response) => {
+router.patch('/:id', authMiddleware, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     if (!req.userRole || !['admin', 'superadmin'].includes(req.userRole)) {
       return res.status(403).json({ error: 'Access denied' });
@@ -144,13 +142,12 @@ router.patch('/:id', authMiddleware, async (req: AuthRequest, res: Response) => 
     if (error.code === 'P2002') {
       return res.status(400).json({ error: 'Email already exists' });
     }
-    console.error(error);
-    res.status(500).json({ error: 'Internal server error' });
+    next(error);
   }
 });
 
 // Delete user (admin/superadmin only, cannot delete self)
-router.delete('/:id', authMiddleware, async (req: AuthRequest, res: Response) => {
+router.delete('/:id', authMiddleware, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     if (!req.userRole || !['admin', 'superadmin'].includes(req.userRole)) {
       return res.status(403).json({ error: 'Access denied' });
@@ -174,8 +171,7 @@ router.delete('/:id', authMiddleware, async (req: AuthRequest, res: Response) =>
     await prisma.user.delete({ where: { id: req.params.id } });
     res.json({ message: 'User deleted' });
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Internal server error' });
+    next(error);
   }
 });
 

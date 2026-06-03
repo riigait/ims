@@ -1,11 +1,11 @@
-import { Router, Response } from 'express';
+import { Router, Response, NextFunction } from 'express';
 import prisma from '../utils/prisma';
 import { authMiddleware, AuthRequest, adminMiddleware } from '../middleware/auth';
 
 const router = Router();
 
 // Submit edit request (staff only)
-router.post('/', authMiddleware, async (req: AuthRequest, res: Response) => {
+router.post('/', authMiddleware, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const { productId, proposedChanges, reason } = req.body;
 
@@ -34,13 +34,12 @@ router.post('/', authMiddleware, async (req: AuthRequest, res: Response) => {
 
     res.status(201).json(editRequest);
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Internal server error' });
+    next(error);
   }
 });
 
 // List edit requests (admin/superadmin sees all, staff sees own)
-router.get('/', authMiddleware, async (req: AuthRequest, res: Response) => {
+router.get('/', authMiddleware, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const status = req.query.status as string;
     let where: any = status ? { status } : {};
@@ -69,13 +68,12 @@ router.get('/', authMiddleware, async (req: AuthRequest, res: Response) => {
 
     res.json({ data: editRequests, total, page, limit });
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Internal server error' });
+    next(error);
   }
 });
 
 // Approve edit request — applies proposedChanges to the product
-router.patch('/:id/approve', authMiddleware, adminMiddleware, async (req: AuthRequest, res: Response) => {
+router.patch('/:id/approve', authMiddleware, adminMiddleware, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const editRequest = await prisma.editRequest.findUnique({
       where: { id: req.params.id },
@@ -132,13 +130,12 @@ router.patch('/:id/approve', authMiddleware, adminMiddleware, async (req: AuthRe
     if (error.code === 'P2025') {
       return res.status(404).json({ error: 'Product not found' });
     }
-    console.error(error);
-    res.status(500).json({ error: 'Internal server error' });
+    next(error);
   }
 });
 
 // Reject edit request
-router.patch('/:id/reject', authMiddleware, adminMiddleware, async (req: AuthRequest, res: Response) => {
+router.patch('/:id/reject', authMiddleware, adminMiddleware, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const { rejectionReason } = req.body;
 
@@ -173,8 +170,7 @@ router.patch('/:id/reject', authMiddleware, adminMiddleware, async (req: AuthReq
     if (error.code === 'P2025') {
       return res.status(404).json({ error: 'Edit request not found' });
     }
-    console.error(error);
-    res.status(500).json({ error: 'Internal server error' });
+    next(error);
   }
 });
 

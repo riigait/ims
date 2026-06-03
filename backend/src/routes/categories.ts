@@ -1,4 +1,4 @@
-import express, { Router, Request, Response } from 'express';
+import express, { Router, Request, Response, NextFunction } from 'express';
 import prisma from '../utils/prisma';
 import { AuthRequest, canAccessDepartment } from '../middleware/auth';
 import { csvToJson, jsonToCsv } from '../utils/csv';
@@ -6,7 +6,7 @@ import { csvToJson, jsonToCsv } from '../utils/csv';
 const router = Router();
 
 // Get all categories
-router.get('/', async (req: AuthRequest, res: Response) => {
+router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const page = Math.max(1, parseInt(req.query.page as string) || 1);
     const limit = Math.min(Math.max(1, parseInt(req.query.limit as string) || 200), 500);
@@ -29,19 +29,18 @@ router.get('/', async (req: AuthRequest, res: Response) => {
     ]);
     res.json({ data: categories, total, page, limit });
   } catch (error: any) {
-    console.error(error);
     if (error.code === 'P2025') {
       return res.json({ message: 'Category already deleted' });
     }
     if (error.code === 'P2003') {
       return res.status(400).json({ error: 'Category is still referenced by other records' });
     }
-    res.status(500).json({ error: 'Internal server error' });
+    next(error);
   }
 });
 
 // Get category by ID
-router.get('/:id', async (req: AuthRequest, res: Response) => {
+router.get('/:id', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const category = await prisma.category.findUnique({
       where: { id: req.params.id },
@@ -57,19 +56,18 @@ router.get('/:id', async (req: AuthRequest, res: Response) => {
 
     res.json(category);
   } catch (error: any) {
-    console.error(error);
     if (error.code === 'P2025') {
       return res.json({ message: 'Category already deleted' });
     }
     if (error.code === 'P2003') {
       return res.status(400).json({ error: 'Category is still referenced by other records' });
     }
-    res.status(500).json({ error: 'Internal server error' });
+    next(error);
   }
 });
 
 // Create category
-router.post('/', async (req: AuthRequest, res: Response) => {
+router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const { name, description } = req.body;
 
@@ -87,16 +85,15 @@ router.post('/', async (req: AuthRequest, res: Response) => {
 
     res.status(201).json(category);
   } catch (error: any) {
-    console.error(error);
     if (error.code === 'P2002') {
       return res.status(400).json({ error: 'Category with this name already exists in this department' });
     }
-    res.status(500).json({ error: 'Internal server error' });
+    next(error);
   }
 });
 
 // Update category
-router.put('/:id', async (req: AuthRequest, res: Response) => {
+router.put('/:id', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const existing = await prisma.category.findUnique({ where: { id: req.params.id } });
     if (!existing) return res.status(404).json({ error: 'Category not found' });
@@ -113,13 +110,12 @@ router.put('/:id', async (req: AuthRequest, res: Response) => {
 
     res.json(category);
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Internal server error' });
+    next(error);
   }
 });
 
 // Delete category (admin only)
-router.delete('/:id', async (req: AuthRequest, res: Response) => {
+router.delete('/:id', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     if (req.userRole !== 'admin') {
       return res.status(403).json({ error: 'Staff must submit a delete request instead' });
@@ -136,13 +132,12 @@ router.delete('/:id', async (req: AuthRequest, res: Response) => {
     });
     res.json({ message: 'Category deleted' });
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Internal server error' });
+    next(error);
   }
 });
 
 // Export categories as CSV
-router.get('/export/csv', async (req: AuthRequest, res: Response) => {
+router.get('/export/csv', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const categories = await prisma.category.findMany({
       select: {
@@ -158,13 +153,12 @@ router.get('/export/csv', async (req: AuthRequest, res: Response) => {
     res.setHeader('Content-Disposition', 'attachment; filename="categories.csv"');
     res.send(csv);
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Failed to export categories' });
+    next(error);
   }
 });
 
 // Import categories from CSV
-router.post('/import/csv', async (req: AuthRequest, res: Response) => {
+router.post('/import/csv', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     if (!req.body.csv) {
       return res.status(400).json({ error: 'CSV data required' });
@@ -201,8 +195,7 @@ router.post('/import/csv', async (req: AuthRequest, res: Response) => {
       message: `Imported ${created.length} categories${errors.length > 0 ? ` with ${errors.length} errors` : ''}`,
     });
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Failed to import categories' });
+    next(error);
   }
 });
 

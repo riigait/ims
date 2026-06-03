@@ -1,10 +1,10 @@
-import { Router, Response } from 'express';
+import { Router, Response, NextFunction } from 'express';
 import prisma from '../utils/prisma';
 import { AuthRequest } from '../middleware/auth';
 
 const router = Router();
 
-router.post('/danger/delete-data', async (req: AuthRequest, res: Response) => {
+router.post('/danger/delete-data', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     if (req.userRole !== 'superadmin') {
       return res.status(403).json({ error: 'Only superadmins can delete system data' });
@@ -49,12 +49,11 @@ router.post('/danger/delete-data', async (req: AuthRequest, res: Response) => {
       deleted: result,
     });
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Failed to delete system data' });
+    next(error);
   }
 });
 
-router.post('/danger/delete-department-data', async (req: AuthRequest, res: Response) => {
+router.post('/danger/delete-department-data', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     if (req.userRole !== 'superadmin') {
       return res.status(403).json({ error: 'Only superadmins can delete department data' });
@@ -124,12 +123,11 @@ router.post('/danger/delete-department-data', async (req: AuthRequest, res: Resp
       deleted: result,
     });
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Failed to delete department data' });
+    next(error);
   }
 });
 
-router.post('/sync-stock-counts', async (req: AuthRequest, res: Response) => {
+router.post('/sync-stock-counts', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     if (req.userRole !== 'superadmin') {
       return res.status(403).json({ error: 'Superadmin only' });
@@ -153,8 +151,7 @@ router.post('/sync-stock-counts', async (req: AuthRequest, res: Response) => {
 
     res.json({ message: `Synced stock counts for ${synced} product${synced !== 1 ? 's' : ''}.`, synced, total: products.length });
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Failed to sync stock counts' });
+    next(error);
   }
 });
 

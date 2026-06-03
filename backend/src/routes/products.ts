@@ -764,7 +764,7 @@ router.post('/:id/create-opening-stock', async (req: AuthRequest, res: Response,
 
     res.json({ success: true, movement });
   } catch (error: any) {
-    res.status(500).json({ error: error.message });
+    next(error);
   }
 });
 

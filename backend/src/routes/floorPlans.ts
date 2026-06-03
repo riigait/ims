@@ -1,4 +1,4 @@
-import express, { Router, Request, Response } from 'express';
+import express, { Router, Request, Response, NextFunction } from 'express';
 import prisma from '../utils/prisma';
 import { AuthRequest, canAccessDepartment } from '../middleware/auth';
 import { csvToJson } from '../utils/csv';
@@ -595,7 +595,7 @@ function buildKnowledgeTemplateFloorPlan(templateName: string, departmentName: s
 // ─── Routes ────────────────────────────────────────────────────────────────────
 
 // Get all floor plans
-router.get('/', async (req: AuthRequest, res: Response) => {
+router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const departmentFilter = getDepartmentFilter(req);
     const floorPlans = await prisma.floorPlan.findMany({
@@ -610,13 +610,12 @@ router.get('/', async (req: AuthRequest, res: Response) => {
 
     res.json(parsed);
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Internal server error' });
+    next(error);
   }
 });
 
 // Find the first floor plan containing a linked location
-router.get('/by-location/:locationId', async (req: AuthRequest, res: Response) => {
+router.get('/by-location/:locationId', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const floorPlans = await prisma.floorPlan.findMany({
       where: getDepartmentFilter(req),
@@ -638,13 +637,12 @@ router.get('/by-location/:locationId', async (req: AuthRequest, res: Response) =
 
     return res.status(404).json({ error: 'Floor plan not found for location' });
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Internal server error' });
+    next(error);
   }
 });
 
 // Get template room type definitions
-router.get('/room-types', async (req: AuthRequest, res: Response) => {
+router.get('/room-types', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const dbRoomTypes = await prisma.floorPlanRoomType.findMany({ orderBy: { templateType: 'asc' } });
 
@@ -670,13 +668,12 @@ router.get('/room-types', async (req: AuthRequest, res: Response) => {
 
     res.json({ roomTypes: defaults, source: 'defaults' });
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Internal server error' });
+    next(error);
   }
 });
 
 // Get template rules
-router.get('/rules', async (req: AuthRequest, res: Response) => {
+router.get('/rules', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const dbRules = await prisma.floorPlanRule.findMany({ orderBy: { templateType: 'asc' } });
 
@@ -686,13 +683,12 @@ router.get('/rules', async (req: AuthRequest, res: Response) => {
 
     res.json({ rules: [], templateRules: TEMPLATE_RULES, source: 'defaults' });
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Internal server error' });
+    next(error);
   }
 });
 
 // Import floor plans from CSV
-router.post('/import/csv', async (req: AuthRequest, res: Response) => {
+router.post('/import/csv', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     if (!req.body.csv) {
       return res.status(400).json({ error: 'CSV data required' });
@@ -744,13 +740,12 @@ router.post('/import/csv', async (req: AuthRequest, res: Response) => {
       message: `Imported ${created.length} floor plans${errors.length > 0 ? ` with ${errors.length} errors` : ''}`,
     });
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Failed to import floor plans' });
+    next(error);
   }
 });
 
 // Auto-generate floor plans from the department's current locations
-router.post('/auto-generate', async (req: AuthRequest, res: Response) => {
+router.post('/auto-generate', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     if (req.userRole !== 'admin' && req.userRole !== 'superadmin') {
       return res.status(403).json({ error: 'Only admins can generate floor plans' });
@@ -871,13 +866,12 @@ router.post('/auto-generate', async (req: AuthRequest, res: Response) => {
       message: `Generated ${created.length} floor plan${created.length === 1 ? '' : 's'} with ${locations.length} linked locations — avg layout score: ${avgScore}%`,
     });
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Failed to auto-generate floor plans' });
+    next(error);
   }
 });
 
 // Get floor plan by ID
-router.get('/:id', async (req: AuthRequest, res: Response) => {
+router.get('/:id', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const floorPlan = await prisma.floorPlan.findUnique({
       where: { id: req.params.id },
@@ -897,13 +891,12 @@ router.get('/:id', async (req: AuthRequest, res: Response) => {
       objects: JSON.parse(floorPlan.planJson || '[]'),
     });
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Internal server error' });
+    next(error);
   }
 });
 
 // Create floor plan
-router.post('/', async (req: AuthRequest, res: Response) => {
+router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const { name, width, height, scale, objects, locationId, departmentId: requestedDepartmentId } = req.body;
 
@@ -938,13 +931,12 @@ router.post('/', async (req: AuthRequest, res: Response) => {
       scale: scale || { pixelsPerMeter: 50 },
     });
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Internal server error' });
+    next(error);
   }
 });
 
 // Save user feedback on a floor plan (approve, edited, bad_layout)
-router.post('/:id/feedback', async (req: AuthRequest, res: Response) => {
+router.post('/:id/feedback', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const { feedback, rating, correctedData } = req.body;
     if (!feedback) return res.status(400).json({ error: 'feedback is required' });
@@ -983,13 +975,12 @@ router.post('/:id/feedback', async (req: AuthRequest, res: Response) => {
 
     res.json({ message: 'Feedback saved', isApproved: feedback === 'approved' });
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Failed to save feedback' });
+    next(error);
   }
 });
 
 // Regenerate a single auto-generated floor plan
-router.post('/:id/regenerate', async (req: AuthRequest, res: Response) => {
+router.post('/:id/regenerate', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     if (req.userRole !== 'admin' && req.userRole !== 'superadmin') {
       return res.status(403).json({ error: 'Only admins can regenerate floor plans' });
@@ -1061,13 +1052,12 @@ router.post('/:id/regenerate', async (req: AuthRequest, res: Response) => {
       message: `Regenerated — layout score: ${validation.score}%`,
     });
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Failed to regenerate floor plan' });
+    next(error);
   }
 });
 
 // Update floor plan
-router.put('/:id', async (req: AuthRequest, res: Response) => {
+router.put('/:id', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const existing = await prisma.floorPlan.findUnique({ where: { id: req.params.id } });
     if (!existing) return res.status(404).json({ error: 'Floor plan not found' });
@@ -1096,13 +1086,12 @@ router.put('/:id', async (req: AuthRequest, res: Response) => {
       scale: scale || { pixelsPerMeter: 50 },
     });
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Internal server error' });
+    next(error);
   }
 });
 
 // Delete floor plan (admin or superadmin)
-router.delete('/:id', async (req: AuthRequest, res: Response) => {
+router.delete('/:id', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const existing = await prisma.floorPlan.findUnique({ where: { id: req.params.id } });
     if (!existing) return res.status(404).json({ error: 'Floor plan not found' });
@@ -1115,8 +1104,7 @@ router.delete('/:id', async (req: AuthRequest, res: Response) => {
     });
     res.json({ message: 'Floor plan deleted' });
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Internal server error' });
+    next(error);
   }
 });
 

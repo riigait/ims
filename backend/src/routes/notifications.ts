@@ -1,4 +1,4 @@
-import { Router, Response } from 'express';
+import { Router, Response, NextFunction } from 'express';
 import prisma from '../utils/prisma';
 import { authMiddleware, AuthRequest } from '../middleware/auth';
 
@@ -315,18 +315,17 @@ async function computeNotifications(req: AuthRequest): Promise<Notification[]> {
 }
 
 // GET /api/notifications
-router.get('/', authMiddleware, async (req: AuthRequest, res: Response) => {
+router.get('/', authMiddleware, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const alerts = await computeNotifications(req);
     res.json(alerts);
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Internal server error' });
+    next(error);
   }
 });
 
 // GET /api/notifications/summary — badge count only
-router.get('/summary', authMiddleware, async (req: AuthRequest, res: Response) => {
+router.get('/summary', authMiddleware, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const alerts = await computeNotifications(req);
     const total = alerts.length;
@@ -334,8 +333,7 @@ router.get('/summary', authMiddleware, async (req: AuthRequest, res: Response) =
     for (const a of alerts) bySeverity[a.severity] = (bySeverity[a.severity] || 0) + 1;
     res.json({ total, alerts: alerts.length, ...bySeverity });
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Internal server error' });
+    next(error);
   }
 });
 

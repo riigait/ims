@@ -1,11 +1,11 @@
-import { Router, Response } from 'express';
+import { Router, Response, NextFunction } from 'express';
 import prisma from '../utils/prisma';
 import { AuthRequest, adminMiddleware } from '../middleware/auth';
 
 const router = Router();
 
 // Only admins can view audit logs
-router.get('/', adminMiddleware, async (req: AuthRequest, res: Response) => {
+router.get('/', adminMiddleware, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const { entityType, entityId, limit = '100' } = req.query as Record<string, string>;
 
@@ -20,8 +20,7 @@ router.get('/', adminMiddleware, async (req: AuthRequest, res: Response) => {
 
     res.json(logs);
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Internal server error' });
+    next(error);
   }
 });
 
