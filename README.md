@@ -61,11 +61,17 @@ npm run dev
 
 Frontend runs on `http://localhost:5173`
 
-### Docker (alternative)
+### Docker (recommended for production)
 
 ```bash
-docker-compose up
+cp .env.example .env
+# Edit .env — set POSTGRES_PASSWORD and JWT_SECRET
+docker-compose up -d
 ```
+
+The app will be available at `http://localhost` (or the port set in `APP_PORT`).
+
+On first run, database migrations run automatically. Open the app, complete the initial setup, and log in.
 
 ## Environment Variables
 
