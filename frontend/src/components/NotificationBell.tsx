@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Bell, X, AlertTriangle, AlertCircle, Info, ChevronRight, CheckCheck } from 'lucide-react';
+import { Bell, X, AlertTriangle, AlertCircle, Info, ChevronRight, CheckCheck, BellOff } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import api from '@/services/api';
 
@@ -16,6 +16,7 @@ interface Notification {
 }
 
 type ReadStore = Record<string, number>;
+type SnoozeStore = Record<string, number>; // key → expiry timestamp
 
 const SEVERITY_COLOR: Record<string, string> = {
   critical: 'text-red-600 dark:text-red-400',
@@ -62,6 +63,19 @@ function saveReadStore(store: ReadStore) {
   localStorage.setItem(`ims_notif_read_${getUserId()}`, JSON.stringify(store));
 }
 
+function loadSnoozeStore(): SnoozeStore {
+  try { return JSON.parse(localStorage.getItem(`ims_notif_snooze_${getUserId()}`) || '{}'); }
+  catch { return {}; }
+}
+
+function saveSnoozeStore(store: SnoozeStore) {
+  localStorage.setItem(`ims_notif_snooze_${getUserId()}`, JSON.stringify(store));
+}
+
+function isSnoozed(key: string, store: SnoozeStore): boolean {
+  return key in store && store[key] > Date.now();
+}
+
 function isUnread(n: Notification, store: ReadStore): boolean {
   return !(n.key in store) || store[n.key] < n.count;
 }
@@ -87,6 +101,7 @@ export default function NotificationBell({ collapsed }: { collapsed: boolean }) 
   const [open, setOpen] = useState(false);
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [readStore, setReadStoreState] = useState<ReadStore>(loadReadStore);
+  const [snoozeStore, setSnoozeStoreState] = useState<SnoozeStore>(loadSnoozeStore);
   const [loading, setLoading] = useState(false);
   const [bellBounce, setBellBounce] = useState(false);
   const prevKeysRef = useRef<Set<string>>(new Set());
@@ -143,10 +158,11 @@ export default function NotificationBell({ collapsed }: { collapsed: boolean }) 
     return () => document.removeEventListener('mousedown', handler);
   }, []);
 
-  const unreadCount = notifications.filter(n => isUnread(n, readStore)).length;
+  const visibleNotifications = notifications.filter(n => !isSnoozed(n.key, snoozeStore));
+  const unreadCount = visibleNotifications.filter(n => isUnread(n, readStore)).length;
   const badgeLabel = unreadCount > 99 ? '99+' : String(unreadCount);
-  const hasCritical = notifications.some(n => isUnread(n, readStore) && n.severity === 'critical');
-  const hasHigh = notifications.some(n => isUnread(n, readStore) && n.severity === 'high');
+  const hasCritical = visibleNotifications.some(n => isUnread(n, readStore) && n.severity === 'critical');
+  const hasHigh = visibleNotifications.some(n => isUnread(n, readStore) && n.severity === 'high');
   const badgeColor = hasCritical ? 'bg-red-600' : hasHigh ? 'bg-orange-500' : 'bg-[var(--primary)]';
 
   const updateStore = (store: ReadStore) => {
@@ -165,6 +181,13 @@ export default function NotificationBell({ collapsed }: { collapsed: boolean }) 
     const store = loadReadStore();
     for (const n of notifications) store[n.key] = n.count;
     updateStore(store);
+  };
+
+  const handleSnooze = (key: string) => {
+    const store = loadSnoozeStore();
+    store[key] = Date.now() + 7 * 24 * 60 * 60 * 1000; // 7 days
+    saveSnoozeStore(store);
+    setSnoozeStoreState({ ...store });
   };
 
   const handleNavigate = (n: Notification) => {
@@ -238,40 +261,51 @@ export default function NotificationBell({ collapsed }: { collapsed: boolean }) 
               </div>
             ) : (
               <div className="p-2 space-y-1.5">
-                {notifications.map(n => {
+                {visibleNotifications.map(n => {
                   const unread = isUnread(n, readStore);
                   return (
-                    <button
+                    <div
                       key={n.key}
-                      onClick={() => handleNavigate(n)}
-                      className={`w-full text-left flex items-start gap-3 p-3 rounded-lg border transition-all hover:opacity-90 ${SEVERITY_BG[n.severity]} ${
+                      className={`w-full flex items-start gap-2 p-3 rounded-lg border transition-all ${SEVERITY_BG[n.severity]} ${
                         unread ? SEVERITY_RING[n.severity] : 'opacity-60'
                       }`}
                     >
-                      {/* Icon + unread dot */}
-                      <div className="relative flex-shrink-0 mt-0.5">
-                        <SeverityIcon severity={n.severity} />
-                        {unread && (
-                          <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-[var(--primary)] border border-[var(--surface)]" />
-                        )}
-                      </div>
-
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center justify-between gap-1">
-                          <span className={`text-xs truncate ${unread ? 'font-bold text-[var(--text)]' : 'font-medium text-[var(--text-muted)]'}`}>
-                            {n.title}
-                          </span>
-                          {n.count > 1 && (
-                            <span className={`text-xs font-bold px-1.5 py-0.5 rounded-full bg-white/60 dark:bg-black/20 ${SEVERITY_COLOR[n.severity]} flex-shrink-0`}>
-                              {n.count}
-                            </span>
+                      <button
+                        onClick={() => handleNavigate(n)}
+                        className="flex-1 flex items-start gap-3 text-left min-w-0 hover:opacity-90"
+                      >
+                        {/* Icon + unread dot */}
+                        <div className="relative flex-shrink-0 mt-0.5">
+                          <SeverityIcon severity={n.severity} />
+                          {unread && (
+                            <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-[var(--primary)] border border-[var(--surface)]" />
                           )}
                         </div>
-                        <p className="text-xs text-[var(--text-muted)] mt-0.5 leading-relaxed">{n.message}</p>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center justify-between gap-1">
+                            <span className={`text-xs truncate ${unread ? 'font-bold text-[var(--text)]' : 'font-medium text-[var(--text-muted)]'}`}>
+                              {n.title}
+                            </span>
+                            {n.count > 1 && (
+                              <span className={`text-xs font-bold px-1.5 py-0.5 rounded-full bg-white/60 dark:bg-black/20 ${SEVERITY_COLOR[n.severity]} flex-shrink-0`}>
+                                {n.count}
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-xs text-[var(--text-muted)] mt-0.5 leading-relaxed">{n.message}</p>
+                        </div>
+                      </button>
+                      <div className="flex items-center gap-0.5 flex-shrink-0 mt-0.5">
+                        <button
+                          onClick={() => handleSnooze(n.key)}
+                          title="Snooze 7 days"
+                          className="p-1 rounded text-[var(--text-muted)] hover:text-[var(--text)] hover:bg-white/20 transition-colors"
+                        >
+                          <BellOff size={11} />
+                        </button>
+                        <ChevronRight size={12} className="text-[var(--text-muted)]" />
                       </div>
-
-                      <ChevronRight size={12} className="text-[var(--text-muted)] flex-shrink-0 mt-1" />
-                    </button>
+                    </div>
                   );
                 })}
               </div>
@@ -279,10 +313,10 @@ export default function NotificationBell({ collapsed }: { collapsed: boolean }) 
           </div>
 
           {/* Footer */}
-          {notifications.length > 0 && (
+          {visibleNotifications.length > 0 && (
             <div className="border-t border-[var(--border)] px-4 py-2 flex-shrink-0">
               <p className="text-xs text-[var(--text-muted)] text-center">
-                {notifications.length} active alert{notifications.length > 1 ? 's' : ''} · refreshes every minute
+                {visibleNotifications.length} active alert{visibleNotifications.length > 1 ? 's' : ''} · refreshes every minute
               </p>
             </div>
           )}

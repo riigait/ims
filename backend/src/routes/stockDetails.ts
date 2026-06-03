@@ -142,6 +142,35 @@ router.get('/:id/movements', async (req: AuthRequest, res: Response) => {
   }
 });
 
+// Bulk verify — set lastCheckedDate = today for given IDs (or all accessible items)
+router.post('/bulk-verify', async (req: AuthRequest, res: Response) => {
+  try {
+    const { ids } = req.body;
+    const now = new Date();
+    const user = await prisma.user.findUnique({ where: { id: req.userId }, select: { name: true } });
+    const checkedBy = user?.name || null;
+
+    let whereClause: any = {};
+    if (Array.isArray(ids) && ids.length > 0) {
+      whereClause = { id: { in: ids } };
+    } else if (req.departmentIds && req.departmentIds.length > 0) {
+      whereClause = { product: { departmentId: { in: req.departmentIds } } };
+    } else if (req.departmentId) {
+      whereClause = { product: { departmentId: req.departmentId } };
+    }
+
+    const result = await prisma.stockDetail.updateMany({
+      where: whereClause,
+      data: { lastCheckedDate: now, checkedBy },
+    });
+
+    res.json({ count: result.count });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 // Create stock detail
 router.post('/', async (req: AuthRequest, res: Response) => {
   try {

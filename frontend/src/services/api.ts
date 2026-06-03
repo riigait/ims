@@ -116,6 +116,7 @@ export const stockDetailsApi = {
   create: (data: any) => api.post('/stock-details', data),
   update: (id: string, data: any) => api.put(`/stock-details/${id}`, data),
   delete: (id: string) => api.delete(`/stock-details/${id}`),
+  bulkVerify: (ids: string[]) => api.post('/stock-details/bulk-verify', { ids }),
 };
 
 // Floor Plans

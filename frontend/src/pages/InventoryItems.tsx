@@ -228,6 +228,7 @@ export default function InventoryItems() {
   const [sortBy, setSortBy] = useState('recently-added');
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
+  const [verifyingAll, setVerifyingAll] = useState(false);
 
   const fetchData = async () => {
     try {
@@ -251,6 +252,16 @@ export default function InventoryItems() {
   };
 
   useEffect(() => { fetchData(); }, []);
+
+  const handleBulkVerify = async (itemIds: string[]) => {
+    if (itemIds.length === 0) return;
+    setVerifyingAll(true);
+    try {
+      await stockDetailsApi.bulkVerify(itemIds);
+      await fetchData();
+    } catch (err) { console.error(err); }
+    finally { setVerifyingAll(false); }
+  };
 
   const openDrawer = async (item: any) => {
     setDrawerItem(item);
@@ -527,6 +538,15 @@ export default function InventoryItems() {
               <span className="text-blue-600">{statusCounts.sold} sold</span> ·{' '}
               <span className="text-slate-500">{statusCounts.archived} archived</span>
             </p>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => handleBulkVerify(filtered.map((i: any) => i.id))}
+                disabled={verifyingAll || filtered.length === 0}
+                className="text-xs px-3 py-1.5 rounded bg-[var(--primary)] text-white hover:opacity-90 disabled:opacity-50 font-medium whitespace-nowrap"
+              >
+                {verifyingAll ? 'Verifying…' : `Mark all ${filtered.length} as verified today`}
+              </button>
+            </div>
             <div className="flex flex-col gap-2">
         {/* Row 1: Search + Sort + Clear */}
         <div className="flex gap-2">
