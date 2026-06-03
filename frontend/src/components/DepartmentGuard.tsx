@@ -2,6 +2,7 @@ import { ReactNode, useEffect, useState } from 'react';
 import { LogOut, Mail, HelpCircle, RefreshCw, Activity } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { ALL_DEPARTMENTS_ID } from '@/constants/app';
+import { authApi } from '@/services/api';
 
 interface DepartmentGuardProps {
   children: ReactNode;
@@ -42,24 +43,21 @@ export default function DepartmentGuard({ children }: DepartmentGuardProps) {
           return;
         }
 
-        const res = await fetch('/api/auth/me', {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        if (res.status === 401) {
+        const res = await authApi.getCurrentUser();
+        const userData = res.data;
+        syncDepartmentSelection(userData);
+        localStorage.setItem('user', JSON.stringify(userData));
+        if (active) setUser(userData);
+      } catch (err: any) {
+        if (err.response?.status === 401) {
           localStorage.removeItem('token');
           localStorage.removeItem('user');
           localStorage.removeItem('currentDepartmentId');
           navigate('/login');
           return;
         }
-        if (res.ok) {
-          const userData = await res.json();
-          syncDepartmentSelection(userData);
-          localStorage.setItem('user', JSON.stringify(userData));
-          if (active) setUser(userData);
-        }
-      } catch { /* keep stored user if refresh fails */ }
-      finally {
+        /* keep stored user if refresh fails for other reasons */
+      } finally {
         if (active) setCheckingUser(false);
       }
     };
@@ -82,15 +80,10 @@ export default function DepartmentGuard({ children }: DepartmentGuardProps) {
 
   const handleRefresh = async () => {
     try {
-      const token = localStorage.getItem('token');
-      const res = await fetch('/api/auth/me', {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (res.ok) {
-        const userData = await res.json();
-        syncDepartmentSelection(userData);
-        localStorage.setItem('user', JSON.stringify(userData));
-      }
+      const res = await authApi.getCurrentUser();
+      const userData = res.data;
+      syncDepartmentSelection(userData);
+      localStorage.setItem('user', JSON.stringify(userData));
     } catch { /* ignore, just reload anyway */ }
     window.location.reload();
   };

@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Eye, EyeOff, AlertCircle, CheckCircle } from 'lucide-react';
 import { useTheme } from '@/contexts/ThemeContext';
+import { invitesApi } from '@/services/api';
 
 export default function Register() {
   const navigate = useNavigate();
@@ -29,22 +30,11 @@ export default function Register() {
     setLoading(true);
     setError('');
     try {
-      const response = await fetch('/api/invites/validate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ code: inviteCode }),
-      });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.error || 'Invalid or expired invite code');
-      }
-
-      setInviteRole(data.role);
+      const res = await invitesApi.validate(inviteCode);
+      setInviteRole(res.data.role);
       setStep('signup');
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to validate code');
+    } catch (err: any) {
+      setError(err.response?.data?.error || 'Invalid or expired invite code');
     } finally {
       setLoading(false);
     }
@@ -77,26 +67,10 @@ export default function Register() {
     setError('');
 
     try {
-      const response = await fetch('/api/invites/redeem', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          code: inviteCode,
-          name: formData.name,
-          email: formData.email,
-          password: formData.password,
-        }),
-      });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.error || 'Failed to register. Code may be invalid or already used.');
-      }
-
+      await invitesApi.redeem(inviteCode, formData.name, formData.email, formData.password);
       navigate('/login', { state: { message: 'Account created successfully! Please log in.' } });
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Registration failed');
+    } catch (err: any) {
+      setError(err.response?.data?.error || 'Failed to register. Code may be invalid or already used.');
     } finally {
       setLoading(false);
     }

@@ -215,6 +215,9 @@ export const invitesApi = {
   getAll: () => api.get('/invites'),
   generate: (role: string) => api.post('/invites/generate', { role }),
   revoke: (id: string) => api.delete(`/invites/${id}`),
+  validate: (code: string) => api.post('/invites/validate', { code }),
+  redeem: (code: string, name: string, email: string, password: string) =>
+    api.post('/invites/redeem', { code, name, email, password }),
 };
 
 // Admin Department Assignments
