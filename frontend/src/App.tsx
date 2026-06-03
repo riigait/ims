@@ -1,3 +1,4 @@
+import { lazy, Suspense } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { ThemeProvider } from '@/contexts/ThemeContext';
 import { BellProvider } from '@/contexts/BellContext';
@@ -14,10 +15,6 @@ import Categories from '@/pages/Categories';
 import Locations from '@/pages/Locations';
 import StockMovements from '@/pages/StockMovements';
 import InventoryItems from '@/pages/InventoryItems';
-import FloorPlans from '@/pages/FloorPlans';
-import ImportPCLSF from '@/pages/ImportPCLSF';
-import FloorPlanEditor from '@/pages/FloorPlanEditor';
-import Scanner from '@/pages/Scanner';
 import AdminUsers from '@/pages/AdminUsers';
 import AdminDepartments from '@/pages/AdminDepartments';
 import DeleteRequests from '@/pages/DeleteRequests';
@@ -28,6 +25,11 @@ import PasswordRequests from '@/pages/PasswordRequests';
 import SuperadminSettings from '@/pages/SuperadminSettings';
 import NotFound from '@/pages/NotFound';
 import ErrorBoundary from '@/components/ErrorBoundary';
+
+const FloorPlans = lazy(() => import('@/pages/FloorPlans'));
+const ImportPCLSF = lazy(() => import('@/pages/ImportPCLSF'));
+const FloorPlanEditor = lazy(() => import('@/pages/FloorPlanEditor'));
+const Scanner = lazy(() => import('@/pages/Scanner'));
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
   const isLoggedIn = !!localStorage.getItem('token');
@@ -72,6 +74,7 @@ function App() {
       <BellProvider>
       <ThemeProvider>
         <BrowserRouter>
+          <Suspense fallback={<div className="flex items-center justify-center h-screen text-[var(--text-muted)]">Loading...</div>}>
           <Routes>
         <Route path="/login" element={<Login />} />
         <Route path="/register" element={<Register />} />
@@ -289,6 +292,7 @@ function App() {
         />
         <Route path="*" element={<NotFound />} />
           </Routes>
+          </Suspense>
         </BrowserRouter>
       </ThemeProvider>
       </BellProvider>
