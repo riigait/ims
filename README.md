@@ -1,85 +1,57 @@
-# Inventory Management System
+# Inventory Management System (IMS)
 
-Local Inventory Management System for products, inventory items, locations, stock movements, users, departments, and floor plans.
+An open-source inventory management system for tracking products, physical assets, stock movements, locations, and departments. Built for IT asset tracking, office equipment inventory, and multi-department stock management in companies and government offices.
+
+## Features
+
+- **Products** — catalog with categories, units, suppliers, and stock level tracking
+- **Inventory Items** — individual physical asset tracking with serial numbers, asset tags, barcodes, condition, and warranty
+- **Stock Movements** — full movement lifecycle (stock in/out, transfer, deployment, repair, disposal, borrowed, lost, found, adjustment) with admin confirmation workflow
+- **Locations & Floor Plans** — visual department mapping with location assignment
+- **Bulk Add Products** — spreadsheet-style batch product creation
+- **Import / Export** — CSV import and export with approval workflow
+- **User Management** — roles (superadmin, admin, staff), invite codes, department assignment
+- **Requests** — import, delete, edit, and password reset requests with approval workflow
+- **Notifications** — live alerts for low stock, warranty expiry, unverified items, data quality issues with per-user snooze
+- **Inventory Verification** — bulk and per-item verification with last-checked tracking
+- **Dashboard** — summary stats, priority actions, analytics, recent activity feeds, onboarding guide
+- **Dark mode** and role-based access control throughout
+
+## Tech Stack
+
+- **Frontend** — React 18, TypeScript, Vite, Tailwind CSS
+- **Backend** — Node.js, Express, Prisma ORM
+- **Database** — PostgreSQL
+- **Auth** — JWT
 
 ## Requirements
 
-### Software
+- Git
+- Node.js 18+
+- npm
+- PostgreSQL
 
-* Git
-* Node.js
-* npm
-* PostgreSQL
-* Prisma
-
-### Hardware
-
-No special hardware is required.
-
-Recommended for local use:
-
-* Desktop, laptop, mini PC, or Raspberry Pi
-* At least 4GB RAM
-* SSD or NVMe storage recommended for the database
-
-## Project Structure
-
-```txt
-ims/
-├── backend/
-├── frontend/
-├── csv-corrector/
-├── docker-compose.yml
-└── README.md
-```
-
-## Local Installation
-
-Clone the repository:
+## Quick Start
 
 ```bash
-git clone <repository-url>
+git clone https://github.com/riigait/ims.git
 cd ims
 ```
 
-## Backend Setup
+### Backend
 
 ```bash
 cd backend
 npm install
 cp .env.example .env
-```
-
-Edit `.env`:
-
-```env
-DATABASE_URL="postgresql://user:password@localhost:5432/ims"
-JWT_SECRET="your-jwt-secret"
-PORT=3001
-```
-
-Run Prisma:
-
-```bash
-npx prisma generate
+# Edit .env with your database credentials and JWT secret
 npx prisma migrate dev
-```
-
-Start the backend:
-
-```bash
 npm run dev
 ```
 
-Backend runs on:
+Backend runs on `http://localhost:3001`
 
-```txt
-http://localhost:3001
-```
-
-## Frontend Setup
-
-Open another terminal:
+### Frontend
 
 ```bash
 cd frontend
@@ -87,44 +59,55 @@ npm install
 npm run dev
 ```
 
-Frontend runs on:
+Frontend runs on `http://localhost:5173`
 
-```txt
-http://localhost:5173
-```
-
-## Docker Local Setup
-
-You can also run the app locally using Docker:
+### Docker (alternative)
 
 ```bash
 docker-compose up
 ```
 
-## Environment Notes
+## Environment Variables
 
-Do not commit `.env` files.
+Copy `backend/.env.example` to `backend/.env` and fill in:
 
-Keep these private:
+| Variable | Description |
+| --- | --- |
+| `DATABASE_URL` | PostgreSQL connection string |
+| `JWT_SECRET` | Random secret for JWT signing — change before deploying |
+| `PORT` | Backend port (default: 3001) |
+| `NODE_ENV` | `development` or `production` |
 
-```txt
-.env
-.env.local
-database passwords
-JWT secrets
-admin credentials
-private server IPs
+Never commit `.env` files. Keep database passwords and JWT secrets private.
+
+## First Run
+
+1. Start the backend and frontend
+2. Open `http://localhost:5173`
+3. Complete the initial setup to create the first superadmin account
+4. Log in and follow the Getting Started checklist on the dashboard
+
+## Project Structure
+
+```text
+ims/
+├── backend/          # Express + Prisma API
+├── frontend/         # React + Vite app
+├── csv-corrector/    # CSV utility scripts
+├── .github/          # CI workflows and issue templates
+├── .claude/          # Claude Code memory (project context)
+└── docker-compose.yml
 ```
 
-## Usage
+## Contributing
 
-1. Start PostgreSQL.
-2. Start the backend.
-3. Start the frontend.
-4. Open the frontend URL in your browser.
-5. Complete the initial setup.
-6. Login and use the system locally.
+Contributions are welcome. Please open an issue first to discuss what you'd like to change.
+
+1. Fork the repository
+2. Create a feature branch (`git checkout -b feature/your-feature`)
+3. Commit your changes
+4. Open a pull request
 
 ## License
 
-Add your selected license here.
+MIT — free to use, modify, and distribute. See [LICENSE](LICENSE) for details.
