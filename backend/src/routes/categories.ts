@@ -5,6 +5,14 @@ import { csvToJson, jsonToCsv } from '../utils/csv';
 
 const router = Router();
 
+function validateCategoryWrite(body: any, isCreate: boolean): string | null {
+  if (isCreate && (typeof body.name !== 'string' || !body.name.trim())) return 'Category name is required';
+  if (body.name !== undefined && (typeof body.name !== 'string' || body.name.length > 255)) return 'name must be a non-empty string under 255 characters';
+  if (body.description !== undefined && body.description !== null && typeof body.description !== 'string') return 'description must be a string';
+  if (typeof body.description === 'string' && body.description.length > 1000) return 'description too long';
+  return null;
+}
+
 // Get all categories
 router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
@@ -69,11 +77,10 @@ router.get('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
 // Create category
 router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    const { name, description } = req.body;
+    const validationError = validateCategoryWrite(req.body, true);
+    if (validationError) return res.status(400).json({ error: validationError });
 
-    if (!name) {
-      return res.status(400).json({ error: 'Category name is required' });
-    }
+    const { name, description } = req.body;
 
     const category = await prisma.category.create({
       data: {
@@ -100,6 +107,9 @@ router.put('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
     if (!canAccessDepartment(req, existing.departmentId)) {
       return res.status(403).json({ error: 'Access denied' });
     }
+
+    const validationError = validateCategoryWrite(req.body, false);
+    if (validationError) return res.status(400).json({ error: validationError });
 
     const { name, description } = req.body;
 

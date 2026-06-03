@@ -5,6 +5,18 @@ import { csvToJson, jsonToCsv } from '../utils/csv';
 
 const router = Router();
 
+const VALID_LOCATION_TYPES = ['branch', 'building', 'floor', 'room', 'rack', 'shelf'];
+
+function validateLocationWrite(body: any, isCreate: boolean): string | null {
+  if (isCreate && (typeof body.name !== 'string' || !body.name.trim())) return 'Location name is required';
+  if (body.name !== undefined && (typeof body.name !== 'string' || body.name.length > 255)) return 'name must be a non-empty string under 255 characters';
+  if (isCreate && !body.type) return 'Location type is required';
+  if (body.type !== undefined && !VALID_LOCATION_TYPES.includes(body.type)) return `type must be one of: ${VALID_LOCATION_TYPES.join(', ')}`;
+  if (body.notes !== undefined && body.notes !== null && typeof body.notes !== 'string') return 'notes must be a string';
+  if (typeof body.notes === 'string' && body.notes.length > 1000) return 'notes too long';
+  return null;
+}
+
 // Get all locations
 router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
@@ -66,11 +78,10 @@ router.get('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
 // Create location
 router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    const { name, type, parentId, notes } = req.body;
+    const validationError = validateLocationWrite(req.body, true);
+    if (validationError) return res.status(400).json({ error: validationError });
 
-    if (!name || !type) {
-      return res.status(400).json({ error: 'Missing required fields' });
-    }
+    const { name, type, parentId, notes } = req.body;
 
     const location = await prisma.location.create({
       data: {
@@ -96,6 +107,9 @@ router.put('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
     if (!canAccessDepartment(req, existing.departmentId, true)) {
       return res.status(403).json({ error: 'Access denied' });
     }
+
+    const validationError = validateLocationWrite(req.body, false);
+    if (validationError) return res.status(400).json({ error: validationError });
 
     const { name, type, parentId, notes } = req.body;
 
