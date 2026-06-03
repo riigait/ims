@@ -28,9 +28,9 @@ function validateProductWrite(body: ProductWriteBody, isCreate: boolean): string
   if (isCreate && (typeof body.name !== 'string' || !body.name.trim())) return 'name is required';
   if (body.name !== undefined && (typeof body.name !== 'string' || body.name.length > 200)) return 'name must be a string under 200 characters';
   if (typeof body.categoryId !== 'string' || !body.categoryId.trim()) return 'categoryId is required';
-  if (body.currentStock !== undefined && (isNaN(Number(body.currentStock)) || Number(body.currentStock) < 0)) return 'currentStock must be a non-negative number';
-  if (body.lowStockThreshold !== undefined && (isNaN(Number(body.lowStockThreshold)) || Number(body.lowStockThreshold) < 0)) return 'lowStockThreshold must be a non-negative number';
-  if (body.unitPrice !== undefined && body.unitPrice !== null && body.unitPrice !== '' && isNaN(Number(body.unitPrice))) return 'unitPrice must be a number';
+  if (body.currentStock !== undefined && (Number.isNaN(Number(body.currentStock)) || Number(body.currentStock) < 0)) return 'currentStock must be a non-negative number';
+  if (body.lowStockThreshold !== undefined && (Number.isNaN(Number(body.lowStockThreshold)) || Number(body.lowStockThreshold) < 0)) return 'lowStockThreshold must be a non-negative number';
+  if (body.unitPrice !== undefined && body.unitPrice !== null && body.unitPrice !== '' && Number.isNaN(Number(body.unitPrice))) return 'unitPrice must be a number';
   return null;
 }
 
@@ -261,7 +261,7 @@ async function processImportRow(row: any, req: AuthRequest, csvImportId: string)
     departmentId: req.departmentId, unit: row.unit || 'pcs',
     currentStock: Number.parseInt(row.currentStock) || 0,
     lowStockThreshold: Number.parseInt(row.lowStockThreshold) || 10,
-    supplier: row.supplier || null, unitPrice: row.unitPrice ? parseFloat(row.unitPrice) : null,
+    supplier: row.supplier || null, unitPrice: row.unitPrice ? Number.parseFloat(row.unitPrice) : null,
     status: row.status || 'active', expiryDate: row.expiryDate ? new Date(row.expiryDate) : null,
     leadTimeDays: row.leadTimeDays ? Number.parseInt(row.leadTimeDays) : null,
     notes: row.notes || null, source: 'csv_import', csvImportId, pendingApproval: true,
@@ -276,7 +276,8 @@ async function processImportRow(row: any, req: AuthRequest, csvImportId: string)
   } else if (isTransfer) {
     await createDepartmentTransferMovement(product, existing.departmentId, req.departmentId!, req.userId!);
   }
-  const auditAction = existing ? (isTransfer ? 'MOVED_TO_DEPARTMENT' : 'UPDATE') : 'CREATE';
+  const existingAction = isTransfer ? 'MOVED_TO_DEPARTMENT' : 'UPDATE';
+  const auditAction = existing ? existingAction : 'CREATE';
   const auditExtra = isTransfer ? { fromDepartmentId: existing!.departmentId, toDepartmentId: req.departmentId } : {};
   await logAudit({
     userId: req.userId, action: auditAction, entityType: 'product', entityId: product.id,

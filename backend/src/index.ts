@@ -1,6 +1,6 @@
 import 'dotenv/config';
 import app from './app';
-import { checkDatabaseConnection, default as prisma } from './utils/prisma';
+import prisma, { checkDatabaseConnection } from './utils/prisma';
 
 const PORT = process.env.PORT || 3001;
 

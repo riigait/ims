@@ -64,7 +64,7 @@ app.get('/api/health', (_req, res) => {
 
 app.use((err: Error & { status?: number }, _req: Request, res: Response, _next: NextFunction) => {
   const name = err.constructor.name;
-  if (name === 'PrismaClientInitializationError' || (err.message && err.message.includes("Can't reach database"))) {
+  if (name === 'PrismaClientInitializationError' || err.message?.includes("Can't reach database")) {
     return res.status(503).json({ error: 'Database is not available. Please try again later.' });
   }
   const status = (err as any).status || 500;

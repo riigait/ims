@@ -15,7 +15,8 @@ function pfn(incoming: string | undefined, fallback: string | null): string | nu
   return incoming !== undefined ? (incoming || null) : fallback;
 }
 function pfDate(incoming: string | undefined, fallback: Date | null): Date | null {
-  return incoming !== undefined ? (incoming ? new Date(incoming) : null) : fallback;
+  if (incoming === undefined) return fallback;
+  return incoming ? new Date(incoming) : null;
 }
 
 function buildStockDetailData(body: any, existing: any): Record<string, any> {

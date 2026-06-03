@@ -6,14 +6,14 @@ const prisma = new PrismaClient();
 const SEED_EMAIL    = 'admin@ims.local';
 const SEED_PASSWORD = 'seed1234';
 const ADMIN_EMAIL   = 'admin1@ims.local';
-const ADMIN_PASSWORD = 'Admin1234';
+const ADMIN_PASSWORD = process.env.SEED_ADMIN_PASSWORD ?? 'Admin1234';
 const STAFF_EMAIL   = 'staff1@ims.local';
-const STAFF_PASSWORD = 'Staff1234';
+const STAFF_PASSWORD = process.env.SEED_STAFF_PASSWORD ?? 'Staff1234';
 
 async function main() {
   // ── Superadmin ──────────────────────────────────────────────────────────────
   const passwordHash = await bcrypt.hash(SEED_PASSWORD, 10);
-  const superadmin = await prisma.user.upsert({
+  await prisma.user.upsert({
     where: { email: SEED_EMAIL },
     update: {},
     create: {

@@ -32,6 +32,31 @@ const ROLE_COLOR: Record<string, string> = {
   staff: 'bg-purple-100 text-purple-700',
 };
 
+function getDepartmentDisplay(user: User) {
+  if (user.role === 'superadmin') {
+    return <span className="px-2 py-1 bg-blue-50 text-blue-700 text-xs rounded border border-blue-200 font-medium">All Departments</span>;
+  }
+  if (user.role === 'admin' && user.adminDepartments?.length) {
+    return (
+      <div className="flex flex-wrap gap-1">
+        {user.adminDepartments.map(ad => (
+          <span key={ad.departmentId} className="px-2 py-1 bg-green-50 text-green-700 text-xs rounded border border-green-200">{ad.department.name}</span>
+        ))}
+      </div>
+    );
+  }
+  if (user.role === 'staff' && user.staffDepartments?.length) {
+    return (
+      <div className="flex flex-wrap gap-1">
+        {user.staffDepartments.map(sd => (
+          <span key={sd.departmentId} className="px-2 py-1 bg-purple-50 text-purple-700 text-xs rounded border border-purple-200">{sd.department.name}</span>
+        ))}
+      </div>
+    );
+  }
+  return <span className="text-sm text-[var(--text-muted)]">Unassigned</span>;
+}
+
 export default function AdminUsers() {
   const navigate = useNavigate();
   const hasLoaded = useRef(false);
@@ -522,23 +547,7 @@ export default function AdminUsers() {
                       </div>
                       <div>
                         <p className="text-xs text-[var(--text-muted)] mb-0.5">Department(s)</p>
-                        {drawerUser.role === 'superadmin' ? (
-                          <span className="px-2 py-1 bg-blue-50 text-blue-700 text-xs rounded border border-blue-200 font-medium">All Departments</span>
-                        ) : drawerUser.role === 'admin' && drawerUser.adminDepartments?.length ? (
-                          <div className="flex flex-wrap gap-1">
-                            {drawerUser.adminDepartments.map(ad => (
-                              <span key={ad.departmentId} className="px-2 py-1 bg-green-50 text-green-700 text-xs rounded border border-green-200">{ad.department.name}</span>
-                            ))}
-                          </div>
-                        ) : drawerUser.role === 'staff' && drawerUser.staffDepartments?.length ? (
-                          <div className="flex flex-wrap gap-1">
-                            {drawerUser.staffDepartments.map(sd => (
-                              <span key={sd.departmentId} className="px-2 py-1 bg-purple-50 text-purple-700 text-xs rounded border border-purple-200">{sd.department.name}</span>
-                            ))}
-                          </div>
-                        ) : (
-                          <span className="text-sm text-[var(--text-muted)]">Unassigned</span>
-                        )}
+                        {getDepartmentDisplay(drawerUser)}
                       </div>
                       <div>
                         <p className="text-xs text-[var(--text-muted)] mb-0.5">Date Created</p>
