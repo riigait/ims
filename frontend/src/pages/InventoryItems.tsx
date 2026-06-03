@@ -797,7 +797,7 @@ export default function InventoryItems() {
         </div>
       ) : (
         <div className="border border-[var(--border)] rounded-lg overflow-hidden">
-          <div className={`hidden md:grid gap-4 px-4 py-2 bg-[var(--surface-2)] text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wide border-b border-[var(--border)] ${showDept ? 'md:grid-cols-8' : 'md:grid-cols-7'}`}>
+          <div className={`hidden md:grid gap-4 px-4 py-2 bg-[var(--surface-2)] text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wide border-b border-[var(--border)] ${showDept ? 'md:grid-cols-9' : 'md:grid-cols-8'}`}>
             <div>Asset ID</div>
             <div>Product</div>
             <div>Serial No.</div>
@@ -805,6 +805,7 @@ export default function InventoryItems() {
             <div>Condition</div>
             <div>Status</div>
             <div>Location</div>
+            <div>Last Checked</div>
             {showDept && <div>Department</div>}
           </div>
           {paginated.map(item => (
@@ -813,7 +814,7 @@ export default function InventoryItems() {
               onClick={() => openDrawer(item)}
               className="flex items-center gap-3 px-4 py-3 bg-[var(--surface)] border-b border-[var(--border)] hover:bg-[var(--surface-2)] cursor-pointer transition-colors"
             >
-              <div className={`flex-1 grid grid-cols-2 gap-4 text-sm min-w-0 ${showDept ? 'md:grid-cols-8' : 'md:grid-cols-7'}`}>
+              <div className={`flex-1 grid grid-cols-2 gap-4 text-sm min-w-0 ${showDept ? 'md:grid-cols-9' : 'md:grid-cols-8'}`}>
                 <div>
                   <span className="font-mono text-xs text-[var(--primary)] font-semibold">{item.stockId || '—'}</span>
                   {item.assetTag && <p className="text-xs text-[var(--text-muted)] font-mono mt-0.5">{item.assetTag}</p>}
@@ -828,6 +829,9 @@ export default function InventoryItems() {
                   </span>
                 </div>
                 <div className="truncate text-[var(--text-muted)]">{item.currentLocation?.name || '—'}</div>
+                <div className="text-xs text-[var(--text-muted)]">
+                  {item.lastCheckedDate ? new Date(item.lastCheckedDate).toLocaleDateString() : <span className="text-orange-400">Never</span>}
+                </div>
                 {showDept && <div className="truncate text-[var(--text-muted)]">{item.department?.name || item.product?.department?.name || '—'}</div>}
               </div>
               <ChevronRight size={16} className="text-[var(--text-muted)] flex-shrink-0" />
