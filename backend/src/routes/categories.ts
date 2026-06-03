@@ -8,23 +8,26 @@ const router = Router();
 // Get all categories
 router.get('/', async (req: AuthRequest, res: Response) => {
   try {
+    const page = Math.max(1, parseInt(req.query.page as string) || 1);
+    const limit = Math.min(Math.max(1, parseInt(req.query.limit as string) || 200), 500);
+    const skip = (page - 1) * limit;
+    const search = (req.query.search as string)?.trim();
+    const qDepartmentId = req.query.departmentId as string;
+
     let whereFilter: any = {};
     if (req.departmentIds && req.departmentIds.length > 0) {
-      // Include categories with null departmentId
-      whereFilter = {
-        OR: [
-          { departmentId: { in: req.departmentIds } },
-          { departmentId: null }
-        ]
-      };
+      whereFilter = { OR: [{ departmentId: { in: req.departmentIds } }, { departmentId: null }] };
     } else if ((req.userRole === 'staff' || req.userRole === 'admin') && req.departmentId) {
       whereFilter = { departmentId: req.departmentId };
     }
-    const categories = await prisma.category.findMany({
-      where: whereFilter,
-      include: { department: { select: { name: true } } },
-    });
-    res.json(categories);
+    if (qDepartmentId && !req.departmentId) whereFilter.departmentId = qDepartmentId;
+    if (search) whereFilter.name = { contains: search, mode: 'insensitive' };
+
+    const [total, categories] = await Promise.all([
+      prisma.category.count({ where: whereFilter }),
+      prisma.category.findMany({ where: whereFilter, include: { department: { select: { name: true } } }, orderBy: { name: 'asc' }, skip, take: limit }),
+    ]);
+    res.json({ data: categories, total, page, limit });
   } catch (error: any) {
     console.error(error);
     if (error.code === 'P2025') {

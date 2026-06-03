@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { X, Plus, Trash2, Building2, ArrowLeft, Edit } from 'lucide-react';
 import { departmentsApi } from '@/services/api';
@@ -13,6 +13,7 @@ interface Department {
 
 export default function AdminDepartments() {
   const navigate = useNavigate();
+  const hasLoaded = useRef(false);
   const [departments, setDepartments] = useState<Department[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -30,6 +31,7 @@ export default function AdminDepartments() {
   useEffect(() => { loadDepartments(); }, []);
 
   const loadDepartments = async () => {
+    if (!hasLoaded.current) setLoading(true);
     try {
       const res = await departmentsApi.getAll();
       setDepartments(res.data);
@@ -37,6 +39,7 @@ export default function AdminDepartments() {
       setError('Failed to load departments');
     } finally {
       setLoading(false);
+      hasLoaded.current = true;
     }
   };
 

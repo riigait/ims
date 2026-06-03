@@ -50,33 +50,54 @@ function incrementSku(sku: string): string {
 // Get all stock movements
 router.get('/', async (req: AuthRequest, res: Response) => {
   try {
-    let whereFilter: any = {};
+    const page = Math.max(1, parseInt(req.query.page as string) || 1);
+    const limit = Math.min(Math.max(1, parseInt(req.query.limit as string) || 50), 200);
+    const skip = (page - 1) * limit;
+    const search = (req.query.search as string)?.trim();
+    const movementType = req.query.movementType as string;
+    const movementStatus = req.query.movementStatus as string;
+    const qDepartmentId = req.query.departmentId as string;
+
+    let deptFilter: any = {};
     if (req.departmentIds && req.departmentIds.length > 0) {
-      whereFilter = {
-        OR: [
-          { departmentId: { in: req.departmentIds } },
-          { toDepartmentId: { in: req.departmentIds } },
-          { departmentId: null }
-        ]
-      };
+      deptFilter = { OR: [{ departmentId: { in: req.departmentIds } }, { toDepartmentId: { in: req.departmentIds } }, { departmentId: null }] };
     } else if ((req.userRole === 'staff' || req.userRole === 'admin') && req.departmentId) {
-      whereFilter = {
-        OR: [
-          { departmentId: req.departmentId },
-          { toDepartmentId: req.departmentId },
-          { departmentId: null }
-        ]
-      };
+      deptFilter = { OR: [{ departmentId: req.departmentId }, { toDepartmentId: req.departmentId }, { departmentId: null }] };
     }
-    const movements = await prisma.stockMovement.findMany({
-      where: {
-        ...whereFilter,
-        items: { none: { product: { pendingApproval: true } } },
+    if (qDepartmentId) deptFilter = { ...deptFilter, departmentId: qDepartmentId };
+
+    let whereFilter: any = { ...deptFilter, items: { none: { product: { pendingApproval: true } } } };
+    if (movementType) whereFilter.movementType = movementType;
+    if (movementStatus) whereFilter.status = movementStatus;
+    if (search) {
+      whereFilter.OR = [
+        { movementNo: { contains: search, mode: 'insensitive' } },
+        { remarks: { contains: search, mode: 'insensitive' } },
+        { items: { some: { product: { name: { contains: search, mode: 'insensitive' } } } } },
+        { items: { some: { stockDetail: { stockId: { contains: search, mode: 'insensitive' } } } } },
+      ];
+    }
+
+    const listInclude = {
+      items: {
+        include: {
+          product: { select: { id: true, name: true, sku: true, unit: true } },
+          stockDetail: { select: { id: true, stockId: true, serialNumber: true, assetTag: true, currentStatus: true } },
+          fromLocation: { select: { id: true, name: true } },
+          toLocation: { select: { id: true, name: true } },
+        },
       },
-      include: { items: { include: { product: true, stockDetail: true, fromLocation: true, toLocation: true } }, user: true, department: true, toDepartment: true },
-      orderBy: { createdAt: 'desc' },
-    });
-    res.json(movements);
+      user: { select: { id: true, name: true } },
+      department: { select: { id: true, name: true } },
+      toDepartment: { select: { id: true, name: true } },
+    };
+
+    const [total, movements] = await Promise.all([
+      prisma.stockMovement.count({ where: whereFilter }),
+      prisma.stockMovement.findMany({ where: whereFilter, include: listInclude, orderBy: { createdAt: 'desc' }, skip, take: limit }),
+    ]);
+
+    res.json({ data: movements, total, page, limit });
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: 'Internal server error' });

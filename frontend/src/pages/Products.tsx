@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { X, Edit, Trash2, Plus, ChevronRight } from 'lucide-react';
 import { productsApi, categoriesApi, locationsApi, deleteRequestsApi, editRequestsApi, departmentsApi } from '@/services/api';
@@ -56,12 +56,16 @@ export default function Products() {
   const navigate = useNavigate();
   const routeLocation = useLocation();
   const user = JSON.parse(localStorage.getItem('user') || '{}');
+  const routeState = (routeLocation.state as any) || {};
+  const hasLoaded = useRef(false);
   const [products, setProducts] = useState<Product[]>([]);
+  const [total, setTotal] = useState(0);
+  const [stats, setStats] = useState({ active: 0, discontinued: 0, obsolete: 0, backorder: 0, outOfStock: 0, negativeStock: 0 });
+  const [searchInput, setSearchInput] = useState(routeState.search ?? '');
   const [categories, setCategories] = useState<Category[]>([]);
   const [locations, setLocations] = useState<Location[]>([]);
   const [departments, setDepartments] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const routeState = (routeLocation.state as any) || {};
 
   function notifToProductFilter(nf: string | undefined): Partial<ProductFilter> {
     if (!nf) return {};
@@ -105,30 +109,58 @@ export default function Products() {
   const currentDepartmentId = localStorage.getItem('currentDepartmentId');
   const showDepartmentFilter = user.role === 'superadmin' || (user.role === 'admin' && currentDepartmentId === ALL_DEPARTMENTS_ID);
 
-  const fetchData = async () => {
+  const loadProducts = useCallback(async () => {
+    if (!hasLoaded.current) setLoading(true);
     try {
-      const [productsRes, categoriesRes, locationsRes, deptRes] = await Promise.all([
-        productsApi.getAll(), categoriesApi.getAll(), locationsApi.getAll(),
-        showDepartmentFilter ? departmentsApi.getAll() : Promise.resolve({ data: [] }),
-      ]);
-      setProducts(productsRes.data);
-      setCategories(categoriesRes.data);
-      setLocations(locationsRes.data);
-      setDepartments(deptRes.data);
+      const params: any = { page: currentPage, limit: pageSize, orderBy: sort.field, orderDir: sort.order };
+      if (filters.search?.trim()) params.search = filters.search.trim();
+      if (filters.categoryId) params.categoryId = filters.categoryId;
+      if (filters.locationId) params.locationId = filters.locationId;
+      if (filters.productStatus) params.status = filters.productStatus;
+      if (filters.unit) params.unit = filters.unit;
+      if (filters.source) params.source = filters.source;
+      if (filters.csvImportId) params.csvImportId = filters.csvImportId;
+      if (filters.stockStatus === 'out-of-stock' || filters.stockStatus === 'negative-stock') params.stockStatus = filters.stockStatus;
+      if (filters.departmentId) params.departmentId = filters.departmentId;
+      const res = await productsApi.getAll(params);
+      setProducts(res.data.data);
+      setTotal(res.data.total);
+      setStats(res.data.stats);
     } catch {
       console.error('Failed to fetch products');
     } finally {
       setLoading(false);
+      hasLoaded.current = true;
     }
-  };
+  }, [currentPage, pageSize, filters, sort]);
 
   useEffect(() => {
-    const handleStorageChange = () => { setLoading(true); fetchData(); };
-    setLoading(true);
-    fetchData();
+    const timer = setTimeout(() => {
+      setFilters(prev => ({ ...prev, search: searchInput }));
+      setCurrentPage(1);
+    }, 400);
+    return () => clearTimeout(timer);
+  }, [searchInput]);
+
+  useEffect(() => {
+    const loadStaticData = async () => {
+      try {
+        const [categoriesRes, locationsRes, deptRes] = await Promise.all([
+          categoriesApi.getAll(), locationsApi.getAll(),
+          showDepartmentFilter ? departmentsApi.getAll() : Promise.resolve({ data: [] }),
+        ]);
+        setCategories(categoriesRes.data.data ?? categoriesRes.data);
+        setLocations(locationsRes.data.data ?? locationsRes.data);
+        setDepartments(deptRes.data);
+      } catch { console.error('Failed to load static data'); }
+    };
+    loadStaticData();
+    const handleStorageChange = () => loadProducts();
     window.addEventListener('storage', handleStorageChange);
     return () => window.removeEventListener('storage', handleStorageChange);
   }, []);
+
+  useEffect(() => { loadProducts(); }, [loadProducts]);
 
   const buildFormData = (product: Product) => ({
     sku: product.sku,
@@ -244,10 +276,10 @@ export default function Products() {
         const res = await productsApi.update(editingItem.id, payload);
         setSelectedItem(res.data ?? { ...editingItem, ...payload } as Product);
         setEditingItem(null);
-        await fetchData();
+        await loadProducts();
       } else {
         await productsApi.create(payload);
-        await fetchData();
+        await loadProducts();
         closeDrawer();
       }
       setFormError('');
@@ -265,7 +297,7 @@ export default function Products() {
     if (!selectedItem) return;
     try {
       await productsApi.delete(selectedItem.id);
-      await fetchData();
+      await loadProducts();
       closeDrawer();
     } catch {
       setError('Failed to delete product');
@@ -286,15 +318,18 @@ export default function Products() {
   const clearAllFilters = () => {
     setFilters(clearProductFilters());
     setSort({ field: 'date', order: 'desc' });
+    setSearchInput('');
     setCurrentPage(1);
   };
 
-  const negativeStockCount = products.filter(p => p.currentStock < 0).length;
-  const outOfStockCount = products.filter(p => p.currentStock === 0).length;
+  const negativeStockCount = stats.negativeStock;
+  const outOfStockCount = stats.outOfStock;
   const lowStockCount = products.filter(p => p.currentStock > 0 && p.currentStock <= p.lowStockThreshold).length;
 
-  const filteredProducts = filterAndSortProducts(products, filters, sort);
-  const paginatedProducts = filteredProducts.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+  // Client-side filters apply to current page (server already handled search/category/location/status/unit/source)
+  const clientFilters = { ...filters, search: '', categoryId: undefined, locationId: undefined, productStatus: undefined, unit: undefined, source: undefined, csvImportId: undefined };
+  const filteredProducts = filterAndSortProducts(products, clientFilters, sort);
+  const paginatedProducts = filteredProducts;
   const uniqueUnits = Array.from(new Set(products.map(p => p.unit))).sort();
   const uniqueImportBatches = Array.from(new Set(products.map(p => (p as any).csvImportId).filter(Boolean))).sort();
   const categoriesMap = new Map(categories.map(c => [c.id, c]));
@@ -317,16 +352,16 @@ export default function Products() {
     </div>
   ) : null;
 
-  const activeProductCount = products.filter(p => p.status === 'active').length;
-  const discontinuedCount = products.filter(p => p.status === 'discontinued').length;
-  const obsoleteCount = products.filter(p => p.status === 'obsolete').length;
-  const backorderCount = products.filter(p => p.status === 'on-backorder').length;
+  const activeProductCount = stats.active;
+  const discontinuedCount = stats.discontinued;
+  const obsoleteCount = stats.obsolete;
+  const backorderCount = stats.backorder;
 
   const statsLine = (
     <p className="text-sm text-[var(--text-muted)]">
-      {filteredProducts.length !== products.length
-        ? <><span className="text-[var(--primary)] font-medium">{filteredProducts.length} filtered</span> of {products.length} products</>
-        : <>{products.length} products</>
+      {filteredProducts.length < products.length
+        ? <><span className="text-[var(--primary)] font-medium">{filteredProducts.length} filtered</span> of {total} products</>
+        : <>{total} products</>
       }
       {' · '}<span className="text-green-600">{activeProductCount} active</span>
       {discontinuedCount > 0 && <> · <span className="text-orange-500">{discontinuedCount} discontinued</span></>}
@@ -343,8 +378,8 @@ export default function Products() {
       {statsLine}
       {/* Row 1: Search + Sort + Clear */}
       <div className="flex gap-2">
-        <input type="text" placeholder="Search by name or SKU…" value={filters.search}
-          onChange={e => { setFilters({ ...filters, search: e.target.value }); setCurrentPage(1); }}
+        <input type="text" placeholder="Search by name or SKU…" value={searchInput}
+          onChange={e => setSearchInput(e.target.value)}
           className="flex-1 px-4 py-2 border border-[var(--border)] rounded-lg text-sm bg-[var(--surface)] text-[var(--text)]" />
         <select value={`${sort.field}:${sort.order}`} onChange={e => {
           const [field, order] = e.target.value.split(':');
@@ -565,10 +600,10 @@ export default function Products() {
             </div>
           )}
         </div>
-        {filteredProducts.length > 0 && (
+        {total > 0 && (
           <Pagination
             currentPage={currentPage}
-            totalItems={filteredProducts.length}
+            totalItems={total}
             pageSize={pageSize}
             onPageChange={setCurrentPage}
             onPageSizeChange={(size) => { setPageSize(size); setCurrentPage(1); }}

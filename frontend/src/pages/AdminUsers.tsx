@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { X, Copy, Trash2, Shield, Users, CheckCircle, Mail, ArrowLeft, Edit, ChevronRight } from 'lucide-react';
 import { authApi, departmentsApi } from '@/services/api';
@@ -39,7 +39,9 @@ const ROLE_COLOR: Record<string, string> = {
 
 export default function AdminUsers() {
   const navigate = useNavigate();
+  const hasLoaded = useRef(false);
   const [users, setUsers] = useState<User[]>([]);
+  const [totalUsers, setTotalUsers] = useState(0);
   const [invites, setInvites] = useState<InviteCode[]>([]);
   const [departments, setDepartments] = useState<Department[]>([]);
   const [loading, setLoading] = useState(true);
@@ -64,6 +66,10 @@ export default function AdminUsers() {
     getCurrentUser();
   }, []);
 
+  useEffect(() => {
+    if (hasLoaded.current) loadData();
+  }, [currentPage, pageSize]);
+
   const getCurrentUser = async () => {
     try {
       const response = await authApi.getCurrentUser();
@@ -77,24 +83,25 @@ export default function AdminUsers() {
   };
 
   const loadData = async () => {
+    if (!hasLoaded.current) setLoading(true);
     try {
-      setLoading(true);
+      const token = localStorage.getItem('token');
+      const headers = { Authorization: `Bearer ${token}` };
+      const params = new URLSearchParams({ page: String(currentPage), limit: String(pageSize) });
       const [usersRes, invitesRes, deptsRes] = await Promise.all([
-        fetch('/api/users', {
-          headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
-        }).then(r => r.json()),
-        fetch('/api/invites', {
-          headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
-        }).then(r => r.json()),
+        fetch(`/api/users?${params}`, { headers }).then(r => r.json()),
+        fetch('/api/invites', { headers }).then(r => r.json()),
         departmentsApi.getAll(),
       ]);
-      setUsers(usersRes);
-      setInvites(invitesRes);
+      setUsers(usersRes.data ?? usersRes);
+      setTotalUsers(usersRes.total ?? (usersRes.data ?? usersRes).length);
+      setInvites(invitesRes.data ?? invitesRes);
       setDepartments(deptsRes.data);
     } catch {
       setError('Failed to load data');
     } finally {
       setLoading(false);
+      hasLoaded.current = true;
     }
   };
 
@@ -238,7 +245,7 @@ export default function AdminUsers() {
   };
   const usedInvites = getFilteredUsedInvites();
   const paginatedUsedInvites = usedInvites.slice((currentPage - 1) * pageSize, currentPage * pageSize);
-  const paginatedUsers = users.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+  const paginatedUsers = users; // server already paginated
 
   return (
     <>
@@ -456,10 +463,10 @@ export default function AdminUsers() {
                   </tbody>
                 </table>
               </div>
-              {users.length > 0 && (
+              {totalUsers > 0 && (
                 <Pagination
                   currentPage={currentPage}
-                  totalItems={users.length}
+                  totalItems={totalUsers}
                   pageSize={pageSize}
                   onPageChange={setCurrentPage}
                   onPageSizeChange={(size) => { setPageSize(size); setCurrentPage(1); }}

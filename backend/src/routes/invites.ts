@@ -53,13 +53,22 @@ router.get('/', authMiddleware, async (req: AuthRequest, res: Response) => {
 
     const whereClause = user.role === 'superadmin' ? {} : { createdBy: req.userId!, role: 'staff' };
 
-    const invites = await prisma.inviteCode.findMany({
-      where: whereClause,
-      include: { creator: { select: { id: true, name: true, email: true } } },
-      orderBy: { createdAt: 'desc' },
-    });
+    const page = Math.max(1, parseInt((req as any).query.page as string) || 1);
+    const limit = Math.min(Math.max(1, parseInt((req as any).query.limit as string) || 50), 200);
+    const skip = (page - 1) * limit;
 
-    res.json(invites);
+    const [total, invites] = await Promise.all([
+      prisma.inviteCode.count({ where: whereClause }),
+      prisma.inviteCode.findMany({
+        where: whereClause,
+        include: { creator: { select: { id: true, name: true, email: true } } },
+        orderBy: { createdAt: 'desc' },
+        skip,
+        take: limit,
+      }),
+    ]);
+
+    res.json({ data: invites, total, page, limit });
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: 'Internal server error' });

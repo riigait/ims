@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useLocation } from 'react-router-dom';
 import { X, Trash2, Search, ChevronLeft, ChevronRight, MapPin } from 'lucide-react';
 import { stockMovementsApi, productsApi, locationsApi, departmentsApi, stockDetailsApi } from '@/services/api';
@@ -739,8 +739,11 @@ export default function StockMovements() {
   const user = JSON.parse(localStorage.getItem('user') || '{}');
   const routeLocation = useLocation();
   const routeState = (routeLocation.state as any) || {};
+  const hasLoaded = useRef(false);
   const [movements, setMovements] = useState<StockMovement[]>([]);
+  const [total, setTotal] = useState(0);
   const [products, setProducts] = useState<Product[]>([]);
+  const [searchInput, setSearchInput] = useState(routeState.search ?? '');
   const [locations, setLocations] = useState<Location[]>([]);
   const [departments, setDepartments] = useState<Department[]>([]);
   const [loading, setLoading] = useState(true);
@@ -792,32 +795,53 @@ export default function StockMovements() {
     }
   };
 
-  const fetchData = async () => {
+  const loadMovements = useCallback(async () => {
+    if (!hasLoaded.current) setLoading(true);
     try {
-      const [movementsRes, productsRes, locationsRes, deptRes] = await Promise.all([
-        stockMovementsApi.getAll(),
-        productsApi.getAll(),
-        locationsApi.getAll(),
-        ['superadmin', 'admin'].includes(user.role) ? departmentsApi.getAll() : Promise.resolve({ data: [] }),
-      ]);
-      setMovements(movementsRes.data);
-      setProducts(productsRes.data);
-      setLocations(locationsRes.data);
-      setDepartments(deptRes.data);
+      const params: any = { page: currentPage, limit: pageSize };
+      if (filters.search?.trim()) params.search = filters.search.trim();
+      if (filters.movementType) params.movementType = filters.movementType;
+      if ((filters as any).movementStatus) params.movementStatus = (filters as any).movementStatus;
+      if ((filters as any).departmentId) params.departmentId = (filters as any).departmentId;
+      const res = await stockMovementsApi.getAll(params);
+      setMovements(res.data.data);
+      setTotal(res.data.total);
     } catch {
-      console.error('Failed to fetch data');
+      console.error('Failed to fetch movements');
     } finally {
       setLoading(false);
+      hasLoaded.current = true;
     }
-  };
+  }, [currentPage, pageSize, filters]);
 
   useEffect(() => {
-    const handleStorageChange = () => { setLoading(true); fetchData(); };
-    setLoading(true);
-    fetchData();
+    const timer = setTimeout(() => {
+      setFilters(prev => ({ ...prev, search: searchInput }));
+      setCurrentPage(1);
+    }, 400);
+    return () => clearTimeout(timer);
+  }, [searchInput]);
+
+  useEffect(() => {
+    const loadStaticData = async () => {
+      try {
+        const [productsRes, locationsRes, deptRes] = await Promise.all([
+          productsApi.getAll({ limit: 200 }),
+          locationsApi.getAll(),
+          ['superadmin', 'admin'].includes(user.role) ? departmentsApi.getAll() : Promise.resolve({ data: [] }),
+        ]);
+        setProducts(productsRes.data.data);
+        setLocations(locationsRes.data.data ?? locationsRes.data);
+        setDepartments(deptRes.data);
+      } catch { console.error('Failed to load static data'); }
+    };
+    loadStaticData();
+    const handleStorageChange = () => loadMovements();
     window.addEventListener('storage', handleStorageChange);
     return () => window.removeEventListener('storage', handleStorageChange);
   }, []);
+
+  useEffect(() => { loadMovements(); }, [loadMovements]);
 
   const openNewDrawer = () => {
     setDrawerItem(null);
@@ -880,7 +904,7 @@ export default function StockMovements() {
         deploymentNotes: formData.deploymentNotes || undefined,
         items: validItems,
       });
-      await fetchData();
+      await loadMovements();
       closeDrawer();
       setError('');
     } catch (err: any) {
@@ -892,7 +916,7 @@ export default function StockMovements() {
     if (!drawerItem) return;
     try {
       await stockMovementsApi.delete(drawerItem.id);
-      await fetchData();
+      await loadMovements();
       closeDrawer();
       setError('');
     } catch (err: any) {
@@ -906,7 +930,7 @@ export default function StockMovements() {
     setConfirmingStatus(true);
     try {
       await stockMovementsApi.update(drawerItem.id, { status: 'committed' });
-      await fetchData();
+      await loadMovements();
       setDrawerItem(prev => prev ? { ...prev, status: 'committed' } : prev);
     } catch (err: any) {
       setError(err?.response?.data?.error ?? 'Failed to confirm movement');
@@ -915,17 +939,25 @@ export default function StockMovements() {
     }
   };
 
-  const getProductName = (productId: string) => products.find(p => p.id === productId)?.name ?? 'Unknown';
+  const getProductName = (productId: string) => {
+    for (const m of movements) {
+      const item = (m.items as any[])?.find((i: any) => i.productId === productId);
+      if (item?.product?.name) return item.product.name;
+    }
+    return products.find(p => p.id === productId)?.name ?? 'Unknown';
+  };
 
+  // Server handles search/type/status/dept — client handles dateRange only
+  const clientFilters = { ...filters, search: '', movementType: undefined, movementStatus: undefined, departmentId: undefined };
   const filteredAndSortedMovements = sortStockMovements(
-    filterStockMovements(movements, filters, getProductName)
-      .filter(m => !filters.departmentId || m.departmentId === filters.departmentId),
+    filterStockMovements(movements, clientFilters, getProductName),
     sortBy, getProductName
   );
-  const paginatedMovements = filteredAndSortedMovements.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+  const paginatedMovements = filteredAndSortedMovements;
 
   const clearAllFilters = () => {
     setFilters({ search: '', movementType: undefined, dateRange: 'all', departmentId: undefined, movementStatus: undefined });
+    setSearchInput('');
     setSortBy('recently-added');
     setCurrentPage(1);
   };
@@ -959,7 +991,7 @@ export default function StockMovements() {
       </p>
       <div className="flex gap-2">
         <input type="text" placeholder="Search by product name…"
-          value={filters.search} onChange={e => { setFilters({ ...filters, search: e.target.value }); setCurrentPage(1); }}
+          value={searchInput} onChange={e => setSearchInput(e.target.value)}
           className="flex-1 px-4 py-2 border border-[var(--border)] rounded-lg text-sm bg-[var(--surface)] text-[var(--text)]" />
         <select value={sortBy} onChange={e => { setSortBy(e.target.value); setCurrentPage(1); }}
           className="px-3 py-2 border border-[var(--border)] rounded text-sm font-medium bg-[var(--surface-2)] text-[var(--text)]">
@@ -1106,10 +1138,10 @@ export default function StockMovements() {
             </div>
           ))}
         </div>
-        {filteredAndSortedMovements.length > 0 && (
+        {total > 0 && (
           <Pagination
             currentPage={currentPage}
-            totalItems={filteredAndSortedMovements.length}
+            totalItems={total}
             pageSize={pageSize}
             onPageChange={setCurrentPage}
             onPageSizeChange={(size) => { setPageSize(size); setCurrentPage(1); }}

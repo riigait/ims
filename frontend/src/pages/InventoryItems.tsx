@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { X, Edit, ArrowLeftRight, ChevronRight, ChevronDown } from 'lucide-react';
 import DataPageLayout from '@/components/layout/DataPageLayout';
@@ -154,7 +154,10 @@ export default function InventoryItems() {
   const routeLocation = useLocation();
   const routeState = (routeLocation.state as any) || {};
   const user = JSON.parse(localStorage.getItem('user') || '{}');
+  const hasLoaded = useRef(false);
   const [items, setItems] = useState<any[]>([]);
+  const [total, setTotal] = useState(0);
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   const [locations, setLocations] = useState<any[]>([]);
   const [allProducts, setAllProducts] = useState<any[]>([]);
   const [allCategories, setAllCategories] = useState<any[]>([]);
@@ -231,35 +234,57 @@ export default function InventoryItems() {
   const [verifyingAll, setVerifyingAll] = useState(false);
   const [verifyingItem, setVerifyingItem] = useState(false);
 
-  const fetchData = async () => {
+  const loadItems = useCallback(async () => {
+    if (!hasLoaded.current) setLoading(true);
     try {
-      const [itemsRes, productsRes, locationsRes, categoriesRes, deptsRes] = await Promise.all([
-        stockDetailsApi.getAll(),
-        productsApi.getAll(),
-        locationsApi.getAll(),
-        categoriesApi.getAll(),
-        (user.role === 'superadmin' || (user.role === 'admin' && localStorage.getItem('currentDepartmentId') === ALL_DEPARTMENTS_ID)) ? departmentsApi.getAll() : Promise.resolve({ data: [] }),
-      ]);
-      setItems(itemsRes.data);
-      setAllProducts(productsRes.data);
-      setLocations(locationsRes.data);
-      setAllCategories(categoriesRes.data);
-      setAllDepartments(deptsRes.data);
+      const params: any = { page: currentPage, limit: pageSize };
+      if (debouncedSearch.trim()) params.search = debouncedSearch.trim();
+      if (filterProduct) params.productId = filterProduct;
+      if (filterStatus) params.status = filterStatus;
+      if (filterCategory) params.categoryId = filterCategory;
+      if (filterLocation) params.locationId = filterLocation;
+      const res = await stockDetailsApi.getAll(params);
+      setItems(res.data.data);
+      setTotal(res.data.total);
     } catch (err) {
       console.error(err);
     } finally {
       setLoading(false);
+      hasLoaded.current = true;
     }
-  };
+  }, [currentPage, pageSize, debouncedSearch, filterProduct, filterStatus, filterCategory, filterLocation]);
 
-  useEffect(() => { fetchData(); }, []);
+  useEffect(() => {
+    const loadStaticData = async () => {
+      try {
+        const [productsRes, locationsRes, categoriesRes, deptsRes] = await Promise.all([
+          productsApi.getAll({ limit: 200 }),
+          locationsApi.getAll(),
+          categoriesApi.getAll(),
+          (user.role === 'superadmin' || (user.role === 'admin' && localStorage.getItem('currentDepartmentId') === ALL_DEPARTMENTS_ID)) ? departmentsApi.getAll() : Promise.resolve({ data: [] }),
+        ]);
+        setAllProducts(productsRes.data.data);
+        setLocations(locationsRes.data.data ?? locationsRes.data);
+        setAllCategories(categoriesRes.data.data ?? categoriesRes.data);
+        setAllDepartments(deptsRes.data);
+      } catch (err) { console.error(err); }
+    };
+    loadStaticData();
+  }, []);
+
+  useEffect(() => {
+    const timer = setTimeout(() => { setDebouncedSearch(search); setCurrentPage(1); }, 400);
+    return () => clearTimeout(timer);
+  }, [search]);
+
+  useEffect(() => { loadItems(); }, [loadItems]);
 
   const handleBulkVerify = async (itemIds: string[]) => {
     if (itemIds.length === 0) return;
     setVerifyingAll(true);
     try {
       await stockDetailsApi.bulkVerify(itemIds);
-      await fetchData();
+      await loadItems();
     } catch (err) { console.error(err); }
     finally { setVerifyingAll(false); }
   };
@@ -268,7 +293,7 @@ export default function InventoryItems() {
     setVerifyingItem(true);
     try {
       await stockDetailsApi.bulkVerify([item.id]);
-      await fetchData();
+      await loadItems();
       const res = await stockDetailsApi.getById(item.id);
       setDrawerItem(res.data);
     } catch (err) { console.error(err); }
@@ -333,7 +358,7 @@ export default function InventoryItems() {
         assetTag: formData.assetTag || null,
         barcode: formData.barcode || null,
       });
-      await fetchData();
+      await loadItems();
       // refresh drawer if open for same item
       if (drawerItem?.id === editingItem.id) {
         const res = await stockDetailsApi.getById(editingItem.id);
@@ -514,7 +539,7 @@ export default function InventoryItems() {
     return new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime();
   });
 
-  const paginated = sorted.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+  const paginated = sorted;
 
   const statusCounts = STATUS_OPTIONS.reduce((acc, s) => {
     acc[s] = items.filter(i => i.currentStatus === s).length;
@@ -850,7 +875,7 @@ export default function InventoryItems() {
       )}
 
       <div className="mt-4">
-        <Pagination currentPage={currentPage} totalItems={filtered.length} pageSize={pageSize} onPageChange={setCurrentPage} onPageSizeChange={(size) => { setPageSize(size); setCurrentPage(1); }} />
+        <Pagination currentPage={currentPage} totalItems={total} pageSize={pageSize} onPageChange={setCurrentPage} onPageSizeChange={(size) => { setPageSize(size); setCurrentPage(1); }} />
       </div>
 
       </DataPageLayout>

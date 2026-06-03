@@ -48,17 +48,26 @@ router.get('/', authMiddleware, async (req: AuthRequest, res: Response) => {
       where = { ...where, requestedBy: req.userId };
     }
 
-    const editRequests = await prisma.editRequest.findMany({
-      where,
-      include: {
-        product: { select: { id: true, name: true, sku: true } },
-        requester: { select: { id: true, name: true, email: true } },
-        reviewer: { select: { id: true, name: true, email: true } },
-      },
-      orderBy: { createdAt: 'desc' },
-    });
+    const page = Math.max(1, parseInt(req.query.page as string) || 1);
+    const limit = Math.min(Math.max(1, parseInt(req.query.limit as string) || 50), 200);
+    const skip = (page - 1) * limit;
 
-    res.json(editRequests);
+    const [total, editRequests] = await Promise.all([
+      prisma.editRequest.count({ where }),
+      prisma.editRequest.findMany({
+        where,
+        include: {
+          product: { select: { id: true, name: true, sku: true } },
+          requester: { select: { id: true, name: true, email: true } },
+          reviewer: { select: { id: true, name: true, email: true } },
+        },
+        orderBy: { createdAt: 'desc' },
+        skip,
+        take: limit,
+      }),
+    ]);
+
+    res.json({ data: editRequests, total, page, limit });
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: 'Internal server error' });

@@ -290,11 +290,11 @@ export default function FloorPlanEditor() {
   const loadSideData = async (deptId?: string) => {
     try {
       const [locRes, prodRes] = await Promise.all([
-        deptId ? locationsApi.getForDepartment(deptId) : locationsApi.getAll(),
-        deptId ? productsApi.getAllForDepartment(deptId) : productsApi.getAll(),
+        deptId ? locationsApi.getForDepartment(deptId) : locationsApi.getAll({ limit: 500 }),
+        deptId ? productsApi.getAllForDepartment(deptId, { limit: 500 }) : productsApi.getAll({ limit: 500 }),
       ]);
-      setLocations(locRes.data);
-      setProducts(prodRes.data);
+      setLocations(locRes.data.data ?? locRes.data);
+      setProducts(prodRes.data.data ?? prodRes.data);
     } catch { /* non-critical */ }
   };
 

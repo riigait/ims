@@ -8,23 +8,34 @@ const router = Router();
 // Get all locations
 router.get('/', async (req: AuthRequest, res: Response) => {
   try {
+    const page = Math.max(1, parseInt(req.query.page as string) || 1);
+    const limit = Math.min(Math.max(1, parseInt(req.query.limit as string) || 200), 500);
+    const skip = (page - 1) * limit;
+    const search = (req.query.search as string)?.trim();
+    const typeFilter = req.query.type as string;
+    const qDepartmentId = req.query.departmentId as string;
+
     let whereFilter: any = {};
     if (req.departmentIds && req.departmentIds.length > 0) {
-      // Include locations with null departmentId
-      whereFilter = {
-        OR: [
-          { departmentId: { in: req.departmentIds } },
-          { departmentId: null }
-        ]
-      };
+      whereFilter = { OR: [{ departmentId: { in: req.departmentIds } }, { departmentId: null }] };
     } else if ((req.userRole === 'staff' || req.userRole === 'admin') && req.departmentId) {
       whereFilter = { departmentId: req.departmentId };
     }
-    const locations = await prisma.location.findMany({
-      where: whereFilter,
-      include: { parent: true, children: true, department: { select: { name: true } }, _count: { select: { products: true, stockDetails: true } } },
-    });
-    res.json(locations);
+    if (qDepartmentId && !req.departmentId) whereFilter.departmentId = qDepartmentId;
+    if (search) whereFilter.name = { contains: search, mode: 'insensitive' };
+    if (typeFilter) whereFilter.type = typeFilter;
+
+    const [total, locations] = await Promise.all([
+      prisma.location.count({ where: whereFilter }),
+      prisma.location.findMany({
+        where: whereFilter,
+        include: { parent: true, children: true, department: { select: { name: true } }, _count: { select: { products: true, stockDetails: true } } },
+        orderBy: { name: 'asc' },
+        skip,
+        take: limit,
+      }),
+    ]);
+    res.json({ data: locations, total, page, limit });
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: 'Internal server error' });

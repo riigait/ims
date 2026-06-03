@@ -1,9 +1,8 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { X, Edit, Trash2, ChevronRight } from 'lucide-react';
 import { categoriesApi, departmentsApi } from '@/services/api';
 import { Category } from '@/types/inventory';
 import { CategoryFilter } from '@/types/filters';
-import { filterCategories } from '@/utils/filterHelpers';
 import { formatDate } from '@/utils/ids';
 import DataPageLayout from '@/components/layout/DataPageLayout';
 import Pagination from '@/components/Pagination';
@@ -16,9 +15,12 @@ interface Department {
 
 export default function Categories() {
   const user = JSON.parse(localStorage.getItem('user') || '{}');
+  const hasLoaded = useRef(false);
   const [categories, setCategories] = useState<Category[]>([]);
+  const [total, setTotal] = useState(0);
   const [departments, setDepartments] = useState<Department[]>([]);
   const [loading, setLoading] = useState(true);
+  const [searchInput, setSearchInput] = useState('');
   const [filters, setFilters] = useState<CategoryFilter & { departmentId?: string }>({
     search: '',
     departmentId: undefined,
@@ -37,28 +39,42 @@ export default function Categories() {
   const [formData, setFormData] = useState({ name: '', description: '' });
   const [formError, setFormError] = useState('');
 
-  const fetchCategories = async () => {
+  const loadCategories = useCallback(async () => {
+    if (!hasLoaded.current) setLoading(true);
     try {
-      const [categoriesRes, deptRes] = await Promise.all([
-        categoriesApi.getAll(),
-        user.role === 'superadmin' ? departmentsApi.getAll() : Promise.resolve({ data: [] }),
-      ]);
-      setCategories(categoriesRes.data);
-      setDepartments(deptRes.data);
+      const params: any = { page: currentPage, limit: pageSize, orderBy: sortBy === 'name' ? 'name' : 'createdAt', orderDir: sortBy === 'name' ? 'asc' : 'desc' };
+      if (filters.search) params.search = filters.search;
+      if (filters.departmentId) params.departmentId = filters.departmentId;
+      const res = await categoriesApi.getAll(params);
+      setCategories(res.data.data);
+      setTotal(res.data.total);
     } catch (err) {
       console.error('Failed to fetch categories:', err);
     } finally {
       setLoading(false);
+      hasLoaded.current = true;
     }
-  };
+  }, [currentPage, pageSize, filters, sortBy]);
 
   useEffect(() => {
-    const handleStorageChange = () => { setLoading(true); fetchCategories(); };
-    setLoading(true);
-    fetchCategories();
+    const loadDepts = async () => {
+      if (user.role === 'superadmin') {
+        const res = await departmentsApi.getAll();
+        setDepartments(res.data);
+      }
+    };
+    loadDepts();
+    const handleStorageChange = () => loadCategories();
     window.addEventListener('storage', handleStorageChange);
     return () => window.removeEventListener('storage', handleStorageChange);
   }, []);
+
+  useEffect(() => {
+    const timer = setTimeout(() => { setFilters(p => ({ ...p, search: searchInput })); setCurrentPage(1); }, 400);
+    return () => clearTimeout(timer);
+  }, [searchInput]);
+
+  useEffect(() => { loadCategories(); }, [loadCategories]);
 
   const openNewDrawer = () => {
     setSelectedItem(null);
@@ -117,10 +133,10 @@ export default function Categories() {
         const updated = { ...editingItem, name: formData.name, description: formData.description };
         setSelectedItem(updated);
         setEditingItem(null);
-        await fetchCategories();
+        await loadCategories();
       } else {
         await categoriesApi.create(formData);
-        await fetchCategories();
+        await loadCategories();
         closeDrawer();
       }
       setFormError('');
@@ -133,7 +149,7 @@ export default function Categories() {
     if (!selectedItem) return;
     try {
       await categoriesApi.delete(selectedItem.id);
-      await fetchCategories();
+      await loadCategories();
       closeDrawer();
     } catch {
       setError('Failed to delete category');
@@ -141,17 +157,12 @@ export default function Categories() {
     }
   };
 
-  const filteredAndSortedCategories = filterCategories(categories, filters.search)
-    .filter(cat => !filters.departmentId || cat.departmentId === filters.departmentId)
-    .sort((a, b) => {
-      if (sortBy === 'name') return a.name.localeCompare(b.name);
-      if (sortBy === 'recently-added') return new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime();
-      return 0;
-    });
-  const paginatedCategories = filteredAndSortedCategories.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+  const filteredAndSortedCategories = categories; // server already filtered+sorted
+  const paginatedCategories = categories;
 
   const clearAllFilters = () => {
     setFilters({ search: '', departmentId: undefined });
+    setSearchInput('');
     setSortBy('recently-added');
     setCurrentPage(1);
   };
@@ -161,19 +172,14 @@ export default function Categories() {
   const filterContent = (
     <>
       <p className="text-sm text-[var(--text-muted)]">
-        {filteredAndSortedCategories.length !== categories.length
-          ? <><span className="text-[var(--primary)] font-medium">{filteredAndSortedCategories.length} filtered</span> of {categories.length} total</>
-          : <>{categories.length} total</>
-        }
-        {categories.filter(c => c.departmentId).length > 0 && <> · <span className="text-blue-600">{categories.filter(c => c.departmentId).length} with department</span></>}
-        {categories.filter(c => !c.departmentId).length > 0 && <> · <span className="text-[var(--text-muted)]">{categories.filter(c => !c.departmentId).length} unassigned</span></>}
+        {total} total
       </p>
       <div className="flex gap-2">
         <input
           type="text"
           placeholder="Search by category name…"
-          value={filters.search}
-          onChange={e => { setFilters({ ...filters, search: e.target.value }); setCurrentPage(1); }}
+          value={searchInput}
+          onChange={e => setSearchInput(e.target.value)}
           className="flex-1 px-4 py-2 border border-[var(--border)] rounded-lg text-sm bg-[var(--surface)] text-[var(--text)]"
         />
         <select
@@ -254,10 +260,10 @@ export default function Categories() {
             </tbody>
           </table>
         </div>
-        {filteredAndSortedCategories.length > 0 && (
+        {total > 0 && (
           <Pagination
             currentPage={currentPage}
-            totalItems={filteredAndSortedCategories.length}
+            totalItems={total}
             pageSize={pageSize}
             onPageChange={setCurrentPage}
             onPageSizeChange={(size) => { setPageSize(size); setCurrentPage(1); }}

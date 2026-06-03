@@ -44,16 +44,25 @@ router.get('/', async (req: AuthRequest, res: Response) => {
     }
     // superadmin sees all
 
-    const requests = await prisma.importRequest.findMany({
-      where: whereFilter,
-      include: {
-        submitter: { select: { id: true, name: true, email: true } },
-        department: { select: { id: true, name: true } },
-        reviewer: { select: { id: true, name: true } },
-      },
-      orderBy: { createdAt: 'desc' },
-    });
-    res.json(requests);
+    const page = Math.max(1, parseInt(req.query.page as string) || 1);
+    const limit = Math.min(Math.max(1, parseInt(req.query.limit as string) || 50), 200);
+    const skip = (page - 1) * limit;
+
+    const [total, requests] = await Promise.all([
+      prisma.importRequest.count({ where: whereFilter }),
+      prisma.importRequest.findMany({
+        where: whereFilter,
+        include: {
+          submitter: { select: { id: true, name: true, email: true } },
+          department: { select: { id: true, name: true } },
+          reviewer: { select: { id: true, name: true } },
+        },
+        orderBy: { createdAt: 'desc' },
+        skip,
+        take: limit,
+      }),
+    ]);
+    res.json({ data: requests, total, page, limit });
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: 'Internal server error' });

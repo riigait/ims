@@ -68,7 +68,7 @@ export const authApi = {
 // Products
 export const productsApi = {
   getAll: (params?: any) => api.get('/products', { params }),
-  getAllForDepartment: (departmentId: string) => api.get('/products', { headers: { 'X-Department-Id': departmentId } }),
+  getAllForDepartment: (departmentId: string, params?: any) => api.get('/products', { headers: { 'X-Department-Id': departmentId }, params }),
   getById: (id: string) => api.get(`/products/${id}`),
   getMovements: (id: string) => api.get(`/products/${id}/movements`),
   create: (data: any) => api.post('/products', data),
@@ -79,7 +79,7 @@ export const productsApi = {
 
 // Categories
 export const categoriesApi = {
-  getAll: () => api.get('/categories'),
+  getAll: (params?: any) => api.get('/categories', { params }),
   getById: (id: string) => api.get(`/categories/${id}`),
   create: (data: any) => api.post('/categories', data),
   update: (id: string, data: any) => api.put(`/categories/${id}`, data),
@@ -88,7 +88,7 @@ export const categoriesApi = {
 
 // Locations
 export const locationsApi = {
-  getAll: () => api.get('/locations'),
+  getAll: (params?: any) => api.get('/locations', { params }),
   getForDepartment: (departmentId: string) => api.get('/locations', { headers: { 'X-Department-Id': departmentId } }),
   getById: (id: string) => api.get(`/locations/${id}`),
   create: (data: any) => api.post('/locations', data),
@@ -107,7 +107,7 @@ export const stockMovementsApi = {
 
 // Stock Details
 export const stockDetailsApi = {
-  getAll: () => api.get('/stock-details'),
+  getAll: (params?: any) => api.get('/stock-details', { params }),
   getByProductId: (productId: string) => api.get(`/stock-details/product/${productId}`),
   getByStatus: (status: string) => api.get(`/stock-details/by-status/${status}`),
   getById: (id: string) => api.get(`/stock-details/${id}`),
@@ -166,7 +166,7 @@ export const deleteRequestsApi = {
 
 // Password Requests
 export const passwordRequestsApi = {
-  getAll: () => api.get('/password-requests'),
+  getAll: (params?: any) => api.get('/password-requests', { params }),
   create: (reason?: string) => api.post('/password-requests', { reason }),
   approve: (id: string, temporaryPassword: string) =>
     api.patch(`/password-requests/${id}/approve`, { temporaryPassword }),
@@ -186,7 +186,7 @@ export const editRequestsApi = {
 
 // Export Requests
 export const exportRequestsApi = {
-  getAll: () => api.get('/export-requests'),
+  getAll: (params?: any) => api.get('/export-requests', { params }),
   create: (type: string, label: string, csvData: string) =>
     api.post('/export-requests', { type, label, csvData }),
   approve: (id: string) => api.patch(`/export-requests/${id}/approve`),
@@ -197,7 +197,7 @@ export const exportRequestsApi = {
 
 // Import Requests
 export const importRequestsApi = {
-  getAll: () => api.get('/import-requests'),
+  getAll: (params?: any) => api.get('/import-requests', { params }),
   approve: (id: string) => api.patch(`/import-requests/${id}/approve`),
   reject: (id: string, reason?: string) => api.patch(`/import-requests/${id}/reject`, { reason }),
 };

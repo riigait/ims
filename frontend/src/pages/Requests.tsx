@@ -123,7 +123,7 @@ export default function Requests() {
     try {
       setImportLoading(true);
       const res = await importRequestsApi.getAll();
-      setImportRequests(res.data);
+      setImportRequests(res.data.data ?? res.data);
     } catch {
       setError('Failed to load import requests.');
     } finally {
@@ -135,7 +135,7 @@ export default function Requests() {
     try {
       setDeleteLoading(true);
       const res = await deleteRequestsApi.getAll(deleteFilter === 'pending' ? 'pending' : undefined);
-      setDeleteRequests(res.data);
+      setDeleteRequests(res.data.data ?? res.data);
     } catch {
       setError('Failed to load delete requests.');
     } finally {
@@ -147,7 +147,7 @@ export default function Requests() {
     try {
       setPasswordLoading(true);
       const res = await passwordRequestsApi.getAll();
-      setPasswordRequests(res.data);
+      setPasswordRequests(res.data.data ?? res.data);
     } catch {
       setError('Failed to load password requests.');
     } finally {
@@ -159,7 +159,7 @@ export default function Requests() {
     try {
       setEditLoading(true);
       const res = await editRequestsApi.getAll(editFilter === 'pending' ? 'pending' : undefined);
-      setEditRequests(res.data);
+      setEditRequests(res.data.data ?? res.data);
     } catch {
       setError('Failed to load edit requests.');
     } finally {
@@ -171,7 +171,7 @@ export default function Requests() {
     try {
       setExportLoading(true);
       const res = await exportRequestsApi.getAll();
-      setExportRequests(res.data);
+      setExportRequests(res.data.data ?? res.data);
     } catch {
       setError('Failed to load export requests.');
     } finally {

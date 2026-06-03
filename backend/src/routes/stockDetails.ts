@@ -18,18 +18,50 @@ async function recalculateProductStock(productId: string): Promise<void> {
 // Get all stock details (optionally filter by department)
 router.get('/', async (req: AuthRequest, res: Response) => {
   try {
-    let whereFilter: any = { product: { pendingApproval: false } };
+    const page = Math.max(1, parseInt(req.query.page as string) || 1);
+    const limit = Math.min(Math.max(1, parseInt(req.query.limit as string) || 50), 200);
+    const skip = (page - 1) * limit;
+    const search = (req.query.search as string)?.trim();
+    const productId = req.query.productId as string;
+    const status = req.query.status as string;
+    const categoryId = req.query.categoryId as string;
+    const locationId = req.query.locationId as string;
+
+    let productFilter: any = { pendingApproval: false };
     if (req.departmentIds && req.departmentIds.length > 0) {
-      whereFilter = { product: { departmentId: { in: req.departmentIds }, pendingApproval: false } };
+      productFilter = { departmentId: { in: req.departmentIds }, pendingApproval: false };
     } else if (req.departmentId) {
-      whereFilter = { product: { departmentId: req.departmentId, pendingApproval: false } };
+      productFilter = { departmentId: req.departmentId, pendingApproval: false };
     }
-    const stockDetails = await prisma.stockDetail.findMany({
-      where: whereFilter,
-      include: { product: { include: { category: true, department: true } }, currentLocation: true },
-      orderBy: { createdAt: 'desc' },
-    });
-    res.json(stockDetails);
+    if (categoryId) productFilter.categoryId = categoryId;
+
+    let whereFilter: any = { product: productFilter };
+    if (productId) whereFilter.productId = productId;
+    if (status) whereFilter.currentStatus = status;
+    if (locationId) whereFilter.currentLocationId = locationId;
+    if (search) {
+      whereFilter.OR = [
+        { stockId: { contains: search, mode: 'insensitive' } },
+        { serialNumber: { contains: search, mode: 'insensitive' } },
+        { assetTag: { contains: search, mode: 'insensitive' } },
+        { barcode: { contains: search, mode: 'insensitive' } },
+        { custodian: { contains: search, mode: 'insensitive' } },
+        { product: { ...productFilter, name: { contains: search, mode: 'insensitive' } } },
+      ];
+    }
+
+    const [total, stockDetails] = await Promise.all([
+      prisma.stockDetail.count({ where: whereFilter }),
+      prisma.stockDetail.findMany({
+        where: whereFilter,
+        include: { product: { include: { category: true, department: true } }, currentLocation: true },
+        orderBy: { createdAt: 'desc' },
+        skip,
+        take: limit,
+      }),
+    ]);
+
+    res.json({ data: stockDetails, total, page, limit });
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: 'Internal server error' });

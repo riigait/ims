@@ -56,6 +56,9 @@ model User {
   reviewedEditRequests       EditRequest[]           @relation("editReviewedBy")
   exportRequests             ExportRequest[]         @relation("exportRequestedBy")
   reviewedExportRequests     ExportRequest[]         @relation("exportReviewedBy")
+
+  @@index([role])
+  @@index([departmentId])
 }
 
 model Product {
@@ -86,6 +89,13 @@ model Product {
   movementItems       StockMovementItem[] @relation("ProductMovementItems")
   stockDetails        StockDetail[]
   editRequests        EditRequest[]
+
+  @@index([departmentId])
+  @@index([categoryId])
+  @@index([locationId])
+  @@index([status])
+  @@index([pendingApproval])
+  @@index([currentStock])
 }
 
 model Category {
@@ -99,6 +109,7 @@ model Category {
   products    Product[]
 
   @@unique([name, departmentId])
+  @@index([departmentId])
 }
 
 model Location {
@@ -118,6 +129,9 @@ model Location {
   movementItemsFromLocation StockMovementItem[] @relation("MovementItemFromLocation")
   movementItemsToLocation   StockMovementItem[] @relation("MovementItemToLocation")
   floorPlans               FloorPlan[]
+
+  @@index([departmentId])
+  @@index([parentId])
 }
 
 model StockMovement {
@@ -137,6 +151,9 @@ model StockMovement {
   updatedAt       DateTime   @updatedAt
 
   @@index([createdAt])
+  @@index([departmentId])
+  @@index([status])
+  @@index([movementType])
 }
 
 model StockMovementItem {
@@ -184,6 +201,9 @@ model StockDetail {
   updatedAt         DateTime   @updatedAt
 
   @@index([stockId])
+  @@index([productId])
+  @@index([currentLocationId])
+  @@index([currentStatus])
 }
 
 model DeployedStock {
@@ -302,6 +322,9 @@ model DeleteRequest {
   reviewer    User?      @relation("reviewedBy", fields: [reviewedBy], references: [id], onDelete: SetNull)
   reviewedAt  DateTime?
   createdAt   DateTime   @default(now())
+
+  @@index([status])
+  @@index([requestedBy])
 }
 
 model InviteCode {
@@ -348,6 +371,9 @@ model PasswordChangeRequest {
   approver      User?      @relation("passwordApprovedBy", fields: [approvedBy], references: [id], onDelete: SetNull)
   approvedAt    DateTime?
   createdAt     DateTime   @default(now())
+
+  @@index([status])
+  @@index([requestedBy])
 }
 
 model EditRequest {
@@ -364,6 +390,10 @@ model EditRequest {
   reviewer         User?     @relation("editReviewedBy", fields: [reviewedBy], references: [id], onDelete: SetNull)
   reviewedAt       DateTime?
   createdAt        DateTime  @default(now())
+
+  @@index([status])
+  @@index([requestedBy])
+  @@index([productId])
 }
 
 model ImportRequest {
@@ -385,6 +415,10 @@ model ImportRequest {
   reviewedAt   DateTime?
   createdAt    DateTime    @default(now())
   updatedAt    DateTime    @updatedAt
+
+  @@index([status])
+  @@index([submittedBy])
+  @@index([departmentId])
 }
 
 model ExportRequest {
@@ -402,4 +436,7 @@ model ExportRequest {
   reviewer        User?       @relation("exportReviewedBy", fields: [reviewedBy], references: [id], onDelete: SetNull)
   reviewedAt      DateTime?
   createdAt       DateTime    @default(now())
+
+  @@index([status])
+  @@index([requestedBy])
 }

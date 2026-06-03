@@ -178,55 +178,75 @@ async function resolveImportCategoryId(row: any, req: AuthRequest) {
 // Get all products
 router.get('/', async (req: AuthRequest, res: Response) => {
   try {
-    // For admins without a selected department, fetch all products they have access to
-    // For staff, only fetch products from their department(s)
-    // For superadmins, fetch all products
-    let whereFilter: any = { pendingApproval: false };
+    const page = Math.max(1, parseInt(req.query.page as string) || 1);
+    const limit = Math.min(Math.max(1, parseInt(req.query.limit as string) || 50), 200);
+    const skip = (page - 1) * limit;
+    const search = (req.query.search as string)?.trim();
+    const categoryId = req.query.categoryId as string;
+    const qLocationId = req.query.locationId as string;
+    const status = req.query.status as string;
+    const unit = req.query.unit as string;
+    const source = req.query.source as string;
+    const csvImportId = req.query.csvImportId as string;
+    const stockStatus = req.query.stockStatus as string;
+    const qDepartmentId = req.query.departmentId as string;
+    const orderByField = req.query.orderBy as string || 'createdAt';
+    const orderDir: 'asc' | 'desc' = (req.query.orderDir as string) === 'asc' ? 'asc' : 'desc';
 
+    // Base department scope (from token)
+    let baseFilter: any = { pendingApproval: false };
     if (req.departmentIds && req.departmentIds.length > 0) {
-      // Staff viewing all assigned departments - include products with null departmentId
-      whereFilter = {
-        pendingApproval: false,
-        OR: [
-          { departmentId: { in: req.departmentIds } },
-          { departmentId: null }
-        ]
-      };
+      baseFilter = { pendingApproval: false, OR: [{ departmentId: { in: req.departmentIds } }, { departmentId: null }] };
     } else if (req.departmentId) {
-      // Single department filter (staff or admin with selected department)
-      whereFilter = { pendingApproval: false, departmentId: req.departmentId };
+      baseFilter = { pendingApproval: false, departmentId: req.departmentId };
     }
-    // For superadmin or admin/staff without selected department: no dept filter, but still hide pending
+    if (qDepartmentId && !req.departmentId) baseFilter = { ...baseFilter, departmentId: qDepartmentId };
 
-    const products = await prisma.product.findMany({
-      where: whereFilter,
-      select: {
-        id: true,
-        sku: true,
-        name: true,
-        description: true,
-        categoryId: true,
-        category: true,
-        departmentId: true,
-        department: true,
-        unit: true,
-        currentStock: true,
-        lowStockThreshold: true,
-        locationId: true,
-        location: true,
-        supplier: true,
-        unitPrice: true,
-        status: true,
-        expiryDate: true,
-        leadTimeDays: true,
-        notes: true,
-        source: true,
-        csvImportId: true,
-        createdAt: true,
-        updatedAt: true,
-      },
+    // Build field filters on top of base
+    let whereFilter: any = { ...baseFilter };
+    if (search) whereFilter.AND = [{ OR: [{ name: { contains: search, mode: 'insensitive' } }, { sku: { contains: search, mode: 'insensitive' } }] }];
+    if (categoryId) whereFilter.categoryId = categoryId;
+    if (qLocationId === '__UNASSIGNED__') whereFilter.locationId = null;
+    else if (qLocationId) whereFilter.locationId = qLocationId;
+    if (status) whereFilter.status = status;
+    if (unit) whereFilter.unit = unit;
+    if (source) whereFilter.source = source;
+    if (csvImportId) whereFilter.csvImportId = csvImportId;
+    if (stockStatus === 'out-of-stock') whereFilter.currentStock = 0;
+    if (stockStatus === 'negative-stock') whereFilter.currentStock = { lt: 0 };
+
+    const orderByMap: Record<string, any> = {
+      name: { name: orderDir }, sku: { sku: orderDir }, stock: { currentStock: orderDir },
+      date: { createdAt: orderDir }, createdAt: { createdAt: orderDir }, 'low-stock': { currentStock: 'asc' },
+    };
+    const orderBy = orderByMap[orderByField] || { createdAt: 'desc' };
+
+    const selectFields = {
+      id: true, sku: true, name: true, description: true, categoryId: true, category: true,
+      departmentId: true, department: true, unit: true, currentStock: true, lowStockThreshold: true,
+      locationId: true, location: true, supplier: true, unitPrice: true, status: true,
+      expiryDate: true, leadTimeDays: true, notes: true, source: true, csvImportId: true,
+      createdAt: true, updatedAt: true,
+    };
+
+    const [total, products, activeCount, discontinuedCount, obsoleteCount, backorderCount, outOfStockCount, negativeStockCount] = await Promise.all([
+      prisma.product.count({ where: whereFilter }),
+      prisma.product.findMany({ where: whereFilter, select: selectFields, orderBy, skip, take: limit }),
+      prisma.product.count({ where: { ...baseFilter, status: 'active' } }),
+      prisma.product.count({ where: { ...baseFilter, status: 'discontinued' } }),
+      prisma.product.count({ where: { ...baseFilter, status: 'obsolete' } }),
+      prisma.product.count({ where: { ...baseFilter, status: 'on-backorder' } }),
+      prisma.product.count({ where: { ...baseFilter, currentStock: 0 } }),
+      prisma.product.count({ where: { ...baseFilter, currentStock: { lt: 0 } } }),
+    ]);
+
+    res.json({
+      data: await attachLiveProductLocations(products),
+      total,
+      page,
+      limit,
+      stats: { active: activeCount, discontinued: discontinuedCount, obsolete: obsoleteCount, backorder: backorderCount, outOfStock: outOfStockCount, negativeStock: negativeStockCount },
     });
-    res.json(await attachLiveProductLocations(products));
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: 'Internal server error' });

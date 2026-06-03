@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useLocation as useRouteLocation, useNavigate } from 'react-router-dom';
 import { X, Edit, Trash2, ChevronRight, Plus } from 'lucide-react';
 import { locationsApi, departmentsApi } from '@/services/api';
@@ -18,10 +18,13 @@ export default function Locations() {
   const routeState = (routeLocation.state as any) || {};
   const navigate = useNavigate();
   const user = JSON.parse(localStorage.getItem('user') || '{}');
+  const hasLoaded = useRef(false);
   const [locations, setLocations] = useState<Location[]>([]);
+  const [total, setTotal] = useState(0);
   const [departments, setDepartments] = useState<Department[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   const [typeFilter, setTypeFilter] = useState('');
   const [departmentFilter, setDepartmentFilter] = useState('');
   const [showEmptyOnly, setShowEmptyOnly] = useState(routeState.notifFilter === 'location:empty');
@@ -41,28 +44,39 @@ export default function Locations() {
   });
   const [formError, setFormError] = useState('');
 
-  const fetchLocations = async () => {
+  const loadLocations = useCallback(async () => {
+    if (!hasLoaded.current) setLoading(true);
     try {
-      const [locationsRes, deptRes] = await Promise.all([
-        locationsApi.getAll(),
-        user.role === 'superadmin' ? departmentsApi.getAll() : Promise.resolve({ data: [] }),
-      ]);
-      setLocations(locationsRes.data);
-      setDepartments(deptRes.data);
+      const params: any = { page: currentPage, limit: pageSize };
+      if (debouncedSearch) params.search = debouncedSearch;
+      if (typeFilter) params.type = typeFilter;
+      if (departmentFilter) params.departmentId = departmentFilter;
+      const res = await locationsApi.getAll(params);
+      setLocations(res.data.data);
+      setTotal(res.data.total);
     } catch (err) {
       console.error('Failed to fetch locations:', err);
     } finally {
       setLoading(false);
+      hasLoaded.current = true;
     }
-  };
+  }, [currentPage, pageSize, debouncedSearch, typeFilter, departmentFilter]);
 
   useEffect(() => {
-    const handleStorageChange = () => { setLoading(true); fetchLocations(); };
-    setLoading(true);
-    fetchLocations();
+    if (user.role === 'superadmin') {
+      departmentsApi.getAll().then(r => setDepartments(r.data)).catch(() => {});
+    }
+    const handleStorageChange = () => loadLocations();
     window.addEventListener('storage', handleStorageChange);
     return () => window.removeEventListener('storage', handleStorageChange);
   }, []);
+
+  useEffect(() => {
+    const timer = setTimeout(() => { setDebouncedSearch(searchTerm); setCurrentPage(1); }, 400);
+    return () => clearTimeout(timer);
+  }, [searchTerm]);
+
+  useEffect(() => { loadLocations(); }, [loadLocations]);
 
   const openNewDrawer = () => {
     setSelectedItem(null);
@@ -125,10 +139,10 @@ export default function Locations() {
         await locationsApi.update(editingItem.id, formData);
         setSelectedItem({ ...editingItem, ...formData });
         setEditingItem(null);
-        await fetchLocations();
+        await loadLocations();
       } else {
         await locationsApi.create(formData);
-        await fetchLocations();
+        await loadLocations();
         closeDrawer();
       }
       setFormError('');
@@ -141,7 +155,7 @@ export default function Locations() {
     if (!selectedItem) return;
     try {
       await locationsApi.delete(selectedItem.id);
-      await fetchLocations();
+      await loadLocations();
       closeDrawer();
     } catch {
       setError('Failed to delete location');
@@ -149,21 +163,12 @@ export default function Locations() {
     }
   };
 
-  const filteredLocations = locations.filter(loc => {
-    const matchesSearch = loc.name.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesType = !typeFilter || loc.type === typeFilter;
-    const matchesDept = !departmentFilter || loc.departmentId === departmentFilter;
-    const count = (loc as any)._count;
-    const matchesEmpty = !showEmptyOnly || (count && count.products === 0 && count.stockDetails === 0);
-    return matchesSearch && matchesType && matchesDept && matchesEmpty;
-  });
-
-  const sortedLocations = [...filteredLocations].sort((a, b) => {
-    if (sortBy === 'name') return a.name.localeCompare(b.name);
-    if (sortBy === 'recently-added') return new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime();
-    return 0;
-  });
-  const paginatedLocations = sortedLocations.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+  // showEmptyOnly is client-side only (needs _count from loaded data)
+  const filteredLocations = showEmptyOnly
+    ? locations.filter(loc => { const c = (loc as any)._count; return c && c.products === 0 && c.stockDetails === 0; })
+    : locations;
+  const paginatedLocations = filteredLocations;
+  const sortedLocations = filteredLocations;
 
   const locationTypes = Array.from(new Set(locations.map(l => l.type))).sort();
 
@@ -183,26 +188,15 @@ export default function Locations() {
 
   if (loading) return <div className="text-center py-12">Loading...</div>;
 
-  const rootCount = locations.filter(l => !l.parentId).length;
-  const subCount = locations.filter(l => !!l.parentId).length;
-
   const filterContent = (
     <>
-      <p className="text-sm text-[var(--text-muted)]">
-        {filteredLocations.length !== locations.length
-          ? <><span className="text-[var(--primary)] font-medium">{filteredLocations.length} filtered</span> of {locations.length} total</>
-          : <>{locations.length} total</>
-        }
-        {rootCount > 0 && <> · <span className="text-blue-600">{rootCount} top-level</span></>}
-        {subCount > 0 && <> · <span className="text-violet-600">{subCount} sub-locations</span></>}
-        {locationTypes.length > 0 && <> · <span className="text-[var(--text-muted)]">{locationTypes.length} type{locationTypes.length !== 1 ? 's' : ''}</span></>}
-      </p>
+      <p className="text-sm text-[var(--text-muted)]">{total} total</p>
       <div className="flex gap-2">
         <input
           type="text"
           placeholder="Search by location name…"
           value={searchTerm}
-          onChange={e => { setSearchTerm(e.target.value); setCurrentPage(1); }}
+          onChange={e => { setSearchTerm(e.target.value); }}
           className="flex-1 px-4 py-2 border border-[var(--border)] rounded-lg text-sm bg-[var(--surface)] text-[var(--text)]"
         />
         <select
@@ -296,7 +290,7 @@ export default function Locations() {
         {sortedLocations.length > 0 && (
           <Pagination
             currentPage={currentPage}
-            totalItems={sortedLocations.length}
+            totalItems={total}
             pageSize={pageSize}
             onPageChange={setCurrentPage}
             onPageSizeChange={(size) => { setPageSize(size); setCurrentPage(1); }}

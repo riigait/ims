@@ -49,19 +49,28 @@ router.get('/', authMiddleware, async (req: AuthRequest, res: Response) => {
     }
     // superadmin sees all
 
-    const requests = await prisma.exportRequest.findMany({
-      where,
-      include: {
-        requester: { select: { id: true, name: true, email: true } },
-        department: { select: { id: true, name: true } },
-        reviewer: { select: { id: true, name: true, email: true } },
-      },
-      orderBy: { createdAt: 'desc' },
-    });
+    const page = Math.max(1, parseInt(req.query.page as string) || 1);
+    const limit = Math.min(Math.max(1, parseInt(req.query.limit as string) || 50), 200);
+    const skip = (page - 1) * limit;
+
+    const [total, requests] = await Promise.all([
+      prisma.exportRequest.count({ where }),
+      prisma.exportRequest.findMany({
+        where,
+        include: {
+          requester: { select: { id: true, name: true, email: true } },
+          department: { select: { id: true, name: true } },
+          reviewer: { select: { id: true, name: true, email: true } },
+        },
+        orderBy: { createdAt: 'desc' },
+        skip,
+        take: limit,
+      }),
+    ]);
 
     // Strip csvData from list (only send on download)
     const sanitized = requests.map(({ csvData: _, ...r }) => r);
-    res.json(sanitized);
+    res.json({ data: sanitized, total, page, limit });
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: 'Internal server error' });

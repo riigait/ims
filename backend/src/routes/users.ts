@@ -49,13 +49,22 @@ router.get('/', authMiddleware, async (req: AuthRequest, res: Response) => {
     const departmentIds = req.accessibleDepartmentIds || [];
     const whereClause = req.userRole === 'superadmin' ? {} : assignedStaffWhere(departmentIds);
 
-    const users = await prisma.user.findMany({
-      where: whereClause,
-      select: USER_SELECT,
-      orderBy: { createdAt: 'desc' },
-    });
+    const page = Math.max(1, parseInt(req.query.page as string) || 1);
+    const limit = Math.min(Math.max(1, parseInt(req.query.limit as string) || 50), 200);
+    const skip = (page - 1) * limit;
+    const search = (req.query.search as string)?.trim();
+    const roleFilter = req.query.role as string;
 
-    res.json(users);
+    const fieldFilter: any = { ...whereClause };
+    if (search) fieldFilter.OR = [{ name: { contains: search, mode: 'insensitive' } }, { email: { contains: search, mode: 'insensitive' } }];
+    if (roleFilter) fieldFilter.role = roleFilter;
+
+    const [total, users] = await Promise.all([
+      prisma.user.count({ where: fieldFilter }),
+      prisma.user.findMany({ where: fieldFilter, select: USER_SELECT, orderBy: { createdAt: 'desc' }, skip, take: limit }),
+    ]);
+
+    res.json({ data: users, total, page, limit });
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: 'Internal server error' });

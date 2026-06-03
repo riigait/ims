@@ -40,16 +40,25 @@ router.get('/', authMiddleware, async (req: AuthRequest, res: Response) => {
       where = { ...where, requestedBy: req.userId };
     }
 
-    const deleteRequests = await prisma.deleteRequest.findMany({
-      where,
-      include: {
-        requester: { select: { id: true, name: true, email: true } },
-        reviewer: { select: { id: true, name: true, email: true } },
-      },
-      orderBy: { createdAt: 'desc' },
-    });
+    const page = Math.max(1, parseInt(req.query.page as string) || 1);
+    const limit = Math.min(Math.max(1, parseInt(req.query.limit as string) || 50), 200);
+    const skip = (page - 1) * limit;
 
-    res.json(deleteRequests);
+    const [total, deleteRequests] = await Promise.all([
+      prisma.deleteRequest.count({ where }),
+      prisma.deleteRequest.findMany({
+        where,
+        include: {
+          requester: { select: { id: true, name: true, email: true } },
+          reviewer: { select: { id: true, name: true, email: true } },
+        },
+        orderBy: { createdAt: 'desc' },
+        skip,
+        take: limit,
+      }),
+    ]);
+
+    res.json({ data: deleteRequests, total, page, limit });
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: 'Internal server error' });
