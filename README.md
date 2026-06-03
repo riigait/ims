@@ -2,6 +2,8 @@
 
 An open-source inventory management system for tracking products, physical assets, stock movements, locations, and departments. Built for IT asset tracking, office equipment inventory, and multi-department stock management in companies and government offices.
 
+![IMS landing page](frontend/public/landing/ims-landing-page.png)
+
 ## Features
 
 - **Landing Page** - public IMS overview with login, open app, dashboard, and invite registration actions
@@ -112,8 +114,6 @@ Never commit `.env` files. Keep database passwords and JWT secrets private.
 ## Landing Page
 
 The app includes a public landing page at `/` for introducing IMS before login.
-
-![IMS landing page](frontend/public/landing/ims-landing-page.png)
 
 It highlights:
 
