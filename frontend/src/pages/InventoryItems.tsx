@@ -229,6 +229,7 @@ export default function InventoryItems() {
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
   const [verifyingAll, setVerifyingAll] = useState(false);
+  const [verifyingItem, setVerifyingItem] = useState(false);
 
   const fetchData = async () => {
     try {
@@ -261,6 +262,17 @@ export default function InventoryItems() {
       await fetchData();
     } catch (err) { console.error(err); }
     finally { setVerifyingAll(false); }
+  };
+
+  const handleVerifyItem = async (item: any) => {
+    setVerifyingItem(true);
+    try {
+      await stockDetailsApi.bulkVerify([item.id]);
+      await fetchData();
+      const res = await stockDetailsApi.getById(item.id);
+      setDrawerItem(res.data);
+    } catch (err) { console.error(err); }
+    finally { setVerifyingItem(false); }
   };
 
   const openDrawer = async (item: any) => {
@@ -1067,7 +1079,16 @@ export default function InventoryItems() {
 
                   {/* Audit */}
                   <section>
-                    <h3 className="text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wider mb-3">Audit</h3>
+                    <div className="flex items-center justify-between mb-3">
+                      <h3 className="text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wider">Audit</h3>
+                      <button
+                        onClick={() => handleVerifyItem(drawerItem)}
+                        disabled={verifyingItem}
+                        className="text-xs px-2.5 py-1 rounded bg-[var(--primary)] text-white hover:opacity-90 disabled:opacity-50 font-medium"
+                      >
+                        {verifyingItem ? 'Verifying…' : 'Mark as Verified Today'}
+                      </button>
+                    </div>
                     <div className="grid grid-cols-2 gap-3">
                       <Field label="Last Checked Date" value={drawerItem.lastCheckedDate ? new Date(drawerItem.lastCheckedDate).toLocaleDateString() : null} />
                       <Field label="Checked By" value={drawerItem.checkedBy} />
