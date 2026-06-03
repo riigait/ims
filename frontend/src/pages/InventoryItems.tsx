@@ -522,6 +522,10 @@ export default function InventoryItems() {
   }, {} as Record<string, number>);
 
   const showDept = localStorage.getItem('currentDepartmentId') === ALL_DEPARTMENTS_ID;
+  const SIX_MONTHS_MS = 6 * 30 * 24 * 60 * 60 * 1000;
+  const allVerified = filtered.length > 0 && filtered.every((i: any) =>
+    i.lastCheckedDate && Date.now() - new Date(i.lastCheckedDate).getTime() < SIX_MONTHS_MS
+  );
 
   if (loading) return <div className="text-center py-12 text-[var(--text-muted)]">Loading...</div>;
 
@@ -550,15 +554,17 @@ export default function InventoryItems() {
               <span className="text-blue-600">{statusCounts.sold} sold</span> ·{' '}
               <span className="text-slate-500">{statusCounts.archived} archived</span>
             </p>
-            <div className="flex items-center gap-2">
-              <button
-                onClick={() => handleBulkVerify(filtered.map((i: any) => i.id))}
-                disabled={verifyingAll || filtered.length === 0}
-                className="text-xs px-3 py-1.5 rounded bg-[var(--primary)] text-white hover:opacity-90 disabled:opacity-50 font-medium whitespace-nowrap"
-              >
-                {verifyingAll ? 'Verifying…' : `Mark all ${filtered.length} as verified today`}
-              </button>
-            </div>
+            {!allVerified && (
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => handleBulkVerify(filtered.map((i: any) => i.id))}
+                  disabled={verifyingAll || filtered.length === 0}
+                  className="text-xs px-3 py-1.5 rounded bg-[var(--primary)] text-white hover:opacity-90 disabled:opacity-50 font-medium whitespace-nowrap"
+                >
+                  {verifyingAll ? 'Verifying…' : `Mark all ${filtered.length} as verified today`}
+                </button>
+              </div>
+            )}
             <div className="flex flex-col gap-2">
         {/* Row 1: Search + Sort + Clear */}
         <div className="flex gap-2">
@@ -797,16 +803,16 @@ export default function InventoryItems() {
         </div>
       ) : (
         <div className="border border-[var(--border)] rounded-lg overflow-hidden">
-          <div className={`hidden md:grid gap-4 px-4 py-2 bg-[var(--surface-2)] text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wide border-b border-[var(--border)] ${showDept ? 'md:grid-cols-9' : 'md:grid-cols-8'}`}>
-            <div>Asset ID</div>
-            <div>Product</div>
-            <div>Serial No.</div>
-            <div>MAC / Barcode</div>
-            <div>Condition</div>
-            <div>Status</div>
-            <div>Location</div>
-            <div>Last Checked</div>
-            {showDept && <div>Department</div>}
+          <div className={`hidden md:grid gap-4 px-4 py-2 bg-[var(--surface-2)] text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wide border-b border-[var(--border)] items-center ${showDept ? 'md:grid-cols-9' : 'md:grid-cols-8'}`}>
+            <div className="text-left">Asset ID</div>
+            <div className="text-left">Product</div>
+            <div className="text-left">Serial No.</div>
+            <div className="text-left">MAC / Barcode</div>
+            <div className="text-left">Condition</div>
+            <div className="text-left">Status</div>
+            <div className="text-left">Location</div>
+            <div className="text-left">Last Checked</div>
+            {showDept && <div className="text-left">Department</div>}
           </div>
           {paginated.map(item => (
             <div
