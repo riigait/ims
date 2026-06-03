@@ -1,15 +1,9 @@
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { X, Copy, Trash2, Shield, Users, CheckCircle, Mail, ArrowLeft, Edit, ChevronRight } from 'lucide-react';
-import { authApi, departmentsApi, usersApi, invitesApi } from '@/services/api';
+import { authApi, usersApi, invitesApi } from '@/services/api';
 import Pagination from '@/components/Pagination';
 
-interface Department {
-  id: string;
-  name: string;
-  description?: string;
-  createdAt: string;
-}
 
 interface User {
   id: string;
@@ -18,6 +12,7 @@ interface User {
   role: 'superadmin' | 'admin' | 'staff';
   departmentId?: string;
   adminDepartments?: Array<{ departmentId: string; department: { id: string; name: string; description?: string } }>;
+  staffDepartments?: Array<{ departmentId: string; department: { id: string; name: string; description?: string } }>;
   createdAt: string;
 }
 
@@ -43,7 +38,6 @@ export default function AdminUsers() {
   const [users, setUsers] = useState<User[]>([]);
   const [totalUsers, setTotalUsers] = useState(0);
   const [invites, setInvites] = useState<InviteCode[]>([]);
-  const [departments, setDepartments] = useState<Department[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [generateRole, setGenerateRole] = useState<'superadmin' | 'admin' | 'staff'>('staff');
@@ -85,17 +79,15 @@ export default function AdminUsers() {
   const loadData = async () => {
     if (!hasLoaded.current) setLoading(true);
     try {
-      const [usersRes, invitesRes, deptsRes] = await Promise.all([
+      const [usersRes, invitesRes] = await Promise.all([
         usersApi.getAll({ page: currentPage, limit: pageSize }),
         invitesApi.getAll(),
-        departmentsApi.getAll(),
       ]);
       const usersBody = usersRes.data;
       setUsers(usersBody.data ?? usersBody);
       setTotalUsers(usersBody.total ?? (usersBody.data ?? usersBody).length);
       const invitesBody = invitesRes.data;
       setInvites(invitesBody.data ?? invitesBody);
-      setDepartments(deptsRes.data);
     } catch {
       setError('Failed to load data');
     } finally {
@@ -195,7 +187,10 @@ export default function AdminUsers() {
     if (user.role === 'admin') {
       return user.adminDepartments?.map(ad => ad.department.name).join(', ') || 'Unassigned';
     }
-    return user.departmentId ? departments.find(d => d.id === user.departmentId)?.name ?? 'Unknown' : 'Unassigned';
+    if (user.role === 'staff') {
+      return user.staffDepartments?.map(sd => sd.department.name).join(', ') || 'Unassigned';
+    }
+    return 'Unassigned';
   };
 
   if (loading) return <div className="flex items-center justify-center h-screen"><div className="text-[var(--text-muted)]">Loading...</div></div>;
@@ -535,10 +530,12 @@ export default function AdminUsers() {
                               <span key={ad.departmentId} className="px-2 py-1 bg-green-50 text-green-700 text-xs rounded border border-green-200">{ad.department.name}</span>
                             ))}
                           </div>
-                        ) : drawerUser.role === 'staff' && drawerUser.departmentId ? (
-                          <span className="px-2 py-1 bg-purple-50 text-purple-700 text-xs rounded border border-purple-200">
-                            {departments.find(d => d.id === drawerUser.departmentId)?.name ?? 'Unknown'}
-                          </span>
+                        ) : drawerUser.role === 'staff' && drawerUser.staffDepartments?.length ? (
+                          <div className="flex flex-wrap gap-1">
+                            {drawerUser.staffDepartments.map(sd => (
+                              <span key={sd.departmentId} className="px-2 py-1 bg-purple-50 text-purple-700 text-xs rounded border border-purple-200">{sd.department.name}</span>
+                            ))}
+                          </div>
                         ) : (
                           <span className="text-sm text-[var(--text-muted)]">Unassigned</span>
                         )}
