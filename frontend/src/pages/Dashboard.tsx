@@ -384,17 +384,21 @@ export default function Dashboard() {
             <p className="text-sm text-[var(--text-muted)] mt-1">Get started by setting up your locations, then adding your first products.</p>
           </div>
           <div className="flex flex-wrap justify-center gap-2 pt-1">
+            <button onClick={() => navigate('/categories')}
+              className="px-4 py-2 text-sm font-medium rounded-lg border border-[var(--border)] bg-[var(--surface-2)] text-[var(--text)] hover:bg-[var(--border)] transition-colors">
+              1. Add a Category
+            </button>
             <button onClick={() => navigate('/locations')}
               className="px-4 py-2 text-sm font-medium rounded-lg border border-[var(--border)] bg-[var(--surface-2)] text-[var(--text)] hover:bg-[var(--border)] transition-colors">
-              1. Add a Location
+              2. Add a Location
             </button>
             <button onClick={() => navigate('/products/bulk-add')}
               className="px-4 py-2 text-sm font-medium rounded-lg bg-[var(--primary)] text-white hover:opacity-90 transition-opacity">
-              2. Add Products
+              3. Add Products
             </button>
             <button onClick={() => navigate('/import-pclsf')}
               className="px-4 py-2 text-sm font-medium rounded-lg border border-[var(--border)] bg-[var(--surface-2)] text-[var(--text)] hover:bg-[var(--border)] transition-colors">
-              3. Import via CSV
+              4. Import via CSV
             </button>
           </div>
         </div>
