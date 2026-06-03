@@ -1,4 +1,4 @@
-import { Router, Response } from 'express';
+import { Router, Response, NextFunction } from 'express';
 import prisma from '../utils/prisma';
 import { AuthRequest, canAccessDepartment } from '../middleware/auth';
 import { logAudit } from '../utils/audit';
@@ -186,7 +186,7 @@ async function resolveImportCategoryId(row: any, req: AuthRequest) {
 }
 
 // Get all products
-router.get('/', async (req: AuthRequest, res: Response) => {
+router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const page = Math.max(1, parseInt(req.query.page as string) || 1);
     const limit = Math.min(Math.max(1, parseInt(req.query.limit as string) || 50), 200);
@@ -258,13 +258,12 @@ router.get('/', async (req: AuthRequest, res: Response) => {
       stats: { active: activeCount, discontinued: discontinuedCount, obsolete: obsoleteCount, backorder: backorderCount, outOfStock: outOfStockCount, negativeStock: negativeStockCount },
     });
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Internal server error' });
+    next(error);
   }
 });
 
 // Get product by ID
-router.get('/:id', async (req: AuthRequest, res: Response) => {
+router.get('/:id', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const product = await prisma.product.findUnique({
       where: { id: req.params.id, pendingApproval: false },
@@ -303,13 +302,12 @@ router.get('/:id', async (req: AuthRequest, res: Response) => {
     const [productWithLiveLocation] = await attachLiveProductLocations([product]);
     res.json(productWithLiveLocation);
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Internal server error' });
+    next(error);
   }
 });
 
 // Get movement history for a product
-router.get('/:id/movements', async (req: AuthRequest, res: Response) => {
+router.get('/:id/movements', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const product = await prisma.product.findUnique({ where: { id: req.params.id } });
     if (!product) return res.status(404).json({ error: 'Product not found' });
@@ -331,13 +329,12 @@ router.get('/:id/movements', async (req: AuthRequest, res: Response) => {
 
     res.json(movements);
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Internal server error' });
+    next(error);
   }
 });
 
 // Bulk create products
-router.post('/bulk', async (req: AuthRequest, res: Response) => {
+router.post('/bulk', async (req: AuthRequest, res: Response, next: NextFunction) => {
   const { products: rows } = req.body;
   if (!Array.isArray(rows) || rows.length === 0) {
     return res.status(400).json({ error: 'No products provided' });
@@ -408,11 +405,10 @@ router.post('/bulk', async (req: AuthRequest, res: Response) => {
 });
 
 // Create product
-router.post('/', async (req: AuthRequest, res: Response) => {
+router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const { sku, name, description, categoryId, locationId, unit, currentStock, lowStockThreshold, supplier, unitPrice, status, expiryDate, leadTimeDays, notes } = req.body;
 
-    console.log(`[PRODUCT CREATE] Received request with currentStock: ${currentStock} (type: ${typeof currentStock}), userId: ${req.userId}`);
 
     const validationError = validateProductWrite(req.body, true);
     if (validationError) return res.status(400).json({ error: validationError });
@@ -462,17 +458,12 @@ router.post('/', async (req: AuthRequest, res: Response) => {
 
     // Create opening stock movement if currentStock > 0
     const stockValue = parseInt(currentStock) || 0;
-    console.log(`[OPENING STOCK] Check: stockValue=${stockValue}, condition=${stockValue > 0}`);
 
     if (stockValue > 0) {
       try {
-
-        console.log(`[OPENING STOCK] Creating opening stock for product ${product.id} with ${stockValue} units`);
         await createOpeningStockForProduct(product, stockValue, locationId || null, req);
-      } catch (error: any) {
-        console.error('[OPENING STOCK] FAILED:', error.message);
-        console.error('[OPENING STOCK] Error code:', error.code);
-        console.error('[OPENING STOCK] Full error:', error);
+      } catch {
+        // Opening stock failure does not abort product creation
       }
     }
 
@@ -497,13 +488,12 @@ router.post('/', async (req: AuthRequest, res: Response) => {
       _needsOpeningStock: false,
     });
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Internal server error' });
+    next(error);
   }
 });
 
 // Update product — currentStock excluded; use stock movements to change stock levels
-router.put('/:id', async (req: AuthRequest, res: Response) => {
+router.put('/:id', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const existing = await prisma.product.findUnique({ where: { id: req.params.id } });
     if (!existing) return res.status(404).json({ error: 'Product not found' });
@@ -559,13 +549,12 @@ router.put('/:id', async (req: AuthRequest, res: Response) => {
     await logAudit({ userId: req.userId, action: 'UPDATE', entityType: 'product', entityId: product.id, changes: { name, sku } });
     res.json(product);
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Internal server error' });
+    next(error);
   }
 });
 
 // Delete product (admin only)
-router.delete('/:id', async (req: AuthRequest, res: Response) => {
+router.delete('/:id', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     if (req.userRole !== 'admin') {
       return res.status(403).json({ error: 'Staff must submit a delete request instead' });
@@ -581,13 +570,12 @@ router.delete('/:id', async (req: AuthRequest, res: Response) => {
     await logAudit({ userId: req.userId, action: 'DELETE', entityType: 'product', entityId: req.params.id });
     res.json({ message: 'Product deleted' });
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Internal server error' });
+    next(error);
   }
 });
 
 // Export products as CSV
-router.get('/export/csv', async (req: AuthRequest, res: Response) => {
+router.get('/export/csv', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const products = await prisma.product.findMany({
       select: {
@@ -614,13 +602,12 @@ router.get('/export/csv', async (req: AuthRequest, res: Response) => {
     res.setHeader('Content-Disposition', 'attachment; filename="products.csv"');
     res.send(csv);
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Failed to export products' });
+    next(error);
   }
 });
 
 // Import products from CSV
-router.post('/import/csv', async (req: AuthRequest, res: Response) => {
+router.post('/import/csv', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     if (!req.body.csv) {
       return res.status(400).json({ error: 'CSV data required' });
@@ -717,18 +704,15 @@ router.post('/import/csv', async (req: AuthRequest, res: Response) => {
       message: `Imported ${created.length} products${errors.length > 0 ? ` with ${errors.length} errors` : ''}`,
     });
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Failed to import products' });
+    next(error);
   }
 });
 
 // DEBUG: Create opening stock for a product (test endpoint)
-router.post('/:id/create-opening-stock', async (req: AuthRequest, res: Response) => {
+router.post('/:id/create-opening-stock', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const { quantity } = req.body;
     const productId = req.params.id;
-
-    console.log(`[DEBUG] Creating opening stock for product ${productId} with quantity ${quantity}`);
 
     const product = await prisma.product.findUnique({ where: { id: productId } });
     if (!product) {
@@ -743,8 +727,6 @@ router.post('/:id/create-opening-stock', async (req: AuthRequest, res: Response)
     }
     const movementNo = await generateMovementNo();
 
-    console.log(`[DEBUG] Generated movement: ${movementNo}, stocks: ${stockIds.join(',')}`);
-
     const stockDetails = [];
     for (const stockId of stockIds) {
       const detail = await prisma.stockDetail.create({
@@ -756,7 +738,6 @@ router.post('/:id/create-opening-stock', async (req: AuthRequest, res: Response)
         },
       });
       stockDetails.push(detail);
-      console.log(`[DEBUG] Created stock detail: ${detail.stockId}`);
     }
 
     const movement = await prisma.stockMovement.create({
@@ -781,10 +762,8 @@ router.post('/:id/create-opening-stock', async (req: AuthRequest, res: Response)
       include: { items: true },
     });
 
-    console.log(`[DEBUG] Created movement ${movement.movementNo} with ${movement.items.length} items`);
     res.json({ success: true, movement });
   } catch (error: any) {
-    console.error('[DEBUG] Error:', error.message);
     res.status(500).json({ error: error.message });
   }
 });

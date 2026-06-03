@@ -1,9 +1,10 @@
-import { Router, Request, Response } from 'express';
+import { Router, Request, Response, NextFunction } from 'express';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
 import prisma from '../utils/prisma';
 import { authMiddleware, AuthRequest, getJwtSecret } from '../middleware/auth';
+import { validatePassword } from '../utils/passwordPolicy';
 
 const router = Router();
 
@@ -36,7 +37,7 @@ function isLocalSetupRequest(req: Request): boolean {
 }
 
 // Check if superadmin exists; create default if not
-router.post('/ensure-superadmin', async (req: Request, res: Response) => {
+router.post('/ensure-superadmin', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const bootstrapAllowed = process.env.NODE_ENV !== 'production' || process.env.ALLOW_SUPERADMIN_BOOTSTRAP === 'true';
     const remoteBootstrapAllowed = process.env.ALLOW_REMOTE_SUPERADMIN_BOOTSTRAP === 'true';
@@ -73,26 +74,20 @@ router.post('/ensure-superadmin', async (req: Request, res: Response) => {
       message: 'Temporary superadmin created. Complete initial setup immediately.',
     });
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Internal server error' });
+    next(error);
   }
 });
 
 // Register — use invite code to get role; defaults to staff if no invite
-router.post('/register', async (req: Request, res: Response) => {
+router.post('/register', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const validationError = validateRegister(req.body);
     if (validationError) return res.status(400).json({ error: validationError });
 
     const { name, email, password, inviteCode } = req.body;
 
-    // Validate password: 8+ chars with uppercase, lowercase, and number
-    const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)[a-zA-Z\d@$!%*?&]{8,}$/;
-    if (!passwordRegex.test(password)) {
-      return res.status(400).json({
-        error: 'Password must be at least 8 characters with uppercase, lowercase, and number'
-      });
-    }
+    const pwError = validatePassword(password);
+    if (pwError) return res.status(400).json({ error: pwError });
 
     const existing = await prisma.user.findUnique({ where: { email } });
     if (existing) return res.status(400).json({ error: 'User already exists' });
@@ -136,13 +131,12 @@ router.post('/register', async (req: Request, res: Response) => {
       user: { id: user.id, name: user.name, email: user.email, role: user.role, departmentId: user.departmentId, initialSetupComplete: user.initialSetupComplete }
     });
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Internal server error' });
+    next(error);
   }
 });
 
 // Login
-router.post('/login', async (req: Request, res: Response) => {
+router.post('/login', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const validationError = validateLogin(req.body);
     if (validationError) return res.status(400).json({ error: validationError });
@@ -180,13 +174,12 @@ router.post('/login', async (req: Request, res: Response) => {
       }
     });
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Internal server error' });
+    next(error);
   }
 });
 
 // Get current user — protected by authMiddleware
-router.get('/me', authMiddleware, async (req: AuthRequest, res: Response) => {
+router.get('/me', authMiddleware, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const user = await prisma.user.findUnique({ where: { id: req.userId } });
     if (!user) return res.status(404).json({ error: 'User not found' });
@@ -212,13 +205,12 @@ router.get('/me', authMiddleware, async (req: AuthRequest, res: Response) => {
       staffDepartments,
     });
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Internal server error' });
+    next(error);
   }
 });
 
 // Change own password — all authenticated users
-router.post('/change-password', authMiddleware, async (req: AuthRequest, res: Response) => {
+router.post('/change-password', authMiddleware, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const { currentPassword, newPassword } = req.body;
 
@@ -250,13 +242,12 @@ router.post('/change-password', authMiddleware, async (req: AuthRequest, res: Re
 
     res.json({ message: 'Password changed successfully' });
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Internal server error' });
+    next(error);
   }
 });
 
 // Reset user password — superadmin only (set temporary password)
-router.post('/reset-password/:userId', authMiddleware, async (req: AuthRequest, res: Response) => {
+router.post('/reset-password/:userId', authMiddleware, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const requester = await prisma.user.findUnique({ where: { id: req.userId } });
     if (!requester || requester.role !== 'superadmin') {
@@ -264,9 +255,8 @@ router.post('/reset-password/:userId', authMiddleware, async (req: AuthRequest, 
     }
 
     const { newPassword } = req.body;
-    if (!newPassword || newPassword.length < 8) {
-      return res.status(400).json({ error: 'Password must be at least 8 characters' });
-    }
+    const pwError = validatePassword(newPassword);
+    if (pwError) return res.status(400).json({ error: pwError });
 
     const targetUser = await prisma.user.findUnique({ where: { id: req.params.userId } });
     if (!targetUser) return res.status(404).json({ error: 'User not found' });
@@ -279,19 +269,21 @@ router.post('/reset-password/:userId', authMiddleware, async (req: AuthRequest, 
 
     res.json({ message: `Password reset for ${targetUser.email}` });
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Internal server error' });
+    next(error);
   }
 });
 
 // Complete initial setup — change default email and password
-router.post('/complete-initial-setup', authMiddleware, async (req: AuthRequest, res: Response) => {
+router.post('/complete-initial-setup', authMiddleware, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const { newEmail, newPassword, newName } = req.body;
 
     if (!newEmail || !newPassword || !newName) {
       return res.status(400).json({ error: 'Missing required fields' });
     }
+
+    const pwError = validatePassword(newPassword);
+    if (pwError) return res.status(400).json({ error: pwError });
 
     const user = await prisma.user.findUnique({ where: { id: req.userId } });
     if (!user) return res.status(404).json({ error: 'User not found' });
@@ -334,8 +326,7 @@ router.post('/complete-initial-setup', authMiddleware, async (req: AuthRequest, 
       },
     });
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Internal server error' });
+    next(error);
   }
 });
 
