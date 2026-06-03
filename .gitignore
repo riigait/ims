@@ -50,8 +50,10 @@ $RECYCLE.BIN/
 .vscode/
 .idea/
 
-# Claude Code local settings (machine-specific)
-.claude/
+# Claude Code — only machine-specific files are ignored; Markdown memory is committed
+.claude/settings.local.json
+.claude/generated/
+CLAUDE.local.md
 
 # Deployment
 .vercel/
