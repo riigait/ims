@@ -196,6 +196,16 @@ export const exportRequestsApi = {
   download: (id: string) => api.get(`/export-requests/${id}/download`, { responseType: 'blob' }),
 };
 
+// Verify Requests
+export const verifyRequestsApi = {
+  getAll: (status?: string) => api.get('/verify-requests', { params: { status } }),
+  create: (stockDetailIds: string[], reason?: string) =>
+    api.post('/verify-requests', { stockDetailIds, reason }),
+  approve: (id: string) => api.patch(`/verify-requests/${id}/approve`),
+  reject: (id: string, rejectionReason?: string) =>
+    api.patch(`/verify-requests/${id}/reject`, { rejectionReason }),
+};
+
 // Import Requests
 export const importRequestsApi = {
   getAll: (params?: any) => api.get('/import-requests', { params }),

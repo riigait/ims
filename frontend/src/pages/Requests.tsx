@@ -1,10 +1,10 @@
 import { useState, useEffect } from 'react';
 import { useLocation } from 'react-router-dom';
 import { CheckCircle, XCircle, Clock, RefreshCw, Check, X } from 'lucide-react';
-import { importRequestsApi, deleteRequestsApi, passwordRequestsApi, editRequestsApi, exportRequestsApi } from '@/services/api';
+import { importRequestsApi, deleteRequestsApi, passwordRequestsApi, editRequestsApi, exportRequestsApi, verifyRequestsApi } from '@/services/api';
 import ConfirmDialog from '@/components/ConfirmDialog';
 
-type RequestTab = 'import' | 'delete' | 'password' | 'edit' | 'export';
+type RequestTab = 'import' | 'delete' | 'password' | 'edit' | 'export' | 'verify';
 
 interface DeleteRequest {
   id: string;
@@ -50,6 +50,18 @@ interface ExportRequest {
   label: string;
   requester: { id: string; name: string; email: string };
   department?: { id: string; name: string };
+  status: 'pending' | 'approved' | 'rejected';
+  rejectionReason?: string;
+  reviewer?: { id: string; name: string; email: string };
+  reviewedAt?: string;
+  createdAt: string;
+}
+
+interface VerifyRequest {
+  id: string;
+  stockDetailIds: string[];
+  requester: { id: string; name: string; email: string };
+  reason?: string;
   status: 'pending' | 'approved' | 'rejected';
   rejectionReason?: string;
   reviewer?: { id: string; name: string; email: string };
@@ -116,6 +128,14 @@ export default function Requests() {
   const [exportRejectId, setExportRejectId] = useState<string | null>(null);
   const [exportRejectReason, setExportRejectReason] = useState('');
 
+  // Verify state
+  const [verifyRequests, setVerifyRequests] = useState<VerifyRequest[]>([]);
+  const [verifyLoading, setVerifyLoading] = useState(false);
+  const [verifyApproveConfirm, setVerifyApproveConfirm] = useState<string | null>(null);
+  const [verifyRejectId, setVerifyRejectId] = useState<string | null>(null);
+  const [verifyRejectReason, setVerifyRejectReason] = useState('');
+  const [verifyFilter, setVerifyFilter] = useState<'pending' | 'all'>('pending');
+
   const [error, setError] = useState('');
 
   // Fetch functions
@@ -179,6 +199,18 @@ export default function Requests() {
     }
   };
 
+  const fetchVerifyRequests = async () => {
+    try {
+      setVerifyLoading(true);
+      const res = await verifyRequestsApi.getAll(verifyFilter === 'pending' ? 'pending' : undefined);
+      setVerifyRequests(res.data.data ?? res.data);
+    } catch {
+      setError('Failed to load verify requests.');
+    } finally {
+      setVerifyLoading(false);
+    }
+  };
+
   useEffect(() => {
     setError('');
     if (activeTab === 'import') fetchImportRequests();
@@ -186,6 +218,7 @@ export default function Requests() {
     else if (activeTab === 'password') fetchPasswordRequests();
     else if (activeTab === 'edit') fetchEditRequests();
     else if (activeTab === 'export') fetchExportRequests();
+    else if (activeTab === 'verify') fetchVerifyRequests();
   }, [activeTab]);
 
   useEffect(() => {
@@ -195,6 +228,10 @@ export default function Requests() {
   useEffect(() => {
     if (activeTab === 'edit') fetchEditRequests();
   }, [editFilter]);
+
+  useEffect(() => {
+    if (activeTab === 'verify') fetchVerifyRequests();
+  }, [verifyFilter]);
 
   // Import handlers
   const handleImportApprove = async (id: string) => {
@@ -308,6 +345,30 @@ export default function Requests() {
     }
   };
 
+  const confirmVerifyApprove = async () => {
+    if (!verifyApproveConfirm) return;
+    try {
+      await verifyRequestsApi.approve(verifyApproveConfirm);
+      await fetchVerifyRequests();
+      setVerifyApproveConfirm(null);
+    } catch {
+      setError('Failed to approve verify request.');
+      setVerifyApproveConfirm(null);
+    }
+  };
+
+  const handleVerifyReject = async () => {
+    if (!verifyRejectId) return;
+    try {
+      await verifyRequestsApi.reject(verifyRejectId, verifyRejectReason || undefined);
+      setVerifyRejectId(null);
+      setVerifyRejectReason('');
+      await fetchVerifyRequests();
+    } catch {
+      setError('Failed to reject verify request.');
+    }
+  };
+
   const handleExportDownload = (id: string) => {
     exportRequestsApi.download(id)
       .then(res => {
@@ -361,6 +422,7 @@ export default function Requests() {
   const passwordPendingCount = passwordRequests.filter(r => r.status === 'pending').length;
   const editPendingCount = editRequests.filter(r => r.status === 'pending').length;
   const exportPendingCount = exportRequests.filter(r => r.status === 'pending').length;
+  const verifyPendingCount = verifyRequests.filter(r => r.status === 'pending').length;
 
   const ALL_TABS: { key: RequestTab; label: string; pending: number; roles: string[] }[] = [
     { key: 'import',   label: 'Import Requests',   pending: importPendingCount,   roles: ['admin', 'superadmin'] },
@@ -368,6 +430,7 @@ export default function Requests() {
     { key: 'delete',   label: 'Delete Requests',   pending: deletePendingCount,   roles: ['admin', 'superadmin', 'staff'] },
     { key: 'edit',     label: 'Edit Requests',     pending: editPendingCount,     roles: ['admin', 'superadmin', 'staff'] },
     { key: 'password', label: 'Password Requests', pending: passwordPendingCount, roles: ['admin', 'superadmin', 'staff'] },
+    { key: 'verify',   label: 'Verify Items Request',   pending: verifyPendingCount,   roles: ['admin', 'superadmin', 'staff'] },
   ];
   const TABS = ALL_TABS.filter(t => t.roles.includes(user.role));
 
@@ -1025,6 +1088,137 @@ export default function Requests() {
           onConfirm={confirmPasswordReject}
           onCancel={() => setRejectPasswordConfirm(null)}
         />
+      )}
+
+      {/* VERIFY REQUESTS */}
+      {activeTab === 'verify' && (
+        <>
+          <div className="flex gap-2 mb-4">
+            {!isStaff && (
+              <>
+                <button onClick={() => setVerifyFilter('pending')}
+                  className={`px-3 py-1.5 text-sm rounded-lg border transition-colors ${
+                    verifyFilter === 'pending'
+                      ? 'bg-[var(--primary)] text-white border-[var(--primary)]'
+                      : 'bg-[var(--surface)] text-[var(--text)] border-[var(--border)] hover:bg-[var(--surface-2)]'
+                  }`}>
+                  Pending
+                  {verifyPendingCount > 0 && (
+                    <span className="ml-1.5 bg-yellow-400 text-yellow-900 text-xs px-1.5 py-0.5 rounded-full font-bold">
+                      {verifyPendingCount}
+                    </span>
+                  )}
+                </button>
+                <button onClick={() => setVerifyFilter('all')}
+                  className={`px-3 py-1.5 text-sm rounded-lg border transition-colors ${
+                    verifyFilter === 'all'
+                      ? 'bg-[var(--primary)] text-white border-[var(--primary)]'
+                      : 'bg-[var(--surface)] text-[var(--text)] border-[var(--border)] hover:bg-[var(--surface-2)]'
+                  }`}>
+                  All Requests
+                </button>
+              </>
+            )}
+            <button type="button" onClick={fetchVerifyRequests}
+              className="ml-auto p-1.5 rounded-lg hover:bg-[var(--surface-2)] text-[var(--text-muted)]">
+              <RefreshCw size={16} />
+            </button>
+          </div>
+
+          {verifyLoading ? (
+            <div className="p-6 text-[var(--text-muted)]">Loading...</div>
+          ) : verifyRequests.length === 0 ? (
+            <div className="text-center py-12 bg-[var(--surface)] rounded-lg border border-[var(--border)]">
+              <p className="text-[var(--text-muted)]">No verify items requests found.</p>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {verifyRequests.map(req => (
+                <div key={req.id} className={`bg-[var(--surface)] rounded-lg border border-[var(--border)] border-l-4 p-4 ${
+                  req.status === 'pending' ? 'border-l-yellow-500' : req.status === 'approved' ? 'border-l-green-500' : 'border-l-red-500'
+                }`}>
+                  <div className="flex items-start justify-between gap-4">
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2 mb-1 flex-wrap">
+                        <span className="font-medium text-[var(--text)]">
+                          {req.stockDetailIds.length} item{req.stockDetailIds.length !== 1 ? 's' : ''} to verify
+                        </span>
+                        <span className={`text-xs px-2 py-0.5 rounded font-medium ${STATUS_COLOR[req.status]}`}>
+                          {req.status}
+                        </span>
+                      </div>
+                      <p className="text-sm text-[var(--text-muted)]">
+                        Requested by: {req.requester.name} ({req.requester.email})
+                      </p>
+                      {req.reason && (
+                        <p className="text-sm text-[var(--text-muted)] mt-0.5">Reason: {req.reason}</p>
+                      )}
+                      {req.rejectionReason && (
+                        <p className="text-sm text-red-500 mt-0.5">Rejection reason: {req.rejectionReason}</p>
+                      )}
+                      <p className="text-xs text-[var(--text-muted)] mt-1">
+                        {new Date(req.createdAt).toLocaleString()}
+                      </p>
+                    </div>
+                    <div className="flex gap-2 flex-shrink-0">
+                      {req.status === 'pending' && !isStaff && (
+                        <>
+                          <button onClick={() => setVerifyApproveConfirm(req.id)}
+                            className="flex items-center gap-1 px-2.5 py-1 bg-green-600 hover:bg-green-700 text-white text-xs rounded-lg font-medium">
+                            <Check size={12} /> Approve
+                          </button>
+                          <button onClick={() => { setVerifyRejectId(req.id); setVerifyRejectReason(''); }}
+                            className="flex items-center gap-1 px-2.5 py-1 bg-red-600 hover:bg-red-700 text-white text-xs rounded-lg font-medium">
+                            <X size={12} /> Reject
+                          </button>
+                        </>
+                      )}
+                      {req.status === 'pending' && isStaff && (
+                        <span className="flex items-center gap-1 text-xs text-yellow-600">
+                          <Clock size={12} /> Awaiting approval
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {verifyRejectId && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+              <div className="bg-[var(--surface)] rounded-xl border border-[var(--border)] p-6 w-full max-w-md shadow-xl">
+                <h3 className="text-lg font-semibold text-[var(--text)] mb-1">Reject Verify Items Request</h3>
+                <label className="block text-xs font-medium text-[var(--text-muted)] mb-1">Reason (optional)</label>
+                <input type="text" value={verifyRejectReason}
+                  onChange={e => setVerifyRejectReason(e.target.value)}
+                  placeholder="Reason for rejection..."
+                  className="w-full px-3 py-2 text-sm border border-[var(--border)] rounded-lg bg-[var(--surface)] text-[var(--text)] mb-4"
+                  autoFocus />
+                <div className="flex gap-2 justify-end">
+                  <button onClick={() => setVerifyRejectId(null)}
+                    className="px-4 py-2 text-sm border border-[var(--border)] rounded-lg text-[var(--text)] hover:bg-[var(--surface-2)]">
+                    Cancel
+                  </button>
+                  <button onClick={handleVerifyReject}
+                    className="px-4 py-2 text-sm bg-red-600 hover:bg-red-700 text-white rounded-lg font-medium">
+                    Confirm Reject
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {verifyApproveConfirm && (
+            <ConfirmDialog
+              title="Approve Verify Items Request?"
+              message="This will mark the selected items as verified today."
+              confirmText="Approve"
+              onConfirm={confirmVerifyApprove}
+              onCancel={() => setVerifyApproveConfirm(null)}
+            />
+          )}
+        </>
       )}
     </div>
   );

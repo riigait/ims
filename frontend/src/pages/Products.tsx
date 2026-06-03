@@ -120,8 +120,11 @@ export default function Products() {
       if (filters.unit) params.unit = filters.unit;
       if (filters.source) params.source = filters.source;
       if (filters.csvImportId) params.csvImportId = filters.csvImportId;
-      if (filters.stockStatus === 'out-of-stock' || filters.stockStatus === 'negative-stock') params.stockStatus = filters.stockStatus;
+      if (filters.stockStatus) params.stockStatus = filters.stockStatus;
       if (filters.departmentId) params.departmentId = filters.departmentId;
+      if (filters.dataQuality) params.dataQuality = filters.dataQuality;
+      if (filters.priceStatus) params.priceStatus = filters.priceStatus;
+      if (filters.dateAdded) params.dateAdded = filters.dateAdded;
       const res = await productsApi.getAll(params);
       setProducts(res.data.data);
       setTotal(res.data.total);
@@ -326,8 +329,8 @@ export default function Products() {
   const outOfStockCount = stats.outOfStock;
   const lowStockCount = products.filter(p => p.currentStock > 0 && p.currentStock <= p.lowStockThreshold).length;
 
-  // Client-side filters apply to current page (server already handled search/category/location/status/unit/source)
-  const clientFilters = { ...filters, search: '', categoryId: undefined, locationId: undefined, productStatus: undefined, unit: undefined, source: undefined, csvImportId: undefined };
+  // Client-side filters only for fields the server can't handle (valueStatus, lastMovement, dateRange)
+  const clientFilters = { ...filters, search: '', categoryId: undefined, locationId: undefined, productStatus: undefined, unit: undefined, source: undefined, csvImportId: undefined, stockStatus: undefined, dataQuality: undefined, priceStatus: undefined, dateAdded: undefined };
   const filteredProducts = filterAndSortProducts(products, clientFilters, sort);
   const paginatedProducts = filteredProducts;
   const uniqueUnits = Array.from(new Set(products.map(p => p.unit))).sort();

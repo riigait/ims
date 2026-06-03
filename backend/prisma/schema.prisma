@@ -56,6 +56,8 @@ model User {
   reviewedEditRequests       EditRequest[]           @relation("editReviewedBy")
   exportRequests             ExportRequest[]         @relation("exportRequestedBy")
   reviewedExportRequests     ExportRequest[]         @relation("exportReviewedBy")
+  verifyRequests             VerifyRequest[]         @relation("verifyRequestedBy")
+  reviewedVerifyRequests     VerifyRequest[]         @relation("verifyReviewedBy")
 
   @@index([role])
   @@index([departmentId])
@@ -436,6 +438,23 @@ model ExportRequest {
   reviewer        User?       @relation("exportReviewedBy", fields: [reviewedBy], references: [id], onDelete: SetNull)
   reviewedAt      DateTime?
   createdAt       DateTime    @default(now())
+
+  @@index([status])
+  @@index([requestedBy])
+}
+
+model VerifyRequest {
+  id              String    @id @default(cuid())
+  stockDetailIds  String[]
+  requestedBy     String
+  requester       User      @relation("verifyRequestedBy", fields: [requestedBy], references: [id], onDelete: Cascade)
+  reason          String?
+  status          String    @default("pending") // pending, approved, rejected
+  rejectionReason String?
+  reviewedBy      String?
+  reviewer        User?     @relation("verifyReviewedBy", fields: [reviewedBy], references: [id], onDelete: SetNull)
+  reviewedAt      DateTime?
+  createdAt       DateTime  @default(now())
 
   @@index([status])
   @@index([requestedBy])

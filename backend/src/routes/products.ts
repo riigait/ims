@@ -214,7 +214,7 @@ function buildProductBaseFilter(req: AuthRequest): Record<string, any> {
 
 function applyProductQueryFilters(base: Record<string, any>, query: Record<string, string | undefined>): Record<string, any> {
   const where: any = { ...base };
-  const { search, categoryId, locationId, status, unit, source, csvImportId, stockStatus, departmentId } = query;
+  const { search, categoryId, locationId, status, unit, source, csvImportId, stockStatus, departmentId, dataQuality, priceStatus, dateAdded } = query;
   if (departmentId && !base.departmentId) where.departmentId = departmentId;
   if (search) where.AND = [{ OR: [{ name: { contains: search, mode: 'insensitive' } }, { sku: { contains: search, mode: 'insensitive' } }] }];
   if (categoryId) where.categoryId = categoryId;
@@ -226,6 +226,47 @@ function applyProductQueryFilters(base: Record<string, any>, query: Record<strin
   if (csvImportId) where.csvImportId = csvImportId;
   if (stockStatus === 'out-of-stock') where.currentStock = 0;
   if (stockStatus === 'negative-stock') where.currentStock = { lt: 0 };
+
+  if (dataQuality) {
+    const now = new Date();
+    const in30 = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+    if (dataQuality === 'missing-location' || dataQuality === 'incomplete') {
+      where.locationId = null;
+    } else if (dataQuality === 'no-threshold') {
+      where.lowStockThreshold = 0;
+    } else if (dataQuality === 'expiry-expired') {
+      where.expiryDate = { lt: now };
+      where.status = 'active';
+    } else if (dataQuality === 'expiry-soon') {
+      where.expiryDate = { gte: now, lte: in30 };
+    } else if (dataQuality === 'discontinued-with-stock') {
+      where.status = { in: ['discontinued', 'obsolete'] };
+      where.AND = [...(where.AND || []), { currentStock: { gt: 0 } }];
+    } else if (dataQuality === 'missing-price') {
+      where.unitPrice = null;
+    }
+  }
+
+  if (priceStatus) {
+    if (priceStatus === 'with-price') where.unitPrice = { gt: 0 };
+    else if (priceStatus === 'zero-price') where.unitPrice = 0;
+    else if (priceStatus === 'missing-price') where.unitPrice = null;
+    else if (priceStatus === 'high-price') where.unitPrice = { gte: 10000 };
+    else if (priceStatus === 'low-price') where.unitPrice = { gt: 0, lt: 10000 };
+  }
+
+  if (dateAdded) {
+    const now = new Date();
+    const d = (ms: number) => new Date(now.getTime() - ms);
+    const DAY = 86_400_000;
+    if (dateAdded === 'today') where.createdAt = { gte: d(DAY) };
+    else if (dateAdded === 'yesterday') where.createdAt = { gte: d(2 * DAY), lt: d(DAY) };
+    else if (dateAdded === 'last-week') where.createdAt = { gte: d(30 * DAY), lt: d(7 * DAY) };
+    else if (dateAdded === 'last-month') where.createdAt = { gte: d(90 * DAY), lt: d(30 * DAY) };
+    else if (dateAdded === 'this-year') where.createdAt = { gte: d(365 * DAY), lt: d(90 * DAY) };
+    else if (dateAdded === 'older-1-year') where.createdAt = { lt: d(365 * DAY) };
+  }
+
   return where;
 }
 
@@ -306,7 +347,18 @@ router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
       csvImportId: req.query.csvImportId as string,
       stockStatus: req.query.stockStatus as string,
       departmentId: req.query.departmentId as string,
+      dataQuality: req.query.dataQuality as string,
+      priceStatus: req.query.priceStatus as string,
+      dateAdded: req.query.dateAdded as string,
     });
+
+    // low-stock requires field-to-field comparison (Prisma doesn't support it natively)
+    if (req.query.stockStatus === 'low-stock') {
+      const rows = await prisma.$queryRaw<{ id: string }[]>`
+        SELECT id FROM "Product" WHERE "currentStock" > 0 AND "currentStock" <= "lowStockThreshold"
+      `;
+      whereFilter.id = { in: rows.map(r => r.id) };
+    }
 
     const orderByMap: Record<string, any> = {
       name: { name: orderDir }, sku: { sku: orderDir }, stock: { currentStock: orderDir },

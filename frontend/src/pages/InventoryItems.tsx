@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { X, Edit, ArrowLeftRight, ChevronRight, ChevronDown } from 'lucide-react';
 import DataPageLayout from '@/components/layout/DataPageLayout';
-import { stockDetailsApi, locationsApi, productsApi, categoriesApi, departmentsApi } from '@/services/api';
+import { stockDetailsApi, locationsApi, productsApi, categoriesApi, departmentsApi, verifyRequestsApi } from '@/services/api';
 import { ALL_DEPARTMENTS_ID } from '@/constants/app';
 import Pagination from '@/components/Pagination';
 
@@ -231,7 +231,6 @@ export default function InventoryItems() {
   const [sortBy, setSortBy] = useState('recently-added');
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
-  const [verifyingAll, setVerifyingAll] = useState(false);
   const [verifyingItem, setVerifyingItem] = useState(false);
 
   const loadItems = useCallback(async () => {
@@ -279,23 +278,17 @@ export default function InventoryItems() {
 
   useEffect(() => { loadItems(); }, [loadItems]);
 
-  const handleBulkVerify = async (itemIds: string[]) => {
-    if (itemIds.length === 0) return;
-    setVerifyingAll(true);
-    try {
-      await stockDetailsApi.bulkVerify(itemIds);
-      await loadItems();
-    } catch (err) { console.error(err); }
-    finally { setVerifyingAll(false); }
-  };
-
   const handleVerifyItem = async (item: any) => {
     setVerifyingItem(true);
     try {
-      await stockDetailsApi.bulkVerify([item.id]);
-      await loadItems();
-      const res = await stockDetailsApi.getById(item.id);
-      setDrawerItem(res.data);
+      if (user.role === 'staff') {
+        await verifyRequestsApi.create([item.id]);
+      } else {
+        await stockDetailsApi.bulkVerify([item.id]);
+        await loadItems();
+        const res = await stockDetailsApi.getById(item.id);
+        setDrawerItem(res.data);
+      }
     } catch (err) { console.error(err); }
     finally { setVerifyingItem(false); }
   };
@@ -547,10 +540,6 @@ export default function InventoryItems() {
   }, {} as Record<string, number>);
 
   const showDept = localStorage.getItem('currentDepartmentId') === ALL_DEPARTMENTS_ID;
-  const SIX_MONTHS_MS = 6 * 30 * 24 * 60 * 60 * 1000;
-  const allVerified = filtered.length > 0 && filtered.every((i: any) =>
-    i.lastCheckedDate && Date.now() - new Date(i.lastCheckedDate).getTime() < SIX_MONTHS_MS
-  );
 
   if (loading) return <div className="text-center py-12 text-[var(--text-muted)]">Loading...</div>;
 
@@ -579,17 +568,6 @@ export default function InventoryItems() {
               <span className="text-blue-600">{statusCounts.sold} sold</span> ·{' '}
               <span className="text-slate-500">{statusCounts.archived} archived</span>
             </p>
-            {!allVerified && (
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => handleBulkVerify(filtered.map((i: any) => i.id))}
-                  disabled={verifyingAll || filtered.length === 0}
-                  className="text-xs px-3 py-1.5 rounded bg-[var(--primary)] text-white hover:opacity-90 disabled:opacity-50 font-medium whitespace-nowrap"
-                >
-                  {verifyingAll ? 'Verifying…' : `Mark all ${filtered.length} as verified today`}
-                </button>
-              </div>
-            )}
             <div className="flex flex-col gap-2">
         {/* Row 1: Search + Sort + Clear */}
         <div className="flex gap-2">
@@ -1124,7 +1102,9 @@ export default function InventoryItems() {
                         disabled={verifyingItem}
                         className="text-xs px-2.5 py-1 rounded bg-[var(--primary)] text-white hover:opacity-90 disabled:opacity-50 font-medium"
                       >
-                        {verifyingItem ? 'Verifying…' : 'Mark as Verified Today'}
+                        {verifyingItem
+                          ? (user.role === 'staff' ? 'Submitting…' : 'Verifying…')
+                          : (user.role === 'staff' ? 'Request Verification' : 'Mark as Verified Today')}
                       </button>
                     </div>
                     <div className="grid grid-cols-2 gap-3">

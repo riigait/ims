@@ -4,11 +4,16 @@ import bcrypt from 'bcryptjs';
 const prisma = new PrismaClient();
 
 const SEED_EMAIL    = 'admin@ims.local';
-const SEED_PASSWORD = 'seed1234';
 const ADMIN_EMAIL   = 'admin1@ims.local';
-const ADMIN_PASSWORD = process.env.SEED_ADMIN_PASSWORD ?? 'Admin1234';
 const STAFF_EMAIL   = 'staff1@ims.local';
-const STAFF_PASSWORD = process.env.SEED_STAFF_PASSWORD ?? 'Staff1234';
+
+const SEED_PASSWORD  = process.env.SEED_SUPERADMIN_PASSWORD;
+const ADMIN_PASSWORD = process.env.SEED_ADMIN_PASSWORD;
+const STAFF_PASSWORD = process.env.SEED_STAFF_PASSWORD;
+
+if (!SEED_PASSWORD || !ADMIN_PASSWORD || !STAFF_PASSWORD) {
+  throw new Error('SEED_SUPERADMIN_PASSWORD, SEED_ADMIN_PASSWORD, and SEED_STAFF_PASSWORD must be set in .env before seeding');
+}
 
 async function main() {
   // ── Superadmin ──────────────────────────────────────────────────────────────

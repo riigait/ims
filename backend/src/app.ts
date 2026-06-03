@@ -22,6 +22,7 @@ import staffDepartmentsRoutes from './routes/staffDepartments';
 import passwordRequestsRoutes from './routes/passwordRequests';
 import settingsRoutes from './routes/settings';
 import importRequestsRoutes from './routes/importRequests';
+import verifyRequestsRoutes from './routes/verifyRequests';
 import mapRoutes from './routes/map';
 
 const app = express();
@@ -56,6 +57,7 @@ app.use('/api/staff-departments', authMiddleware, staffDepartmentsRoutes);
 app.use('/api/password-requests', authMiddleware, passwordRequestsRoutes);
 app.use('/api/settings', authMiddleware, settingsRoutes);
 app.use('/api/import-requests', authMiddleware, importRequestsRoutes);
+app.use('/api/verify-requests', authMiddleware, verifyRequestsRoutes);
 app.use('/api/map', authMiddleware, mapRoutes);
 
 app.get('/api/health', (_req, res) => {
