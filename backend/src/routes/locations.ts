@@ -5,13 +5,21 @@ import { csvToJson, jsonToCsv } from '../utils/csv';
 
 const router = Router();
 
-const VALID_LOCATION_TYPES = ['branch', 'building', 'floor', 'room', 'rack', 'shelf'];
+const VALID_LOCATION_TYPES = ['branch', 'building', 'floor', 'room', 'rack', 'shelf'] as const;
+type LocationType = typeof VALID_LOCATION_TYPES[number];
 
-function validateLocationWrite(body: any, isCreate: boolean): string | null {
+interface LocationWriteBody {
+  name?: string;
+  type?: LocationType | string;
+  parentId?: string | null;
+  notes?: string | null;
+}
+
+function validateLocationWrite(body: LocationWriteBody, isCreate: boolean): string | null {
   if (isCreate && (typeof body.name !== 'string' || !body.name.trim())) return 'Location name is required';
   if (body.name !== undefined && (typeof body.name !== 'string' || body.name.length > 255)) return 'name must be a non-empty string under 255 characters';
   if (isCreate && !body.type) return 'Location type is required';
-  if (body.type !== undefined && !VALID_LOCATION_TYPES.includes(body.type)) return `type must be one of: ${VALID_LOCATION_TYPES.join(', ')}`;
+  if (body.type !== undefined && !(VALID_LOCATION_TYPES as readonly string[]).includes(body.type)) return `type must be one of: ${VALID_LOCATION_TYPES.join(', ')}`;
   if (body.notes !== undefined && body.notes !== null && typeof body.notes !== 'string') return 'notes must be a string';
   if (typeof body.notes === 'string' && body.notes.length > 1000) return 'notes too long';
   return null;
@@ -78,15 +86,16 @@ router.get('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
 // Create location
 router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    const validationError = validateLocationWrite(req.body, true);
+    const body = req.body as LocationWriteBody;
+    const validationError = validateLocationWrite(body, true);
     if (validationError) return res.status(400).json({ error: validationError });
 
-    const { name, type, parentId, notes } = req.body;
+    const { name, type, parentId, notes } = body;
 
     const location = await prisma.location.create({
       data: {
-        name,
-        type,
+        name: name!,
+        type: type!,
         parentId: parentId || null,
         departmentId: req.departmentId,
         notes,
@@ -108,16 +117,17 @@ router.put('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
       return res.status(403).json({ error: 'Access denied' });
     }
 
-    const validationError = validateLocationWrite(req.body, false);
+    const body = req.body as LocationWriteBody;
+    const validationError = validateLocationWrite(body, false);
     if (validationError) return res.status(400).json({ error: validationError });
 
-    const { name, type, parentId, notes } = req.body;
+    const { name, type, parentId, notes } = body;
 
     const location = await prisma.location.update({
       where: { id: req.params.id },
       data: {
-        name,
-        type,
+        ...(name !== undefined && { name: name! }),
+        ...(type !== undefined && { type: type! }),
         parentId: parentId || null,
         notes,
       },

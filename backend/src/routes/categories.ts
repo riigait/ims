@@ -5,7 +5,12 @@ import { csvToJson, jsonToCsv } from '../utils/csv';
 
 const router = Router();
 
-function validateCategoryWrite(body: any, isCreate: boolean): string | null {
+interface CategoryWriteBody {
+  name?: string;
+  description?: string | null;
+}
+
+function validateCategoryWrite(body: CategoryWriteBody, isCreate: boolean): string | null {
   if (isCreate && (typeof body.name !== 'string' || !body.name.trim())) return 'Category name is required';
   if (body.name !== undefined && (typeof body.name !== 'string' || body.name.length > 255)) return 'name must be a non-empty string under 255 characters';
   if (body.description !== undefined && body.description !== null && typeof body.description !== 'string') return 'description must be a string';
@@ -77,14 +82,15 @@ router.get('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
 // Create category
 router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    const validationError = validateCategoryWrite(req.body, true);
+    const body = req.body as CategoryWriteBody;
+    const validationError = validateCategoryWrite(body, true);
     if (validationError) return res.status(400).json({ error: validationError });
 
-    const { name, description } = req.body;
+    const { name, description } = body;
 
     const category = await prisma.category.create({
       data: {
-        name,
+        name: name!,
         description,
         departmentId: req.departmentId,
       },
@@ -104,18 +110,19 @@ router.put('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
   try {
     const existing = await prisma.category.findUnique({ where: { id: req.params.id } });
     if (!existing) return res.status(404).json({ error: 'Category not found' });
-    if (!canAccessDepartment(req, existing.departmentId)) {
+    if (!canAccessDepartment(req, existing.departmentId, true)) {
       return res.status(403).json({ error: 'Access denied' });
     }
 
-    const validationError = validateCategoryWrite(req.body, false);
+    const body = req.body as CategoryWriteBody;
+    const validationError = validateCategoryWrite(body, false);
     if (validationError) return res.status(400).json({ error: validationError });
 
-    const { name, description } = req.body;
+    const { name, description } = body;
 
     const category = await prisma.category.update({
       where: { id: req.params.id },
-      data: { name, description },
+      data: { ...(name !== undefined && { name: name! }), description },
     });
 
     res.json(category);
@@ -133,7 +140,7 @@ router.delete('/:id', async (req: AuthRequest, res: Response, next: NextFunction
 
     const existing = await prisma.category.findUnique({ where: { id: req.params.id } });
     if (!existing) return res.status(404).json({ error: 'Category not found' });
-    if (!canAccessDepartment(req, existing.departmentId)) {
+    if (!canAccessDepartment(req, existing.departmentId, true)) {
       return res.status(403).json({ error: 'Access denied' });
     }
 

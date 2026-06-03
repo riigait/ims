@@ -7,7 +7,24 @@ import { generateStockId, generateMovementNo, generateSku, generateRequestNo, ge
 
 const router = Router();
 
-function validateProductWrite(body: any, isCreate: boolean): string | null {
+interface ProductWriteBody {
+  sku?: string;
+  name?: string;
+  description?: string | null;
+  categoryId?: string;
+  locationId?: string | null;
+  unit?: string;
+  currentStock?: number | string;
+  lowStockThreshold?: number | string;
+  supplier?: string | null;
+  unitPrice?: number | string | null;
+  status?: string;
+  expiryDate?: string | null;
+  leadTimeDays?: number | string | null;
+  notes?: string | null;
+}
+
+function validateProductWrite(body: ProductWriteBody, isCreate: boolean): string | null {
   if (isCreate && (typeof body.name !== 'string' || !body.name.trim())) return 'name is required';
   if (body.name !== undefined && (typeof body.name !== 'string' || body.name.length > 200)) return 'name must be a string under 200 characters';
   if (typeof body.categoryId !== 'string' || !body.categoryId.trim()) return 'categoryId is required';
@@ -407,10 +424,8 @@ router.post('/bulk', async (req: AuthRequest, res: Response, next: NextFunction)
 // Create product
 router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
+    const validationError = validateProductWrite(req.body as ProductWriteBody, true);
     const { sku, name, description, categoryId, locationId, unit, currentStock, lowStockThreshold, supplier, unitPrice, status, expiryDate, leadTimeDays, notes } = req.body;
-
-
-    const validationError = validateProductWrite(req.body, true);
     if (validationError) return res.status(400).json({ error: validationError });
     const generatedSku = sku || await generateSku();
 
@@ -501,9 +516,8 @@ router.put('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
       return res.status(403).json({ error: 'Access denied' });
     }
 
+    const validationError = validateProductWrite(req.body as ProductWriteBody, false);
     const { sku, name, description, categoryId, locationId, unit, lowStockThreshold, supplier, unitPrice, status, expiryDate, leadTimeDays, notes } = req.body;
-
-    const validationError = validateProductWrite(req.body, false);
     if (validationError) return res.status(400).json({ error: validationError });
 
     // Verify category exists and is accessible
