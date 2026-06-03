@@ -137,27 +137,27 @@ function Stop-IMSApp {
 function Start-IMSApp {
     Write-Host "`nStarting IMS app..." -ForegroundColor Yellow
 
-    Write-Host "Checking Docker..." -ForegroundColor Cyan
+    Write-Output "Checking Docker..."
     docker info 2>$null | Out-Null
     if ($LASTEXITCODE -ne 0) {
-        Write-Host "[FAIL] Docker is not running. Start Docker Desktop, then run this command again." -ForegroundColor Red
+        Write-Output "[FAIL] Docker is not running. Start Docker Desktop, then run this command again."
         return
     }
 
     # Dev mode runs backend/frontend locally; Docker should only run Postgres.
-    Write-Host "Starting Docker database only..." -ForegroundColor Cyan
+    Write-Output "Starting Docker database only..."
     Push-Location $rootPath
     try {
-        docker-compose stop backend frontend 2>$null | Out-Null
-        docker-compose up -d postgres
+        docker compose stop backend frontend 2>$null | Out-Null
+        docker compose up -d postgres
         if ($LASTEXITCODE -ne 0) {
             Write-Host "[FAIL] Could not start Postgres container." -ForegroundColor Red
             return
         }
 
-        Write-Host "[OK] Postgres container is running." -ForegroundColor Green
+        Write-Output "[OK] Postgres container is running."
     } catch {
-        Write-Host "[FAIL] Docker database start failed." -ForegroundColor Red
+        Write-Output "[FAIL] Docker database start failed."
         return
     } finally {
         Pop-Location
