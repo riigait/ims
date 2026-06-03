@@ -6,6 +6,8 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-ims_db}
       POSTGRES_USER: ${POSTGRES_USER:-ims_user}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ims_password_secure}
+    ports:
+      - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -53,3 +55,4 @@ networks:
 
 volumes:
   postgres_data:
+    driver: local

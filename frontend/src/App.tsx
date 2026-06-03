@@ -6,6 +6,7 @@ import DepartmentGuard from '@/components/DepartmentGuard';
 import Login from '@/pages/Login';
 import Register from '@/pages/Register';
 import InitialSetup from '@/pages/InitialSetup';
+import Landing from '@/pages/Landing';
 import Dashboard from '@/pages/Dashboard';
 import Products from '@/pages/Products';
 import BulkAddProducts from '@/pages/BulkAddProducts';
@@ -75,14 +76,7 @@ function App() {
         <Route path="/login" element={<Login />} />
         <Route path="/register" element={<Register />} />
         <Route path="/initial-setup" element={<InitialSetup />} />
-        <Route
-          path="/"
-          element={
-            <PrivateRoute>
-              <Navigate to="/dashboard" />
-            </PrivateRoute>
-          }
-        />
+        <Route path="/" element={<Landing />} />
         <Route
           path="/dashboard"
           element={

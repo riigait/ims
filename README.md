@@ -4,6 +4,7 @@ An open-source inventory management system for tracking products, physical asset
 
 ## Features
 
+- **Landing Page** - public IMS overview with login, open app, dashboard, and invite registration actions
 - **Products** — catalog with categories, units, suppliers, and stock level tracking
 - **Inventory Items** — individual physical asset tracking with serial numbers, asset tags, barcodes, condition, and warranty
 - **Stock Movements** — full movement lifecycle (stock in/out, transfer, deployment, repair, disposal, borrowed, lost, found, adjustment) with admin confirmation workflow
@@ -104,8 +105,20 @@ Never commit `.env` files. Keep database passwords and JWT secrets private.
 
 1. Start the backend and frontend
 2. Open `http://localhost:5173`
-3. Complete the initial setup to create the first superadmin account
-4. Log in and follow the Getting Started checklist on the dashboard
+3. Use the landing page to open the app, log in, or register with an invite
+4. Complete the initial setup to create the first superadmin account
+5. Log in and follow the Getting Started checklist on the dashboard
+
+## Landing Page
+
+The app includes a public landing page at `/` for introducing IMS before login.
+
+It highlights:
+
+- IT asset, supplies, and multi-department stock control
+- Product, inventory item, department, location, floor plan, request, and stock movement tracking
+- Dashboard preview cards for products, inventory items, total stock, and inventory value
+- Quick actions for login, opening the app, going to the dashboard, and registering with an invite
 
 ## Project Structure
 

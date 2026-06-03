@@ -51,14 +51,17 @@ $RECYCLE.BIN/
 .idea/
 
 # Claude Code local settings (machine-specific)
-.claude/settings.local.json
+.claude/
 
 # Deployment
 .vercel/
 
 # Local-only dev notes and scratch folders
+AGENTS.md
 mds/
 /csv-corrector/
+docs/
+templates/
 
 # Local-only screenshots and dev artifacts
 *-screenshot.png
@@ -72,19 +75,15 @@ mds/
 *.mov
 *.pdf
 
-# Image files (blanket ignore — allow tracked assets under frontend/public/ and docs/)
+# Image files (blanket ignore — allow tracked assets under frontend/public/)
 *.png
 *.jpg
 *.jpeg
 !frontend/public/**/*.png
 !frontend/public/**/*.jpg
 !frontend/public/**/*.jpeg
-!docs/**/*.png
-!docs/**/*.jpg
-!docs/**/*.jpeg
 
-# CSV files (blanket ignore — allow tracked templates and tooling formats)
+# CSV files (blanket ignore — allow tracked tooling formats)
 *.csv
 !scripts/csv-corrector/format.csv
 !scripts/csv-corrector/sample_inventory.csv
-templates/*.csv
