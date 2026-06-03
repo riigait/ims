@@ -13,6 +13,7 @@ function PesoSign({ size = 18 }: { size?: number }) {
   );
 }
 import { dashboardApi, departmentsApi } from '@/services/api';
+import WelcomeModal from '@/components/WelcomeModal';
 import { ALL_DEPARTMENTS_ID } from '@/constants/app';
 import { UNASSIGNED_LOCATION } from '@/utils/filterHelpers';
 
@@ -40,6 +41,7 @@ interface Stats {
   unconfirmedMovementsCount: number;
   unverifiedItemsCount: number;
   pendingRequestsCount: number;
+  totalCategories: number;
 }
 
 const MOVEMENT_META: Record<string, { label: string; color: string; dot: string }> = {
@@ -200,6 +202,7 @@ export default function Dashboard() {
     unconfirmedMovementsCount: 0,
     unverifiedItemsCount: 0,
     pendingRequestsCount: 0,
+    totalCategories: 0,
   });
   const [recentMovements, setRecentMovements] = useState<any[]>([]);
   const [recentRequests, setRecentRequests] = useState<any[]>([]);
@@ -210,6 +213,18 @@ export default function Dashboard() {
   const [showAnalytics, setShowAnalytics] = useState(() =>
     localStorage.getItem('dash_analytics_open') !== 'false'
   );
+  const [showWelcome, setShowWelcome] = useState(() => {
+    try {
+      const uid = JSON.parse(localStorage.getItem('user') || '{}').id || 'anon';
+      return !localStorage.getItem(`ims_welcome_seen_${uid}`);
+    } catch { return false; }
+  });
+  const [checklistDismissed, setChecklistDismissed] = useState(() => {
+    try {
+      const uid = JSON.parse(localStorage.getItem('user') || '{}').id || 'anon';
+      return !!localStorage.getItem(`ims_checklist_dismissed_${uid}`);
+    } catch { return false; }
+  });
 
   const fetchData = useCallback(async (isRefresh = false) => {
     if (isRefresh) setRefreshing(true); else setLoading(true);
@@ -319,7 +334,18 @@ export default function Dashboard() {
     { label: 'View Alerts',      icon: Bell,           action: triggerOpenBell,    color: 'bg-red-50 text-red-600 hover:bg-red-100 border-red-200 dark:bg-red-950 dark:text-red-400 dark:border-red-900' },
   ];
 
+  const checklistSteps = [
+    { label: 'Add a category',       done: stats.totalCategories > 0,     path: '/categories' },
+    { label: 'Add a location',       done: stats.totalLocations > 0,       path: '/locations' },
+    { label: 'Add products',         done: stats.totalProducts > 0,        path: '/products/bulk-add' },
+    { label: 'Add inventory items',  done: stats.totalInventoryItems > 0,  path: '/inventory-items' },
+  ];
+  const checklistDone = checklistSteps.every(s => s.done);
+  const showChecklist = !checklistDismissed && !checklistDone;
+
   return (
+    <>
+    {showWelcome && <WelcomeModal onClose={() => setShowWelcome(false)} />}
     <div className="space-y-5 max-w-[1440px] mx-auto">
 
       {/* Header */}
@@ -401,6 +427,52 @@ export default function Dashboard() {
               4. Import via CSV
             </button>
           </div>
+        </div>
+      )}
+
+      {/* Getting Started checklist */}
+      {showChecklist && (
+        <div className="bg-[var(--surface)] border border-[var(--border)] rounded-xl p-5">
+          <div className="flex items-start justify-between mb-3">
+            <div>
+              <p className="text-sm font-semibold text-[var(--text)]">Getting Started</p>
+              <p className="text-xs text-[var(--text-muted)] mt-0.5">Complete these steps to set up your inventory.</p>
+            </div>
+            <button
+              onClick={() => {
+                const uid = JSON.parse(localStorage.getItem('user') || '{}').id || 'anon';
+                localStorage.setItem(`ims_checklist_dismissed_${uid}`, '1');
+                setChecklistDismissed(true);
+              }}
+              className="text-xs text-[var(--text-muted)] hover:text-[var(--text)] transition-colors"
+              aria-label="Dismiss checklist"
+            >
+              Dismiss
+            </button>
+          </div>
+          <div className="space-y-2">
+            {checklistSteps.map((s, i) => (
+              <div key={s.label} className="flex items-center gap-3">
+                <div className={`w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0 text-xs font-bold border-2 transition-colors ${s.done ? 'bg-green-500 border-green-500 text-white' : 'border-[var(--border)] text-[var(--text-muted)]'}`}>
+                  {s.done ? '✓' : i + 1}
+                </div>
+                {s.done ? (
+                  <span className="text-sm text-[var(--text-muted)] line-through">{s.label}</span>
+                ) : (
+                  <button onClick={() => navigate(s.path)} className="text-sm text-[var(--primary)] hover:underline text-left">
+                    {s.label}
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+          <div className="mt-3 h-1.5 bg-[var(--border)] rounded-full overflow-hidden">
+            <div
+              className="h-full bg-green-500 rounded-full transition-all"
+              style={{ width: `${(checklistSteps.filter(s => s.done).length / checklistSteps.length) * 100}%` }}
+            />
+          </div>
+          <p className="text-xs text-[var(--text-muted)] mt-1.5">{checklistSteps.filter(s => s.done).length} of {checklistSteps.length} complete</p>
         </div>
       )}
 
@@ -690,5 +762,6 @@ export default function Dashboard() {
       </div>
 
     </div>
+    </>
   );
 }

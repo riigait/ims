@@ -45,6 +45,7 @@ router.get('/stats', authMiddleware, async (req: AuthRequest, res: Response) => 
       missingDetailsCount,
       unconfirmedMovementsCount,
       unverifiedItemsCount,
+      totalCategories,
     ] = await Promise.all([
       prisma.product.count({ where: productFilter }),
       prisma.product.aggregate({ _sum: { currentStock: true }, where: productFilter }),
@@ -115,6 +116,7 @@ router.get('/stats', authMiddleware, async (req: AuthRequest, res: Response) => 
           ],
         },
       }),
+      prisma.category.count({ where: departmentFilter }),
     ]);
 
     const unassignedLocationCount = unassignedLocation
@@ -191,6 +193,7 @@ router.get('/stats', authMiddleware, async (req: AuthRequest, res: Response) => 
       unconfirmedMovementsCount,
       unverifiedItemsCount,
       pendingRequestsCount,
+      totalCategories,
     });
   } catch (error) {
     console.error(error);
