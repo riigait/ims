@@ -137,21 +137,30 @@ function Stop-IMSApp {
 function Start-IMSApp {
     Write-Host "`nStarting IMS app..." -ForegroundColor Yellow
 
-    # Start Docker Desktop
-    Write-Host "Starting Docker Desktop..." -ForegroundColor Cyan
-    Start-Process "C:\Program Files\Docker\Docker\Docker Desktop.exe" -ErrorAction SilentlyContinue
-    Start-Sleep -Seconds 5
+    Write-Host "Checking Docker..." -ForegroundColor Cyan
+    docker info 2>$null | Out-Null
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "[FAIL] Docker is not running. Start Docker Desktop, then run this command again." -ForegroundColor Red
+        return
+    }
 
-    # Find and start our container
-    Write-Host "Checking Docker containers..." -ForegroundColor Cyan
-    $containers = docker ps -a --format "{{.Names}}" 2>$null
-    $imsContainer = $containers | Where-Object { $_ -match 'ims' } | Select-Object -First 1
-    if ($imsContainer) {
-        Write-Host "Starting container: $imsContainer" -ForegroundColor Cyan
-        docker start $imsContainer 2>$null
-        Write-Host "[OK] Container '$imsContainer' started." -ForegroundColor Green
-    } else {
-        Write-Host "[WARN] No IMS container found. Skipping docker start." -ForegroundColor Yellow
+    # Dev mode runs backend/frontend locally; Docker should only run Postgres.
+    Write-Host "Starting Docker database only..." -ForegroundColor Cyan
+    Push-Location $rootPath
+    try {
+        docker-compose stop backend frontend 2>$null | Out-Null
+        docker-compose up -d postgres
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host "[FAIL] Could not start Postgres container." -ForegroundColor Red
+            return
+        }
+
+        Write-Host "[OK] Postgres container is running." -ForegroundColor Green
+    } catch {
+        Write-Host "[FAIL] Docker database start failed." -ForegroundColor Red
+        return
+    } finally {
+        Pop-Location
     }
 
     $backendPid = Get-PortProcess $backendPort

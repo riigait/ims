@@ -33,11 +33,11 @@ if (isDockerRunning()) {
 // ── 2. Start database container ───────────────────────────────────────────────
 log('Starting database container...');
 try {
-  const out = execSync('docker-compose up -d', { cwd: ROOT, encoding: 'utf8', stderr: 'pipe' });
+  const out = execSync('docker-compose up -d postgres', { cwd: ROOT, encoding: 'utf8', stderr: 'pipe' });
   if (out && out.trim()) log(out.trim());
 } catch (err) {
   fail('Failed to start the database container.');
-  fail('Run manually: docker-compose up -d\n');
+  fail('Run manually: docker-compose up -d postgres\n');
   process.exit(1);
 }
 
