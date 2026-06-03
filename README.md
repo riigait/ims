@@ -130,9 +130,29 @@ ims/
 ├── frontend/         # React + Vite app
 ├── csv-corrector/    # CSV utility scripts
 ├── .github/          # CI workflows and issue templates
-├── .claude/          # Claude Code memory (project context)
 └── docker-compose.yml
 ```
+
+## Repository Policy
+
+- **main** - stable client-facing release branch
+- **develop** - client-facing development branch
+- **staging** - internal validation branch
+- **Packages** - published Docker images should be public when they are intended for client use
+
+GitHub does not support making only one branch private inside a public repository. If `staging` must be private, keep it in a private repository or private fork instead of the public repo.
+
+## Version Tags
+
+- First finalized develop release: `v1.0.develop`
+- Future develop contributions should increment the tag: `v1.1.develop`, `v1.2.develop`, and so on
+- Use tags to mark reviewed app changes, bug fixes, and issue-fix milestones
+
+## Contributors
+
+- Maintainer: RiiGait
+- Contributors should open an issue or pull request before changing production-facing behavior
+- Bug reports and issue fixes are important; include clear reproduction steps, expected behavior, actual behavior, and screenshots when useful
 
 ## Contributing
 
