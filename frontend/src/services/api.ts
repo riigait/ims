@@ -193,6 +193,7 @@ export const exportRequestsApi = {
   reject: (id: string, rejectionReason?: string) =>
     api.patch(`/export-requests/${id}/reject`, { rejectionReason }),
   downloadUrl: (id: string) => `/api/export-requests/${id}/download`,
+  download: (id: string) => api.get(`/export-requests/${id}/download`, { responseType: 'blob' }),
 };
 
 // Import Requests
@@ -200,6 +201,36 @@ export const importRequestsApi = {
   getAll: (params?: any) => api.get('/import-requests', { params }),
   approve: (id: string) => api.patch(`/import-requests/${id}/approve`),
   reject: (id: string, reason?: string) => api.patch(`/import-requests/${id}/reject`, { reason }),
+};
+
+// Users
+export const usersApi = {
+  getAll: (params?: any) => api.get('/users', { params }),
+  update: (id: string, data: any) => api.patch(`/users/${id}`, data),
+  delete: (id: string) => api.delete(`/users/${id}`),
+};
+
+// Invites
+export const invitesApi = {
+  getAll: () => api.get('/invites'),
+  generate: (role: string) => api.post('/invites/generate', { role }),
+  revoke: (id: string) => api.delete(`/invites/${id}`),
+};
+
+// Admin Department Assignments
+export const adminDepartmentsApi = {
+  assign: (adminId: string, departmentId: string) =>
+    api.post('/admin-departments', { adminId, departmentId }),
+  unassign: (adminId: string, deptId: string) =>
+    api.delete(`/admin-departments/${adminId}/${deptId}`),
+};
+
+// Staff Department Assignments
+export const staffDepartmentsApi = {
+  assign: (staffId: string, departmentId: string) =>
+    api.post('/staff-departments', { staffId, departmentId }),
+  unassign: (staffId: string, deptId: string) =>
+    api.delete(`/staff-departments/${staffId}/${deptId}`),
 };
 
 // Settings

@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, AlertCircle, Plus, X } from 'lucide-react';
+import { departmentsApi, usersApi, adminDepartmentsApi, staffDepartmentsApi } from '@/services/api';
 
 interface Department {
   id: string;
@@ -37,27 +38,15 @@ export default function AdminAssignment() {
 
   const loadData = async () => {
     try {
-      const deptRes = await fetch('/api/departments', {
-        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
-      });
-      const usersRes = await fetch('/api/users', {
-        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
-      });
-
-      if (!deptRes.ok || !usersRes.ok) {
-        throw new Error('Failed to fetch data');
-      }
-
-      const deptData = await deptRes.json();
-      const userData = await usersRes.json();
-
-      const deptList = deptData.data || deptData;
-      const adminsList = (userData || []).filter((u: User) => u.role === 'admin');
-      const staffList = (userData || []).filter((u: User) => u.role === 'staff');
-
+      const [deptRes, usersRes] = await Promise.all([
+        departmentsApi.getAll(),
+        usersApi.getAll(),
+      ]);
+      const deptList = deptRes.data.data || deptRes.data;
+      const userList = usersRes.data.data || usersRes.data || [];
       setDepartments(deptList);
-      setAdmins(adminsList);
-      setStaff(staffList);
+      setAdmins(userList.filter((u: User) => u.role === 'admin'));
+      setStaff(userList.filter((u: User) => u.role === 'staff'));
     } catch (err) {
       setError('Unable to load data. Please try again.');
       console.error(err);
@@ -69,66 +58,32 @@ export default function AdminAssignment() {
   const assignDepartment = async (adminId: string, deptId: string) => {
     try {
       setError('');
-      const response = await fetch(`/api/admin-departments`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${localStorage.getItem('token')}`,
-        },
-        body: JSON.stringify({ adminId, departmentId: deptId }),
-      });
-
-      if (!response.ok) {
-        const data = await response.json();
-        if (data.error?.includes('already assigned')) {
-          throw new Error('This admin is already assigned to this department');
-        }
-        throw new Error('Unable to complete request');
-      }
-
-      setAdmins(
-        admins.map(a => {
-          if (a.id === adminId) {
-            return {
-              ...a,
-              adminDepartments: [
-                ...(a.adminDepartments || []),
-                { departmentId: deptId, department: departments.find(d => d.id === deptId)! },
-              ],
-            };
-          }
-          return a;
-        })
-      );
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Unable to complete request');
-      console.error(err);
+      await adminDepartmentsApi.assign(adminId, deptId);
+      setAdmins(admins.map(a => {
+        if (a.id !== adminId) return a;
+        return {
+          ...a,
+          adminDepartments: [
+            ...(a.adminDepartments || []),
+            { departmentId: deptId, department: departments.find(d => d.id === deptId)! },
+          ],
+        };
+      }));
+    } catch (err: any) {
+      const msg = err.response?.data?.error;
+      setError(msg?.includes('already assigned') ? 'This admin is already assigned to this department' : 'Unable to complete request');
     }
   };
 
   const unassignDepartment = async (adminId: string, deptId: string) => {
     try {
-      const response = await fetch(`/api/admin-departments/${adminId}/${deptId}`, {
-        method: 'DELETE',
-        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
-      });
-
-      if (!response.ok) throw new Error('Unable to complete request');
-
-      setAdmins(
-        admins.map(a => {
-          if (a.id === adminId) {
-            return {
-              ...a,
-              adminDepartments: (a.adminDepartments || []).filter(ad => ad.departmentId !== deptId),
-            };
-          }
-          return a;
-        })
-      );
-    } catch (err) {
+      await adminDepartmentsApi.unassign(adminId, deptId);
+      setAdmins(admins.map(a => {
+        if (a.id !== adminId) return a;
+        return { ...a, adminDepartments: (a.adminDepartments || []).filter(ad => ad.departmentId !== deptId) };
+      }));
+    } catch {
       setError('Unable to complete request');
-      console.error(err);
     }
   };
 
@@ -147,66 +102,32 @@ export default function AdminAssignment() {
   const assignStaffDepartment = async (staffId: string, deptId: string) => {
     try {
       setError('');
-      const response = await fetch(`/api/staff-departments`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${localStorage.getItem('token')}`,
-        },
-        body: JSON.stringify({ staffId, departmentId: deptId }),
-      });
-
-      if (!response.ok) {
-        const data = await response.json();
-        if (data.error?.includes('already assigned')) {
-          throw new Error('This staff member is already assigned to this department');
-        }
-        throw new Error('Unable to complete request');
-      }
-
-      setStaff(
-        staff.map(s => {
-          if (s.id === staffId) {
-            return {
-              ...s,
-              staffDepartments: [
-                ...(s.staffDepartments || []),
-                { departmentId: deptId, department: departments.find(d => d.id === deptId)! },
-              ],
-            };
-          }
-          return s;
-        })
-      );
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Unable to complete request');
-      console.error(err);
+      await staffDepartmentsApi.assign(staffId, deptId);
+      setStaff(staff.map(s => {
+        if (s.id !== staffId) return s;
+        return {
+          ...s,
+          staffDepartments: [
+            ...(s.staffDepartments || []),
+            { departmentId: deptId, department: departments.find(d => d.id === deptId)! },
+          ],
+        };
+      }));
+    } catch (err: any) {
+      const msg = err.response?.data?.error;
+      setError(msg?.includes('already assigned') ? 'This staff member is already assigned to this department' : 'Unable to complete request');
     }
   };
 
   const unassignStaffDepartment = async (staffId: string, deptId: string) => {
     try {
-      const response = await fetch(`/api/staff-departments/${staffId}/${deptId}`, {
-        method: 'DELETE',
-        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
-      });
-
-      if (!response.ok) throw new Error('Unable to complete request');
-
-      setStaff(
-        staff.map(s => {
-          if (s.id === staffId) {
-            return {
-              ...s,
-              staffDepartments: (s.staffDepartments || []).filter(sd => sd.departmentId !== deptId),
-            };
-          }
-          return s;
-        })
-      );
-    } catch (err) {
+      await staffDepartmentsApi.unassign(staffId, deptId);
+      setStaff(staff.map(s => {
+        if (s.id !== staffId) return s;
+        return { ...s, staffDepartments: (s.staffDepartments || []).filter(sd => sd.departmentId !== deptId) };
+      }));
+    } catch {
       setError('Unable to complete request');
-      console.error(err);
     }
   };
 

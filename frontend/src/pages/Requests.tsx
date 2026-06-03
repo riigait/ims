@@ -309,16 +309,10 @@ export default function Requests() {
   };
 
   const handleExportDownload = (id: string) => {
-    const token = localStorage.getItem('token');
-    const url = exportRequestsApi.downloadUrl(id);
-    const link = document.createElement('a');
-    link.href = url;
-    link.setAttribute('data-token', token || '');
-    // Use fetch for authenticated download
-    fetch(url, { headers: { Authorization: `Bearer ${token}` } })
-      .then(res => res.blob())
-      .then(blob => {
-        const blobUrl = window.URL.createObjectURL(blob);
+    exportRequestsApi.download(id)
+      .then(res => {
+        const blobUrl = window.URL.createObjectURL(res.data);
+        const link = document.createElement('a');
         link.href = blobUrl;
         link.download = `export-${id.slice(0, 8)}.csv`;
         document.body.appendChild(link);

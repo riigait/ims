@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { X, Copy, Trash2, Shield, Users, CheckCircle, Mail, ArrowLeft, Edit, ChevronRight } from 'lucide-react';
-import { authApi, departmentsApi } from '@/services/api';
+import { authApi, departmentsApi, usersApi, invitesApi } from '@/services/api';
 import Pagination from '@/components/Pagination';
 
 interface Department {
@@ -85,17 +85,16 @@ export default function AdminUsers() {
   const loadData = async () => {
     if (!hasLoaded.current) setLoading(true);
     try {
-      const token = localStorage.getItem('token');
-      const headers = { Authorization: `Bearer ${token}` };
-      const params = new URLSearchParams({ page: String(currentPage), limit: String(pageSize) });
       const [usersRes, invitesRes, deptsRes] = await Promise.all([
-        fetch(`/api/users?${params}`, { headers }).then(r => r.json()),
-        fetch('/api/invites', { headers }).then(r => r.json()),
+        usersApi.getAll({ page: currentPage, limit: pageSize }),
+        invitesApi.getAll(),
         departmentsApi.getAll(),
       ]);
-      setUsers(usersRes.data ?? usersRes);
-      setTotalUsers(usersRes.total ?? (usersRes.data ?? usersRes).length);
-      setInvites(invitesRes.data ?? invitesRes);
+      const usersBody = usersRes.data;
+      setUsers(usersBody.data ?? usersBody);
+      setTotalUsers(usersBody.total ?? (usersBody.data ?? usersBody).length);
+      const invitesBody = invitesRes.data;
+      setInvites(invitesBody.data ?? invitesBody);
       setDepartments(deptsRes.data);
     } catch {
       setError('Failed to load data');
@@ -109,32 +108,17 @@ export default function AdminUsers() {
     if (!currentUser) return;
     try {
       const roleToGenerate = currentUser.role === 'superadmin' ? generateRole : 'staff';
-      const response = await fetch('/api/invites/generate', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${localStorage.getItem('token')}`,
-        },
-        body: JSON.stringify({ role: roleToGenerate }),
-      });
-      if (!response.ok) {
-        const data = await response.json().catch(() => ({}));
-        throw new Error(data.error || 'Failed to generate invite');
-      }
-      const newInvite = await response.json();
-      setInvites([newInvite, ...invites]);
+      const response = await invitesApi.generate(roleToGenerate);
+      setInvites([response.data, ...invites]);
       setError('');
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to generate invite');
+    } catch (err: any) {
+      setError(err.response?.data?.error || 'Failed to generate invite');
     }
   };
 
   const revokeInvite = async (id: string) => {
     try {
-      await fetch(`/api/invites/${id}`, {
-        method: 'DELETE',
-        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
-      });
+      await invitesApi.revoke(id);
       setInvites(invites.filter(i => i.id !== id));
     } catch {
       setError('Failed to revoke invite');
@@ -161,15 +145,7 @@ export default function AdminUsers() {
     if (!editFormData.name.trim()) { setEditError('Name is required'); return; }
     if (!editFormData.email.trim()) { setEditError('Email is required'); return; }
     try {
-      const response = await fetch(`/api/users/${drawerUser.id}`, {
-        method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${localStorage.getItem('token')}`,
-        },
-        body: JSON.stringify({ name: editFormData.name, email: editFormData.email }),
-      });
-      if (!response.ok) throw new Error();
+      await usersApi.update(drawerUser.id, { name: editFormData.name, email: editFormData.email });
       const updated = { ...drawerUser, ...editFormData };
       setUsers(users.map(u => u.id === drawerUser.id ? updated : u));
       setDrawerUser(updated);
@@ -191,10 +167,7 @@ export default function AdminUsers() {
   const doDelete = async () => {
     if (!drawerUser) return;
     try {
-      await fetch(`/api/users/${drawerUser.id}`, {
-        method: 'DELETE',
-        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
-      });
+      await usersApi.delete(drawerUser.id);
       setUsers(users.filter(u => u.id !== drawerUser.id));
       closeDrawer();
     } catch {
