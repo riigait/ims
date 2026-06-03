@@ -10,7 +10,7 @@ services:
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-ims_db}
       POSTGRES_USER: ${POSTGRES_USER:-ims_user}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ims_password_secure}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -26,7 +26,7 @@ services:
     image: ghcr.io/riigait/ims-backend:latest
     container_name: ims_backend
     environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER:-ims_user}:${POSTGRES_PASSWORD:-ims_password_secure}@postgres:5432/${POSTGRES_DB:-ims_db}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-ims_user}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-ims_db}
       JWT_SECRET: ${JWT_SECRET:-change-this-before-deploying}
       NODE_ENV: production
       PORT: 3001
