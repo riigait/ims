@@ -7,6 +7,16 @@ import { generateStockId, generateMovementNo, generateSku, generateRequestNo, ge
 
 const router = Router();
 
+function validateProductWrite(body: any, isCreate: boolean): string | null {
+  if (isCreate && (typeof body.name !== 'string' || !body.name.trim())) return 'name is required';
+  if (body.name !== undefined && (typeof body.name !== 'string' || body.name.length > 200)) return 'name must be a string under 200 characters';
+  if (typeof body.categoryId !== 'string' || !body.categoryId.trim()) return 'categoryId is required';
+  if (body.currentStock !== undefined && (isNaN(Number(body.currentStock)) || Number(body.currentStock) < 0)) return 'currentStock must be a non-negative number';
+  if (body.lowStockThreshold !== undefined && (isNaN(Number(body.lowStockThreshold)) || Number(body.lowStockThreshold) < 0)) return 'lowStockThreshold must be a non-negative number';
+  if (body.unitPrice !== undefined && body.unitPrice !== null && body.unitPrice !== '' && isNaN(Number(body.unitPrice))) return 'unitPrice must be a number';
+  return null;
+}
+
 async function attachLiveProductLocations(products: any[]) {
   const productIds = products.map(product => product.id).filter(Boolean);
   if (productIds.length === 0) return products;
@@ -404,9 +414,8 @@ router.post('/', async (req: AuthRequest, res: Response) => {
 
     console.log(`[PRODUCT CREATE] Received request with currentStock: ${currentStock} (type: ${typeof currentStock}), userId: ${req.userId}`);
 
-    if (!name || !categoryId) {
-      return res.status(400).json({ error: 'name and categoryId are required' });
-    }
+    const validationError = validateProductWrite(req.body, true);
+    if (validationError) return res.status(400).json({ error: validationError });
     const generatedSku = sku || await generateSku();
 
     // Verify category exists and is accessible
@@ -504,9 +513,8 @@ router.put('/:id', async (req: AuthRequest, res: Response) => {
 
     const { sku, name, description, categoryId, locationId, unit, lowStockThreshold, supplier, unitPrice, status, expiryDate, leadTimeDays, notes } = req.body;
 
-    if (!categoryId) {
-      return res.status(400).json({ error: 'categoryId is required' });
-    }
+    const validationError = validateProductWrite(req.body, false);
+    if (validationError) return res.status(400).json({ error: validationError });
 
     // Verify category exists and is accessible
     const category = await prisma.category.findUnique({ where: { id: categoryId } });

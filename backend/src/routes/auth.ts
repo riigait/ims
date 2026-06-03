@@ -7,6 +7,25 @@ import { authMiddleware, AuthRequest, getJwtSecret } from '../middleware/auth';
 
 const router = Router();
 
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+function validateLogin(body: any): string | null {
+  if (typeof body.email !== 'string' || typeof body.password !== 'string') return 'Invalid request body';
+  if (!body.email.trim() || !body.password) return 'Missing email or password';
+  if (!EMAIL_RE.test(body.email.trim())) return 'Invalid email format';
+  if (body.password.length > 128) return 'Password too long';
+  return null;
+}
+
+function validateRegister(body: any): string | null {
+  if (typeof body.name !== 'string' || typeof body.email !== 'string' || typeof body.password !== 'string') return 'Invalid request body';
+  if (!body.name.trim() || !body.email.trim() || !body.password) return 'Missing required fields';
+  if (!EMAIL_RE.test(body.email.trim())) return 'Invalid email format';
+  if (body.name.length > 100) return 'Name too long';
+  if (body.password.length > 128) return 'Password too long';
+  return null;
+}
+
 function signToken(userId: string, role: string, departmentId?: string): string {
   return jwt.sign({ userId, role, departmentId }, getJwtSecret(), { expiresIn: '7d' });
 }
@@ -62,11 +81,10 @@ router.post('/ensure-superadmin', async (req: Request, res: Response) => {
 // Register — use invite code to get role; defaults to staff if no invite
 router.post('/register', async (req: Request, res: Response) => {
   try {
-    const { name, email, password, inviteCode } = req.body;
+    const validationError = validateRegister(req.body);
+    if (validationError) return res.status(400).json({ error: validationError });
 
-    if (!name || !email || !password) {
-      return res.status(400).json({ error: 'Missing required fields' });
-    }
+    const { name, email, password, inviteCode } = req.body;
 
     // Validate password: 8+ chars with uppercase, lowercase, and number
     const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)[a-zA-Z\d@$!%*?&]{8,}$/;
@@ -126,11 +144,10 @@ router.post('/register', async (req: Request, res: Response) => {
 // Login
 router.post('/login', async (req: Request, res: Response) => {
   try {
-    const { email, password } = req.body;
+    const validationError = validateLogin(req.body);
+    if (validationError) return res.status(400).json({ error: validationError });
 
-    if (!email || !password) {
-      return res.status(400).json({ error: 'Missing email or password' });
-    }
+    const { email, password } = req.body;
 
     const user = await prisma.user.findUnique({ where: { email } });
     if (!user) return res.status(401).json({ error: 'Invalid credentials' });
