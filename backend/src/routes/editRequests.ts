@@ -4,6 +4,28 @@ import { authMiddleware, AuthRequest, adminMiddleware } from '../middleware/auth
 
 const router = Router();
 
+const ALLOWED_PRODUCT_FIELDS = [
+  'name', 'description', 'unit', 'lowStockThreshold',
+  'supplier', 'unitPrice', 'status', 'expiryDate',
+  'leadTimeDays', 'notes', 'locationId', 'categoryId',
+] as const;
+
+const NULLABLE_STRING_FIELDS = ['locationId', 'description', 'supplier', 'notes'] as const;
+
+function buildSafeChanges(proposedChanges: Record<string, any>): Record<string, any> {
+  const safe: Record<string, any> = {};
+  for (const key of ALLOWED_PRODUCT_FIELDS) {
+    if (key in proposedChanges) safe[key] = proposedChanges[key];
+  }
+  if ('expiryDate' in safe) {
+    safe.expiryDate = safe.expiryDate && safe.expiryDate !== '' ? new Date(safe.expiryDate) : null;
+  }
+  for (const field of NULLABLE_STRING_FIELDS) {
+    if (field in safe && safe[field] === '') safe[field] = null;
+  }
+  return safe;
+}
+
 // Submit edit request (staff only)
 router.post('/', authMiddleware, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
@@ -47,8 +69,8 @@ router.get('/', authMiddleware, async (req: AuthRequest, res: Response, next: Ne
       where = { ...where, requestedBy: req.userId };
     }
 
-    const page = Math.max(1, parseInt(req.query.page as string) || 1);
-    const limit = Math.min(Math.max(1, parseInt(req.query.limit as string) || 50), 200);
+    const page = Math.max(1, Number.parseInt(req.query.page as string) || 1);
+    const limit = Math.min(Math.max(1, Number.parseInt(req.query.limit as string) || 50), 200);
     const skip = (page - 1) * limit;
 
     const [total, editRequests] = await Promise.all([
@@ -86,29 +108,7 @@ router.patch('/:id/approve', authMiddleware, adminMiddleware, async (req: AuthRe
       return res.status(400).json({ error: 'Request already reviewed' });
     }
 
-    const changes = editRequest.proposedChanges as Record<string, any>;
-
-    // Apply only known product fields — strip any dangerous overrides
-    const allowed: (keyof typeof changes)[] = [
-      'name', 'description', 'unit', 'lowStockThreshold',
-      'supplier', 'unitPrice', 'status', 'expiryDate',
-      'leadTimeDays', 'notes', 'locationId', 'categoryId',
-    ];
-    const safeChanges: Record<string, any> = {};
-    for (const key of allowed) {
-      if (key in changes) safeChanges[key] = changes[key];
-    }
-
-    // Normalize empty strings to null for optional fields
-    if ('expiryDate' in safeChanges) {
-      safeChanges.expiryDate = safeChanges.expiryDate && safeChanges.expiryDate !== ''
-        ? new Date(safeChanges.expiryDate)
-        : null;
-    }
-    if ('locationId' in safeChanges && safeChanges.locationId === '') safeChanges.locationId = null;
-    if ('description' in safeChanges && safeChanges.description === '') safeChanges.description = null;
-    if ('supplier' in safeChanges && safeChanges.supplier === '') safeChanges.supplier = null;
-    if ('notes' in safeChanges && safeChanges.notes === '') safeChanges.notes = null;
+    const safeChanges = buildSafeChanges(editRequest.proposedChanges as Record<string, any>);
 
     await prisma.product.update({
       where: { id: editRequest.productId },
