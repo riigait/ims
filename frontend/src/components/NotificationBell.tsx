@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { Bell, X, AlertTriangle, AlertCircle, Info, ChevronRight, CheckCheck, BellOff } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import api from '@/services/api';
+import { useBell } from '@/contexts/BellContext';
 
 interface Notification {
   key: string;
@@ -98,6 +99,7 @@ function SeverityIcon({ severity }: { severity: string }) {
 
 export default function NotificationBell({ collapsed }: { collapsed: boolean }) {
   const navigate = useNavigate();
+  const { openBell, resetBell } = useBell();
   const [open, setOpen] = useState(false);
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [readStore, setReadStoreState] = useState<ReadStore>(loadReadStore);
@@ -106,6 +108,13 @@ export default function NotificationBell({ collapsed }: { collapsed: boolean }) 
   const [bellBounce, setBellBounce] = useState(false);
   const prevKeysRef = useRef<Set<string>>(new Set());
   const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (openBell) {
+      setOpen(true);
+      resetBell();
+    }
+  }, [openBell, resetBell]);
 
   const fetchNotifications = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);

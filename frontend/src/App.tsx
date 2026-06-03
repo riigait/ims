@@ -1,5 +1,6 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { ThemeProvider } from '@/contexts/ThemeContext';
+import { BellProvider } from '@/contexts/BellContext';
 import Layout from '@/components/layout/Layout';
 import DepartmentGuard from '@/components/DepartmentGuard';
 import Login from '@/pages/Login';
@@ -67,6 +68,7 @@ function SuperadminRoute({ children }: { children: React.ReactNode }) {
 function App() {
   return (
     <ErrorBoundary>
+      <BellProvider>
       <ThemeProvider>
         <BrowserRouter>
           <Routes>
@@ -295,6 +297,7 @@ function App() {
           </Routes>
         </BrowserRouter>
       </ThemeProvider>
+      </BellProvider>
     </ErrorBoundary>
   );
 }

@@ -1,9 +1,10 @@
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useBell } from '@/contexts/BellContext';
 import {
   Package, Boxes, AlertCircle, MapPin,
   ArrowLeftRight, CheckCircle, AlertTriangle, Activity,
-  Wrench, Clock, Tag, ScanLine, Plus, FileDown, Zap,
+  Wrench, Clock, Tag, FileDown, Zap, ClipboardCheck, Bell, ClipboardList, RefreshCw, ChevronDown,
 } from 'lucide-react';
 
 function PesoSign({ size = 18 }: { size?: number }) {
@@ -36,6 +37,9 @@ interface Stats {
   warrantyExpiringSoon: number;
   categoryBreakdown: { name: string; count: number; stock: number }[];
   locationBreakdown: { name: string; count: number }[];
+  unconfirmedMovementsCount: number;
+  unverifiedItemsCount: number;
+  pendingRequestsCount: number;
 }
 
 const MOVEMENT_META: Record<string, { label: string; color: string; dot: string }> = {
@@ -51,6 +55,13 @@ const MOVEMENT_META: Record<string, { label: string; color: string; dot: string 
   disposal:      { label: 'Disposal',      color: 'bg-gray-100 text-gray-700',     dot: 'bg-gray-500' },
   borrowed:      { label: 'Borrowed',      color: 'bg-violet-100 text-violet-700', dot: 'bg-violet-500' },
   lost:          { label: 'Lost',          color: 'bg-rose-100 text-rose-700',     dot: 'bg-rose-500' },
+};
+
+const REQUEST_META: Record<string, { label: string; color: string; dot: string }> = {
+  import:   { label: 'Import',   color: 'bg-blue-100 text-blue-700',   dot: 'bg-blue-500' },
+  delete:   { label: 'Delete',   color: 'bg-red-100 text-red-700',     dot: 'bg-red-500' },
+  password: { label: 'Password', color: 'bg-purple-100 text-purple-700', dot: 'bg-purple-500' },
+  edit:     { label: 'Edit',     color: 'bg-amber-100 text-amber-700', dot: 'bg-amber-500' },
 };
 
 const BAR_COLORS = [
@@ -175,6 +186,7 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
 
 export default function Dashboard() {
   const navigate = useNavigate();
+  const { triggerOpenBell } = useBell();
   const user = JSON.parse(localStorage.getItem('user') || '{}');
   const [stats, setStats] = useState<Stats>({
     totalProducts: 0, totalStock: 0, totalInventoryItems: 0,
@@ -185,48 +197,61 @@ export default function Dashboard() {
     warrantyExpiringSoon: 0,
     categoryBreakdown: [],
     locationBreakdown: [],
+    unconfirmedMovementsCount: 0,
+    unverifiedItemsCount: 0,
+    pendingRequestsCount: 0,
   });
   const [recentMovements, setRecentMovements] = useState<any[]>([]);
+  const [recentRequests, setRecentRequests] = useState<any[]>([]);
   const [departmentName, setDepartmentName] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+  const [showAnalytics, setShowAnalytics] = useState(() =>
+    localStorage.getItem('dash_analytics_open') !== 'false'
+  );
+
+  const fetchData = useCallback(async (isRefresh = false) => {
+    if (isRefresh) setRefreshing(true); else setLoading(true);
+    try {
+      const [statsRes, movementsRes, requestsRes] = await Promise.all([
+        dashboardApi.getStats(),
+        dashboardApi.getRecentMovements(),
+        dashboardApi.getRecentRequests(),
+      ]);
+      setStats(statsRes.data);
+      setRecentMovements(movementsRes.data);
+      setRecentRequests(requestsRes.data);
+      setLastUpdated(new Date());
+
+      const userDepts = user.role === 'admin' ? user.adminDepartments : user.staffDepartments;
+      if (userDepts && userDepts.length > 0) {
+        const currentDeptId = localStorage.getItem('currentDepartmentId');
+        if (currentDeptId === ALL_DEPARTMENTS_ID) {
+          setDepartmentName('All Departments');
+        } else {
+          const currentDept = userDepts.find((ad: any) => ad.departmentId === currentDeptId);
+          setDepartmentName(currentDept?.department?.name ?? userDepts[0]?.department?.name ?? null);
+        }
+      } else if (user.departmentId) {
+        try {
+          const deptRes = await departmentsApi.getById(user.departmentId);
+          setDepartmentName(deptRes.data.name);
+        } catch { /* ignore */ }
+      }
+    } catch (error) {
+      console.error('Failed to fetch dashboard data:', error);
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }, []);
 
   useEffect(() => {
-    const fetchData = async () => {
-      try {
-        const [statsRes, movementsRes] = await Promise.all([
-          dashboardApi.getStats(),
-          dashboardApi.getRecentMovements(),
-        ]);
-        setStats(statsRes.data);
-        setRecentMovements(movementsRes.data);
-
-        const userDepts = user.role === 'admin' ? user.adminDepartments : user.staffDepartments;
-        if (userDepts && userDepts.length > 0) {
-          const currentDeptId = localStorage.getItem('currentDepartmentId');
-          if (currentDeptId === ALL_DEPARTMENTS_ID) {
-            setDepartmentName('All Departments');
-          } else {
-            const currentDept = userDepts.find((ad: any) => ad.departmentId === currentDeptId);
-            setDepartmentName(currentDept?.department?.name ?? userDepts[0]?.department?.name ?? null);
-          }
-        } else if (user.departmentId) {
-          try {
-            const deptRes = await departmentsApi.getById(user.departmentId);
-            setDepartmentName(deptRes.data.name);
-          } catch { /* ignore */ }
-        }
-      } catch (error) {
-        console.error('Failed to fetch dashboard data:', error);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    setLoading(true);
     fetchData();
-    window.addEventListener('storage', fetchData);
-    return () => window.removeEventListener('storage', fetchData);
-  }, []);
+    window.addEventListener('storage', () => fetchData());
+    return () => window.removeEventListener('storage', () => fetchData());
+  }, [fetchData]);
 
   const [now, setNow] = useState(new Date());
   useEffect(() => {
@@ -245,10 +270,27 @@ export default function Dashboard() {
   const timeStr = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 
   if (loading) return (
-    <div className="flex items-center justify-center h-64">
-      <div className="text-center space-y-3">
-        <Activity size={32} className="text-[var(--primary)] mx-auto animate-pulse" />
-        <p className="text-[var(--text-muted)] text-sm">Loading dashboard…</p>
+    <div className="space-y-5 max-w-[1440px] mx-auto animate-pulse">
+      <div className="space-y-2">
+        <div className="h-4 w-48 bg-[var(--border)] rounded" />
+        <div className="h-7 w-64 bg-[var(--border)] rounded" />
+        <div className="h-4 w-36 bg-[var(--border)] rounded" />
+      </div>
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        {[...Array(4)].map((_, i) => <div key={i} className="h-28 bg-[var(--border)] rounded-xl" />)}
+      </div>
+      <div className="space-y-2">
+        <div className="h-4 w-32 bg-[var(--border)] rounded" />
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          {[...Array(4)].map((_, i) => <div key={i} className="h-24 bg-[var(--border)] rounded-xl" />)}
+        </div>
+        <div className="h-32 bg-[var(--border)] rounded-xl mt-2" />
+      </div>
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        {[...Array(4)].map((_, i) => <div key={i} className="h-28 bg-[var(--border)] rounded-xl" />)}
+      </div>
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        {[...Array(3)].map((_, i) => <div key={i} className="h-36 bg-[var(--border)] rounded-xl" />)}
       </div>
     </div>
   );
@@ -261,62 +303,72 @@ export default function Dashboard() {
     { label: 'Negative',     count: stats.negativeStockCount, color: 'text-purple-600 dark:text-purple-400', stockStatus: 'negative-stock' },
   ].filter(a => a.count > 0);
 
-  const actionQueue = [
-    { label: 'Low stock products', count: stats.lowStockCount, path: '/products', state: { stockStatus: 'low-stock' }, tone: 'text-yellow-600 dark:text-yellow-400' },
-    { label: 'Out of stock products', count: stats.outOfStockCount, path: '/products', state: { stockStatus: 'out-of-stock' }, tone: 'text-red-600 dark:text-red-400' },
-    { label: 'Products without location', count: stats.unassignedLocationCount, path: '/products', state: { locationId: UNASSIGNED_LOCATION }, tone: 'text-red-600 dark:text-red-400' },
-    { label: 'Incomplete item records', count: stats.missingDetailsCount, path: '/inventory-items', state: { filterDataQuality: 'incomplete' }, tone: 'text-orange-600 dark:text-orange-400' },
-    { label: 'Warranty expiring soon', count: stats.warrantyExpiringSoon, path: '/inventory-items', state: { filterWarranty: 'under-warranty' }, tone: 'text-blue-600 dark:text-blue-400' },
-    { label: 'Items for repair', count: stats.itemsForRepair, path: '/inventory-items', state: { filterStatus: 'under-repair' }, tone: 'text-orange-600 dark:text-orange-400' },
-    { label: 'Lost items', count: stats.itemsLost, path: '/inventory-items', state: { filterStatus: 'lost' }, tone: 'text-red-600 dark:text-red-400' },
-  ].filter(item => item.count > 0);
-
   const categoryStockItems = stats.categoryBreakdown.map(c => ({ name: c.name, count: c.stock }));
 
-  const quickActions = [
-    { label: 'Add Product',     icon: Package,        path: '/products',        color: 'bg-blue-50 text-blue-600 hover:bg-blue-100 border-blue-200 dark:bg-blue-950 dark:text-blue-400 dark:border-blue-900' },
-    { label: 'Add Stock',       icon: Plus,           path: '/stock-movements', color: 'bg-green-50 text-green-600 hover:bg-green-100 border-green-200 dark:bg-green-950 dark:text-green-400 dark:border-green-900' },
-    { label: 'Move Item',       icon: ArrowLeftRight, path: '/stock-movements', color: 'bg-purple-50 text-purple-600 hover:bg-purple-100 border-purple-200 dark:bg-purple-950 dark:text-purple-400 dark:border-purple-900' },
-    { label: 'Scan Barcode',    icon: ScanLine,       path: '/inventory-items', color: 'bg-teal-50 text-teal-600 hover:bg-teal-100 border-teal-200 dark:bg-teal-950 dark:text-teal-400 dark:border-teal-900' },
-    { label: 'Import / Export', icon: FileDown,       path: '/import-pclsf',   color: 'bg-orange-50 text-orange-600 hover:bg-orange-100 border-orange-200 dark:bg-orange-950 dark:text-orange-400 dark:border-orange-900' },
+  const quickActions: { label: string; icon: React.ElementType; path?: string; action?: () => void; color: string }[] = [
+    { label: 'Add Product',      icon: Package,        path: '/products/bulk-add', color: 'bg-blue-50 text-blue-600 hover:bg-blue-100 border-blue-200 dark:bg-blue-950 dark:text-blue-400 dark:border-blue-900' },
+    { label: 'Stock Movement',   icon: ArrowLeftRight, path: '/stock-movements',   color: 'bg-green-50 text-green-600 hover:bg-green-100 border-green-200 dark:bg-green-950 dark:text-green-400 dark:border-green-900' },
+    { label: 'Import / Export',  icon: FileDown,       path: '/import-pclsf',      color: 'bg-orange-50 text-orange-600 hover:bg-orange-100 border-orange-200 dark:bg-orange-950 dark:text-orange-400 dark:border-orange-900' },
+    { label: 'Verify Inventory', icon: ClipboardCheck, path: '/inventory-items',   color: 'bg-teal-50 text-teal-600 hover:bg-teal-100 border-teal-200 dark:bg-teal-950 dark:text-teal-400 dark:border-teal-900' },
+    { label: 'View Alerts',      icon: Bell,           action: triggerOpenBell,    color: 'bg-red-50 text-red-600 hover:bg-red-100 border-red-200 dark:bg-red-950 dark:text-red-400 dark:border-red-900' },
   ];
 
   return (
     <div className="space-y-5 max-w-[1440px] mx-auto">
 
       {/* Header */}
-      <div>
-        <p className="text-sm text-[var(--text-muted)]">
-          {today} &nbsp;
-          <span className="font-mono">{timeStr}</span>
-        </p>
-        <h1 className="text-2xl font-bold text-[var(--text)] mt-0.5">
-          {greeting()}{user.name ? `, ${user.name}` : ''} 👋
-        </h1>
-        {user.role === 'superadmin' && (
-          <p className="text-sm text-[var(--text-muted)] mt-0.5">Viewing all departments</p>
-        )}
-        {(user.role === 'admin' || user.role === 'staff') && departmentName && (
-          <p className="text-sm text-[var(--text-muted)] mt-0.5">
-            Department: <span className="font-semibold text-[var(--text)]">{departmentName}</span>
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <p className="text-sm text-[var(--text-muted)]">
+            {today} &nbsp;<span className="font-mono">{timeStr}</span>
           </p>
-        )}
-      </div>
-
-      {/* Section 1 — Summary */}
-      <div>
-        <SectionLabel>Summary</SectionLabel>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <StatCard label="Products"        value={stats.totalProducts}      sub="Product types / SKUs"      icon={Package}     accent="bg-blue-100 text-blue-600 dark:bg-blue-950 dark:text-blue-400"         onClick={() => navigate('/products')} />
-          <StatCard label="Inventory Items" value={stats.totalInventoryItems} sub="Tagged physical items"     icon={Boxes}       accent="bg-indigo-100 text-indigo-600 dark:bg-indigo-950 dark:text-indigo-400" onClick={() => navigate('/inventory-items')} />
-          <StatCard label="Total Stock"     value={stats.totalStock}          sub="Quantity on hand"          icon={CheckCircle} accent="bg-green-100 text-green-600 dark:bg-green-950 dark:text-green-400"     onClick={() => navigate('/products')} />
-          <StatCard label="Inventory Value" value={formatValue(stats.totalInventoryValue)} sub="Based on current stock" icon={PesoSign} accent="bg-emerald-100 text-emerald-600 dark:bg-emerald-950 dark:text-emerald-400" />
+          <h1 className="text-2xl font-bold text-[var(--text)] mt-0.5">
+            {greeting()}{user.name ? `, ${user.name}` : ''}
+          </h1>
+          {user.role === 'superadmin' && (
+            <p className="text-sm text-[var(--text-muted)] mt-0.5">Viewing all departments</p>
+          )}
+          {(user.role === 'admin' || user.role === 'staff') && departmentName && (
+            <p className="text-sm text-[var(--text-muted)] mt-0.5">
+              Department: <span className="font-semibold text-[var(--text)]">{departmentName}</span>
+            </p>
+          )}
+        </div>
+        <div className="flex items-center gap-2 flex-shrink-0 mt-1">
+          {lastUpdated && (
+            <span className="text-xs text-[var(--text-muted)]">
+              Updated {timeAgo(lastUpdated.toISOString())}
+            </span>
+          )}
+          <button
+            onClick={() => fetchData(true)}
+            disabled={refreshing}
+            className="p-1.5 rounded-lg border border-[var(--border)] bg-[var(--surface)] hover:bg-[var(--surface-2)] text-[var(--text-muted)] transition-colors disabled:opacity-50"
+            title="Refresh dashboard"
+          >
+            <RefreshCw size={14} className={refreshing ? 'animate-spin' : ''} />
+          </button>
         </div>
       </div>
 
-      {/* Section 2 — Attention Needed */}
+      {/* Section 1 — Summary (includes asset status) */}
       <div>
-        <SectionLabel>Attention Needed</SectionLabel>
+        <SectionLabel>Summary</SectionLabel>
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+          <StatCard label="Products"        value={stats.totalProducts}       sub="Product types"        icon={Package}     accent="bg-blue-100 text-blue-600 dark:bg-blue-950 dark:text-blue-400"           onClick={() => navigate('/products')} />
+          <StatCard label="Inventory Items" value={stats.totalInventoryItems}  sub="Tagged items"         icon={Boxes}       accent="bg-indigo-100 text-indigo-600 dark:bg-indigo-950 dark:text-indigo-400"   onClick={() => navigate('/inventory-items')} />
+          <StatCard label="Total Stock"     value={stats.totalStock}           sub="Quantity on hand"     icon={CheckCircle} accent="bg-green-100 text-green-600 dark:bg-green-950 dark:text-green-400"       onClick={() => navigate('/products')} />
+          <StatCard label="Inventory Value" value={formatValue(stats.totalInventoryValue)} sub="Est. value"  icon={PesoSign}    accent="bg-emerald-100 text-emerald-600 dark:bg-emerald-950 dark:text-emerald-400" />
+          <StatCard label="Available"       value={stats.itemsAvailable}       sub="Ready to use"         icon={Zap}         accent="bg-sky-100 text-sky-600 dark:bg-sky-950 dark:text-sky-400"               onClick={() => navigate('/inventory-items')} />
+          <StatCard label="In Use"          value={stats.itemsInUse}           sub="Deployed / borrowed"  icon={Wrench}      accent="bg-violet-100 text-violet-600 dark:bg-violet-950 dark:text-violet-400"   onClick={() => navigate('/inventory-items')} />
+        </div>
+      </div>
+
+      {/* Section 2 — Priority Actions (merged Attention Needed + Action Queue) */}
+      <div>
+        <SectionLabel>Priority Actions</SectionLabel>
+
+        {/* Hero cards — always visible, show count */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
 
           {/* Stock Alerts */}
@@ -330,11 +382,8 @@ export default function Dashboard() {
             {hasStockAlerts ? (
               <div className="space-y-1.5">
                 {stockAlertItems.map(a => (
-                  <button
-                    key={a.label}
-                    onClick={() => navigate('/products', { state: { stockStatus: a.stockStatus } })}
-                    className="w-full flex items-center justify-between text-xs hover:opacity-80 transition-opacity"
-                  >
+                  <button key={a.label} onClick={() => navigate('/products', { state: { stockStatus: a.stockStatus } })}
+                    className="w-full flex items-center justify-between text-xs hover:opacity-80 transition-opacity">
                     <span className="text-[var(--text-muted)]">{a.label}</span>
                     <span className={`font-bold ${a.color}`}>{a.count}</span>
                   </button>
@@ -345,123 +394,142 @@ export default function Dashboard() {
             )}
           </div>
 
-          {/* Unassigned Location */}
+          {/* Unconfirmed Movements */}
           <button
-            onClick={() => stats.unassignedLocationCount > 0 ? navigate('/products', { state: { locationId: UNASSIGNED_LOCATION } }) : undefined}
-            className={`bg-[var(--surface)] rounded-xl p-4 shadow-sm border text-left transition-all active:scale-95 ${stats.unassignedLocationCount > 0 ? 'border-red-200 dark:border-red-800 hover:shadow-md cursor-pointer' : 'border-[var(--border)] cursor-default'}`}
+            onClick={() => stats.unconfirmedMovementsCount > 0 ? navigate('/stock-movements', { state: { notifFilter: 'movement:pending' } }) : undefined}
+            className={`bg-[var(--surface)] rounded-xl p-4 shadow-sm border text-left transition-all active:scale-95 ${stats.unconfirmedMovementsCount > 0 ? 'border-yellow-200 dark:border-yellow-800 hover:shadow-md cursor-pointer' : 'border-[var(--border)] cursor-default'}`}
           >
             <div className="flex items-center gap-2 mb-2">
-              <div className={`p-1.5 rounded-lg ${stats.unassignedLocationCount > 0 ? 'bg-red-100 text-red-600 dark:bg-red-950 dark:text-red-400' : 'bg-gray-100 text-gray-400 dark:bg-gray-800'}`}>
-                <MapPin size={16} />
+              <div className={`p-1.5 rounded-lg ${stats.unconfirmedMovementsCount > 0 ? 'bg-yellow-100 text-yellow-600 dark:bg-yellow-950 dark:text-yellow-400' : 'bg-gray-100 text-gray-400 dark:bg-gray-800'}`}>
+                <ArrowLeftRight size={16} />
               </div>
-              <p className="text-sm font-semibold text-[var(--text)]">Unassigned Location</p>
+              <p className="text-sm font-semibold text-[var(--text)]">Unconfirmed</p>
             </div>
-            <p className={`text-2xl font-bold leading-none ${stats.unassignedLocationCount > 0 ? 'text-red-600 dark:text-red-400' : 'text-[var(--text)]'}`}>{stats.unassignedLocationCount}</p>
-            <p className="text-xs text-[var(--text-muted)] mt-1 opacity-70">Products with no location</p>
+            <p className={`text-2xl font-bold leading-none ${stats.unconfirmedMovementsCount > 0 ? 'text-yellow-600 dark:text-yellow-400' : 'text-[var(--text)]'}`}>{stats.unconfirmedMovementsCount}</p>
+            <p className="text-xs text-[var(--text-muted)] mt-1 opacity-70">{stats.unconfirmedMovementsCount > 0 ? 'Movements awaiting confirmation' : 'All movements confirmed'}</p>
           </button>
 
-          {/* Warranty Expiring Soon */}
+          {/* Not Recently Verified */}
           <button
-            onClick={() => stats.warrantyExpiringSoon > 0 ? navigate('/inventory-items', { state: { filterWarranty: 'under-warranty' } }) : undefined}
-            className={`bg-[var(--surface)] rounded-xl p-4 shadow-sm border text-left transition-all active:scale-95 ${stats.warrantyExpiringSoon > 0 ? 'border-blue-200 dark:border-blue-800 hover:shadow-md cursor-pointer' : 'border-[var(--border)] cursor-default'}`}
+            onClick={() => stats.unverifiedItemsCount > 0 ? navigate('/inventory-items', { state: { filterAuditStatus: 'not-checked-3months' } }) : undefined}
+            className={`bg-[var(--surface)] rounded-xl p-4 shadow-sm border text-left transition-all active:scale-95 ${stats.unverifiedItemsCount > 0 ? 'border-teal-200 dark:border-teal-800 hover:shadow-md cursor-pointer' : 'border-[var(--border)] cursor-default'}`}
           >
             <div className="flex items-center gap-2 mb-2">
-              <div className={`p-1.5 rounded-lg ${stats.warrantyExpiringSoon > 0 ? 'bg-blue-100 text-blue-600 dark:bg-blue-950 dark:text-blue-400' : 'bg-gray-100 text-gray-400 dark:bg-gray-800'}`}>
-                <Clock size={16} />
+              <div className={`p-1.5 rounded-lg ${stats.unverifiedItemsCount > 0 ? 'bg-teal-100 text-teal-600 dark:bg-teal-950 dark:text-teal-400' : 'bg-gray-100 text-gray-400 dark:bg-gray-800'}`}>
+                <ClipboardCheck size={16} />
               </div>
-              <p className="text-sm font-semibold text-[var(--text)]">Warranty</p>
+              <p className="text-sm font-semibold text-[var(--text)]">Not Verified</p>
             </div>
-            <p className={`text-2xl font-bold leading-none ${stats.warrantyExpiringSoon > 0 ? 'text-blue-600 dark:text-blue-400' : 'text-[var(--text)]'}`}>{stats.warrantyExpiringSoon}</p>
-            <p className="text-xs text-[var(--text-muted)] mt-1 opacity-70">Expiring within 30 days</p>
+            <p className={`text-2xl font-bold leading-none ${stats.unverifiedItemsCount > 0 ? 'text-teal-600 dark:text-teal-400' : 'text-[var(--text)]'}`}>{stats.unverifiedItemsCount}</p>
+            <p className="text-xs text-[var(--text-muted)] mt-1 opacity-70">{stats.unverifiedItemsCount > 0 ? 'Not checked in 3 months' : 'All items recently verified'}</p>
           </button>
 
-          {/* Missing Details */}
-          <button
-            onClick={() => stats.missingDetailsCount > 0 ? navigate('/inventory-items', { state: { filterDataQuality: 'incomplete' } }) : undefined}
-            className={`bg-[var(--surface)] rounded-xl p-4 shadow-sm border text-left transition-all active:scale-95 ${stats.missingDetailsCount > 0 ? 'border-orange-200 dark:border-orange-800 hover:shadow-md cursor-pointer' : 'border-[var(--border)] cursor-default'}`}
-          >
-            <div className="flex items-center gap-2 mb-2">
-              <div className={`p-1.5 rounded-lg ${stats.missingDetailsCount > 0 ? 'bg-orange-100 text-orange-600 dark:bg-orange-950 dark:text-orange-400' : 'bg-green-100 text-green-600 dark:bg-green-950 dark:text-green-400'}`}>
-                <AlertCircle size={16} />
-              </div>
-              <p className="text-sm font-semibold text-[var(--text)]">Missing Details</p>
-            </div>
-            <p className={`text-2xl font-bold leading-none ${stats.missingDetailsCount > 0 ? 'text-orange-600 dark:text-orange-400' : 'text-green-600 dark:text-green-400'}`}>{stats.missingDetailsCount}</p>
-            <p className="text-xs text-[var(--text-muted)] mt-1 opacity-70">{stats.missingDetailsCount > 0 ? 'Incomplete item records' : 'All key details complete'}</p>
-          </button>
-
-        </div>
-      </div>
-
-      {/* Section 3 — Asset Status */}
-      <div>
-        <SectionLabel>Action Queue</SectionLabel>
-        <div className="bg-[var(--surface)] rounded-xl shadow-sm border border-[var(--border)] divide-y divide-[var(--border)]">
-          {actionQueue.length > 0 ? actionQueue.map(item => (
+          {/* Pending Requests — admin/superadmin only; staff sees Missing Details instead */}
+          {user.role !== 'staff' ? (
             <button
-              key={item.label}
-              onClick={() => navigate(item.path, { state: item.state })}
-              className="w-full px-4 py-3 flex items-center justify-between text-left hover:bg-[var(--surface-2)] transition-colors"
+              onClick={() => stats.pendingRequestsCount > 0 ? navigate('/admin/requests') : undefined}
+              className={`bg-[var(--surface)] rounded-xl p-4 shadow-sm border text-left transition-all active:scale-95 ${stats.pendingRequestsCount > 0 ? 'border-violet-200 dark:border-violet-800 hover:shadow-md cursor-pointer' : 'border-[var(--border)] cursor-default'}`}
             >
-              <span className="text-sm font-medium text-[var(--text)]">{item.label}</span>
-              <span className={`text-sm font-bold ${item.tone}`}>{item.count}</span>
+              <div className="flex items-center gap-2 mb-2">
+                <div className={`p-1.5 rounded-lg ${stats.pendingRequestsCount > 0 ? 'bg-violet-100 text-violet-600 dark:bg-violet-950 dark:text-violet-400' : 'bg-gray-100 text-gray-400 dark:bg-gray-800'}`}>
+                  <ClipboardList size={16} />
+                </div>
+                <p className="text-sm font-semibold text-[var(--text)]">Pending Requests</p>
+              </div>
+              <p className={`text-2xl font-bold leading-none ${stats.pendingRequestsCount > 0 ? 'text-violet-600 dark:text-violet-400' : 'text-[var(--text)]'}`}>{stats.pendingRequestsCount}</p>
+              <p className="text-xs text-[var(--text-muted)] mt-1 opacity-70">{stats.pendingRequestsCount > 0 ? 'Import, delete, edit, password' : 'No pending requests'}</p>
             </button>
-          )) : (
-            <div className="px-4 py-6 text-sm text-[var(--text-muted)] text-center">No priority actions right now.</div>
+          ) : (
+            <button
+              onClick={() => stats.missingDetailsCount > 0 ? navigate('/inventory-items', { state: { filterDataQuality: 'incomplete' } }) : undefined}
+              className={`bg-[var(--surface)] rounded-xl p-4 shadow-sm border text-left transition-all active:scale-95 ${stats.missingDetailsCount > 0 ? 'border-orange-200 dark:border-orange-800 hover:shadow-md cursor-pointer' : 'border-[var(--border)] cursor-default'}`}
+            >
+              <div className="flex items-center gap-2 mb-2">
+                <div className={`p-1.5 rounded-lg ${stats.missingDetailsCount > 0 ? 'bg-orange-100 text-orange-600 dark:bg-orange-950 dark:text-orange-400' : 'bg-green-100 text-green-600 dark:bg-green-950 dark:text-green-400'}`}>
+                  <AlertCircle size={16} />
+                </div>
+                <p className="text-sm font-semibold text-[var(--text)]">Missing Details</p>
+              </div>
+              <p className={`text-2xl font-bold leading-none ${stats.missingDetailsCount > 0 ? 'text-orange-600 dark:text-orange-400' : 'text-green-600 dark:text-green-400'}`}>{stats.missingDetailsCount}</p>
+              <p className="text-xs text-[var(--text-muted)] mt-1 opacity-70">{stats.missingDetailsCount > 0 ? 'Incomplete item records' : 'All key details complete'}</p>
+            </button>
           )}
         </div>
+
+        {/* Secondary list — only non-zero items */}
+        {(() => {
+          const secondary = [
+            { label: 'Products without location',  count: stats.unassignedLocationCount, path: '/products',        state: { locationId: UNASSIGNED_LOCATION },              tone: 'text-red-600 dark:text-red-400' },
+            { label: 'Warranty expiring soon',      count: stats.warrantyExpiringSoon,    path: '/inventory-items', state: { filterWarranty: 'under-warranty' },             tone: 'text-blue-600 dark:text-blue-400' },
+            { label: 'Incomplete item records',     count: stats.missingDetailsCount,     path: '/inventory-items', state: { filterDataQuality: 'incomplete' },              tone: 'text-orange-600 dark:text-orange-400' },
+            { label: 'Items for repair',            count: stats.itemsForRepair,          path: '/inventory-items', state: { filterStatus: 'under-repair' },                 tone: 'text-orange-600 dark:text-orange-400' },
+            { label: 'Lost items',                  count: stats.itemsLost,               path: '/inventory-items', state: { filterStatus: 'lost' },                         tone: 'text-red-600 dark:text-red-400' },
+            { label: 'Out of stock products',       count: stats.outOfStockCount,         path: '/products',        state: { stockStatus: 'out-of-stock' },                  tone: 'text-red-600 dark:text-red-400' },
+            { label: 'Low stock products',          count: stats.lowStockCount,           path: '/products',        state: { stockStatus: 'low-stock' },                    tone: 'text-yellow-600 dark:text-yellow-400' },
+          ].filter(i => i.count > 0);
+
+          if (secondary.length === 0) return (
+            <div className="mt-2 px-4 py-3 bg-[var(--surface)] rounded-xl border border-[var(--border)] text-sm text-[var(--text-muted)] text-center">
+              All clear — no secondary issues.
+            </div>
+          );
+          return (
+            <div className="mt-2 bg-[var(--surface)] rounded-xl shadow-sm border border-[var(--border)] divide-y divide-[var(--border)]">
+              {secondary.map(item => (
+                <button key={item.label} onClick={() => navigate(item.path, { state: item.state })}
+                  className="w-full px-4 py-2.5 flex items-center justify-between text-left hover:bg-[var(--surface-2)] transition-colors">
+                  <span className="text-sm text-[var(--text)]">{item.label}</span>
+                  <span className={`text-sm font-bold ${item.tone}`}>{item.count}</span>
+                </button>
+              ))}
+            </div>
+          );
+        })()}
       </div>
 
+      {/* Section 4 — Inventory Analytics (collapsible) */}
       <div>
-        <SectionLabel>Asset Status</SectionLabel>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <StatCard label="Available"  value={stats.itemsAvailable} icon={CheckCircle} accent="bg-green-100 text-green-600 dark:bg-green-950 dark:text-green-400"    onClick={() => navigate('/inventory-items')} />
-          <StatCard label="In Use"     value={stats.itemsInUse}     icon={Zap}         accent="bg-blue-100 text-blue-600 dark:bg-blue-950 dark:text-blue-400"        onClick={() => navigate('/inventory-items')} />
-          <StatCard label="For Repair" value={stats.itemsForRepair} icon={Wrench}      accent={stats.itemsForRepair > 0 ? 'bg-orange-100 text-orange-600 dark:bg-orange-950 dark:text-orange-400' : 'bg-gray-100 text-gray-400'} onClick={() => navigate('/inventory-items', { state: { filterStatus: 'under-repair' } })} />
-          <StatCard label="Lost"       value={stats.itemsLost}      icon={AlertCircle} accent={stats.itemsLost > 0 ? 'bg-red-100 text-red-600 dark:bg-red-950 dark:text-red-400' : 'bg-gray-100 text-gray-400'} onClick={() => navigate('/inventory-items', { state: { filterStatus: 'lost' } })} />
-        </div>
-      </div>
-
-      {/* Section 4 — Inventory Analytics */}
-      <div>
-        <SectionLabel>Inventory Analytics</SectionLabel>
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-
-          <div className="bg-[var(--surface)] rounded-xl shadow-sm border border-[var(--border)] p-4">
-            <div className="flex items-center gap-2 mb-3">
-              <Activity size={16} className="text-[var(--primary)]" />
-              <h2 className="text-sm font-semibold text-[var(--text)]">Product Stock Health</h2>
+        <button
+          onClick={() => {
+            const next = !showAnalytics;
+            setShowAnalytics(next);
+            localStorage.setItem('dash_analytics_open', String(next));
+          }}
+          className="flex items-center gap-1 mb-2 group"
+        >
+          <p className="text-xs font-semibold uppercase tracking-wide text-[var(--text-muted)] group-hover:text-[var(--text)] transition-colors">Inventory Analytics</p>
+          <ChevronDown size={13} className={`text-[var(--text-muted)] transition-transform ${showAnalytics ? '' : '-rotate-90'}`} />
+        </button>
+        {showAnalytics && (
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+            <div className="bg-[var(--surface)] rounded-xl shadow-sm border border-[var(--border)] p-4">
+              <div className="flex items-center gap-2 mb-3">
+                <Activity size={16} className="text-[var(--primary)]" />
+                <h2 className="text-sm font-semibold text-[var(--text)]">Product Stock Health</h2>
+              </div>
+              <HealthBar good={stats.goodStockCount} low={stats.lowStockCount} out={stats.outOfStockCount} negative={stats.negativeStockCount} />
+              {(stats.outOfStockCount > 0 || stats.negativeStockCount > 0) && (
+                <button onClick={() => navigate('/products')} className="mt-3 w-full text-xs text-center text-[var(--primary)] hover:underline">
+                  Review products →
+                </button>
+              )}
             </div>
-            <HealthBar
-              good={stats.goodStockCount}
-              low={stats.lowStockCount}
-              out={stats.outOfStockCount}
-              negative={stats.negativeStockCount}
-            />
-            {(stats.outOfStockCount > 0 || stats.negativeStockCount > 0) && (
-              <button onClick={() => navigate('/products')} className="mt-3 w-full text-xs text-center text-[var(--primary)] hover:underline">
-                Review products →
-              </button>
-            )}
-          </div>
-
-          <div className="bg-[var(--surface)] rounded-xl shadow-sm border border-[var(--border)] p-4">
-            <div className="flex items-center gap-2 mb-3">
-              <Tag size={16} className="text-[var(--primary)]" />
-              <h2 className="text-sm font-semibold text-[var(--text)]">Stock Qty by Category</h2>
+            <div className="bg-[var(--surface)] rounded-xl shadow-sm border border-[var(--border)] p-4">
+              <div className="flex items-center gap-2 mb-3">
+                <Tag size={16} className="text-[var(--primary)]" />
+                <h2 className="text-sm font-semibold text-[var(--text)]">Stock Qty by Category</h2>
+              </div>
+              <BreakdownBar items={categoryStockItems} emptyLabel="No category data yet." />
             </div>
-            <BreakdownBar items={categoryStockItems} emptyLabel="No category data yet." />
-          </div>
-
-          <div className="bg-[var(--surface)] rounded-xl shadow-sm border border-[var(--border)] p-4">
-            <div className="flex items-center gap-2 mb-3">
-              <MapPin size={16} className="text-[var(--primary)]" />
-              <h2 className="text-sm font-semibold text-[var(--text)]">Inventory Items by Location</h2>
+            <div className="bg-[var(--surface)] rounded-xl shadow-sm border border-[var(--border)] p-4">
+              <div className="flex items-center gap-2 mb-3">
+                <MapPin size={16} className="text-[var(--primary)]" />
+                <h2 className="text-sm font-semibold text-[var(--text)]">Items by Location</h2>
+              </div>
+              <BreakdownBar items={stats.locationBreakdown} emptyLabel="No location data yet." />
             </div>
-            <BreakdownBar items={stats.locationBreakdown} emptyLabel="No location data yet." />
           </div>
-
-        </div>
+        )}
       </div>
 
       {/* Section 5 — Operations */}
@@ -471,10 +539,10 @@ export default function Dashboard() {
 
           {/* Quick Actions */}
           <div className="flex flex-wrap gap-2">
-            {quickActions.map(({ label, icon: Icon, path, color }) => (
+            {quickActions.map(({ label, icon: Icon, path, action, color }) => (
               <button
                 key={label}
-                onClick={() => navigate(path)}
+                onClick={() => action ? action() : navigate(path!)}
                 className={`flex items-center gap-2 px-3 py-2 rounded-lg border text-sm font-medium transition-all active:scale-95 ${color}`}
               >
                 <Icon size={15} />
@@ -532,6 +600,53 @@ export default function Dashboard() {
               </div>
             )}
           </div>
+
+          {/* Recent Requests — admin/superadmin only */}
+          {user.role !== 'staff' && (
+            <div className="bg-[var(--surface)] rounded-xl shadow-sm border border-[var(--border)]">
+              <div className="px-4 py-3 border-b border-[var(--border)] flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <ClipboardList size={16} className="text-[var(--primary)]" />
+                  <h2 className="text-sm font-semibold text-[var(--text)]">Recent Requests</h2>
+                </div>
+                <button onClick={() => navigate('/admin/requests')} className="text-xs text-[var(--primary)] hover:underline font-medium">
+                  View all →
+                </button>
+              </div>
+
+              {recentRequests.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-10 text-center">
+                  <ClipboardList size={28} className="text-[var(--text-muted)] mb-2 opacity-30" />
+                  <p className="text-sm text-[var(--text-muted)]">No pending requests.</p>
+                </div>
+              ) : (
+                <div className="divide-y divide-[var(--border)]">
+                  {recentRequests.map((r: any) => {
+                    const meta = REQUEST_META[r.type] ?? { label: r.type, color: 'bg-gray-100 text-gray-700', dot: 'bg-gray-400' };
+                    return (
+                      <div
+                        key={r.id}
+                        onClick={() => navigate('/admin/requests')}
+                        className="flex items-center gap-3 px-4 py-2.5 hover:bg-[var(--surface-2)] cursor-pointer transition-colors"
+                      >
+                        <span className={`w-2 h-2 rounded-full flex-shrink-0 ${meta.dot}`} />
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium text-[var(--text)] truncate">{r.label}</p>
+                          <p className="text-xs text-[var(--text-muted)] truncate">by {r.requesterName}</p>
+                        </div>
+                        <span className={`px-2 py-0.5 rounded-full text-xs font-semibold flex-shrink-0 ${meta.color}`}>
+                          {meta.label}
+                        </span>
+                        <span className="text-xs text-[var(--text-muted)] flex-shrink-0 w-16 text-right">
+                          {timeAgo(r.createdAt)}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
 
         </div>
       </div>

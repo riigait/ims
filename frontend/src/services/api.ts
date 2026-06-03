@@ -144,6 +144,7 @@ export const mapApi = {
 export const dashboardApi = {
   getStats: () => api.get('/dashboard/stats'),
   getRecentMovements: () => api.get('/dashboard/recent-movements'),
+  getRecentRequests: () => api.get('/dashboard/recent-requests'),
 };
 
 // Departments

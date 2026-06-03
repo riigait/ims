@@ -29,6 +29,8 @@ router.get('/stats', authMiddleware, async (req: AuthRequest, res: Response) => 
     const now = new Date();
     const thirtyDaysFromNow = new Date(now);
     thirtyDaysFromNow.setDate(thirtyDaysFromNow.getDate() + 30);
+    const threeMonthsAgo = new Date(now);
+    threeMonthsAgo.setMonth(threeMonthsAgo.getMonth() - 3);
 
     const unassignedLocation = await prisma.location.findFirst({
       where: { name: { contains: 'unassigned', mode: 'insensitive' } },
@@ -41,6 +43,8 @@ router.get('/stats', authMiddleware, async (req: AuthRequest, res: Response) => 
       itemStatusGroups, warrantyExpiringSoon,
       categoryGroups, locationGroups,
       missingDetailsCount,
+      unconfirmedMovementsCount,
+      unverifiedItemsCount,
     ] = await Promise.all([
       prisma.product.count({ where: productFilter }),
       prisma.product.aggregate({ _sum: { currentStock: true }, where: productFilter }),
@@ -98,6 +102,19 @@ router.get('/stats', authMiddleware, async (req: AuthRequest, res: Response) => 
           ],
         },
       }),
+      prisma.stockMovement.count({
+        where: { ...departmentFilter, status: 'pending' },
+      }),
+      prisma.stockDetail.count({
+        where: {
+          ...stockDetailFilter,
+          currentStatus: { notIn: ['sold', 'disposed', 'lost'] },
+          OR: [
+            { lastCheckedDate: null },
+            { lastCheckedDate: { lt: threeMonthsAgo } },
+          ],
+        },
+      }),
     ]);
 
     const unassignedLocationCount = unassignedLocation
@@ -118,6 +135,19 @@ router.get('/stats', authMiddleware, async (req: AuthRequest, res: Response) => 
     const itemsInUse     = (statusMap['deployed'] || 0) + (statusMap['borrowed'] || 0);
     const itemsForRepair = (statusMap['under-repair'] || 0) + (statusMap['repair'] || 0) + (statusMap['damaged'] || 0);
     const itemsLost      = statusMap['lost'] || 0;
+
+    // Pending requests — admin/superadmin only
+    let pendingRequestsCount = 0;
+    if (req.userRole !== 'staff') {
+      const deptId = req.departmentId && req.departmentId !== 'all-departments' ? req.departmentId : null;
+      const [r1, r2, r3, r4] = await Promise.all([
+        prisma.importRequest.count({ where: { status: 'pending', ...(deptId ? { departmentId: deptId } : {}) } }),
+        prisma.deleteRequest.count({ where: { status: 'pending', ...(deptId ? { product: { departmentId: deptId } } : {}) } }),
+        prisma.passwordChangeRequest.count({ where: { status: 'pending' } }),
+        prisma.editRequest.count({ where: { status: 'pending', ...(deptId ? { product: { departmentId: deptId } } : {}) } }),
+      ]);
+      pendingRequestsCount = r1 + r2 + r3 + r4;
+    }
 
     const categoryIds = categoryGroups.map(c => c.categoryId);
     const categoryNames = categoryIds.length > 0
@@ -158,6 +188,9 @@ router.get('/stats', authMiddleware, async (req: AuthRequest, res: Response) => 
       warrantyExpiringSoon,
       categoryBreakdown,
       locationBreakdown,
+      unconfirmedMovementsCount,
+      unverifiedItemsCount,
+      pendingRequestsCount,
     });
   } catch (error) {
     console.error(error);
@@ -200,6 +233,54 @@ router.get('/recent-movements', authMiddleware, async (req: AuthRequest, res: Re
     }));
 
     res.json(formatted);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+router.get('/recent-requests', authMiddleware, async (req: AuthRequest, res: Response) => {
+  try {
+    if (req.userRole === 'staff') return res.json([]);
+
+    const deptId = req.departmentId && req.departmentId !== 'all-departments' ? req.departmentId : null;
+
+    const [imports, deletes, passwords, edits] = await Promise.all([
+      prisma.importRequest.findMany({
+        where: { status: 'pending', ...(deptId ? { departmentId: deptId } : {}) },
+        include: { submitter: { select: { name: true } } },
+        orderBy: { createdAt: 'desc' },
+        take: 5,
+      }),
+      prisma.deleteRequest.findMany({
+        where: { status: 'pending' },
+        include: { requester: { select: { name: true } } },
+        orderBy: { createdAt: 'desc' },
+        take: 5,
+      }),
+      prisma.passwordChangeRequest.findMany({
+        where: { status: 'pending' },
+        include: { requester: { select: { name: true } } },
+        orderBy: { createdAt: 'desc' },
+        take: 5,
+      }),
+      prisma.editRequest.findMany({
+        where: { status: 'pending', ...(deptId ? { product: { departmentId: deptId } } : {}) },
+        include: { requester: { select: { name: true } }, product: { select: { name: true } } },
+        orderBy: { createdAt: 'desc' },
+        take: 5,
+      }),
+    ]);
+
+    const combined = [
+      ...imports.map(r => ({ id: r.id, type: 'import',   label: r.label || r.requestNo || 'CSV Import',  requesterName: r.submitter.name,  createdAt: r.createdAt.toISOString() })),
+      ...deletes.map(r => ({ id: r.id, type: 'delete',   label: r.entityName,                            requesterName: r.requester.name,  createdAt: r.createdAt.toISOString() })),
+      ...passwords.map(r => ({ id: r.id, type: 'password', label: 'Password Reset',                     requesterName: r.requester.name,  createdAt: r.createdAt.toISOString() })),
+      ...edits.map(r => ({ id: r.id, type: 'edit',       label: r.product.name,                         requesterName: r.requester.name,  createdAt: r.createdAt.toISOString() })),
+    ];
+
+    combined.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    res.json(combined.slice(0, 8));
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: 'Internal server error' });
