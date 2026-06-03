@@ -803,16 +803,19 @@ export default function InventoryItems() {
         </div>
       ) : (
         <div className="border border-[var(--border)] rounded-lg overflow-hidden">
-          <div className={`hidden md:grid gap-4 px-4 py-2 bg-[var(--surface-2)] text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wide border-b border-[var(--border)] items-center ${showDept ? 'md:grid-cols-9' : 'md:grid-cols-8'}`}>
-            <div className="text-left">Asset ID</div>
-            <div className="text-left">Product</div>
-            <div className="text-left">Serial No.</div>
-            <div className="text-left">MAC / Barcode</div>
-            <div className="text-left">Condition</div>
-            <div className="text-left">Status</div>
-            <div className="text-left">Location</div>
-            <div className="text-left">Last Checked</div>
-            {showDept && <div className="text-left">Department</div>}
+          <div className="hidden md:flex items-center gap-3 px-4 py-2 bg-[var(--surface-2)] text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wide border-b border-[var(--border)]">
+            <div className={`flex-1 grid gap-4 ${showDept ? 'grid-cols-9' : 'grid-cols-8'}`}>
+              <div>Asset ID</div>
+              <div>Product</div>
+              <div>Serial No.</div>
+              <div>MAC / Barcode</div>
+              <div className="text-center">Condition</div>
+              <div className="text-center">Status</div>
+              <div>Location</div>
+              <div>Last Checked</div>
+              {showDept && <div>Department</div>}
+            </div>
+            <div className="w-4 flex-shrink-0" />
           </div>
           {paginated.map(item => (
             <div
@@ -828,8 +831,8 @@ export default function InventoryItems() {
                 <div className="truncate font-medium text-[var(--text)]">{item.product?.name || '—'}</div>
                 <div className="truncate font-mono text-xs text-[var(--text-muted)]">{item.serialNumber || '—'}</div>
                 <div className="truncate font-mono text-xs text-[var(--text-muted)]">{item.macId || item.barcode || '—'}</div>
-                <div className="capitalize text-[var(--text-muted)] text-xs">{item.condition || '—'}</div>
-                <div>
+                <div className="capitalize text-[var(--text-muted)] text-xs text-center">{item.condition || '—'}</div>
+                <div className="flex justify-center">
                   <span className={`px-2 py-0.5 rounded text-xs font-semibold ${STATUS_COLOR[item.currentStatus] ?? 'bg-gray-100 text-gray-800'}`}>
                     {STATUS_LABELS[item.currentStatus] ?? item.currentStatus}
                   </span>

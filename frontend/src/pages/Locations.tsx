@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
-import { useLocation as useRouteLocation } from 'react-router-dom';
-import { X, Edit, Trash2, ChevronRight } from 'lucide-react';
+import { useLocation as useRouteLocation, useNavigate } from 'react-router-dom';
+import { X, Edit, Trash2, ChevronRight, Plus } from 'lucide-react';
 import { locationsApi, departmentsApi } from '@/services/api';
 import { formatDate } from '@/utils/ids';
 import { Location } from '@/types/inventory';
@@ -16,6 +16,7 @@ interface Department {
 export default function Locations() {
   const routeLocation = useRouteLocation();
   const routeState = (routeLocation.state as any) || {};
+  const navigate = useNavigate();
   const user = JSON.parse(localStorage.getItem('user') || '{}');
   const [locations, setLocations] = useState<Location[]>([]);
   const [departments, setDepartments] = useState<Department[]>([]);
@@ -445,10 +446,15 @@ export default function Locations() {
                     </div>
                   </div>
                 ) : user.role === 'admin' && (
-                  <div className="flex gap-2">
-                    <button type="button" onClick={() => selectedItem && openEdit(selectedItem)}
+                  <div className="flex flex-wrap gap-2">
+                    <button type="button"
+                      onClick={() => selectedItem && navigate('/products/bulk-add', { state: { locationId: selectedItem.id } })}
                       className="flex items-center gap-2 px-4 py-2 bg-[var(--primary)] text-white text-sm rounded-lg hover:bg-[var(--primary-hover)]">
-                      <Edit size={14} /> Edit Details
+                      <Plus size={14} /> Add Product Here
+                    </button>
+                    <button type="button" onClick={() => selectedItem && openEdit(selectedItem)}
+                      className="flex items-center gap-2 px-4 py-2 border border-[var(--border)] text-[var(--text)] text-sm rounded-lg hover:bg-[var(--surface-2)]">
+                      <Edit size={14} /> Edit
                     </button>
                     <button type="button" onClick={() => setConfirmingDelete(true)}
                       className="flex items-center gap-2 px-4 py-2 border border-red-300 text-red-600 text-sm rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20">

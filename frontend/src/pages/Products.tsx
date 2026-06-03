@@ -507,17 +507,18 @@ export default function Products() {
           ) : (
             <div className="space-y-0 border border-[var(--border)] rounded-lg overflow-hidden">
               {/* Table header */}
-              <div className="hidden md:grid md:grid-cols-10 gap-4 px-4 py-2 bg-[var(--surface-2)] text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wide border-b border-[var(--border)]">
-                <div>SKU</div>
-                <div>Name</div>
-                <div>Category</div>
-                <div>Location</div>
-                <div>Department</div>
-                <div className="text-right">Unit Price</div>
-                <div className="text-right">Total Value</div>
-                <div>Status</div>
-                <div className="text-right">Stock</div>
-                <div>Date Added</div>
+              <div className="hidden md:flex items-center gap-3 px-4 py-2 bg-[var(--surface-2)] text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wide border-b border-[var(--border)]">
+                <div className="flex-1 grid grid-cols-8 gap-4">
+                  <div>SKU</div>
+                  <div>Name</div>
+                  <div>Category</div>
+                  <div>Location</div>
+                  <div>Department</div>
+                  <div className="text-center">Status</div>
+                  <div className="text-right">Stock</div>
+                  <div>Date Added</div>
+                </div>
+                <div className="w-4 flex-shrink-0" />
               </div>
               {paginatedProducts.map(product => {
                 const category = product.category ?? categoriesMap.get(product.categoryId);
@@ -525,13 +526,12 @@ export default function Products() {
                 const isNegative = product.currentStock < 0;
                 const isOut = product.currentStock === 0;
                 const isLow = product.currentStock > 0 && product.currentStock <= product.lowStockThreshold;
-                const totalValue = (product.unitPrice || 0) * product.currentStock;
                 return (
                   <div
                     key={product.id}
                     onClick={() => openViewDrawer(product)}
                     className="flex items-center gap-3 px-4 py-3 bg-[var(--surface)] border-b border-[var(--border)] hover:bg-[var(--surface-2)] cursor-pointer transition-colors">
-                    <div className="flex-1 grid grid-cols-2 md:grid-cols-10 gap-4 text-sm min-w-0">
+                    <div className="flex-1 grid grid-cols-2 md:grid-cols-8 gap-4 text-sm min-w-0">
                       <div className="truncate">
                         <span className="font-mono text-xs text-[var(--text-muted)]">{product.sku}</span>
                       </div>
@@ -539,9 +539,7 @@ export default function Products() {
                       <div className="truncate text-[var(--text-muted)]">{category?.name ?? '—'}</div>
                       <div className="truncate text-[var(--text-muted)]">{product.location?.name ?? <span className="text-red-400 text-xs">Unassigned</span>}</div>
                       <div className="truncate text-[var(--text-muted)]">{department?.name ?? '—'}</div>
-                      <div className="text-right text-[var(--text)]">{formatPhp(product.unitPrice)}</div>
-                      <div className="text-right text-[var(--text)]">{formatPhp(totalValue)}</div>
-                      <div>
+                      <div className="flex justify-center">
                         <span className={`px-2 py-0.5 rounded text-xs font-semibold ${STATUS_COLOR[product.status || 'active'] ?? STATUS_COLOR.active}`}>
                           {product.status || 'active'}
                         </span>

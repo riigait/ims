@@ -326,10 +326,10 @@ export default function AdminUsers() {
                       <thead className="bg-[var(--surface-2)] border-b border-[var(--border)]">
                         <tr>
                           <th className="px-4 py-3 text-left font-semibold text-[var(--text)]">Code</th>
-                          <th className="px-4 py-3 text-left font-semibold text-[var(--text)]">Role</th>
+                          <th className="px-4 py-3 text-center font-semibold text-[var(--text)]">Role</th>
                           <th className="px-4 py-3 text-left font-semibold text-[var(--text)]">Created By</th>
                           <th className="px-4 py-3 text-left font-semibold text-[var(--text)]">Expires</th>
-                          <th className="px-4 py-3 text-left font-semibold text-[var(--text)]">Actions</th>
+                          <th className="px-4 py-3 text-center font-semibold text-[var(--text)]">Actions</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-[var(--border)]">
@@ -338,13 +338,13 @@ export default function AdminUsers() {
                             <td className="px-4 py-3">
                               <code className="bg-[var(--surface-2)] px-3 py-1 rounded font-mono text-xs text-[var(--text)]">{invite.code}</code>
                             </td>
-                            <td className="px-4 py-3">
+                            <td className="px-4 py-3 text-center">
                               <span className={`px-2 py-1 rounded text-xs font-medium ${ROLE_COLOR[invite.role] ?? 'bg-gray-100 text-gray-700'}`}>{invite.role}</span>
                             </td>
                             <td className="px-4 py-3 text-[var(--text-muted)]">{invite.creator?.name || 'Unknown'}</td>
                             <td className="px-4 py-3 text-[var(--text-muted)]">{new Date(invite.expiresAt).toLocaleDateString()}</td>
-                            <td className="px-4 py-3">
-                              <div className="flex gap-2 items-center">
+                            <td className="px-4 py-3 text-center">
+                              <div className="flex gap-2 items-center justify-center">
                                 <button onClick={() => copyToClipboard(invite.code)}
                                   className="p-2 text-[var(--primary)] hover:bg-[var(--surface-2)] rounded transition" title="Copy code">
                                   <Copy size={16} />
@@ -385,7 +385,7 @@ export default function AdminUsers() {
                   <thead className="bg-[var(--surface-2)] border-b border-[var(--border)]">
                     <tr>
                       <th className="px-4 py-3 text-left font-semibold text-[var(--text)]">Code</th>
-                      <th className="px-4 py-3 text-left font-semibold text-[var(--text)]">Role</th>
+                      <th className="px-4 py-3 text-center font-semibold text-[var(--text)]">Role</th>
                       <th className="px-4 py-3 text-left font-semibold text-[var(--text)]">Used By</th>
                       <th className="px-4 py-3 text-left font-semibold text-[var(--text)]">Date</th>
                     </tr>
@@ -396,7 +396,7 @@ export default function AdminUsers() {
                         <td className="px-4 py-3">
                           <code className="bg-[var(--surface-2)] px-3 py-1 rounded font-mono text-xs text-[var(--text)]">{invite.code}</code>
                         </td>
-                        <td className="px-4 py-3">
+                        <td className="px-4 py-3 text-center">
                           <span className={`px-2 py-1 rounded text-xs font-medium ${ROLE_COLOR[invite.role] ?? 'bg-gray-100 text-gray-700'}`}>{invite.role}</span>
                         </td>
                         <td className="px-4 py-3 text-[var(--text-muted)]">{invite.usedBy || '-'}</td>
@@ -426,7 +426,7 @@ export default function AdminUsers() {
                     <tr>
                       <th className="px-4 py-3 text-left font-semibold text-[var(--text)]">Name</th>
                       <th className="px-4 py-3 text-left font-semibold text-[var(--text)]">Email</th>
-                      <th className="px-4 py-3 text-left font-semibold text-[var(--text)]">Role</th>
+                      <th className="px-4 py-3 text-center font-semibold text-[var(--text)]">Role</th>
                       <th className="px-4 py-3 text-left font-semibold text-[var(--text)]">Department</th>
                       <th className="px-4 py-3 text-left font-semibold text-[var(--text)]">Created</th>
                       <th className="px-4 py-3" />
@@ -440,8 +440,8 @@ export default function AdminUsers() {
                         className="hover:bg-[var(--surface-2)] transition-colors cursor-pointer">
                         <td className="px-4 py-3 font-medium text-[var(--text)]">{user.name}</td>
                         <td className="px-4 py-3 text-[var(--text-muted)]">{user.email}</td>
-                        <td className="px-4 py-3">
-                          <span className={`px-2 py-1 rounded text-xs font-medium flex w-fit gap-1 ${ROLE_COLOR[user.role] ?? 'bg-gray-100 text-gray-700'}`}>
+                        <td className="px-4 py-3 text-center">
+                          <span className={`px-2 py-1 rounded text-xs font-medium inline-flex gap-1 ${ROLE_COLOR[user.role] ?? 'bg-gray-100 text-gray-700'}`}>
                             {(user.role === 'admin' || user.role === 'superadmin') && <Shield size={12} />}
                             {user.role}
                           </span>

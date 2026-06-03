@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation as useRouteLocation } from 'react-router-dom';
 import { Plus, Trash2, Copy, ChevronLeft, Save, CheckCircle, XCircle, AlertCircle } from 'lucide-react';
 import { productsApi, categoriesApi, locationsApi } from '@/services/api';
 import { Category, Location } from '@/types/inventory';
@@ -53,12 +53,14 @@ function makeRow(defaults: Partial<Defaults> = {}): BulkRow {
 
 export default function BulkAddProducts() {
   const navigate = useNavigate();
+  const routeLocation = useRouteLocation();
+  const routeState = (routeLocation.state as any) || {};
   const user = JSON.parse(localStorage.getItem('user') || '{}');
   const currentDeptId = localStorage.getItem('currentDepartmentId');
 
   const [categories, setCategories] = useState<Category[]>([]);
   const [locations, setLocations] = useState<Location[]>([]);
-  const [defaults, setDefaults] = useState<Defaults>({ categoryId: '', locationId: '', unit: 'pcs', supplier: '' });
+  const [defaults, setDefaults] = useState<Defaults>({ categoryId: '', locationId: routeState.locationId || '', unit: 'pcs', supplier: '' });
   const [rows, setRows] = useState<BulkRow[]>(() => Array.from({ length: 5 }, () => makeRow()));
   const [rowErrors, setRowErrors] = useState<Record<string, string>>({});
   const [rowResults, setRowResults] = useState<Record<string, RowResult>>({});

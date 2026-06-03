@@ -474,11 +474,11 @@ export default function Requests() {
             <div className="border border-[var(--border)] rounded-lg overflow-hidden">
               <div className="hidden md:grid grid-cols-7 gap-3 px-4 py-2 bg-[var(--surface-2)] text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wide border-b border-[var(--border)]">
                 <div className="col-span-2">Label</div>
-                <div>Type</div>
+                <div className="text-center">Type</div>
                 <div>Department</div>
                 <div>Submitted By</div>
-                <div>Status / Expiry</div>
-                {isSuperadmin && <div>Actions</div>}
+                <div className="text-center">Status / Expiry</div>
+                {isSuperadmin && <div className="text-center">Actions</div>}
               </div>
               {importFiltered.map(req => (
                 <div key={req.id} className="grid grid-cols-1 md:grid-cols-7 gap-3 px-4 py-3 bg-[var(--surface)] border-b border-[var(--border)] items-center text-sm">
@@ -492,7 +492,7 @@ export default function Requests() {
                       <p className="text-xs text-red-600 mt-0.5 italic">Reason: {req.notes}</p>
                     )}
                   </div>
-                  <div>
+                  <div className="flex justify-center">
                     <span className="px-2 py-0.5 bg-[var(--surface-2)] text-[var(--text-muted)] rounded text-xs font-medium">
                       {TYPE_LABEL[req.type] ?? req.type}
                     </span>
@@ -516,7 +516,7 @@ export default function Requests() {
                     )}
                   </div>
                   {isSuperadmin && (
-                    <div className="flex gap-1.5">
+                    <div className="flex gap-1.5 justify-center">
                       {req.status === 'pending' ? (
                         <>
                           <button onClick={() => handleImportApprove(req.id)}
@@ -702,10 +702,10 @@ export default function Requests() {
               <div className="border border-[var(--border)] rounded-lg overflow-hidden">
                 <div className="hidden md:grid grid-cols-6 gap-3 px-4 py-2 bg-[var(--surface-2)] text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wide border-b border-[var(--border)]">
                   <div className="col-span-2">User</div>
-                  <div>Role</div>
+                  <div className="text-center">Role</div>
                   <div>Reason</div>
-                  <div>Status</div>
-                  <div>Actions</div>
+                  <div className="text-center">Status</div>
+                  <div className="text-center">Actions</div>
                 </div>
                 {passwordRequests.map(req => (
                   <div key={req.id} className="grid grid-cols-1 md:grid-cols-6 gap-3 px-4 py-3 bg-[var(--surface)] border-b border-[var(--border)] items-center text-sm">
@@ -713,7 +713,7 @@ export default function Requests() {
                       <p className="font-medium text-[var(--text)]">{req.requester.name}</p>
                       <p className="text-xs text-[var(--text-muted)]">{req.requester.email}</p>
                     </div>
-                    <div>
+                    <div className="flex justify-center">
                       <span className={`px-2 py-0.5 rounded text-xs font-medium ${
                         req.requester.role === 'staff'
                           ? 'bg-purple-100 text-purple-800'
@@ -723,14 +723,14 @@ export default function Requests() {
                       </span>
                     </div>
                     <div className="text-[var(--text-muted)]">{req.reason || '—'}</div>
-                    <div>
+                    <div className="flex justify-center">
                       <span className={`px-2 py-0.5 rounded text-xs font-semibold ${STATUS_COLOR[req.status]}`}>
                         {req.status.charAt(0).toUpperCase() + req.status.slice(1)}
                       </span>
                     </div>
-                    <div>
+                    <div className="flex justify-center">
                       {req.status === 'pending' ? (
-                        <div className="flex gap-2 flex-wrap">
+                        <div className="flex gap-2 flex-wrap justify-center">
                           <button
                             onClick={() => setShowPasswordForm(showPasswordForm === req.id ? null : req.id)}
                             className="flex items-center gap-1 px-2.5 py-1 bg-green-600 hover:bg-green-700 text-white text-xs rounded-lg font-medium">

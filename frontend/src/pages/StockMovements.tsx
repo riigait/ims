@@ -753,6 +753,7 @@ export default function StockMovements() {
   const [sortBy, setSortBy] = useState('recently-added');
   const [error, setError] = useState('');
   const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [confirmingStatus, setConfirmingStatus] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
 
@@ -840,6 +841,7 @@ export default function StockMovements() {
     setDrawerItem(null);
     setDrawerIsNew(false);
     setConfirmingDelete(false);
+    setConfirmingStatus(false);
     setFormData(emptyForm);
     setFormError('');
     setItemStockDetails({});
@@ -899,6 +901,20 @@ export default function StockMovements() {
     }
   };
 
+  const doConfirm = async () => {
+    if (!drawerItem) return;
+    setConfirmingStatus(true);
+    try {
+      await stockMovementsApi.update(drawerItem.id, { status: 'committed' });
+      await fetchData();
+      setDrawerItem(prev => prev ? { ...prev, status: 'committed' } : prev);
+    } catch (err: any) {
+      setError(err?.response?.data?.error ?? 'Failed to confirm movement');
+    } finally {
+      setConfirmingStatus(false);
+    }
+  };
+
   const getProductName = (productId: string) => products.find(p => p.id === productId)?.name ?? 'Unknown';
 
   const filteredAndSortedMovements = sortStockMovements(
@@ -927,7 +943,7 @@ export default function StockMovements() {
           : <>{movements.length} total</>
         }
         {pendingCount > 0 && (
-          <> · <span className="text-orange-500 font-medium">{pendingCount} pending</span></>
+          <> · <span className="text-orange-500 font-medium">{pendingCount} unconfirmed</span></>
         )}
         {' · '}<span className="text-green-600">{mvCount('stock_in')} stock in</span>
         {' · '}<span className="text-red-500">{mvCount('stock_out')} stock out</span>
@@ -967,8 +983,8 @@ export default function StockMovements() {
           onChange={e => { setFilters({ ...filters, movementStatus: e.target.value || undefined } as any); setCurrentPage(1); }}
           className={`px-3 py-2 border rounded text-sm bg-[var(--surface)] text-[var(--text)] ${(filters as any).movementStatus ? 'border-orange-400 font-semibold text-orange-600' : 'border-[var(--border)]'}`}>
           <option value="">All Statuses</option>
-          <option value="pending">Pending (uncommitted)</option>
-          <option value="committed">Committed</option>
+          <option value="pending">Pending (unconfirmed)</option>
+          <option value="committed">Confirmed</option>
           <option value="cancelled">Cancelled</option>
         </select>
         {user.role === 'superadmin' && (
@@ -1713,6 +1729,14 @@ export default function StockMovements() {
                 </div>
               ) : drawerItem && user.role === 'admin' && (
                 <div className="flex gap-2">
+                  {drawerItem.status === 'pending' && (
+                    <button
+                      onClick={doConfirm}
+                      disabled={confirmingStatus}
+                      className="flex items-center gap-2 px-4 py-2 bg-[var(--primary)] text-white text-sm rounded-lg hover:opacity-90 disabled:opacity-50">
+                      {confirmingStatus ? 'Confirming…' : 'Confirm Movement'}
+                    </button>
+                  )}
                   <button onClick={() => setConfirmingDelete(true)}
                     className="flex items-center gap-2 px-4 py-2 border border-red-300 text-red-600 text-sm rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20">
                     <Trash2 size={14} /> Delete

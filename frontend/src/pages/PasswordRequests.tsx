@@ -115,11 +115,11 @@ export default function PasswordRequests() {
               <thead className="bg-gray-50 border-b">
                 <tr>
                   <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">User</th>
-                  <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">Role</th>
+                  <th className="px-6 py-3 text-center text-sm font-semibold text-gray-900">Role</th>
                   <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">Reason</th>
-                  <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">Status</th>
+                  <th className="px-6 py-3 text-center text-sm font-semibold text-gray-900">Status</th>
                   <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">Requested</th>
-                  <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">Actions</th>
+                  <th className="px-6 py-3 text-center text-sm font-semibold text-gray-900">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y">
@@ -129,7 +129,7 @@ export default function PasswordRequests() {
                       <div className="font-medium text-gray-900">{request.requester.name}</div>
                       <div className="text-gray-600">{request.requester.email}</div>
                     </td>
-                    <td className="px-6 py-4 text-sm">
+                    <td className="px-6 py-4 text-sm text-center">
                       <span className={`inline-block px-3 py-1 rounded-full text-xs font-medium ${
                         request.requester.role === 'staff' ? 'bg-purple-100 text-purple-800' : 'bg-green-100 text-green-800'
                       }`}>
@@ -137,7 +137,7 @@ export default function PasswordRequests() {
                       </span>
                     </td>
                     <td className="px-6 py-4 text-sm text-gray-600">{request.reason || '-'}</td>
-                    <td className="px-6 py-4 text-sm">
+                    <td className="px-6 py-4 text-sm text-center">
                       <span className={`inline-block px-3 py-1 rounded-full text-xs font-medium ${
                         request.status === 'pending'
                           ? 'bg-yellow-100 text-yellow-800'
@@ -151,9 +151,9 @@ export default function PasswordRequests() {
                     <td className="px-6 py-4 text-sm text-gray-600">
                       {new Date(request.createdAt).toLocaleDateString()}
                     </td>
-                    <td className="px-6 py-4 text-sm">
+                    <td className="px-6 py-4 text-sm text-center">
                       {request.status === 'pending' ? (
-                        <div className="flex gap-2">
+                        <div className="flex gap-2 justify-center">
                           <button
                             onClick={() => setShowPasswordForm(showPasswordForm === request.id ? null : request.id)}
                             className="inline-flex items-center gap-1 px-3 py-1 bg-green-100 text-green-700 rounded hover:bg-green-200"
