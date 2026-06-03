@@ -47,6 +47,62 @@ function incrementSku(sku: string): string {
   return `SKU-${String(nextNum).padStart(6, '0')}`;
 }
 
+function validateStockMovementInput(body: {
+  movementType?: string;
+  items?: any[];
+  toDepartmentId?: string;
+  deploymentLatitude?: any;
+  deploymentLongitude?: any;
+}): void {
+  const { movementType, items, toDepartmentId, deploymentLatitude, deploymentLongitude } = body;
+  if (!movementType || !items || !Array.isArray(items) || items.length === 0) {
+    throw Object.assign(new Error('movementType and items array are required'), { status: 400 });
+  }
+  if (movementType === 'moved_to_department' && !toDepartmentId) {
+    throw Object.assign(new Error('toDepartmentId is required for moved_to_department'), { status: 400 });
+  }
+  if (movementType === 'moved_to_department' && items.some((item: any) => !item.toLocationId)) {
+    throw Object.assign(new Error('New location is required for moved_to_department'), { status: 400 });
+  }
+  if (movementType === 'pre_deployment') {
+    validateCoordinate(deploymentLatitude, 'deploymentLatitude', -90, 90);
+    validateCoordinate(deploymentLongitude, 'deploymentLongitude', -180, 180);
+  }
+  if (!VALID_MOVEMENT_TYPES.includes(movementType as MovementType)) {
+    throw Object.assign(new Error(`movementType must be one of: ${VALID_MOVEMENT_TYPES.join(', ')}`), { status: 400 });
+  }
+  if ((movementType === 'returned' || movementType === 'found') && items.some((item: any) => !item.stockDetailId && (!item.productId || item.quantity <= 0))) {
+    throw Object.assign(new Error(`${movementType === 'returned' ? 'Returned' : 'Found'} movements must select an inventory item or enter a product quantity.`), { status: 400 });
+  }
+}
+
+function validateCoordinate(value: any, field: string, min: number, max: number): void {
+  if (value === undefined || value === null || value === '') return;
+  const num = Number(value);
+  if (!Number.isFinite(num) || num < min || num > max) {
+    throw Object.assign(new Error(`${field} must be between ${min} and ${max}`), { status: 400 });
+  }
+}
+
+async function checkStockAvailability(movementType: string, items: any[]): Promise<void> {
+  if (!DEDUCTING_TYPES.includes(movementType as MovementType) && movementType !== 'adjustment') return;
+  const requested: Record<string, number> = {};
+  for (const item of items) {
+    if (!item.productId || item.stockDetailId) continue;
+    const qty = item.quantity || 1;
+    const requestedQty = movementType === 'adjustment' ? Math.max(0, -qty) : qty;
+    if (requestedQty > 0) {
+      requested[item.productId] = (requested[item.productId] || 0) + requestedQty;
+    }
+  }
+  for (const [productId, qty] of Object.entries(requested)) {
+    const product = await prisma.product.findUnique({ where: { id: productId }, select: { name: true, currentStock: true } });
+    if (product && qty > product.currentStock) {
+      throw Object.assign(new Error(`Cannot stock out ${qty} item(s) of "${product.name}". Only ${product.currentStock} item(s) available.`), { status: 400 });
+    }
+  }
+}
+
 // Get all stock movements
 router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
@@ -139,67 +195,8 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
     } = req.body;
     const userId = req.userId!;
 
-    // Validate input
-    if (!movementType || !items || !Array.isArray(items) || items.length === 0) {
-      return res.status(400).json({ error: 'movementType and items array are required' });
-    }
-
-    if (movementType === 'moved_to_department' && !toDepartmentId) {
-      return res.status(400).json({ error: 'toDepartmentId is required for moved_to_department' });
-    }
-
-    if (movementType === 'moved_to_department' && items.some((item: any) => !item.toLocationId)) {
-      return res.status(400).json({ error: 'New location is required for moved_to_department' });
-    }
-
-    if (movementType === 'pre_deployment') {
-      if (deploymentLatitude !== undefined && deploymentLatitude !== null && deploymentLatitude !== '') {
-        const latitude = Number(deploymentLatitude);
-        if (!Number.isFinite(latitude) || latitude < -90 || latitude > 90) {
-          return res.status(400).json({ error: 'deploymentLatitude must be between -90 and 90' });
-        }
-      }
-      if (deploymentLongitude !== undefined && deploymentLongitude !== null && deploymentLongitude !== '') {
-        const longitude = Number(deploymentLongitude);
-        if (!Number.isFinite(longitude) || longitude < -180 || longitude > 180) {
-          return res.status(400).json({ error: 'deploymentLongitude must be between -180 and 180' });
-        }
-      }
-    }
-
-    if (!VALID_MOVEMENT_TYPES.includes(movementType as MovementType)) {
-      return res.status(400).json({
-        error: `movementType must be one of: ${VALID_MOVEMENT_TYPES.join(', ')}`,
-      });
-    }
-
-    if ((movementType === 'returned' || movementType === 'found') && items.some((item: any) => !item.stockDetailId && (!item.productId || item.quantity <= 0))) {
-      return res.status(400).json({
-        error: `${movementType === 'returned' ? 'Returned' : 'Found'} movements must select an inventory item or enter a product quantity.`,
-      });
-    }
-
-    // Validate movements that remove available stock don't exceed current stock
-    if (DEDUCTING_TYPES.includes(movementType as MovementType) || movementType === 'adjustment') {
-      const requested: Record<string, number> = {};
-      for (const item of items) {
-        if (!item.productId || item.stockDetailId) continue;
-
-        const qty = item.quantity || 1;
-        const requestedQty = movementType === 'adjustment' ? Math.max(0, -qty) : qty;
-        if (requestedQty > 0) {
-          requested[item.productId] = (requested[item.productId] || 0) + requestedQty;
-        }
-      }
-      for (const [productId, qty] of Object.entries(requested)) {
-        const product = await prisma.product.findUnique({ where: { id: productId }, select: { name: true, currentStock: true } });
-        if (product && qty > product.currentStock) {
-          return res.status(400).json({
-            error: `Cannot stock out ${qty} item(s) of "${product.name}". Only ${product.currentStock} item(s) available.`,
-          });
-        }
-      }
-    }
+    validateStockMovementInput(req.body);
+    await checkStockAvailability(movementType, items);
 
     // Generate movement number
     const movementNo = await generateMovementNo();
@@ -732,6 +729,7 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
 
     res.status(201).json(result);
   } catch (error: any) {
+    if (error.status) return res.status(error.status).json({ error: error.message });
     next(error);
   }
 });

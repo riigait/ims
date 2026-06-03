@@ -39,6 +39,32 @@ function adminCanManageUser(targetUser: any, departmentIds: string[]) {
     && targetUser.staffDepartments.some((dept: { departmentId: string }) => departmentIds.includes(dept.departmentId));
 }
 
+function buildUserUpdates(
+  body: { name?: string; email?: string; role?: string; departmentId?: string },
+  targetId: string,
+  requesterId: string,
+  requesterRole: string,
+  departmentIds: string[],
+  existing: { role: string },
+): Record<string, any> {
+  const { name, email, role, departmentId } = body;
+  const updates: Record<string, any> = {};
+  if (name) updates.name = name;
+  if (email) updates.email = email;
+  if (role && ['admin', 'staff'].includes(role)) {
+    if (targetId === requesterId) throw Object.assign(new Error('Cannot change your own role'), { status: 400 });
+    if (requesterRole === 'admin' && role !== existing.role) throw Object.assign(new Error('Admins cannot change user roles'), { status: 403 });
+    updates.role = role;
+  }
+  if (departmentId !== undefined) {
+    if (requesterRole === 'admin' && departmentId && !departmentIds.includes(departmentId)) {
+      throw Object.assign(new Error('Access denied for selected department'), { status: 403 });
+    }
+    updates.departmentId = departmentId;
+  }
+  return updates;
+}
+
 // List all users (admin/superadmin only) — superadmin sees all, admin sees admin+staff only
 router.get('/', authMiddleware, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
@@ -99,10 +125,7 @@ router.patch('/:id', authMiddleware, async (req: AuthRequest, res: Response, nex
       return res.status(403).json({ error: 'Access denied' });
     }
 
-    const existing = await prisma.user.findUnique({
-      where: { id: req.params.id },
-      select: USER_SELECT,
-    });
+    const existing = await prisma.user.findUnique({ where: { id: req.params.id }, select: USER_SELECT });
     if (!existing) return res.status(404).json({ error: 'User not found' });
 
     const departmentIds = req.accessibleDepartmentIds || [];
@@ -110,38 +133,12 @@ router.patch('/:id', authMiddleware, async (req: AuthRequest, res: Response, nex
       return res.status(403).json({ error: 'Access denied' });
     }
 
-    const { name, email, role, departmentId } = req.body;
-    const updates: any = {};
-
-    if (name) updates.name = name;
-    if (email) updates.email = email;
-    if (role && ['admin', 'staff'].includes(role)) {
-      if (req.params.id === req.userId) {
-        return res.status(400).json({ error: 'Cannot change your own role' });
-      }
-      if (req.userRole === 'admin' && role !== existing.role) {
-        return res.status(403).json({ error: 'Admins cannot change user roles' });
-      }
-      updates.role = role;
-    }
-    if (departmentId !== undefined) {
-      if (req.userRole === 'admin' && departmentId && !departmentIds.includes(departmentId)) {
-        return res.status(403).json({ error: 'Access denied for selected department' });
-      }
-      updates.departmentId = departmentId;
-    }
-
-    const user = await prisma.user.update({
-      where: { id: req.params.id },
-      data: updates,
-      select: USER_SELECT,
-    });
-
+    const updates = buildUserUpdates(req.body, req.params.id, req.userId!, req.userRole, departmentIds, existing);
+    const user = await prisma.user.update({ where: { id: req.params.id }, data: updates, select: USER_SELECT });
     res.json(user);
   } catch (error: any) {
-    if (error.code === 'P2002') {
-      return res.status(400).json({ error: 'Email already exists' });
-    }
+    if (error.status) return res.status(error.status).json({ error: error.message });
+    if (error.code === 'P2002') return res.status(400).json({ error: 'Email already exists' });
     next(error);
   }
 });

@@ -8,6 +8,38 @@ const router = Router();
 
 const FINAL_STATUSES = ['sold', 'disposed', 'lost'];
 
+function pf<T>(incoming: T | undefined, fallback: T): T {
+  return incoming !== undefined ? incoming : fallback;
+}
+function pfn(incoming: string | undefined, fallback: string | null): string | null {
+  return incoming !== undefined ? (incoming || null) : fallback;
+}
+function pfDate(incoming: string | undefined, fallback: Date | null): Date | null {
+  return incoming !== undefined ? (incoming ? new Date(incoming) : null) : fallback;
+}
+
+function buildStockDetailData(body: any, existing: any): Record<string, any> {
+  return {
+    assetTag: pfn(body.assetTag, existing.assetTag),
+    barcode: pfn(body.barcode, existing.barcode),
+    modelNumber: pf(body.modelNumber, existing.modelNumber),
+    serialNumber: pf(body.serialNumber, existing.serialNumber),
+    macId: pf(body.macId, existing.macId),
+    dateStock: pfDate(body.dateStock, existing.dateStock),
+    condition: pf(body.condition, existing.condition),
+    warrantyExpiry: pfDate(body.warrantyExpiry, existing.warrantyExpiry),
+    warrantyNotes: pfn(body.warrantyNotes, existing.warrantyNotes),
+    currentStatus: pf(body.currentStatus, existing.currentStatus),
+    currentLocationId: pfn(body.currentLocationId, existing.currentLocationId),
+    brand: pfn(body.brand, existing.brand),
+    itemType: pfn(body.itemType, existing.itemType),
+    custodian: pfn(body.custodian, existing.custodian),
+    lastCheckedDate: pfDate(body.lastCheckedDate, existing.lastCheckedDate),
+    checkedBy: pfn(body.checkedBy, existing.checkedBy),
+    notes: pf(body.notes, existing.notes),
+  };
+}
+
 async function recalculateProductStock(productId: string): Promise<void> {
   const count = await prisma.stockDetail.count({
     where: { productId, currentStatus: { notIn: FINAL_STATUSES } },
@@ -260,7 +292,7 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
 // Update stock detail
 router.put('/:id', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    const { modelNumber, serialNumber, macId, dateStock, currentStatus, currentLocationId, notes, assetTag, barcode, condition, warrantyExpiry, warrantyNotes, brand, itemType, custodian, lastCheckedDate, checkedBy } = req.body;
+    const { currentStatus, modelNumber, serialNumber } = req.body;
 
     const stockDetail = await prisma.stockDetail.findUnique({
       where: { id: req.params.id },
@@ -275,25 +307,7 @@ router.put('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
 
     const updated = await prisma.stockDetail.update({
       where: { id: req.params.id },
-      data: {
-        assetTag: assetTag !== undefined ? (assetTag || null) : stockDetail.assetTag,
-        barcode: barcode !== undefined ? (barcode || null) : stockDetail.barcode,
-        modelNumber: modelNumber !== undefined ? modelNumber : stockDetail.modelNumber,
-        serialNumber: serialNumber !== undefined ? serialNumber : stockDetail.serialNumber,
-        macId: macId !== undefined ? macId : stockDetail.macId,
-        dateStock: dateStock !== undefined ? (dateStock ? new Date(dateStock) : null) : stockDetail.dateStock,
-        condition: condition !== undefined ? condition : stockDetail.condition,
-        warrantyExpiry: warrantyExpiry !== undefined ? (warrantyExpiry ? new Date(warrantyExpiry) : null) : stockDetail.warrantyExpiry,
-        warrantyNotes: warrantyNotes !== undefined ? (warrantyNotes || null) : stockDetail.warrantyNotes,
-        currentStatus: currentStatus !== undefined ? currentStatus : stockDetail.currentStatus,
-        currentLocationId: currentLocationId !== undefined ? (currentLocationId || null) : stockDetail.currentLocationId,
-        brand: brand !== undefined ? (brand || null) : stockDetail.brand,
-        itemType: itemType !== undefined ? (itemType || null) : stockDetail.itemType,
-        custodian: custodian !== undefined ? (custodian || null) : stockDetail.custodian,
-        lastCheckedDate: lastCheckedDate !== undefined ? (lastCheckedDate ? new Date(lastCheckedDate) : null) : stockDetail.lastCheckedDate,
-        checkedBy: checkedBy !== undefined ? (checkedBy || null) : stockDetail.checkedBy,
-        notes: notes !== undefined ? notes : stockDetail.notes,
-      },
+      data: buildStockDetailData(req.body, stockDetail),
       include: { product: { include: { category: true, department: true } }, currentLocation: true },
     });
 

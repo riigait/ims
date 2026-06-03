@@ -202,45 +202,110 @@ async function resolveImportCategoryId(row: any, req: AuthRequest) {
   return category.id;
 }
 
+function buildProductBaseFilter(req: AuthRequest): Record<string, any> {
+  if (req.departmentIds && req.departmentIds.length > 0) {
+    return { pendingApproval: false, OR: [{ departmentId: { in: req.departmentIds } }, { departmentId: null }] };
+  }
+  if (req.departmentId) {
+    return { pendingApproval: false, departmentId: req.departmentId };
+  }
+  return { pendingApproval: false };
+}
+
+function applyProductQueryFilters(base: Record<string, any>, query: Record<string, string | undefined>): Record<string, any> {
+  const where: any = { ...base };
+  const { search, categoryId, locationId, status, unit, source, csvImportId, stockStatus, departmentId } = query;
+  if (departmentId && !base.departmentId) where.departmentId = departmentId;
+  if (search) where.AND = [{ OR: [{ name: { contains: search, mode: 'insensitive' } }, { sku: { contains: search, mode: 'insensitive' } }] }];
+  if (categoryId) where.categoryId = categoryId;
+  if (locationId === '__UNASSIGNED__') where.locationId = null;
+  else if (locationId) where.locationId = locationId;
+  if (status) where.status = status;
+  if (unit) where.unit = unit;
+  if (source) where.source = source;
+  if (csvImportId) where.csvImportId = csvImportId;
+  if (stockStatus === 'out-of-stock') where.currentStock = 0;
+  if (stockStatus === 'negative-stock') where.currentStock = { lt: 0 };
+  return where;
+}
+
+async function verifyCategoryAccess(categoryId: string, req: AuthRequest): Promise<void> {
+  const category = await prisma.category.findUnique({ where: { id: categoryId } });
+  if (!category) throw Object.assign(new Error('Category not found'), { status: 404 });
+  if (req.departmentId && category.departmentId !== req.departmentId && category.departmentId !== null) {
+    throw Object.assign(new Error('Access denied to this category'), { status: 403 });
+  }
+}
+
+async function verifyLocationAccess(locationId: string | undefined | null, req: AuthRequest): Promise<void> {
+  if (!locationId) return;
+  const location = await prisma.location.findUnique({ where: { id: locationId } });
+  if (!location) throw Object.assign(new Error('Location not found'), { status: 404 });
+  if (req.departmentId && location.departmentId !== req.departmentId && location.departmentId !== null) {
+    throw Object.assign(new Error('Access denied to this location'), { status: 403 });
+  }
+}
+
+async function findExistingProduct(row: any) {
+  if (row.id) return prisma.product.findUnique({ where: { id: row.id } });
+  if (row.sku) return prisma.product.findFirst({ where: { sku: row.sku } });
+  if (row.name) return prisma.product.findFirst({ where: { name: { equals: row.name, mode: 'insensitive' } } });
+  return null;
+}
+
+async function processImportRow(row: any, req: AuthRequest, csvImportId: string): Promise<any> {
+  const locationId = await resolveImportLocationId(row, req);
+  const categoryId = await resolveImportCategoryId(row, req);
+  const data = {
+    sku: row.sku, name: row.name, description: row.description || null, categoryId, locationId,
+    departmentId: req.departmentId, unit: row.unit || 'pcs',
+    currentStock: Number.parseInt(row.currentStock) || 0,
+    lowStockThreshold: Number.parseInt(row.lowStockThreshold) || 10,
+    supplier: row.supplier || null, unitPrice: row.unitPrice ? parseFloat(row.unitPrice) : null,
+    status: row.status || 'active', expiryDate: row.expiryDate ? new Date(row.expiryDate) : null,
+    leadTimeDays: row.leadTimeDays ? Number.parseInt(row.leadTimeDays) : null,
+    notes: row.notes || null, source: 'csv_import', csvImportId, pendingApproval: true,
+  } as any;
+  const existing = await findExistingProduct(row);
+  const product = existing
+    ? await prisma.product.update({ where: { id: existing.id }, data })
+    : await prisma.product.create({ data: { ...(row.id ? { id: row.id } : {}), ...data } });
+  const isTransfer = !!existing && !!req.departmentId && existing.departmentId !== req.departmentId;
+  if (!existing) {
+    await createOpeningStockForProduct(product, data.currentStock, data.locationId, req);
+  } else if (isTransfer) {
+    await createDepartmentTransferMovement(product, existing.departmentId, req.departmentId!, req.userId!);
+  }
+  const auditAction = existing ? (isTransfer ? 'MOVED_TO_DEPARTMENT' : 'UPDATE') : 'CREATE';
+  const auditExtra = isTransfer ? { fromDepartmentId: existing!.departmentId, toDepartmentId: req.departmentId } : {};
+  await logAudit({
+    userId: req.userId, action: auditAction, entityType: 'product', entityId: product.id,
+    changes: { name: row.name, sku: row.sku, currentStock: data.currentStock, source: 'csv_import', ...auditExtra },
+  });
+  return product;
+}
+
 // Get all products
 router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    const page = Math.max(1, parseInt(req.query.page as string) || 1);
-    const limit = Math.min(Math.max(1, parseInt(req.query.limit as string) || 50), 200);
+    const page = Math.max(1, Number.parseInt(req.query.page as string) || 1);
+    const limit = Math.min(Math.max(1, Number.parseInt(req.query.limit as string) || 50), 200);
     const skip = (page - 1) * limit;
-    const search = (req.query.search as string)?.trim();
-    const categoryId = req.query.categoryId as string;
-    const qLocationId = req.query.locationId as string;
-    const status = req.query.status as string;
-    const unit = req.query.unit as string;
-    const source = req.query.source as string;
-    const csvImportId = req.query.csvImportId as string;
-    const stockStatus = req.query.stockStatus as string;
-    const qDepartmentId = req.query.departmentId as string;
     const orderByField = req.query.orderBy as string || 'createdAt';
     const orderDir: 'asc' | 'desc' = (req.query.orderDir as string) === 'asc' ? 'asc' : 'desc';
 
-    // Base department scope (from token)
-    let baseFilter: any = { pendingApproval: false };
-    if (req.departmentIds && req.departmentIds.length > 0) {
-      baseFilter = { pendingApproval: false, OR: [{ departmentId: { in: req.departmentIds } }, { departmentId: null }] };
-    } else if (req.departmentId) {
-      baseFilter = { pendingApproval: false, departmentId: req.departmentId };
-    }
-    if (qDepartmentId && !req.departmentId) baseFilter = { ...baseFilter, departmentId: qDepartmentId };
-
-    // Build field filters on top of base
-    let whereFilter: any = { ...baseFilter };
-    if (search) whereFilter.AND = [{ OR: [{ name: { contains: search, mode: 'insensitive' } }, { sku: { contains: search, mode: 'insensitive' } }] }];
-    if (categoryId) whereFilter.categoryId = categoryId;
-    if (qLocationId === '__UNASSIGNED__') whereFilter.locationId = null;
-    else if (qLocationId) whereFilter.locationId = qLocationId;
-    if (status) whereFilter.status = status;
-    if (unit) whereFilter.unit = unit;
-    if (source) whereFilter.source = source;
-    if (csvImportId) whereFilter.csvImportId = csvImportId;
-    if (stockStatus === 'out-of-stock') whereFilter.currentStock = 0;
-    if (stockStatus === 'negative-stock') whereFilter.currentStock = { lt: 0 };
+    const baseFilter = buildProductBaseFilter(req);
+    const whereFilter = applyProductQueryFilters(baseFilter, {
+      search: (req.query.search as string)?.trim(),
+      categoryId: req.query.categoryId as string,
+      locationId: req.query.locationId as string,
+      status: req.query.status as string,
+      unit: req.query.unit as string,
+      source: req.query.source as string,
+      csvImportId: req.query.csvImportId as string,
+      stockStatus: req.query.stockStatus as string,
+      departmentId: req.query.departmentId as string,
+    });
 
     const orderByMap: Record<string, any> = {
       name: { name: orderDir }, sku: { sku: orderDir }, stock: { currentStock: orderDir },
@@ -429,44 +494,20 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
     if (validationError) return res.status(400).json({ error: validationError });
     const generatedSku = sku || await generateSku();
 
-    // Verify category exists and is accessible
-    const category = await prisma.category.findUnique({ where: { id: categoryId } });
-    if (!category) {
-      return res.status(404).json({ error: 'Category not found' });
-    }
-    if (req.departmentId && category.departmentId !== req.departmentId && category.departmentId !== null) {
-      return res.status(403).json({ error: 'Access denied to this category' });
-    }
-
-    // Verify location if provided
-    if (locationId) {
-      const location = await prisma.location.findUnique({ where: { id: locationId } });
-      if (!location) {
-        return res.status(404).json({ error: 'Location not found' });
-      }
-      if (req.departmentId && location.departmentId !== req.departmentId && location.departmentId !== null) {
-        return res.status(403).json({ error: 'Access denied to this location' });
-      }
-    }
+    await verifyCategoryAccess(categoryId, req);
+    await verifyLocationAccess(locationId, req);
 
     const product = await prisma.product.create({
       data: {
-        sku: generatedSku,
-        name,
-        description,
-        categoryId,
-        locationId: locationId || null,
-        departmentId: req.departmentId,
-        unit: unit || 'pcs',
-        currentStock: currentStock || 0,
-        lowStockThreshold: lowStockThreshold || 10,
+        sku: generatedSku, name, description, categoryId,
+        locationId: locationId || null, departmentId: req.departmentId,
+        unit: unit || 'pcs', currentStock: currentStock || 0, lowStockThreshold: lowStockThreshold || 10,
         supplier: supplier || null,
         unitPrice: unitPrice !== null && unitPrice !== undefined && unitPrice !== '' ? parseFloat(unitPrice) : null,
         status: status || 'active',
         expiryDate: expiryDate && expiryDate !== '' ? new Date(expiryDate) : null,
-        leadTimeDays: leadTimeDays !== null && leadTimeDays !== undefined && leadTimeDays !== '' ? parseInt(leadTimeDays) : null,
-        notes: notes || null,
-        source: 'manual',
+        leadTimeDays: leadTimeDays !== null && leadTimeDays !== undefined && leadTimeDays !== '' ? Number.parseInt(leadTimeDays) : null,
+        notes: notes || null, source: 'manual',
       },
       include: { category: true, location: true, department: true },
     });
@@ -502,7 +543,8 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
       ...product,
       _needsOpeningStock: false,
     });
-  } catch (error) {
+  } catch (error: any) {
+    if (error.status) return res.status(error.status).json({ error: error.message });
     next(error);
   }
 });
@@ -520,41 +562,19 @@ router.put('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
     const { sku, name, description, categoryId, locationId, unit, lowStockThreshold, supplier, unitPrice, status, expiryDate, leadTimeDays, notes } = req.body;
     if (validationError) return res.status(400).json({ error: validationError });
 
-    // Verify category exists and is accessible
-    const category = await prisma.category.findUnique({ where: { id: categoryId } });
-    if (!category) {
-      return res.status(404).json({ error: 'Category not found' });
-    }
-    if (req.departmentId && category.departmentId !== req.departmentId && category.departmentId !== null) {
-      return res.status(403).json({ error: 'Access denied to this category' });
-    }
-
-    // Verify location if provided
-    if (locationId) {
-      const location = await prisma.location.findUnique({ where: { id: locationId } });
-      if (!location) {
-        return res.status(404).json({ error: 'Location not found' });
-      }
-      if (req.departmentId && location.departmentId !== req.departmentId && location.departmentId !== null) {
-        return res.status(403).json({ error: 'Access denied to this location' });
-      }
-    }
+    await verifyCategoryAccess(categoryId, req);
+    await verifyLocationAccess(locationId, req);
 
     const product = await prisma.product.update({
       where: { id: req.params.id },
       data: {
-        sku,
-        name,
-        description,
-        categoryId,
-        locationId: locationId || null,
-        unit,
-        lowStockThreshold,
+        sku, name, description, categoryId,
+        locationId: locationId || null, unit, lowStockThreshold,
         supplier: supplier || null,
         unitPrice: unitPrice !== null && unitPrice !== undefined && unitPrice !== '' ? parseFloat(unitPrice) : null,
         status: status || 'active',
         expiryDate: expiryDate && expiryDate !== '' ? new Date(expiryDate) : null,
-        leadTimeDays: leadTimeDays !== null && leadTimeDays !== undefined && leadTimeDays !== '' ? parseInt(leadTimeDays) : null,
+        leadTimeDays: leadTimeDays !== null && leadTimeDays !== undefined && leadTimeDays !== '' ? Number.parseInt(leadTimeDays) : null,
         notes: notes || null,
       },
       include: { category: true, location: true, department: true },
@@ -562,7 +582,8 @@ router.put('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
 
     await logAudit({ userId: req.userId, action: 'UPDATE', entityType: 'product', entityId: product.id, changes: { name, sku } });
     res.json(product);
-  } catch (error) {
+  } catch (error: any) {
+    if (error.status) return res.status(error.status).json({ error: error.message });
     next(error);
   }
 });
@@ -637,63 +658,12 @@ router.post('/import/csv', async (req: AuthRequest, res: Response, next: NextFun
 
     for (let i = 0; i < rows.length; i++) {
       try {
-        const row = rows[i];
-        const locationId = await resolveImportLocationId(row, req);
-        const categoryId = await resolveImportCategoryId(row, req);
-        const data = {
-            sku: row.sku,
-            name: row.name,
-            description: row.description || null,
-            categoryId,
-            locationId,
-            departmentId: req.departmentId,
-            unit: row.unit || 'pcs',
-            currentStock: parseInt(row.currentStock) || 0,
-            lowStockThreshold: parseInt(row.lowStockThreshold) || 10,
-            supplier: row.supplier || null,
-            unitPrice: row.unitPrice ? parseFloat(row.unitPrice) : null,
-            status: row.status || 'active',
-            expiryDate: row.expiryDate ? new Date(row.expiryDate) : null,
-            leadTimeDays: row.leadTimeDays ? parseInt(row.leadTimeDays) : null,
-            notes: row.notes || null,
-            source: 'csv_import',
-            csvImportId,
-            pendingApproval: true,
-          } as any;
-        // Match existing product: by id first, then by SKU, then by exact name
-        const existing = row.id
-          ? await prisma.product.findUnique({ where: { id: row.id } })
-          : row.sku
-          ? await prisma.product.findFirst({ where: { sku: row.sku } })
-          : row.name
-          ? await prisma.product.findFirst({ where: { name: { equals: row.name, mode: 'insensitive' } } })
-          : null;
-        const product = existing
-          ? await prisma.product.update({ where: { id: existing.id }, data })
-          : await prisma.product.create({ data: { ...(row.id ? { id: row.id } : {}), ...data } });
-
-        if (!existing) {
-          await createOpeningStockForProduct(product, data.currentStock, data.locationId, req);
-        } else if (req.departmentId && existing.departmentId !== req.departmentId) {
-          // Department changed on re-import — create a moved_to_department movement
-          await createDepartmentTransferMovement(product, existing.departmentId, req.departmentId, req.userId!);
-        }
-
-        await logAudit({
-          userId: req.userId,
-          action: existing ? (req.departmentId && existing.departmentId !== req.departmentId ? 'MOVED_TO_DEPARTMENT' : 'UPDATE') : 'CREATE',
-          entityType: 'product',
-          entityId: product.id,
-          changes: { name: row.name, sku: row.sku, currentStock: data.currentStock, source: 'csv_import', ...(existing && req.departmentId && existing.departmentId !== req.departmentId ? { fromDepartmentId: existing.departmentId, toDepartmentId: req.departmentId } : {}) },
-        });
-
-        created.push(product);
+        created.push(await processImportRow(rows[i], req, csvImportId));
       } catch (err: any) {
         errors.push({ row: i + 1, error: err.message });
       }
     }
 
-    const newProducts = created.filter((p: any) => p._isNew !== false);
     if (created.length > 0) {
       const batchRequestNo = await generateRequestNo();
       await prisma.importRequest.create({
