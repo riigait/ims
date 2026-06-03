@@ -142,7 +142,7 @@ router.get('/stats', authMiddleware, async (req: AuthRequest, res: Response) => 
       const deptId = req.departmentId && req.departmentId !== 'all-departments' ? req.departmentId : null;
       const [r1, r2, r3, r4] = await Promise.all([
         prisma.importRequest.count({ where: { status: 'pending', ...(deptId ? { departmentId: deptId } : {}) } }),
-        prisma.deleteRequest.count({ where: { status: 'pending', ...(deptId ? { product: { departmentId: deptId } } : {}) } }),
+        prisma.deleteRequest.count({ where: { status: 'pending' } }),
         prisma.passwordChangeRequest.count({ where: { status: 'pending' } }),
         prisma.editRequest.count({ where: { status: 'pending', ...(deptId ? { product: { departmentId: deptId } } : {}) } }),
       ]);
