@@ -113,6 +113,8 @@ Never commit `.env` files. Keep database passwords and JWT secrets private.
 
 The app includes a public landing page at `/` for introducing IMS before login.
 
+![IMS landing page](frontend/public/landing/ims-landing-page.png)
+
 It highlights:
 
 - IT asset, supplies, and multi-department stock control
