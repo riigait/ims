@@ -249,8 +249,13 @@ export default function Dashboard() {
 
   useEffect(() => {
     fetchData();
-    window.addEventListener('storage', () => fetchData());
-    return () => window.removeEventListener('storage', () => fetchData());
+    const onStorage = () => fetchData();
+    window.addEventListener('storage', onStorage);
+    const autoRefresh = setInterval(() => fetchData(true), 5 * 60 * 1000);
+    return () => {
+      window.removeEventListener('storage', onStorage);
+      clearInterval(autoRefresh);
+    };
   }, [fetchData]);
 
   const [now, setNow] = useState(new Date());
@@ -295,6 +300,7 @@ export default function Dashboard() {
     </div>
   );
 
+  const isEmpty = stats.totalProducts === 0 && stats.totalInventoryItems === 0;
   const hasStockAlerts = stats.lowStockCount > 0 || stats.outOfStockCount > 0 || stats.negativeStockCount > 0;
 
   const stockAlertItems = [
@@ -345,6 +351,7 @@ export default function Dashboard() {
             disabled={refreshing}
             className="p-1.5 rounded-lg border border-[var(--border)] bg-[var(--surface)] hover:bg-[var(--surface-2)] text-[var(--text-muted)] transition-colors disabled:opacity-50"
             title="Refresh dashboard"
+            aria-label="Refresh dashboard"
           >
             <RefreshCw size={14} className={refreshing ? 'animate-spin' : ''} />
           </button>
@@ -363,6 +370,35 @@ export default function Dashboard() {
           <StatCard label="In Use"          value={stats.itemsInUse}           sub="Deployed / borrowed"  icon={Wrench}      accent="bg-violet-100 text-violet-600 dark:bg-violet-950 dark:text-violet-400"   onClick={() => navigate('/inventory-items')} />
         </div>
       </div>
+
+      {/* Empty state — shown when no data yet */}
+      {isEmpty && (
+        <div className="bg-[var(--surface)] border border-dashed border-[var(--border)] rounded-xl p-8 text-center space-y-4">
+          <div className="flex justify-center">
+            <div className="p-4 rounded-full bg-[var(--surface-2)]">
+              <Package size={32} className="text-[var(--text-muted)] opacity-50" />
+            </div>
+          </div>
+          <div>
+            <p className="text-base font-semibold text-[var(--text)]">Your inventory is empty</p>
+            <p className="text-sm text-[var(--text-muted)] mt-1">Get started by setting up your locations, then adding your first products.</p>
+          </div>
+          <div className="flex flex-wrap justify-center gap-2 pt-1">
+            <button onClick={() => navigate('/locations')}
+              className="px-4 py-2 text-sm font-medium rounded-lg border border-[var(--border)] bg-[var(--surface-2)] text-[var(--text)] hover:bg-[var(--border)] transition-colors">
+              1. Add a Location
+            </button>
+            <button onClick={() => navigate('/products/bulk-add')}
+              className="px-4 py-2 text-sm font-medium rounded-lg bg-[var(--primary)] text-white hover:opacity-90 transition-opacity">
+              2. Add Products
+            </button>
+            <button onClick={() => navigate('/import-pclsf')}
+              className="px-4 py-2 text-sm font-medium rounded-lg border border-[var(--border)] bg-[var(--surface-2)] text-[var(--text)] hover:bg-[var(--border)] transition-colors">
+              3. Import via CSV
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Section 2 — Priority Actions (merged Attention Needed + Action Queue) */}
       <div>
@@ -503,29 +539,27 @@ export default function Dashboard() {
         {showAnalytics && (
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
             <div className="bg-[var(--surface)] rounded-xl shadow-sm border border-[var(--border)] p-4">
-              <div className="flex items-center gap-2 mb-3">
+              <button onClick={() => navigate('/products')} className="flex items-center gap-2 mb-3 hover:opacity-70 transition-opacity w-full text-left">
                 <Activity size={16} className="text-[var(--primary)]" />
                 <h2 className="text-sm font-semibold text-[var(--text)]">Product Stock Health</h2>
-              </div>
+                <span className="ml-auto text-xs text-[var(--primary)]">View →</span>
+              </button>
               <HealthBar good={stats.goodStockCount} low={stats.lowStockCount} out={stats.outOfStockCount} negative={stats.negativeStockCount} />
-              {(stats.outOfStockCount > 0 || stats.negativeStockCount > 0) && (
-                <button onClick={() => navigate('/products')} className="mt-3 w-full text-xs text-center text-[var(--primary)] hover:underline">
-                  Review products →
-                </button>
-              )}
             </div>
             <div className="bg-[var(--surface)] rounded-xl shadow-sm border border-[var(--border)] p-4">
-              <div className="flex items-center gap-2 mb-3">
+              <button onClick={() => navigate('/products')} className="flex items-center gap-2 mb-3 hover:opacity-70 transition-opacity w-full text-left">
                 <Tag size={16} className="text-[var(--primary)]" />
                 <h2 className="text-sm font-semibold text-[var(--text)]">Stock Qty by Category</h2>
-              </div>
+                <span className="ml-auto text-xs text-[var(--primary)]">View →</span>
+              </button>
               <BreakdownBar items={categoryStockItems} emptyLabel="No category data yet." />
             </div>
             <div className="bg-[var(--surface)] rounded-xl shadow-sm border border-[var(--border)] p-4">
-              <div className="flex items-center gap-2 mb-3">
+              <button onClick={() => navigate('/locations')} className="flex items-center gap-2 mb-3 hover:opacity-70 transition-opacity w-full text-left">
                 <MapPin size={16} className="text-[var(--primary)]" />
                 <h2 className="text-sm font-semibold text-[var(--text)]">Items by Location</h2>
-              </div>
+                <span className="ml-auto text-xs text-[var(--primary)]">View →</span>
+              </button>
               <BreakdownBar items={stats.locationBreakdown} emptyLabel="No location data yet." />
             </div>
           </div>
