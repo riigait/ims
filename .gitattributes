@@ -1,5 +1,6 @@
-# Force LF line endings for shell scripts and Docker files (critical for Linux containers)
+# Force LF line endings for files used on Linux (critical for Docker and shell scripts)
 *.sh text eol=lf
-Dockerfile text eol=lf
 *.conf text eol=lf
-docker-entrypoint.sh text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+Dockerfile text eol=lf
