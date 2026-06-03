@@ -3,6 +3,7 @@ import prisma from '../utils/prisma';
 import { authMiddleware, AuthRequest } from '../middleware/auth';
 import crypto from 'crypto';
 import bcrypt from 'bcryptjs';
+import { validatePassword } from '../utils/passwordPolicy';
 
 const router = Router();
 
@@ -121,13 +122,8 @@ router.post('/redeem', async (req: Request, res: Response, next: NextFunction) =
       return res.status(400).json({ error: 'Missing required fields' });
     }
 
-    // Validate password: 8+ chars with uppercase, lowercase, and number
-    const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)[a-zA-Z\d@$!%*?&]{8,}$/;
-    if (!passwordRegex.test(password)) {
-      return res.status(400).json({
-        error: 'Password must be at least 8 characters with uppercase, lowercase, and number'
-      });
-    }
+    const pwError = validatePassword(password);
+    if (pwError) return res.status(400).json({ error: pwError });
 
     // Validate and check invite
     const invite = await prisma.inviteCode.findUnique({ where: { code } });

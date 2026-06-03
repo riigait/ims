@@ -1,6 +1,8 @@
 import { Router, Request, Response, NextFunction } from 'express';
+import bcrypt from 'bcryptjs';
 import prisma from '../utils/prisma';
 import { authMiddleware, AuthRequest } from '../middleware/auth';
+import { validatePassword } from '../utils/passwordPolicy';
 
 const router = Router();
 
@@ -94,9 +96,8 @@ router.patch('/:id/approve', authMiddleware, async (req: AuthRequest, res: Respo
     }
 
     const { temporaryPassword } = req.body;
-    if (!temporaryPassword || temporaryPassword.length < 8) {
-      return res.status(400).json({ error: 'Temporary password must be at least 8 characters' });
-    }
+    const pwError = validatePassword(temporaryPassword);
+    if (pwError) return res.status(400).json({ error: pwError });
 
     const request = await prisma.passwordChangeRequest.findUnique({
       where: { id: req.params.id },
@@ -122,7 +123,6 @@ router.patch('/:id/approve', authMiddleware, async (req: AuthRequest, res: Respo
     });
 
     // Set temporary password for the staff member
-    const bcrypt = require('bcryptjs');
     const passwordHash = await bcrypt.hash(temporaryPassword, 10);
     await prisma.user.update({
       where: { id: request.requestedBy },

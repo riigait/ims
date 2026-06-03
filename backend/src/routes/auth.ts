@@ -218,13 +218,8 @@ router.post('/change-password', authMiddleware, async (req: AuthRequest, res: Re
       return res.status(400).json({ error: 'Missing required fields' });
     }
 
-    // Validate password: 8+ chars with uppercase, lowercase, and number
-    const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)[a-zA-Z\d@$!%*?&]{8,}$/;
-    if (!passwordRegex.test(newPassword)) {
-      return res.status(400).json({
-        error: 'Password must be at least 8 characters with uppercase, lowercase, and number'
-      });
-    }
+    const pwError = validatePassword(newPassword);
+    if (pwError) return res.status(400).json({ error: pwError });
 
     const user = await prisma.user.findUnique({ where: { id: req.userId } });
     if (!user) return res.status(404).json({ error: 'User not found' });
