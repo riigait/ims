@@ -3,8 +3,12 @@ import bcrypt from 'bcryptjs';
 
 const prisma = new PrismaClient();
 
-const SEED_EMAIL = 'admin@ims.local';
+const SEED_EMAIL    = 'admin@ims.local';
 const SEED_PASSWORD = 'seed1234';
+const ADMIN_EMAIL   = 'admin1@ims.local';
+const ADMIN_PASSWORD = 'Admin1234';
+const STAFF_EMAIL   = 'staff1@ims.local';
+const STAFF_PASSWORD = 'Staff1234';
 
 async function main() {
   // ── Superadmin ──────────────────────────────────────────────────────────────
@@ -80,10 +84,51 @@ async function main() {
     console.log(`Product: ${p.name} (${p.sku})`);
   }
 
+  // ── Demo admin user ──────────────────────────────────────────────────────────
+  const adminHash = await bcrypt.hash(ADMIN_PASSWORD, 10);
+  const adminUser = await prisma.user.upsert({
+    where: { email: ADMIN_EMAIL },
+    update: {},
+    create: {
+      name: 'Demo Admin',
+      email: ADMIN_EMAIL,
+      passwordHash: adminHash,
+      role: 'admin',
+      initialSetupComplete: true,
+    },
+  });
+  await prisma.adminDepartment.upsert({
+    where: { userId_departmentId: { userId: adminUser.id, departmentId: primaryDeptId } },
+    update: {},
+    create: { userId: adminUser.id, departmentId: primaryDeptId },
+  });
+  console.log(`Admin: ${ADMIN_EMAIL}`);
+
+  // ── Demo staff user ──────────────────────────────────────────────────────────
+  const staffHash = await bcrypt.hash(STAFF_PASSWORD, 10);
+  const staffUser = await prisma.user.upsert({
+    where: { email: STAFF_EMAIL },
+    update: {},
+    create: {
+      name: 'Demo Staff',
+      email: STAFF_EMAIL,
+      passwordHash: staffHash,
+      role: 'staff',
+      initialSetupComplete: true,
+    },
+  });
+  await prisma.staffDepartment.upsert({
+    where: { userId_departmentId: { userId: staffUser.id, departmentId: primaryDeptId } },
+    update: {},
+    create: { userId: staffUser.id, departmentId: primaryDeptId },
+  });
+  console.log(`Staff: ${STAFF_EMAIL}`);
+
   console.log('\nSeeding complete!');
   console.log(`\nLogin at http://localhost:5173`);
-  console.log(`  Email:    ${SEED_EMAIL}`);
-  console.log(`  Password: ${SEED_PASSWORD}`);
+  console.log(`\n  Superadmin  ${SEED_EMAIL}    ${SEED_PASSWORD}`);
+  console.log(`  Admin       ${ADMIN_EMAIL}   ${ADMIN_PASSWORD}`);
+  console.log(`  Staff       ${STAFF_EMAIL}   ${STAFF_PASSWORD}`);
 }
 
 main()
