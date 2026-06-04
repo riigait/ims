@@ -24,7 +24,6 @@ import settingsRoutes from './routes/settings';
 import importRequestsRoutes from './routes/importRequests';
 import verifyRequestsRoutes from './routes/verifyRequests';
 import mapRoutes from './routes/map';
-import assistantRoutes from './routes/assistant';
 
 const app = express();
 app.disable('x-powered-by');
@@ -61,7 +60,6 @@ app.use('/api/settings', authMiddleware, settingsRoutes);
 app.use('/api/import-requests', authMiddleware, importRequestsRoutes);
 app.use('/api/verify-requests', authMiddleware, verifyRequestsRoutes);
 app.use('/api/map', authMiddleware, mapRoutes);
-app.use('/api/assistant', assistantRoutes);
 
 app.get('/api/health', (_req, res) => {
   res.json({ status: 'ok' });
