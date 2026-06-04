@@ -433,6 +433,65 @@ export default function Requests() {
     { key: 'verify',   label: 'Verify Items Request',   pending: verifyPendingCount,   roles: ['admin', 'superadmin', 'staff'] },
   ];
   const TABS = ALL_TABS.filter(t => t.roles.includes(user.role));
+  const verifyListContent = verifyRequests.length === 0 ? (
+    <div className="text-center py-12 bg-[var(--surface)] rounded-lg border border-[var(--border)]">
+      <p className="text-[var(--text-muted)]">No verify items requests found.</p>
+    </div>
+  ) : (
+    <div className="space-y-3">
+      {verifyRequests.map(req => {
+        const notPendingBorder = req.status === 'approved' ? 'border-l-green-500' : 'border-l-red-500';
+        const borderColor = req.status === 'pending' ? 'border-l-yellow-500' : notPendingBorder;
+        return (
+          <div key={req.id} className={`bg-[var(--surface)] rounded-lg border border-[var(--border)] border-l-4 p-4 ${borderColor}`}>
+            <div className="flex items-start justify-between gap-4">
+              <div className="flex-1">
+                <div className="flex items-center gap-2 mb-1 flex-wrap">
+                  <span className="font-medium text-[var(--text)]">
+                    {req.stockDetailIds.length} item{req.stockDetailIds.length !== 1 ? 's' : ''} to verify
+                  </span>
+                  <span className={`text-xs px-2 py-0.5 rounded font-medium ${STATUS_COLOR[req.status]}`}>
+                    {req.status}
+                  </span>
+                </div>
+                <p className="text-sm text-[var(--text-muted)]">
+                  Requested by: {req.requester.name} ({req.requester.email})
+                </p>
+                {req.reason && (
+                  <p className="text-sm text-[var(--text-muted)] mt-0.5">Reason: {req.reason}</p>
+                )}
+                {req.rejectionReason && (
+                  <p className="text-sm text-red-500 mt-0.5">Rejection reason: {req.rejectionReason}</p>
+                )}
+                <p className="text-xs text-[var(--text-muted)] mt-1">
+                  {new Date(req.createdAt).toLocaleString()}
+                </p>
+              </div>
+              <div className="flex gap-2 flex-shrink-0">
+                {req.status === 'pending' && !isStaff && (
+                  <>
+                    <button onClick={() => setVerifyApproveConfirm(req.id)}
+                      className="flex items-center gap-1 px-2.5 py-1 bg-green-600 hover:bg-green-700 text-white text-xs rounded-lg font-medium">
+                      <Check size={12} /> Approve
+                    </button>
+                    <button onClick={() => { setVerifyRejectId(req.id); setVerifyRejectReason(''); }}
+                      className="flex items-center gap-1 px-2.5 py-1 bg-red-600 hover:bg-red-700 text-white text-xs rounded-lg font-medium">
+                      <X size={12} /> Reject
+                    </button>
+                  </>
+                )}
+                {req.status === 'pending' && isStaff && (
+                  <span className="flex items-center gap-1 text-xs text-yellow-600">
+                    <Clock size={12} /> Awaiting approval
+                  </span>
+                )}
+              </div>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
 
   return (
     <div className="p-6">
@@ -1127,70 +1186,14 @@ export default function Requests() {
 
           {verifyLoading ? (
             <div className="p-6 text-[var(--text-muted)]">Loading...</div>
-          ) : verifyRequests.length === 0 ? (
-            <div className="text-center py-12 bg-[var(--surface)] rounded-lg border border-[var(--border)]">
-              <p className="text-[var(--text-muted)]">No verify items requests found.</p>
-            </div>
-          ) : (
-            <div className="space-y-3">
-              {verifyRequests.map(req => (
-                <div key={req.id} className={`bg-[var(--surface)] rounded-lg border border-[var(--border)] border-l-4 p-4 ${
-                  req.status === 'pending' ? 'border-l-yellow-500' : req.status === 'approved' ? 'border-l-green-500' : 'border-l-red-500'
-                }`}>
-                  <div className="flex items-start justify-between gap-4">
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2 mb-1 flex-wrap">
-                        <span className="font-medium text-[var(--text)]">
-                          {req.stockDetailIds.length} item{req.stockDetailIds.length !== 1 ? 's' : ''} to verify
-                        </span>
-                        <span className={`text-xs px-2 py-0.5 rounded font-medium ${STATUS_COLOR[req.status]}`}>
-                          {req.status}
-                        </span>
-                      </div>
-                      <p className="text-sm text-[var(--text-muted)]">
-                        Requested by: {req.requester.name} ({req.requester.email})
-                      </p>
-                      {req.reason && (
-                        <p className="text-sm text-[var(--text-muted)] mt-0.5">Reason: {req.reason}</p>
-                      )}
-                      {req.rejectionReason && (
-                        <p className="text-sm text-red-500 mt-0.5">Rejection reason: {req.rejectionReason}</p>
-                      )}
-                      <p className="text-xs text-[var(--text-muted)] mt-1">
-                        {new Date(req.createdAt).toLocaleString()}
-                      </p>
-                    </div>
-                    <div className="flex gap-2 flex-shrink-0">
-                      {req.status === 'pending' && !isStaff && (
-                        <>
-                          <button onClick={() => setVerifyApproveConfirm(req.id)}
-                            className="flex items-center gap-1 px-2.5 py-1 bg-green-600 hover:bg-green-700 text-white text-xs rounded-lg font-medium">
-                            <Check size={12} /> Approve
-                          </button>
-                          <button onClick={() => { setVerifyRejectId(req.id); setVerifyRejectReason(''); }}
-                            className="flex items-center gap-1 px-2.5 py-1 bg-red-600 hover:bg-red-700 text-white text-xs rounded-lg font-medium">
-                            <X size={12} /> Reject
-                          </button>
-                        </>
-                      )}
-                      {req.status === 'pending' && isStaff && (
-                        <span className="flex items-center gap-1 text-xs text-yellow-600">
-                          <Clock size={12} /> Awaiting approval
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
+          ) : verifyListContent}
 
           {verifyRejectId && (
             <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
               <div className="bg-[var(--surface)] rounded-xl border border-[var(--border)] p-6 w-full max-w-md shadow-xl">
                 <h3 className="text-lg font-semibold text-[var(--text)] mb-1">Reject Verify Items Request</h3>
-                <label className="block text-xs font-medium text-[var(--text-muted)] mb-1">Reason (optional)</label>
-                <input type="text" value={verifyRejectReason}
+                <label htmlFor="verify-reject-reason" className="block text-xs font-medium text-[var(--text-muted)] mb-1">Reason (optional)</label>
+                <input id="verify-reject-reason" type="text" value={verifyRejectReason}
                   onChange={e => setVerifyRejectReason(e.target.value)}
                   placeholder="Reason for rejection..."
                   className="w-full px-3 py-2 text-sm border border-[var(--border)] rounded-lg bg-[var(--surface)] text-[var(--text)] mb-4"

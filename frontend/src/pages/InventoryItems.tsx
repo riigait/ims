@@ -540,6 +540,8 @@ export default function InventoryItems() {
   }, {} as Record<string, number>);
 
   const showDept = localStorage.getItem('currentDepartmentId') === ALL_DEPARTMENTS_ID;
+  const verifyLoadingLabel = user.role === 'staff' ? 'Submitting…' : 'Verifying…';
+  const verifyIdleLabel = user.role === 'staff' ? 'Request Verification' : 'Mark as Verified Today';
 
   if (loading) return <div className="text-center py-12 text-[var(--text-muted)]">Loading...</div>;
 
@@ -1102,9 +1104,7 @@ export default function InventoryItems() {
                         disabled={verifyingItem}
                         className="text-xs px-2.5 py-1 rounded bg-[var(--primary)] text-white hover:opacity-90 disabled:opacity-50 font-medium"
                       >
-                        {verifyingItem
-                          ? (user.role === 'staff' ? 'Submitting…' : 'Verifying…')
-                          : (user.role === 'staff' ? 'Request Verification' : 'Mark as Verified Today')}
+                        {verifyingItem ? verifyLoadingLabel : verifyIdleLabel}
                       </button>
                     </div>
                     <div className="grid grid-cols-2 gap-3">
