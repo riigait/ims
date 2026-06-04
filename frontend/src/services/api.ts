@@ -206,6 +206,14 @@ export const verifyRequestsApi = {
     api.patch(`/verify-requests/${id}/reject`, { rejectionReason }),
 };
 
+// AI Assistant
+export const assistantApi = {
+  suggestCategory: (name: string, description?: string) =>
+    api.post('/assistant/suggest-category', { name, description }),
+  query: (question: string) =>
+    api.post('/assistant/query', { question }),
+};
+
 // Import Requests
 export const importRequestsApi = {
   getAll: (params?: any) => api.get('/import-requests', { params }),
