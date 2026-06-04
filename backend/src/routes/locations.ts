@@ -10,7 +10,7 @@ type LocationType = typeof VALID_LOCATION_TYPES[number];
 
 interface LocationWriteBody {
   name?: string;
-  type?: LocationType | string;
+  type?: string;
   parentId?: string | null;
   notes?: string | null;
 }
@@ -126,8 +126,8 @@ router.put('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
     const location = await prisma.location.update({
       where: { id: req.params.id },
       data: {
-        ...(name !== undefined && { name: name! }),
-        ...(type !== undefined && { type: type! }),
+        ...(name !== undefined && { name }),
+        ...(type !== undefined && { type }),
         parentId: parentId || null,
         notes,
       },

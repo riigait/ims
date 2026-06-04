@@ -372,14 +372,14 @@ export default function Requests() {
   const handleExportDownload = (id: string) => {
     exportRequestsApi.download(id)
       .then(res => {
-        const blobUrl = window.URL.createObjectURL(res.data);
+        const blobUrl = globalThis.URL.createObjectURL(res.data);
         const link = document.createElement('a');
         link.href = blobUrl;
         link.download = `export-${id.slice(0, 8)}.csv`;
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
-        window.URL.revokeObjectURL(blobUrl);
+        globalThis.URL.revokeObjectURL(blobUrl);
       })
       .catch(() => setError('Failed to download export.'));
   };
@@ -448,7 +448,7 @@ export default function Requests() {
               <div className="flex-1">
                 <div className="flex items-center gap-2 mb-1 flex-wrap">
                   <span className="font-medium text-[var(--text)]">
-                    {req.stockDetailIds.length} item{req.stockDetailIds.length !== 1 ? 's' : ''} to verify
+                    {req.stockDetailIds.length} item{req.stockDetailIds.length === 1 ? '' : 's'} to verify
                   </span>
                   <span className={`text-xs px-2 py-0.5 rounded font-medium ${STATUS_COLOR[req.status]}`}>
                     {req.status}

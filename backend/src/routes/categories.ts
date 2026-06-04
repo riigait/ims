@@ -122,7 +122,7 @@ router.put('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
 
     const category = await prisma.category.update({
       where: { id: req.params.id },
-      data: { ...(name !== undefined && { name: name! }), description },
+      data: { ...(name !== undefined && { name }), description },
     });
 
     res.json(category);

@@ -26,6 +26,7 @@ import verifyRequestsRoutes from './routes/verifyRequests';
 import mapRoutes from './routes/map';
 
 const app = express();
+app.disable('x-powered-by');
 
 const allowedOrigins = process.env.ALLOWED_ORIGINS
   ? process.env.ALLOWED_ORIGINS.split(',')

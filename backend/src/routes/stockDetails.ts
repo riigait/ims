@@ -9,10 +9,10 @@ const router = Router();
 const FINAL_STATUSES = ['sold', 'disposed', 'lost'];
 
 function pf<T>(incoming: T | undefined, fallback: T): T {
-  return incoming !== undefined ? incoming : fallback;
+  return incoming ?? fallback;
 }
 function pfn(incoming: string | undefined, fallback: string | null): string | null {
-  return incoming !== undefined ? (incoming || null) : fallback;
+  return incoming === undefined ? fallback : (incoming || null);
 }
 function pfDate(incoming: string | undefined, fallback: Date | null): Date | null {
   if (incoming === undefined) return fallback;
