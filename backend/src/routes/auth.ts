@@ -8,7 +8,7 @@ import { validatePassword } from '../utils/passwordPolicy';
 
 const router = Router();
 
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const EMAIL_RE = /^[^\s@]+@[^\s@.]+(\.[^\s@.]+)+$/;
 
 function validateLogin(body: any): string | null {
   if (typeof body.email !== 'string' || typeof body.password !== 'string') return 'Invalid request body';
