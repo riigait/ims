@@ -70,8 +70,7 @@ export default function StockDetails({ productId, productName }: StockDetailsPro
       ]);
       setStockDetails(detailsRes.data);
       setLocations(locationsRes.data);
-    } catch (error) {
-      console.error('Failed to fetch data:', error);
+    } catch {
       setError('Failed to load stock details');
     } finally {
       setLoading(false);

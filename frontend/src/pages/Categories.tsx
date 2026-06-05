@@ -48,8 +48,7 @@ export default function Categories() {
       const res = await categoriesApi.getAll(params);
       setCategories(res.data.data);
       setTotal(res.data.total);
-    } catch (err) {
-      console.error('Failed to fetch categories:', err);
+    } catch {
     } finally {
       setLoading(false);
       hasLoaded.current = true;

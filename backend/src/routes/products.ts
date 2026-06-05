@@ -7,6 +7,8 @@ import { generateStockId, generateMovementNo, generateSku, generateRequestNo, ge
 
 const router = Router();
 
+interface HttpError extends Error { status: number; }
+
 interface ProductWriteBody {
   sku?: string;
   name?: string;
@@ -531,8 +533,8 @@ router.post('/bulk', async (req: AuthRequest, res: Response, next: NextFunction)
       });
 
       results.push({ index: i, success: true, name });
-    } catch (err: any) {
-      results.push({ index: i, success: false, error: err?.message || 'Unexpected error' });
+    } catch (err: unknown) {
+      results.push({ index: i, success: false, error: err instanceof Error ? err.message : 'Unexpected error' });
     }
   }
 
@@ -598,8 +600,8 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
       ...product,
       _needsOpeningStock: false,
     });
-  } catch (error: any) {
-    if (error.status) return res.status(error.status).json({ error: error.message });
+  } catch (error: unknown) {
+    if (error instanceof Error && (error as HttpError).status) return res.status((error as HttpError).status).json({ error: error.message });
     next(error);
   }
 });
@@ -637,8 +639,8 @@ router.put('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
 
     await logAudit({ userId: req.userId, action: 'UPDATE', entityType: 'product', entityId: product.id, changes: { name, sku } });
     res.json(product);
-  } catch (error: any) {
-    if (error.status) return res.status(error.status).json({ error: error.message });
+  } catch (error: unknown) {
+    if (error instanceof Error && (error as HttpError).status) return res.status((error as HttpError).status).json({ error: error.message });
     next(error);
   }
 });
@@ -703,7 +705,7 @@ router.post('/import/csv', async (req: AuthRequest, res: Response, next: NextFun
       return res.status(400).json({ error: 'CSV data required' });
     }
 
-    const rows = csvToJson<any>(req.body.csv);
+    const rows = csvToJson<Record<string, string>>(req.body.csv);
     const fileName = req.body.fileName || null;
     const created = [];
     const errors = [];
@@ -726,7 +728,7 @@ router.post('/import/csv', async (req: AuthRequest, res: Response, next: NextFun
           requestNo: batchRequestNo,
           type: 'csv_import',
           status: 'pending',
-          productIds: created.map((p: any) => p.id),
+          productIds: created.map((p: { id: string }) => p.id),
           csvImportId,
           label: `Item Imported CSV — ${fileName || 'import'} — ${now.toISOString().slice(0, 10)}`,
           submittedBy: req.userId!,
@@ -802,7 +804,7 @@ router.post('/:id/create-opening-stock', async (req: AuthRequest, res: Response,
     });
 
     res.json({ success: true, movement });
-  } catch (error: any) {
+  } catch (error: unknown) {
     next(error);
   }
 });

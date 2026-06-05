@@ -1,10 +1,9 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+﻿import { useState, useEffect, useRef, useCallback } from 'react';
 import { useLocation } from 'react-router-dom';
 import { X, Trash2, Search, ChevronLeft, ChevronRight, MapPin } from 'lucide-react';
 import { stockMovementsApi, productsApi, locationsApi, departmentsApi, stockDetailsApi } from '@/services/api';
 import { StockMovement, MovementType, Product, Location } from '@/types/inventory';
 import { StockMovementFilter } from '@/types/filters';
-import { FloorPlan, FloorPlanObject } from '@/types/floorplan';
 import { formatDate } from '@/utils/ids';
 import { filterStockMovements, sortStockMovements } from '@/utils/filterHelpers';
 import DataPageLayout from '@/components/layout/DataPageLayout';
@@ -12,6 +11,9 @@ import Pagination from '@/components/Pagination';
 import StockDetails from '@/components/StockDetails';
 import DeploymentMapPicker from '@/components/maps/DeploymentMapPicker';
 import { ALL_DEPARTMENTS_ID } from '@/constants/app';
+import { ProductSearchDropdown } from '@/components/stockMovements/ProductSearchDropdown';
+import { LocationSearchDropdown } from '@/components/stockMovements/LocationSearchDropdown';
+import { StockDetailSearchDropdown, StockDetailItem } from '@/components/stockMovements/StockDetailSearchDropdown';
 
 interface Department {
   id: string;
@@ -46,309 +48,6 @@ const movementColor = (type: MovementType) =>
 const movementLabel = (type: MovementType) =>
   MOVEMENT_OPTIONS.find(o => o.value === type)?.label ?? type;
 
-const DROPDOWN_PAGE_SIZE = 20;
-
-function ProductSearchDropdown({
-  products,
-  value,
-  onChange,
-  excludeIds = [],
-  allocatedCounts = {},
-}: {
-  products: Product[];
-  value: string;
-  onChange: (productId: string) => void;
-  excludeIds?: string[];
-  allocatedCounts?: Record<string, number>;
-}) {
-  const [open, setOpen] = useState(false);
-  const [search, setSearch] = useState('');
-  const [page, setPage] = useState(1);
-  const containerRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
-
-  const remaining = (p: Product) => Math.max(0, p.currentStock - (allocatedCounts[p.id] || 0));
-
-  const selected = products.find(p => p.id === value);
-  const available = products.filter(p => p.id === value || !excludeIds.includes(p.id));
-
-  const filtered = search.trim()
-    ? available.filter(p =>
-        p.name.toLowerCase().includes(search.trim().toLowerCase()) ||
-        (p.sku || '').toLowerCase().includes(search.trim().toLowerCase())
-      )
-    : available;
-
-  const totalPages = Math.ceil(filtered.length / DROPDOWN_PAGE_SIZE);
-  const paginated = filtered.slice((page - 1) * DROPDOWN_PAGE_SIZE, page * DROPDOWN_PAGE_SIZE);
-
-  useEffect(() => { setPage(1); }, [search]);
-
-  useEffect(() => {
-    if (!open) return;
-    const handleClick = (e: MouseEvent) => {
-      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
-        setOpen(false);
-      }
-    };
-    document.addEventListener('mousedown', handleClick);
-    return () => document.removeEventListener('mousedown', handleClick);
-  }, [open]);
-
-  const handleOpen = () => {
-    setOpen(true);
-    setSearch('');
-    setPage(1);
-    setTimeout(() => inputRef.current?.focus(), 50);
-  };
-
-  const handleSelect = (productId: string) => {
-    onChange(productId);
-    setOpen(false);
-    setSearch('');
-  };
-
-  return (
-    <div ref={containerRef} className="relative">
-      {/* Trigger button */}
-      <button
-        type="button"
-        onClick={handleOpen}
-        className="w-full px-2 py-1.5 text-sm border border-[var(--border)] rounded bg-[var(--surface)] text-left flex items-center justify-between gap-1 hover:border-[var(--primary)] transition-colors"
-      >
-        <span className={selected ? 'text-[var(--text)] truncate' : 'text-[var(--text-muted)]'}>
-          {selected ? `${selected.name} (${remaining(selected)})` : 'Select product'}
-        </span>
-        <Search size={13} className="flex-shrink-0 text-[var(--text-muted)]" />
-      </button>
-
-      {/* Dropdown */}
-      {open && (
-        <div className="absolute z-50 left-0 right-0 mt-1 bg-[var(--surface)] border border-[var(--border)] rounded-lg shadow-xl overflow-hidden">
-          {/* Search input */}
-          <div className="p-2 border-b border-[var(--border)]">
-            <div className="flex items-center gap-2 px-2 py-1.5 border border-[var(--border)] rounded bg-[var(--surface-2)]">
-              <Search size={13} className="text-[var(--text-muted)] flex-shrink-0" />
-              <input
-                ref={inputRef}
-                type="text"
-                value={search}
-                onChange={e => setSearch(e.target.value)}
-                placeholder="Search by name or SKU…"
-                className="flex-1 text-sm bg-transparent outline-none text-[var(--text)] placeholder:text-[var(--text-muted)]"
-              />
-              {search && (
-                <button type="button" onClick={() => setSearch('')} className="text-[var(--text-muted)] hover:text-[var(--text)]">
-                  <X size={12} />
-                </button>
-              )}
-            </div>
-            <p className="text-xs text-[var(--text-muted)] mt-1 px-1">
-              {filtered.length} product{filtered.length !== 1 ? 's' : ''} found
-            </p>
-          </div>
-
-          {/* Results list */}
-          <div className="max-h-48 overflow-y-auto">
-            {paginated.length === 0 ? (
-              <p className="text-sm text-[var(--text-muted)] text-center py-4">No products match.</p>
-            ) : (
-              paginated.map(p => (
-                <button
-                  key={p.id}
-                  type="button"
-                  onClick={() => handleSelect(p.id)}
-                  className={`w-full text-left px-3 py-2 text-sm hover:bg-[var(--surface-2)] transition-colors flex items-center justify-between gap-2 ${p.id === value ? 'bg-[var(--surface-2)] font-medium' : ''}`}
-                >
-                  <span className="truncate text-[var(--text)]">{p.name}</span>
-                  <span className="text-xs text-[var(--text-muted)] flex-shrink-0">{remaining(p)} left</span>
-                </button>
-              ))
-            )}
-          </div>
-
-          {/* Pagination */}
-          {totalPages > 1 && (
-            <div className="flex items-center justify-between px-3 py-2 border-t border-[var(--border)] bg-[var(--surface-2)]">
-              <button
-                type="button"
-                onClick={() => setPage(p => Math.max(1, p - 1))}
-                disabled={page === 1}
-                className="p-1 rounded hover:bg-[var(--border)] disabled:opacity-40 disabled:cursor-not-allowed"
-              >
-                <ChevronLeft size={14} />
-              </button>
-              <span className="text-xs text-[var(--text-muted)]">
-                Page {page} of {totalPages}
-              </span>
-              <button
-                type="button"
-                onClick={() => setPage(p => Math.min(totalPages, p + 1))}
-                disabled={page === totalPages}
-                className="p-1 rounded hover:bg-[var(--border)] disabled:opacity-40 disabled:cursor-not-allowed"
-              >
-                <ChevronRight size={14} />
-              </button>
-            </div>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function LocationSearchDropdown({
-  locations,
-  value,
-  onChange,
-  placeholder = '— No location —',
-}: {
-  locations: Location[];
-  value: string;
-  onChange: (locationId: string) => void;
-  placeholder?: string;
-}) {
-  const [open, setOpen] = useState(false);
-  const [search, setSearch] = useState('');
-  const [page, setPage] = useState(1);
-  const containerRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
-
-  const selected = locations.find(l => l.id === value);
-
-  const filtered = search.trim()
-    ? locations.filter(l => l.name.toLowerCase().includes(search.trim().toLowerCase()))
-    : locations;
-
-  const totalPages = Math.ceil(filtered.length / DROPDOWN_PAGE_SIZE);
-  const paginated = filtered.slice((page - 1) * DROPDOWN_PAGE_SIZE, page * DROPDOWN_PAGE_SIZE);
-
-  useEffect(() => { setPage(1); }, [search]);
-
-  useEffect(() => {
-    if (!open) return;
-    const handleClick = (e: MouseEvent) => {
-      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
-        setOpen(false);
-      }
-    };
-    document.addEventListener('mousedown', handleClick);
-    return () => document.removeEventListener('mousedown', handleClick);
-  }, [open]);
-
-  const handleOpen = () => {
-    setOpen(true);
-    setSearch('');
-    setPage(1);
-    setTimeout(() => inputRef.current?.focus(), 50);
-  };
-
-  const handleSelect = (locationId: string) => {
-    onChange(locationId);
-    setOpen(false);
-    setSearch('');
-  };
-
-  return (
-    <div ref={containerRef} className="relative">
-      <button
-        type="button"
-        onClick={handleOpen}
-        className="w-full px-2 py-1.5 text-sm border border-[var(--border)] rounded bg-[var(--surface)] text-left flex items-center justify-between gap-1 hover:border-[var(--primary)] transition-colors"
-      >
-        <span className={selected ? 'text-[var(--text)] truncate' : 'text-[var(--text-muted)]'}>
-          {selected ? selected.name : placeholder}
-        </span>
-        <Search size={13} className="flex-shrink-0 text-[var(--text-muted)]" />
-      </button>
-
-      {open && (
-        <div className="absolute z-50 left-0 right-0 mt-1 bg-[var(--surface)] border border-[var(--border)] rounded-lg shadow-xl overflow-hidden">
-          <div className="p-2 border-b border-[var(--border)]">
-            <div className="flex items-center gap-2 px-2 py-1.5 border border-[var(--border)] rounded bg-[var(--surface-2)]">
-              <Search size={13} className="text-[var(--text-muted)] flex-shrink-0" />
-              <input
-                ref={inputRef}
-                type="text"
-                value={search}
-                onChange={e => setSearch(e.target.value)}
-                placeholder="Search location…"
-                className="flex-1 text-sm bg-transparent outline-none text-[var(--text)] placeholder:text-[var(--text-muted)]"
-              />
-              {search && (
-                <button type="button" onClick={() => setSearch('')} className="text-[var(--text-muted)] hover:text-[var(--text)]">
-                  <X size={12} />
-                </button>
-              )}
-            </div>
-            <p className="text-xs text-[var(--text-muted)] mt-1 px-1">
-              {filtered.length} location{filtered.length !== 1 ? 's' : ''} found
-            </p>
-          </div>
-
-          <div className="max-h-48 overflow-y-auto">
-            {/* Clear / none option */}
-            <button
-              type="button"
-              onClick={() => handleSelect('')}
-              className={`w-full text-left px-3 py-2 text-sm hover:bg-[var(--surface-2)] transition-colors text-[var(--text-muted)] ${!value ? 'bg-[var(--surface-2)]' : ''}`}
-            >
-              — None —
-            </button>
-            {paginated.length === 0 ? (
-              <p className="text-sm text-[var(--text-muted)] text-center py-4">No locations match.</p>
-            ) : (
-              paginated.map(l => (
-                <button
-                  key={l.id}
-                  type="button"
-                  onClick={() => handleSelect(l.id)}
-                  className={`w-full text-left px-3 py-2 text-sm hover:bg-[var(--surface-2)] transition-colors text-[var(--text)] ${l.id === value ? 'bg-[var(--surface-2)] font-medium' : ''}`}
-                >
-                  {l.name}
-                </button>
-              ))
-            )}
-          </div>
-
-          {totalPages > 1 && (
-            <div className="flex items-center justify-between px-3 py-2 border-t border-[var(--border)] bg-[var(--surface-2)]">
-              <button
-                type="button"
-                onClick={() => setPage(p => Math.max(1, p - 1))}
-                disabled={page === 1}
-                className="p-1 rounded hover:bg-[var(--border)] disabled:opacity-40 disabled:cursor-not-allowed"
-              >
-                <ChevronLeft size={14} />
-              </button>
-              <span className="text-xs text-[var(--text-muted)]">Page {page} of {totalPages}</span>
-              <button
-                type="button"
-                onClick={() => setPage(p => Math.min(totalPages, p + 1))}
-                disabled={page === totalPages}
-                className="p-1 rounded hover:bg-[var(--border)] disabled:opacity-40 disabled:cursor-not-allowed"
-              >
-                <ChevronRight size={14} />
-              </button>
-            </div>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
-interface StockDetailItem {
-  id: string;
-  stockId: string;
-  productId?: string;
-  currentStatus: string;
-  currentLocationId?: string;
-  product?: { name: string };
-  currentLocation?: { name: string };
-  assetTag?: string;
-}
-
 const DEDUCTING_MOVEMENT_TYPES: MovementType[] = ['stock_out', 'transfer', 'damaged', 'defective', 'disposal', 'borrowed', 'lost', 'returned', 'found', 'repair_out'];
 const SPECIFIC_ITEM_MOVEMENT_TYPES: MovementType[] = [...DEDUCTING_MOVEMENT_TYPES, 'pre_deployment', 'post_deployment', 'repair_return', 'moved_to_department'];
 const STATUS_CHANGE_ONLY_TYPES: MovementType[] = [];
@@ -358,369 +57,6 @@ const RETURNING_STATUSES: Partial<Record<MovementType, string[]>> = {
   post_deployment: ['deployed'],
   repair_return: ['repair'],
 };
-
-function StockDetailSearchDropdown({
-  stockDetails,
-  value,
-  onChange,
-  excludeIds = [],
-}: {
-  stockDetails: StockDetailItem[];
-  value: string;
-  onChange: (stockDetailId: string, locationId?: string) => void;
-  excludeIds?: string[];
-}) {
-  const [open, setOpen] = useState(false);
-  const [search, setSearch] = useState('');
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(20);
-  const containerRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
-
-  const selected = stockDetails.find(s => s.id === value);
-  const available = stockDetails.filter(s => s.id === value || !excludeIds.includes(s.id));
-
-  const filtered = search.trim()
-    ? available.filter(s =>
-        s.stockId.toLowerCase().includes(search.trim().toLowerCase()) ||
-        (s.assetTag || '').toLowerCase().includes(search.trim().toLowerCase()) ||
-        (s.currentLocation?.name || '').toLowerCase().includes(search.trim().toLowerCase())
-      )
-    : available;
-
-  const totalPages = Math.ceil(filtered.length / pageSize);
-  const paginated = filtered.slice((page - 1) * pageSize, page * pageSize);
-
-  useEffect(() => { setPage(1); }, [search, pageSize]);
-
-  useEffect(() => {
-    if (!open) return;
-    const handleClick = (e: MouseEvent) => {
-      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
-        setOpen(false);
-      }
-    };
-    document.addEventListener('mousedown', handleClick);
-    return () => document.removeEventListener('mousedown', handleClick);
-  }, [open]);
-
-  const handleOpen = () => {
-    setOpen(true);
-    setSearch('');
-    setPage(1);
-    setTimeout(() => inputRef.current?.focus(), 50);
-  };
-
-  const handleSelect = (id: string) => {
-    const sd = stockDetails.find(s => s.id === id);
-    onChange(id, sd?.currentLocationId);
-    setOpen(false);
-    setSearch('');
-  };
-
-  const STATUS_COLOR: Record<string, string> = {
-    active: 'text-green-600', damaged: 'text-orange-500', sold: 'text-gray-400',
-    lost: 'text-red-500', borrowed: 'text-violet-500', disposed: 'text-gray-500',
-    repair: 'text-yellow-600', deployed: 'text-cyan-600', returned: 'text-teal-600',
-  };
-
-  return (
-    <div ref={containerRef} className="relative">
-      <button
-        type="button"
-        onClick={handleOpen}
-        className="w-full px-2 py-1.5 text-sm border border-[var(--border)] rounded bg-[var(--surface)] text-left flex items-center justify-between gap-1 hover:border-[var(--primary)] transition-colors"
-      >
-        {selected ? (
-          <span className="text-[var(--text)] truncate font-mono text-xs">
-            {selected.stockId}{selected.assetTag ? ` · ${selected.assetTag}` : ''}{selected.currentLocation ? ` · ${selected.currentLocation.name}` : ''}
-          </span>
-        ) : (
-          <span className="text-[var(--text-muted)]">Select inventory item</span>
-        )}
-        <Search size={13} className="flex-shrink-0 text-[var(--text-muted)]" />
-      </button>
-
-      {open && (
-        <div className="absolute z-50 left-0 right-0 mt-1 bg-[var(--surface)] border border-[var(--border)] rounded-lg shadow-xl overflow-hidden">
-          <div className="p-2 border-b border-[var(--border)]">
-            <div className="flex items-center gap-2 px-2 py-1.5 border border-[var(--border)] rounded bg-[var(--surface-2)]">
-              <Search size={13} className="text-[var(--text-muted)] flex-shrink-0" />
-              <input
-                ref={inputRef}
-                type="text"
-                value={search}
-                onChange={e => setSearch(e.target.value)}
-                placeholder="Search by item ID, asset tag, location…"
-                className="flex-1 text-sm bg-transparent outline-none text-[var(--text)] placeholder:text-[var(--text-muted)]"
-              />
-              {search && (
-                <button type="button" onClick={() => setSearch('')} className="text-[var(--text-muted)] hover:text-[var(--text)]">
-                  <X size={12} />
-                </button>
-              )}
-            </div>
-            <div className="flex items-center justify-between mt-1.5 px-1">
-              <p className="text-xs text-[var(--text-muted)]">{filtered.length} item{filtered.length !== 1 ? 's' : ''}</p>
-              <div className="flex items-center gap-1">
-                <span className="text-xs text-[var(--text-muted)]">Show</span>
-                {[20, 50, 100].map(s => (
-                  <button key={s} type="button"
-                    onClick={() => setPageSize(s)}
-                    className={`text-xs px-1.5 py-0.5 rounded border transition-colors ${pageSize === s ? 'bg-[var(--primary)] text-white border-[var(--primary)]' : 'border-[var(--border)] text-[var(--text-muted)] hover:bg-[var(--surface-2)]'}`}>
-                    {s}
-                  </button>
-                ))}
-              </div>
-            </div>
-          </div>
-
-          <div className="max-h-52 overflow-y-auto">
-            {paginated.length === 0 ? (
-              <p className="text-sm text-[var(--text-muted)] text-center py-4">No active items found.</p>
-            ) : (
-              paginated.map(s => (
-                <button
-                  key={s.id}
-                  type="button"
-                  onClick={() => handleSelect(s.id)}
-                  className={`w-full text-left px-3 py-2 text-sm hover:bg-[var(--surface-2)] transition-colors flex items-center justify-between gap-2 ${s.id === value ? 'bg-[var(--surface-2)] font-medium' : ''}`}
-                >
-                  <div className="min-w-0">
-                    <p className="font-mono text-xs text-[var(--text)] truncate">{s.stockId}{s.assetTag ? ` · ${s.assetTag}` : ''}</p>
-                    {s.currentLocation && (
-                      <p className="text-xs text-[var(--text-muted)] truncate">{s.currentLocation.name}</p>
-                    )}
-                  </div>
-                  <span className={`text-xs flex-shrink-0 ${STATUS_COLOR[s.currentStatus] ?? 'text-[var(--text-muted)]'}`}>
-                    {s.currentStatus}
-                  </span>
-                </button>
-              ))
-            )}
-          </div>
-
-          {totalPages > 1 && (
-            <div className="flex items-center justify-between px-3 py-2 border-t border-[var(--border)] bg-[var(--surface-2)]">
-              <button type="button" onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}
-                className="p-1 rounded hover:bg-[var(--border)] disabled:opacity-40 disabled:cursor-not-allowed">
-                <ChevronLeft size={14} />
-              </button>
-              <span className="text-xs text-[var(--text-muted)]">Page {page} of {totalPages}</span>
-              <button type="button" onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages}
-                className="p-1 rounded hover:bg-[var(--border)] disabled:opacity-40 disabled:cursor-not-allowed">
-                <ChevronRight size={14} />
-              </button>
-            </div>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
-export function MapLocationPicker({
-  locations,
-  floorPlans,
-  selectedLocationId,
-  onSelect,
-  onClose,
-}: {
-  locations: Location[];
-  floorPlans: FloorPlan[];
-  selectedLocationId: string;
-  onSelect: (locationId: string) => void;
-  onClose: () => void;
-}) {
-  const locationIds = new Set(locations.map(location => location.id));
-  const plansWithLinks = floorPlans
-    .map(plan => ({
-      plan,
-      linkedCount: (plan.objects || []).filter(obj => obj.linkedLocationId && locationIds.has(obj.linkedLocationId)).length,
-    }))
-    .filter(entry => entry.linkedCount > 0)
-    .sort((a, b) => Number(b.plan.isApproved) - Number(a.plan.isApproved) || b.linkedCount - a.linkedCount);
-
-  const [selectedPlanId, setSelectedPlanId] = useState(plansWithLinks[0]?.plan.id || '');
-  const [locationSearch, setLocationSearch] = useState('');
-  const [locationPage, setLocationPage] = useState(1);
-  const [locationPageSize, setLocationPageSize] = useState(20);
-  useEffect(() => {
-    if (plansWithLinks.length > 0 && !plansWithLinks.some(entry => entry.plan.id === selectedPlanId)) {
-      setSelectedPlanId(plansWithLinks[0].plan.id);
-    }
-  }, [plansWithLinks, selectedPlanId]);
-
-  const selectedPlan = plansWithLinks.find(entry => entry.plan.id === selectedPlanId)?.plan || plansWithLinks[0]?.plan;
-  const locationName = (id?: string) => locations.find(location => location.id === id)?.name || 'Linked location';
-  const filteredLocations = locationSearch.trim()
-    ? locations.filter(location => {
-      const query = locationSearch.trim().toLowerCase();
-      return location.name.toLowerCase().includes(query) || location.type.toLowerCase().includes(query);
-    })
-    : locations;
-  const totalLocationPages = Math.max(1, Math.ceil(filteredLocations.length / locationPageSize));
-  const paginatedLocations = filteredLocations.slice((locationPage - 1) * locationPageSize, locationPage * locationPageSize);
-  const rectFill: Record<string, string> = { room: '#e5e7eb', rack: '#fef3c7', shelf: '#dbeafe' };
-
-  useEffect(() => { setLocationPage(1); }, [locationSearch, locationPageSize]);
-  useEffect(() => {
-    if (locationPage > totalLocationPages) {
-      setLocationPage(totalLocationPages);
-    }
-  }, [locationPage, totalLocationPages]);
-
-  const renderObject = (obj: FloorPlanObject) => {
-    const linked = obj.linkedLocationId && locationIds.has(obj.linkedLocationId);
-    const selected = !!obj.linkedLocationId && obj.linkedLocationId === selectedLocationId;
-    const common = {
-      key: obj.id,
-      onClick: linked ? () => onSelect(obj.linkedLocationId as string) : undefined,
-      style: { cursor: linked ? 'pointer' : 'default' },
-    };
-
-    if (obj.type === 'wall') {
-      return <line {...common} x1={obj.startX} y1={obj.startY} x2={obj.endX} y2={obj.endY} stroke={selected ? '#2563eb' : obj.color || '#1e293b'} strokeWidth={Math.max(1, obj.thickness)} strokeLinecap="round" />;
-    }
-    if (obj.type === 'room' || obj.type === 'rack' || obj.type === 'shelf') {
-      return (
-        <g {...common}>
-          <rect
-            x={obj.x}
-            y={obj.y}
-            width={obj.width}
-            height={obj.height}
-            fill={selected ? '#bfdbfe' : obj.color || rectFill[obj.type]}
-            stroke={selected ? '#2563eb' : linked ? '#0f766e' : '#64748b'}
-            strokeWidth={selected ? 4 : linked ? 2 : 1}
-            opacity={linked ? 0.9 : 0.55}
-          />
-          {(obj.label || obj.linkedLocationId) && obj.width > 48 && obj.height > 24 && (
-            <text x={obj.x + obj.width / 2} y={obj.y + obj.height / 2} textAnchor="middle" dominantBaseline="middle" fontSize={14} fill="#334155">
-              {(obj.label || locationName(obj.linkedLocationId)).slice(0, 24)}
-            </text>
-          )}
-        </g>
-      );
-    }
-    if (obj.type === 'label') {
-      return <text {...common} x={obj.x} y={obj.y} fontSize={obj.fontSize} fill={obj.color || '#475569'}>{obj.text}</text>;
-    }
-    if (obj.type === 'marker') {
-      return (
-        <g {...common}>
-          <circle cx={obj.x} cy={obj.y} r={selected ? 12 : 8} fill={selected ? '#2563eb' : linked ? '#0f766e' : '#94a3b8'} />
-          {linked && <text x={obj.x + 12} y={obj.y + 4} fontSize={12} fill="#334155">{locationName(obj.linkedLocationId).slice(0, 18)}</text>}
-        </g>
-      );
-    }
-    const shape = obj as any;
-    return <line {...common} x1={shape.x - shape.width / 2} y1={shape.y} x2={shape.x + shape.width / 2} y2={shape.y} stroke={obj.type === 'window' ? '#38bdf8' : '#16a34a'} strokeWidth={4} transform={`rotate(${((shape.angle || 0) * 180) / Math.PI} ${shape.x} ${shape.y})`} />;
-  };
-
-  return (
-    <div className="fixed inset-0 z-[70] bg-black/50 flex items-center justify-center p-4">
-      <div className="w-full max-w-6xl h-[88vh] bg-[var(--surface)] rounded-lg shadow-2xl border border-[var(--border)] flex flex-col overflow-hidden">
-        <div className="px-4 py-3 border-b border-[var(--border)] flex items-center justify-between">
-          <div>
-            <h3 className="text-sm font-semibold text-[var(--text)]">Map Select Location</h3>
-            <p className="text-xs text-[var(--text-muted)]">Click a linked area or choose from the location list.</p>
-          </div>
-          <button type="button" onClick={onClose} className="p-1.5 rounded-lg hover:bg-[var(--surface-2)] text-[var(--text-muted)]">
-            <X size={18} />
-          </button>
-        </div>
-        <div className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-[1fr_280px]">
-          <div className="min-h-0 p-4 bg-[var(--surface-2)]">
-            {selectedPlan ? (
-              <div className="h-full flex flex-col gap-3">
-                {plansWithLinks.length > 1 && (
-                  <select value={selectedPlan.id} onChange={e => setSelectedPlanId(e.target.value)}
-                    className="w-full max-w-sm px-3 py-2 border border-[var(--border)] rounded text-sm bg-[var(--surface)] text-[var(--text)]">
-                    {plansWithLinks.map(({ plan }) => <option key={plan.id} value={plan.id}>{plan.name}</option>)}
-                  </select>
-                )}
-                <div className="flex-1 min-h-0 bg-white rounded border border-[var(--border)] overflow-auto">
-                  <svg viewBox={`0 0 ${selectedPlan.width} ${selectedPlan.height}`} className="w-full h-full min-h-[420px]">
-                    <rect x="0" y="0" width={selectedPlan.width} height={selectedPlan.height} fill="#f8fafc" />
-                    {(selectedPlan.objects || []).map(renderObject)}
-                  </svg>
-                </div>
-              </div>
-            ) : (
-              <div className="h-full flex items-center justify-center text-sm text-[var(--text-muted)]">
-                No linked floor-plan locations found.
-              </div>
-            )}
-          </div>
-          <div className="border-t lg:border-t-0 lg:border-l border-[var(--border)] p-3 overflow-y-auto">
-            <p className="text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wider mb-2">Locations</p>
-            <div className="relative mb-2">
-              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--text-muted)]" />
-              <input
-                type="text"
-                value={locationSearch}
-                onChange={e => setLocationSearch(e.target.value)}
-                placeholder="Search locations..."
-                className="w-full pl-8 pr-3 py-2 border border-[var(--border)] rounded text-sm bg-[var(--surface)] text-[var(--text)]"
-              />
-            </div>
-            <div className="flex items-center justify-between gap-2 mb-2">
-              <p className="text-xs text-[var(--text-muted)]">{filteredLocations.length} locations</p>
-              <div className="flex gap-1">
-                {[20, 50, 100].map(size => (
-                  <button
-                    key={size}
-                    type="button"
-                    onClick={() => setLocationPageSize(size)}
-                    className={`text-xs px-1.5 py-0.5 rounded border transition-colors ${locationPageSize === size ? 'bg-[var(--primary)] text-white border-[var(--primary)]' : 'border-[var(--border)] text-[var(--text-muted)] hover:bg-[var(--surface-2)]'}`}
-                  >
-                    {size}
-                  </button>
-                ))}
-              </div>
-            </div>
-            <div className="space-y-1">
-              {paginatedLocations.length === 0 ? (
-                <p className="text-sm text-[var(--text-muted)] text-center py-4">No locations match.</p>
-              ) : paginatedLocations.map(location => (
-                <button
-                  key={location.id}
-                  type="button"
-                  onClick={() => onSelect(location.id)}
-                  className={`w-full text-left px-3 py-2 rounded text-sm transition-colors ${location.id === selectedLocationId ? 'bg-[var(--primary)] text-white' : 'hover:bg-[var(--surface-2)] text-[var(--text)]'}`}
-                >
-                  {location.name}
-                </button>
-              ))}
-            </div>
-            {filteredLocations.length > locationPageSize && (
-              <div className="flex items-center justify-between gap-2 mt-3 pt-2 border-t border-[var(--border)]">
-                <button
-                  type="button"
-                  onClick={() => setLocationPage(page => Math.max(1, page - 1))}
-                  disabled={locationPage === 1}
-                  className="p-1 rounded border border-[var(--border)] text-[var(--text-muted)] hover:bg-[var(--surface-2)] disabled:opacity-40"
-                >
-                  <ChevronLeft size={14} />
-                </button>
-                <span className="text-xs text-[var(--text-muted)]">Page {locationPage} of {totalLocationPages}</span>
-                <button
-                  type="button"
-                  onClick={() => setLocationPage(page => Math.min(totalLocationPages, page + 1))}
-                  disabled={locationPage === totalLocationPages}
-                  className="p-1 rounded border border-[var(--border)] text-[var(--text-muted)] hover:bg-[var(--surface-2)] disabled:opacity-40"
-                >
-                  <ChevronRight size={14} />
-                </button>
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
 
 const emptyForm = {
   movementType: 'stock_in' as MovementType,
@@ -807,7 +143,6 @@ export default function StockMovements() {
       setMovements(res.data.data);
       setTotal(res.data.total);
     } catch {
-      console.error('Failed to fetch movements');
     } finally {
       setLoading(false);
       hasLoaded.current = true;
@@ -833,7 +168,7 @@ export default function StockMovements() {
         setProducts(productsRes.data.data);
         setLocations(locationsRes.data.data ?? locationsRes.data);
         setDepartments(deptRes.data);
-      } catch { console.error('Failed to load static data'); }
+      } catch { }
     };
     loadStaticData();
     const handleStorageChange = () => loadMovements();
@@ -947,7 +282,7 @@ export default function StockMovements() {
     return products.find(p => p.id === productId)?.name ?? 'Unknown';
   };
 
-  // Server handles search/type/status/dept — client handles dateRange only
+  // Server handles search/type/status/dept â€” client handles dateRange only
   const clientFilters = { ...filters, search: '', movementType: undefined, movementStatus: undefined, departmentId: undefined };
   const filteredAndSortedMovements = sortStockMovements(
     filterStockMovements(movements, clientFilters, getProductName),
@@ -975,22 +310,22 @@ export default function StockMovements() {
           : <>{movements.length} total</>
         }
         {pendingCount > 0 && (
-          <> · <span className="text-orange-500 font-medium">{pendingCount} unconfirmed</span></>
+          <> Â· <span className="text-orange-500 font-medium">{pendingCount} unconfirmed</span></>
         )}
-        {' · '}<span className="text-green-600">{mvCount('stock_in')} stock in</span>
-        {' · '}<span className="text-red-500">{mvCount('stock_out')} stock out</span>
-        {' · '}<span className="text-purple-600">{mvCount('transfer')} transfers</span>
-        {' · '}<span className="text-cyan-600">{mvCount('pre_deployment') + mvCount('post_deployment')} deployments</span>
-        {' · '}<span className="text-violet-600">{mvCount('borrowed')} borrowed</span>
-        {' · '}<span className="text-teal-600">{mvCount('returned')} returned</span>
-        {' · '}<span className="text-yellow-600">{mvCount('repair_out') + mvCount('repair_return')} repairs</span>
-        {' · '}<span className="text-blue-600">{mvCount('adjustment')} adjustments</span>
+        {' Â· '}<span className="text-green-600">{mvCount('stock_in')} stock in</span>
+        {' Â· '}<span className="text-red-500">{mvCount('stock_out')} stock out</span>
+        {' Â· '}<span className="text-purple-600">{mvCount('transfer')} transfers</span>
+        {' Â· '}<span className="text-cyan-600">{mvCount('pre_deployment') + mvCount('post_deployment')} deployments</span>
+        {' Â· '}<span className="text-violet-600">{mvCount('borrowed')} borrowed</span>
+        {' Â· '}<span className="text-teal-600">{mvCount('returned')} returned</span>
+        {' Â· '}<span className="text-yellow-600">{mvCount('repair_out') + mvCount('repair_return')} repairs</span>
+        {' Â· '}<span className="text-blue-600">{mvCount('adjustment')} adjustments</span>
         {(mvCount('damaged') + mvCount('defective') + mvCount('disposal') + mvCount('lost')) > 0 && (
-          <> · <span className="text-orange-600">{mvCount('damaged') + mvCount('defective') + mvCount('disposal') + mvCount('lost')} losses</span></>
+          <> Â· <span className="text-orange-600">{mvCount('damaged') + mvCount('defective') + mvCount('disposal') + mvCount('lost')} losses</span></>
         )}
       </p>
       <div className="flex gap-2">
-        <input type="text" placeholder="Search by product name…"
+        <input type="text" placeholder="Search by product nameâ€¦"
           value={searchInput} onChange={e => setSearchInput(e.target.value)}
           className="flex-1 px-4 py-2 border border-[var(--border)] rounded-lg text-sm bg-[var(--surface)] text-[var(--text)]" />
         <select value={sortBy} onChange={e => { setSortBy(e.target.value); setCurrentPage(1); }}
@@ -1115,10 +450,10 @@ export default function StockMovements() {
                 {(movement.items || []).slice(0, 3).map((item: any, idx: number) => (
                   <div key={idx} className="text-xs text-[var(--text-muted)]">
                     <span className="font-medium text-[var(--text)]">{item.product?.name || 'Unknown'}</span>
-                    <span className="mx-1">·</span>
+                    <span className="mx-1">Â·</span>
                     <span>qty {item.quantity}</span>
                     {(item.fromLocation || item.toLocation) && (
-                      <span className="mx-1">· {item.fromLocation?.name ?? '?'} → {item.toLocation?.name ?? '?'}</span>
+                      <span className="mx-1">Â· {item.fromLocation?.name ?? '?'} â†’ {item.toLocation?.name ?? '?'}</span>
                     )}
                   </div>
                 ))}
@@ -1128,9 +463,9 @@ export default function StockMovements() {
               </div>
               {movement.movementType === 'moved_to_department' ? (
                 <p className="text-xs text-[var(--text-muted)] mt-2">
-                  <span>{movement.department?.name || '—'}</span>
-                  <span className="mx-1">→</span>
-                  <span className="text-[var(--primary)] font-medium">{(movement as any).toDepartment?.name || '—'}</span>
+                  <span>{movement.department?.name || 'â€”'}</span>
+                  <span className="mx-1">â†’</span>
+                  <span className="text-[var(--primary)] font-medium">{(movement as any).toDepartment?.name || 'â€”'}</span>
                 </p>
               ) : movement.department?.name ? (
                 <p className="text-xs text-[var(--text-muted)] mt-2">{movement.department.name}</p>
@@ -1207,21 +542,21 @@ export default function StockMovements() {
                         ))}
                       </select>
                       <p className="text-xs text-[var(--text-muted)] mt-1">
-                        {formData.movementType === 'stock_in' && 'Add quantity — received goods or new stock arriving'}
-                        {formData.movementType === 'stock_out' && 'Remove quantity — sales, shipments, or stock leaving'}
-                        {formData.movementType === 'adjustment' && 'Adjust stock — positive quantity adds, negative quantity deducts'}
-                        {formData.movementType === 'returned' && 'Add quantity — customer returns or items coming back'}
-                        {formData.movementType === 'damaged' && 'Remove quantity — marks item as damaged, removed from available stock'}
-                        {formData.movementType === 'transfer' && 'Move item between locations — no quantity change'}
-                        {formData.movementType === 'moved_to_department' && 'Reassign product to a different department — no quantity change, keeps the same product ID'}
-                        {formData.movementType === 'pre_deployment' && 'Send item out for deployment — deducts from stock'}
-                        {formData.movementType === 'post_deployment' && 'Return deployed item back to active stock — restores quantity'}
-                        {formData.movementType === 'repair_out' && 'Send item out for repair — deducts from stock, status changes to Under Repair'}
-                        {formData.movementType === 'repair_return' && 'Return item from repair back to active stock — restores quantity'}
-                        {formData.movementType === 'defective' && 'Mark item as defective — deducts from stock permanently'}
-                        {formData.movementType === 'disposal' && 'Remove quantity — mark item as disposed or retired'}
-                        {formData.movementType === 'borrowed' && 'Remove quantity — mark item as temporarily borrowed or issued'}
-                        {formData.movementType === 'lost' && 'Remove quantity — mark item as lost or missing'}
+                        {formData.movementType === 'stock_in' && 'Add quantity â€” received goods or new stock arriving'}
+                        {formData.movementType === 'stock_out' && 'Remove quantity â€” sales, shipments, or stock leaving'}
+                        {formData.movementType === 'adjustment' && 'Adjust stock â€” positive quantity adds, negative quantity deducts'}
+                        {formData.movementType === 'returned' && 'Add quantity â€” customer returns or items coming back'}
+                        {formData.movementType === 'damaged' && 'Remove quantity â€” marks item as damaged, removed from available stock'}
+                        {formData.movementType === 'transfer' && 'Move item between locations â€” no quantity change'}
+                        {formData.movementType === 'moved_to_department' && 'Reassign product to a different department â€” no quantity change, keeps the same product ID'}
+                        {formData.movementType === 'pre_deployment' && 'Send item out for deployment â€” deducts from stock'}
+                        {formData.movementType === 'post_deployment' && 'Return deployed item back to active stock â€” restores quantity'}
+                        {formData.movementType === 'repair_out' && 'Send item out for repair â€” deducts from stock, status changes to Under Repair'}
+                        {formData.movementType === 'repair_return' && 'Return item from repair back to active stock â€” restores quantity'}
+                        {formData.movementType === 'defective' && 'Mark item as defective â€” deducts from stock permanently'}
+                        {formData.movementType === 'disposal' && 'Remove quantity â€” mark item as disposed or retired'}
+                        {formData.movementType === 'borrowed' && 'Remove quantity â€” mark item as temporarily borrowed or issued'}
+                        {formData.movementType === 'lost' && 'Remove quantity â€” mark item as lost or missing'}
                         {formData.movementType === 'found' && 'Restore a lost item - record where it was found, then choose its final location'}
                       </p>
                     </div>
@@ -1305,7 +640,7 @@ export default function StockMovements() {
                             await loadDepartmentLocations(toDepartmentId);
                           }}
                           className="w-full px-3 py-2 border border-[var(--border)] rounded-lg text-sm bg-[var(--surface)] text-[var(--text)]">
-                          <option value="">— Select destination department —</option>
+                          <option value="">â€” Select destination department â€”</option>
                           {departments
                             .filter(d => d.id !== currentDepartmentId)
                             .map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
@@ -1380,7 +715,7 @@ export default function StockMovements() {
                                   </span>
                                 </label>
                                 {itemStockDetails[idx] === undefined ? (
-                                  <p className="text-xs text-[var(--text-muted)] italic px-1">Loading items…</p>
+                                  <p className="text-xs text-[var(--text-muted)] italic px-1">Loading itemsâ€¦</p>
                                 ) : itemStockDetails[idx].length === 0 ? (
                                   <p className="text-xs text-orange-500 px-1">
                                     {formData.movementType === 'returned'
@@ -1440,8 +775,8 @@ export default function StockMovements() {
                               {item.stockDetailId ? (
                                 <div className="w-full px-2 py-1.5 text-sm border border-[var(--border)] rounded bg-[var(--surface-2)] text-[var(--text-muted)] select-none">
                                   {STATUS_CHANGE_ONLY_TYPES.includes(formData.movementType)
-                                    ? <span>0 <span className="text-xs">(no stock change — status update only)</span></span>
-                                    : <span>{item.quantity < 0 ? '−1' : '1'} <span className="text-xs">(fixed — 1 specific unit)</span></span>}
+                                    ? <span>0 <span className="text-xs">(no stock change â€” status update only)</span></span>
+                                    : <span>{item.quantity < 0 ? 'âˆ’1' : '1'} <span className="text-xs">(fixed â€” 1 specific unit)</span></span>}
                                 </div>
                               ) : formData.movementType === 'adjustment' ? (
                                 <div className="flex gap-1.5">
@@ -1452,11 +787,11 @@ export default function StockMovements() {
                                       const abs = Math.abs(newItems[idx].quantity || 0) || 1;
                                       const isNeg = newItems[idx].quantity < 0;
                                       if (isNeg) {
-                                        // going positive — clear specific item
+                                        // going positive â€” clear specific item
                                         newItems[idx] = { ...newItems[idx], quantity: abs, stockDetailId: '' };
                                         setItemStockDetails(prev => { const n = { ...prev }; delete n[idx]; return n; });
                                       } else {
-                                        // going negative — load stock details if product selected
+                                        // going negative â€” load stock details if product selected
                                         newItems[idx] = { ...newItems[idx], quantity: -abs };
                                         if (newItems[idx].productId) {
                                           try {
@@ -1470,7 +805,7 @@ export default function StockMovements() {
                                     }}
                                     className={`flex-shrink-0 w-9 h-[34px] rounded text-sm font-bold border transition-colors ${item.quantity < 0 ? 'bg-red-500 text-white border-red-500' : 'bg-green-500 text-white border-green-500'}`}
                                   >
-                                    {item.quantity < 0 ? '−' : '+'}
+                                    {item.quantity < 0 ? 'âˆ’' : '+'}
                                   </button>
                                   <input
                                     type="number"
@@ -1510,7 +845,7 @@ export default function StockMovements() {
                               </label>
                               {formData.movementType === 'post_deployment' ? (
                                 <div className="w-full px-2 py-1.5 text-sm border border-[var(--border)] rounded bg-[var(--surface-2)] text-[var(--text-muted)] min-h-[34px]">
-                                  {postDeploymentFromAddress[idx] || (item.stockDetailId ? 'No deployment address found' : '— Select an item first —')}
+                                  {postDeploymentFromAddress[idx] || (item.stockDetailId ? 'No deployment address found' : 'â€” Select an item first â€”')}
                                 </div>
                               ) : formData.movementType === 'moved_to_department' && item.stockDetailId ? (
                                 <div className="w-full px-2 py-1.5 text-sm border border-[var(--border)] rounded bg-[var(--surface-2)] text-[var(--text-muted)]">
@@ -1542,7 +877,7 @@ export default function StockMovements() {
                                   >
                                     <MapPin size={13} className="flex-shrink-0 text-[var(--text-muted)]" />
                                     <span className={formData.deploymentAddress ? 'text-[var(--text)] truncate' : 'text-[var(--text-muted)]'}>
-                                      {formData.deploymentAddress || 'Select repair location on map…'}
+                                      {formData.deploymentAddress || 'Select repair location on mapâ€¦'}
                                     </span>
                                   </button>
                                   {formData.deploymentLatitude && formData.deploymentLongitude && (
@@ -1634,7 +969,7 @@ export default function StockMovements() {
                               type="text"
                               value={itemsSearch}
                               onChange={e => { setItemsSearch(e.target.value); setItemsPage(1); }}
-                              placeholder="Search by product name or stock ID…"
+                              placeholder="Search by product name or stock IDâ€¦"
                               className="flex-1 text-xs bg-transparent outline-none text-[var(--text)] placeholder:text-[var(--text-muted)]"
                             />
                             {itemsSearch && (
@@ -1658,7 +993,7 @@ export default function StockMovements() {
                                   </div>
                                   <div>
                                     <p className="text-xs text-[var(--text-muted)]">Stock ID</p>
-                                    <p className="text-[var(--text)] font-mono text-xs">{item.stockDetail?.stockId || '—'}</p>
+                                    <p className="text-[var(--text)] font-mono text-xs">{item.stockDetail?.stockId || 'â€”'}</p>
                                   </div>
                                   <div>
                                     <p className="text-xs text-[var(--text-muted)]">Quantity</p>
@@ -1666,7 +1001,7 @@ export default function StockMovements() {
                                   </div>
                                   <div>
                                     <p className="text-xs text-[var(--text-muted)]">Locations</p>
-                                    <p className="text-[var(--text)]">{item.fromLocation?.name || '—'} → {item.toLocation?.name || '—'}</p>
+                                    <p className="text-[var(--text)]">{item.fromLocation?.name || 'â€”'} â†’ {item.toLocation?.name || 'â€”'}</p>
                                   </div>
                                 </div>
                                 {item.reason && (
@@ -1686,7 +1021,7 @@ export default function StockMovements() {
                                 <ChevronLeft size={13} /> Prev
                               </button>
                               <span className="text-xs text-[var(--text-muted)]">
-                                Page {itemsPage} of {totalItemPages} · {filteredItems.length} items
+                                Page {itemsPage} of {totalItemPages} Â· {filteredItems.length} items
                               </span>
                               <button
                                 type="button"
@@ -1709,17 +1044,17 @@ export default function StockMovements() {
                         <>
                           <div>
                             <p className="text-xs text-[var(--text-muted)] mb-0.5">Moved From</p>
-                            <p className="text-sm text-[var(--text)]">{drawerItem.department?.name || '—'}</p>
+                            <p className="text-sm text-[var(--text)]">{drawerItem.department?.name || 'â€”'}</p>
                           </div>
                           <div>
                             <p className="text-xs text-[var(--text-muted)] mb-0.5">Moved To</p>
-                            <p className="text-sm font-medium text-[var(--primary)]">{(drawerItem as any).toDepartment?.name || '—'}</p>
+                            <p className="text-sm font-medium text-[var(--primary)]">{(drawerItem as any).toDepartment?.name || 'â€”'}</p>
                           </div>
                         </>
                       ) : (
                         <div>
                           <p className="text-xs text-[var(--text-muted)] mb-0.5">Department</p>
-                          <p className="text-sm text-[var(--text)]">{drawerItem.department?.name || '—'}</p>
+                          <p className="text-sm text-[var(--text)]">{drawerItem.department?.name || 'â€”'}</p>
                         </div>
                       )}
                       <div>
@@ -1766,7 +1101,7 @@ export default function StockMovements() {
                       onClick={doConfirm}
                       disabled={confirmingStatus}
                       className="flex items-center gap-2 px-4 py-2 bg-[var(--primary)] text-white text-sm rounded-lg hover:opacity-90 disabled:opacity-50">
-                      {confirmingStatus ? 'Confirming…' : 'Confirm Movement'}
+                      {confirmingStatus ? 'Confirmingâ€¦' : 'Confirm Movement'}
                     </button>
                   )}
                   <button onClick={() => setConfirmingDelete(true)}

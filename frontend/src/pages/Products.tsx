@@ -130,7 +130,6 @@ export default function Products() {
       setTotal(res.data.total);
       setStats(res.data.stats);
     } catch {
-      console.error('Failed to fetch products');
     } finally {
       setLoading(false);
       hasLoaded.current = true;
@@ -155,7 +154,7 @@ export default function Products() {
         setCategories(categoriesRes.data.data ?? categoriesRes.data);
         setLocations(locationsRes.data.data ?? locationsRes.data);
         setDepartments(deptRes.data);
-      } catch { console.error('Failed to load static data'); }
+      } catch { }
     };
     loadStaticData();
     const handleStorageChange = () => loadProducts();

@@ -1,6 +1,20 @@
 import axios from 'axios';
+import type { Product, Category, Location, Department, User } from '../types/inventory';
 
 const API_BASE_URL = '/api';
+
+type QueryParams = Record<string, string | number | boolean | undefined>;
+
+interface OfflineError extends Error { isOffline: boolean; }
+
+// Omit relational/computed fields; widen unit (form strings vs Unit union) and locationId (null vs undefined)
+type ProductInput = Omit<Product, 'id' | 'createdAt' | 'updatedAt' | 'category' | 'location' | 'department' | 'unit' | 'locationId'> & { unit?: string; locationId?: string | null };
+type CategoryInput = Omit<Category, 'id' | 'createdAt' | 'updatedAt' | 'department'>;
+type LocationInput = Omit<Location, 'id' | 'createdAt' | 'updatedAt' | 'department'>;
+type DepartmentInput = Omit<Department, 'id'>;
+// Request payload for updating a movement header (create uses a freeform payload due to complex items shape)
+type StockMovementUpdateInput = { status?: string; remarks?: string; movementType?: string };
+type UserPatch = Partial<Omit<User, 'id' | 'createdAt' | 'updatedAt' | 'adminDepartments' | 'staffDepartments'>>;
 
 const api = axios.create({
   baseURL: API_BASE_URL,
@@ -32,10 +46,10 @@ api.interceptors.response.use(
   (error) => {
     // Backend is not running (ECONNREFUSED / ERR_NETWORK / no response)
     if (!error.response) {
-      const networkError = new Error(
-        'Cannot connect to the server. Please make sure the backend is running and try again.'
-      );
-      (networkError as any).isOffline = true;
+      const networkError = Object.assign(
+        new Error('Cannot connect to the server. Please make sure the backend is running and try again.'),
+        { isOffline: true }
+      ) as OfflineError;
       return Promise.reject(networkError);
     }
     if (error.response?.status === 401) {
@@ -67,54 +81,54 @@ export const authApi = {
 
 // Products
 export const productsApi = {
-  getAll: (params?: any) => api.get('/products', { params }),
-  getAllForDepartment: (departmentId: string, params?: any) => api.get('/products', { headers: { 'X-Department-Id': departmentId }, params }),
+  getAll: (params?: QueryParams) => api.get('/products', { params }),
+  getAllForDepartment: (departmentId: string, params?: QueryParams) => api.get('/products', { headers: { 'X-Department-Id': departmentId }, params }),
   getById: (id: string) => api.get(`/products/${id}`),
   getMovements: (id: string) => api.get(`/products/${id}/movements`),
-  create: (data: any) => api.post('/products', data),
-  bulkCreate: (data: any[]) => api.post('/products/bulk', { products: data }),
-  update: (id: string, data: any) => api.put(`/products/${id}`, data),
+  create: (data: Partial<ProductInput>) => api.post('/products', data),
+  bulkCreate: (data: Partial<ProductInput>[]) => api.post('/products/bulk', { products: data }),
+  update: (id: string, data: Partial<ProductInput>) => api.put(`/products/${id}`, data),
   delete: (id: string) => api.delete(`/products/${id}`),
 };
 
 // Categories
 export const categoriesApi = {
-  getAll: (params?: any) => api.get('/categories', { params }),
+  getAll: (params?: QueryParams) => api.get('/categories', { params }),
   getById: (id: string) => api.get(`/categories/${id}`),
-  create: (data: any) => api.post('/categories', data),
-  update: (id: string, data: any) => api.put(`/categories/${id}`, data),
+  create: (data: Partial<CategoryInput>) => api.post('/categories', data),
+  update: (id: string, data: Partial<CategoryInput>) => api.put(`/categories/${id}`, data),
   delete: (id: string) => api.delete(`/categories/${id}`),
 };
 
 // Locations
 export const locationsApi = {
-  getAll: (params?: any) => api.get('/locations', { params }),
+  getAll: (params?: QueryParams) => api.get('/locations', { params }),
   getForDepartment: (departmentId: string) => api.get('/locations', { headers: { 'X-Department-Id': departmentId } }),
   getById: (id: string) => api.get(`/locations/${id}`),
-  create: (data: any) => api.post('/locations', data),
-  update: (id: string, data: any) => api.put(`/locations/${id}`, data),
+  create: (data: Partial<LocationInput>) => api.post('/locations', data),
+  update: (id: string, data: Partial<LocationInput>) => api.put(`/locations/${id}`, data),
   delete: (id: string) => api.delete(`/locations/${id}`),
 };
 
 // Stock Movements
 export const stockMovementsApi = {
-  getAll: (params?: any) => api.get('/stock-movements', { params }),
+  getAll: (params?: QueryParams) => api.get('/stock-movements', { params }),
   getById: (id: string) => api.get(`/stock-movements/${id}`),
-  create: (data: any) => api.post('/stock-movements', data),
-  update: (id: string, data: any) => api.put(`/stock-movements/${id}`, data),
+  create: (data: Record<string, unknown>) => api.post('/stock-movements', data),
+  update: (id: string, data: StockMovementUpdateInput) => api.put(`/stock-movements/${id}`, data),
   delete: (id: string) => api.delete(`/stock-movements/${id}`),
 };
 
 // Stock Details
 export const stockDetailsApi = {
-  getAll: (params?: any) => api.get('/stock-details', { params }),
+  getAll: (params?: QueryParams) => api.get('/stock-details', { params }),
   getByProductId: (productId: string) => api.get(`/stock-details/product/${productId}`),
   getByStatus: (status: string) => api.get(`/stock-details/by-status/${status}`),
   getById: (id: string) => api.get(`/stock-details/${id}`),
   getMovements: (id: string) => api.get(`/stock-details/${id}/movements`),
   getDeployment: (id: string) => api.get(`/stock-details/${id}/deployment`),
-  create: (data: any) => api.post('/stock-details', data),
-  update: (id: string, data: any) => api.put(`/stock-details/${id}`, data),
+  create: (data: Record<string, unknown>) => api.post('/stock-details', data),
+  update: (id: string, data: Record<string, unknown>) => api.put(`/stock-details/${id}`, data),
   delete: (id: string) => api.delete(`/stock-details/${id}`),
   bulkVerify: (ids: string[]) => api.post('/stock-details/bulk-verify', { ids }),
 };
@@ -124,9 +138,9 @@ export const floorPlansApi = {
   getAll: () => api.get('/floor-plans'),
   getByLocation: (locationId: string) => api.get(`/floor-plans/by-location/${locationId}`),
   getById: (id: string) => api.get(`/floor-plans/${id}`),
-  autoGenerate: (data?: any) => api.post('/floor-plans/auto-generate', data),
-  create: (data: any) => api.post('/floor-plans', data),
-  update: (id: string, data: any) => api.put(`/floor-plans/${id}`, data),
+  autoGenerate: (data?: object) => api.post('/floor-plans/auto-generate', data),
+  create: (data: object) => api.post('/floor-plans', data),
+  update: (id: string, data: object) => api.put(`/floor-plans/${id}`, data),
   delete: (id: string) => api.delete(`/floor-plans/${id}`),
   feedback: (id: string, data: { feedback: string; rating?: number; correctedData?: string }) =>
     api.post(`/floor-plans/${id}/feedback`, data),
@@ -151,22 +165,22 @@ export const dashboardApi = {
 export const departmentsApi = {
   getAll: () => api.get('/departments'),
   getById: (id: string) => api.get(`/departments/${id}`),
-  create: (data: any) => api.post('/departments', data),
-  update: (id: string, data: any) => api.patch(`/departments/${id}`, data),
+  create: (data: Partial<DepartmentInput>) => api.post('/departments', data),
+  update: (id: string, data: Partial<DepartmentInput>) => api.patch(`/departments/${id}`, data),
   delete: (id: string) => api.delete(`/departments/${id}`),
 };
 
 // Delete Requests
 export const deleteRequestsApi = {
   getAll: (status?: string) => api.get('/delete-requests', { params: { status } }),
-  create: (data: any) => api.post('/delete-requests', data),
+  create: (data: Record<string, unknown>) => api.post('/delete-requests', data),
   approve: (id: string) => api.patch(`/delete-requests/${id}/approve`),
   reject: (id: string, reason?: string) => api.patch(`/delete-requests/${id}/reject`, { reason }),
 };
 
 // Password Requests
 export const passwordRequestsApi = {
-  getAll: (params?: any) => api.get('/password-requests', { params }),
+  getAll: (params?: QueryParams) => api.get('/password-requests', { params }),
   create: (reason?: string) => api.post('/password-requests', { reason }),
   approve: (id: string, temporaryPassword: string) =>
     api.patch(`/password-requests/${id}/approve`, { temporaryPassword }),
@@ -177,7 +191,7 @@ export const passwordRequestsApi = {
 // Edit Requests
 export const editRequestsApi = {
   getAll: (status?: string) => api.get('/edit-requests', { params: { status } }),
-  create: (productId: string, proposedChanges: Record<string, any>, reason?: string) =>
+  create: (productId: string, proposedChanges: Record<string, unknown>, reason?: string) =>
     api.post('/edit-requests', { productId, proposedChanges, reason }),
   approve: (id: string) => api.patch(`/edit-requests/${id}/approve`),
   reject: (id: string, rejectionReason?: string) =>
@@ -186,7 +200,7 @@ export const editRequestsApi = {
 
 // Export Requests
 export const exportRequestsApi = {
-  getAll: (params?: any) => api.get('/export-requests', { params }),
+  getAll: (params?: QueryParams) => api.get('/export-requests', { params }),
   create: (type: string, label: string, csvData: string) =>
     api.post('/export-requests', { type, label, csvData }),
   approve: (id: string) => api.patch(`/export-requests/${id}/approve`),
@@ -208,15 +222,15 @@ export const verifyRequestsApi = {
 
 // Import Requests
 export const importRequestsApi = {
-  getAll: (params?: any) => api.get('/import-requests', { params }),
+  getAll: (params?: QueryParams) => api.get('/import-requests', { params }),
   approve: (id: string) => api.patch(`/import-requests/${id}/approve`),
   reject: (id: string, reason?: string) => api.patch(`/import-requests/${id}/reject`, { reason }),
 };
 
 // Users
 export const usersApi = {
-  getAll: (params?: any) => api.get('/users', { params }),
-  update: (id: string, data: any) => api.patch(`/users/${id}`, data),
+  getAll: (params?: QueryParams) => api.get('/users', { params }),
+  update: (id: string, data: UserPatch) => api.patch(`/users/${id}`, data),
   delete: (id: string) => api.delete(`/users/${id}`),
 };
 

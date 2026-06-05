@@ -34,7 +34,6 @@ export default function PasswordRequests() {
       setRequests(response.data);
     } catch (err) {
       setError('Failed to load password requests');
-      console.error(err);
     } finally {
       setLoading(false);
     }

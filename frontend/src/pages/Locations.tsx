@@ -54,8 +54,7 @@ export default function Locations() {
       const res = await locationsApi.getAll(params);
       setLocations(res.data.data);
       setTotal(res.data.total);
-    } catch (err) {
-      console.error('Failed to fetch locations:', err);
+    } catch {
     } finally {
       setLoading(false);
       hasLoaded.current = true;
@@ -64,7 +63,7 @@ export default function Locations() {
 
   useEffect(() => {
     if (user.role === 'superadmin') {
-      departmentsApi.getAll().then(r => setDepartments(r.data)).catch(() => {});
+      departmentsApi.getAll().then(r => setDepartments(r.data)).catch(() => {}); // non-critical preload — filter populates if available
     }
     const handleStorageChange = () => loadLocations();
     window.addEventListener('storage', handleStorageChange);

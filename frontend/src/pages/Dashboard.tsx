@@ -254,8 +254,7 @@ export default function Dashboard() {
           setDepartmentName(deptRes.data.name);
         } catch { /* ignore */ }
       }
-    } catch (error) {
-      console.error('Failed to fetch dashboard data:', error);
+    } catch {
     } finally {
       setLoading(false);
       setRefreshing(false);

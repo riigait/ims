@@ -156,8 +156,7 @@ export default function FloorPlans() {
         if (p.isApproved) fb[p.id] = 'approved';
       });
       setPlanFeedback(fb);
-    } catch (error) {
-      console.error('Failed to fetch floor plans:', error);
+    } catch {
     } finally {
       setLoading(false);
     }
@@ -177,8 +176,6 @@ export default function FloorPlans() {
         .catch(error => {
           if (error.response?.status === 404) {
             setLocationLookupFailed(true);
-          } else {
-            console.error('Failed to locate floor plan:', error);
           }
         })
         .finally(() => setLoading(false));
@@ -188,7 +185,7 @@ export default function FloorPlans() {
     }
 
     if (user.role === 'superadmin') {
-      departmentsApi.getAll().then(res => setDepartments(res.data)).catch(err => console.error('Failed to fetch departments:', err));
+      departmentsApi.getAll().then(res => setDepartments(res.data)).catch(() => {});
     }
     window.addEventListener('storage', handleStorageChange);
     return () => window.removeEventListener('storage', handleStorageChange);
@@ -218,8 +215,7 @@ export default function FloorPlans() {
         ...(selectedDepartmentId ? { departmentId: selectedDepartmentId } : {}),
       });
       navigate(`/floor-plans/${response.data.id}/edit`);
-    } catch (error) {
-      console.error('Failed to create floor plan:', error);
+    } catch {
       alert('Failed to create floor plan');
     }
   };
@@ -229,8 +225,7 @@ export default function FloorPlans() {
       await floorPlansApi.delete(id);
       await fetchFloorPlans();
       setConfirmingDeleteId(null);
-    } catch (error) {
-      console.error('Failed to delete floor plan:', error);
+    } catch {
       setConfirmingDeleteId(null);
     }
   };
@@ -266,7 +261,6 @@ export default function FloorPlans() {
       setAutoGenerateStatus({ type: 'success', message: response.data.message || 'Floor plans generated.' });
       window.setTimeout(() => setAutoGenerateStatus(null), 5000);
     } catch (error: any) {
-      console.error('Failed to auto-generate floor plans:', error);
       setAutoGenerateStatus({ type: 'error', message: error.response?.data?.error || 'Failed to auto-generate floor plans.' });
     } finally {
       setAutoGenerating(false);
@@ -280,9 +274,7 @@ export default function FloorPlans() {
       if (feedback === 'approved') {
         setFloorPlans(prev => prev.map(p => p.id === planId ? { ...p, isApproved: true } : p));
       }
-    } catch (error) {
-      console.error('Failed to save feedback:', error);
-    }
+    } catch { }
   };
 
   const handleRegenerate = async (planId: string) => {
@@ -295,7 +287,6 @@ export default function FloorPlans() {
       ));
       setPlanFeedback(prev => ({ ...prev, [planId]: null }));
     } catch (error: any) {
-      console.error('Failed to regenerate:', error);
       alert(error.response?.data?.error || 'Failed to regenerate floor plan');
     } finally {
       setRegeneratingId(null);
@@ -313,8 +304,7 @@ export default function FloorPlans() {
         isTemplate: true,
       });
       setFloorPlans(prev => prev.map(p => p.id === plan.id ? { ...p, isTemplate: true } : p));
-    } catch (error) {
-      console.error('Failed to save as template:', error);
+    } catch {
     } finally {
       setSavingTemplateId(null);
     }

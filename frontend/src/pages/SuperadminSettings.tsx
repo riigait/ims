@@ -33,7 +33,7 @@ export default function SuperadminSettings() {
   const [page, setPage] = useState(1);
 
   useEffect(() => {
-    departmentsApi.getAll().then(res => setDepartments(res.data || [])).catch(() => {});
+    departmentsApi.getAll().then(res => setDepartments(res.data || [])).catch(() => {}); // non-critical preload — filter populates if available
   }, []);
 
   useEffect(() => {

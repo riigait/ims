@@ -27,8 +27,7 @@ export default function CSVControls({
       setImporting(true);
       const csvContent = await parseCSV(file);
       await onImport(csvContent);
-    } catch (error) {
-      console.error('CSV import error:', error);
+    } catch {
     } finally {
       setImporting(false);
       // Reset input

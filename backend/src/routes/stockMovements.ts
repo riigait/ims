@@ -76,7 +76,7 @@ function validateStockMovementInput(body: {
   }
 }
 
-function validateCoordinate(value: any, field: string, min: number, max: number): void {
+function validateCoordinate(value: unknown, field: string, min: number, max: number): void {
   if (value === undefined || value === null || value === '') return;
   const num = Number(value);
   if (!Number.isFinite(num) || num < min || num > max) {
@@ -881,7 +881,7 @@ router.post('/import/csv', async (req: AuthRequest, res: Response, next: NextFun
       return res.status(400).json({ error: 'CSV data required' });
     }
 
-    const rows = csvToJson<any>(req.body.csv);
+    const rows = csvToJson<Record<string, string>>(req.body.csv);
     const created = [];
     const errors = [];
     const { generateMovementNo } = await import('../utils/idGenerator.js');
@@ -910,8 +910,8 @@ router.post('/import/csv', async (req: AuthRequest, res: Response, next: NextFun
           entityId: movement.id,
           changes: { movementType: movement.movementType },
         });
-      } catch (err: any) {
-        errors.push({ row: i + 1, error: err.message });
+      } catch (err: unknown) {
+        errors.push({ row: i + 1, error: err instanceof Error ? err.message : String(err) });
       }
     }
 

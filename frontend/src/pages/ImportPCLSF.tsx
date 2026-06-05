@@ -421,8 +421,7 @@ export default function ImportPCLSF() {
       const corrected = convertInventoryListToUnifiedCsv(csvContent, correctorFile.name, startIndex);
       downloadTextFile(corrected, `corrected-${randomCode()}-${timestampForFilename()}.csv`);
       setCorrectorMessage(`Corrected CSV downloaded. IDs start at csv-${String(startIndex).padStart(4, '0')}. Review it, then import it from the Import tab.`);
-    } catch (err) {
-      console.error('CSV corrector error:', err);
+    } catch {
       setError('Failed to correct CSV file.');
     } finally {
       setCorrectorLoading(false);
@@ -516,7 +515,6 @@ export default function ImportPCLSF() {
       });
       setError('');
     } catch (err) {
-      console.error('Import error:', err);
       const message = (err as any).response?.data?.error || 'Failed to import file. Please check format and try again.';
       setError(message);
     } finally {
@@ -536,8 +534,7 @@ export default function ImportPCLSF() {
       const csvData = convertToCSV(rows);
       await exportRequestsApi.create(type, `${TYPE_LABELS[type]} Export`, csvData);
       setExportMessage(`Export request submitted for ${TYPE_LABELS[type]}. Awaiting Superadmin approval. Check Requests page to download when approved.`);
-    } catch (err) {
-      console.error('Export error:', err);
+    } catch {
       setError(`Failed to submit export request for ${TYPE_LABELS[type]}.`);
     } finally {
       setExportLoading(null);
@@ -551,8 +548,7 @@ export default function ImportPCLSF() {
       const csv = await buildUnifiedCsv();
       await exportRequestsApi.create('unified', 'Unified IMS Export', csv);
       setExportMessage('Unified export request submitted. Awaiting Superadmin approval. Check Requests page to download when approved.');
-    } catch (err) {
-      console.error('Unified export error:', err);
+    } catch {
       setError('Failed to submit unified export request.');
     } finally {
       setExportLoading(null);

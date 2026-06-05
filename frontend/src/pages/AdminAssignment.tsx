@@ -49,7 +49,6 @@ export default function AdminAssignment() {
       setStaff(userList.filter((u: User) => u.role === 'staff'));
     } catch (err) {
       setError('Unable to load data. Please try again.');
-      console.error(err);
     } finally {
       setLoading(false);
     }
