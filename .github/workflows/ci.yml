@@ -24,11 +24,14 @@ jobs:
       - run: npm run build
 
   backend:
-    name: Backend build
+    name: Backend build and test
     runs-on: ubuntu-latest
     defaults:
       run:
         working-directory: backend
+    env:
+      JWT_SECRET: test-secret-do-not-use-in-production
+      DATABASE_URL: postgresql://localhost/dummy
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -38,4 +41,6 @@ jobs:
           cache-dependency-path: backend/package-lock.json
       - run: npm ci
       - run: npx prisma generate
+      - run: npx prisma validate
+      - run: npm test -- --forceExit
       - run: npm run build

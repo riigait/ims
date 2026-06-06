@@ -77,7 +77,10 @@ router.patch('/:id/approve', authMiddleware, adminMiddleware, async (req: AuthRe
     // Execute the actual deletion based on entityType
     switch (deleteRequest.entityType) {
       case 'product':
-        await prisma.product.delete({ where: { id: deleteRequest.entityId } });
+        await prisma.product.update({
+          where: { id: deleteRequest.entityId },
+          data: { archivedAt: new Date(), archivedBy: req.userId ?? null },
+        });
         break;
       case 'category':
         await prisma.category.delete({ where: { id: deleteRequest.entityId } });

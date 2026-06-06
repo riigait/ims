@@ -18,19 +18,14 @@ type UserPatch = Partial<Omit<User, 'id' | 'createdAt' | 'updatedAt' | 'adminDep
 
 const api = axios.create({
   baseURL: API_BASE_URL,
+  withCredentials: true,
   headers: {
     'Content-Type': 'application/json',
   },
 });
 
-// Add token to requests
+// Add department header to non-auth requests
 api.interceptors.request.use((config) => {
-  const token = localStorage.getItem('token');
-  if (token) {
-    config.headers.Authorization = `Bearer ${token}`;
-  }
-
-  // Auth endpoints refresh the user's actual role/assignments and should not carry a stale department header.
   const currentDeptId = localStorage.getItem('currentDepartmentId');
   const isAuthEndpoint = String(config.url || '').startsWith('/auth/');
   if (!isAuthEndpoint && currentDeptId && !config.headers['X-Department-Id']) {
@@ -53,9 +48,9 @@ api.interceptors.response.use(
       return Promise.reject(networkError);
     }
     if (error.response?.status === 401) {
-      localStorage.removeItem('token');
       localStorage.removeItem('user');
-      window.location.href = '/login';
+      localStorage.removeItem('currentDepartmentId');
+      globalThis.location.href = '/login';
     }
     return Promise.reject(error);
   }
@@ -67,7 +62,7 @@ export const authApi = {
     api.post('/auth/login', { email, password }),
   register: (name: string, email: string, password: string) =>
     api.post('/auth/register', { name, email, password }),
-  logout: () => localStorage.removeItem('token'),
+  logout: () => api.post('/auth/logout'),
   getCurrentUser: () => api.get('/auth/me'),
   completeInitialSetup: (newEmail: string, newPassword: string, newName: string) =>
     api.post('/auth/complete-initial-setup', { newEmail, newPassword, newName }),

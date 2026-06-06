@@ -32,7 +32,7 @@ const FloorPlanEditor = lazy(() => import('@/pages/FloorPlanEditor'));
 const Scanner = lazy(() => import('@/pages/Scanner'));
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
-  const isLoggedIn = !!localStorage.getItem('token');
+  const isLoggedIn = !!localStorage.getItem('user');
   const user = localStorage.getItem('user');
   const userObj = user ? JSON.parse(user) : null;
 
@@ -45,7 +45,7 @@ function PrivateRoute({ children }: { children: React.ReactNode }) {
 }
 
 function AdminRoute({ children }: { children: React.ReactNode }) {
-  const isLoggedIn = !!localStorage.getItem('token');
+  const isLoggedIn = !!localStorage.getItem('user');
   const user = localStorage.getItem('user');
   const userObj = user ? JSON.parse(user) : null;
 
@@ -57,7 +57,7 @@ function AdminRoute({ children }: { children: React.ReactNode }) {
 }
 
 function SuperadminRoute({ children }: { children: React.ReactNode }) {
-  const isLoggedIn = !!localStorage.getItem('token');
+  const isLoggedIn = !!localStorage.getItem('user');
   const user = localStorage.getItem('user');
   const userObj = user ? JSON.parse(user) : null;
 

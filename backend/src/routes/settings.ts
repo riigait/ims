@@ -1,4 +1,5 @@
 import { Router, Response, NextFunction } from 'express';
+import type { ItemStatus } from '@prisma/client';
 import prisma from '../utils/prisma';
 import { AuthRequest } from '../middleware/auth';
 import { logAudit, getRequestMeta } from '../utils/audit';
@@ -136,7 +137,7 @@ router.post('/sync-stock-counts', async (req: AuthRequest, res: Response, next: 
       return res.status(403).json({ error: 'Superadmin only' });
     }
 
-    const finalStatuses = ['sold', 'disposed', 'lost'];
+    const finalStatuses: ItemStatus[] = ['sold', 'disposed', 'lost'];
 
     const products = await prisma.product.findMany({
       where: { stockDetails: { some: {} } },

@@ -5,6 +5,7 @@ import { useTheme } from '@/contexts/ThemeContext';
 import { ALL_DEPARTMENTS_ID } from '@/constants/app';
 import ConfirmDialog from '../ConfirmDialog';
 import NotificationBell from '../NotificationBell';
+import { authApi } from '@/services/api';
 
 export default function Sidebar({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => void }) {
   const navigate = useNavigate();
@@ -33,8 +34,9 @@ export default function Sidebar({ collapsed, onToggle }: { collapsed: boolean; o
   };
 
   const handleLogout = () => {
-    localStorage.removeItem('token');
+    authApi.logout().catch(() => {});
     localStorage.removeItem('user');
+    localStorage.removeItem('currentDepartmentId');
     navigate('/login');
   };
 

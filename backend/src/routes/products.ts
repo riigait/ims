@@ -204,14 +204,15 @@ async function resolveImportCategoryId(row: any, req: AuthRequest) {
   return category.id;
 }
 
-function buildProductBaseFilter(req: AuthRequest): Record<string, any> {
+function buildProductBaseFilter(req: AuthRequest, includeArchived = false): Record<string, any> {
+  const archiveFilter = includeArchived ? {} : { archivedAt: null };
   if (req.departmentIds && req.departmentIds.length > 0) {
-    return { pendingApproval: false, OR: [{ departmentId: { in: req.departmentIds } }, { departmentId: null }] };
+    return { pendingApproval: false, ...archiveFilter, OR: [{ departmentId: { in: req.departmentIds } }, { departmentId: null }] };
   }
   if (req.departmentId) {
-    return { pendingApproval: false, departmentId: req.departmentId };
+    return { pendingApproval: false, ...archiveFilter, departmentId: req.departmentId };
   }
-  return { pendingApproval: false };
+  return { pendingApproval: false, ...archiveFilter };
 }
 
 function applyDataQualityFilter(where: any, dataQuality: string): void {
@@ -340,7 +341,8 @@ router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
     const orderByField = req.query.orderBy as string || 'createdAt';
     const orderDir: 'asc' | 'desc' = (req.query.orderDir as string) === 'asc' ? 'asc' : 'desc';
 
-    const baseFilter = buildProductBaseFilter(req);
+    const includeArchived = req.query.includeArchived === 'true';
+    const baseFilter = buildProductBaseFilter(req, includeArchived);
     const whereFilter = applyProductQueryFilters(baseFilter, {
       search: (req.query.search as string)?.trim(),
       categoryId: req.query.categoryId as string,
@@ -384,7 +386,7 @@ router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
       prisma.product.count({ where: { ...baseFilter, status: 'active' } }),
       prisma.product.count({ where: { ...baseFilter, status: 'discontinued' } }),
       prisma.product.count({ where: { ...baseFilter, status: 'obsolete' } }),
-      prisma.product.count({ where: { ...baseFilter, status: 'on-backorder' } }),
+      prisma.product.count({ where: { ...baseFilter, status: 'on_backorder' } }),
       prisma.product.count({ where: { ...baseFilter, currentStock: 0 } }),
       prisma.product.count({ where: { ...baseFilter, currentStock: { lt: 0 } } }),
     ]);
@@ -648,7 +650,7 @@ router.put('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
 // Delete product (admin only)
 router.delete('/:id', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    if (req.userRole !== 'admin') {
+    if (req.userRole !== 'admin' && req.userRole !== 'superadmin') {
       return res.status(403).json({ error: 'Staff must submit a delete request instead' });
     }
 
@@ -657,10 +659,43 @@ router.delete('/:id', async (req: AuthRequest, res: Response, next: NextFunction
     if (!canAccessDepartment(req, existing.departmentId)) {
       return res.status(403).json({ error: 'Access denied' });
     }
+    if (existing.archivedAt) {
+      return res.status(409).json({ error: 'Product is already archived' });
+    }
 
-    await prisma.product.delete({ where: { id: req.params.id } });
-    await logAudit({ userId: req.userId, action: 'DELETE', entityType: 'product', entityId: req.params.id });
-    res.json({ message: 'Product deleted' });
+    await prisma.product.update({
+      where: { id: req.params.id },
+      data: { archivedAt: new Date(), archivedBy: req.userId ?? null },
+    });
+    await logAudit({ userId: req.userId, action: 'ARCHIVE', entityType: 'product', entityId: req.params.id, changes: { name: existing.name } });
+    res.json({ message: 'Product archived' });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Unarchive a product
+router.post('/:id/unarchive', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    if (req.userRole !== 'admin' && req.userRole !== 'superadmin') {
+      return res.status(403).json({ error: 'Only admins can unarchive products' });
+    }
+
+    const existing = await prisma.product.findUnique({ where: { id: req.params.id } });
+    if (!existing) return res.status(404).json({ error: 'Product not found' });
+    if (!canAccessDepartment(req, existing.departmentId)) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+    if (!existing.archivedAt) {
+      return res.status(409).json({ error: 'Product is not archived' });
+    }
+
+    await prisma.product.update({
+      where: { id: req.params.id },
+      data: { archivedAt: null, archivedBy: null },
+    });
+    await logAudit({ userId: req.userId, action: 'UNARCHIVE', entityType: 'product', entityId: req.params.id, changes: { name: existing.name } });
+    res.json({ message: 'Product restored' });
   } catch (error) {
     next(error);
   }

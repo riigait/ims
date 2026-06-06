@@ -6,7 +6,7 @@ import app from '../app';
 jest.mock('../utils/prisma', () => ({
   __esModule: true,
   default: {
-    user:              { findUnique: jest.fn() },
+    user:              { findUnique: jest.fn(), update: jest.fn().mockResolvedValue({}) },
     auditLog:          { create: jest.fn().mockResolvedValue({}) },
     adminDepartment:   { findMany: jest.fn().mockResolvedValue([]) },
     staffDepartment:   { findMany: jest.fn().mockResolvedValue([]) },

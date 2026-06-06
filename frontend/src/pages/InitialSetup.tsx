@@ -64,9 +64,8 @@ export default function InitialSetup() {
         form.password,
         form.name
       );
-      const { token, user } = response.data;
+      const { user } = response.data;
 
-      localStorage.setItem('token', token);
       localStorage.setItem('user', JSON.stringify(user));
 
       navigate('/dashboard');

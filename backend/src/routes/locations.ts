@@ -95,7 +95,7 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
     const location = await prisma.location.create({
       data: {
         name: name!,
-        type: type!,
+        type: type! as LocationType,
         parentId: parentId || null,
         departmentId: req.departmentId,
         notes,
@@ -127,7 +127,7 @@ router.put('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
       where: { id: req.params.id },
       data: {
         ...(name !== undefined && { name }),
-        ...(type !== undefined && { type }),
+        ...(type !== undefined && { type: type as LocationType }),
         parentId: parentId || null,
         notes,
       },

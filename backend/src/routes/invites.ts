@@ -51,7 +51,7 @@ router.get('/', authMiddleware, async (req: AuthRequest, res: Response, next: Ne
       return res.status(403).json({ error: 'Only admins can view invites' });
     }
 
-    const whereClause = user.role === 'superadmin' ? {} : { createdBy: req.userId!, role: 'staff' };
+    const whereClause = user.role === 'superadmin' ? {} : { createdBy: req.userId!, role: 'staff' as const };
 
     const page = Math.max(1, parseInt((req as any).query.page as string) || 1);
     const limit = Math.min(Math.max(1, parseInt((req as any).query.limit as string) || 50), 200);

@@ -2,6 +2,7 @@ import { Router, Request, Response, NextFunction } from 'express';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
+import type { UserRole } from '@prisma/client';
 import prisma from '../utils/prisma';
 import { logAudit, getRequestMeta } from '../utils/audit';
 import { passwordLimiter } from '../middleware/rateLimiter';
@@ -36,6 +37,28 @@ function signToken(userId: string, role: string, departmentId?: string): string 
 function isLocalSetupRequest(req: Request): boolean {
   const address = req.ip || req.socket.remoteAddress || '';
   return ['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(address);
+}
+
+const COOKIE_NAME = 'token';
+const COOKIE_MAX_AGE = 7 * 24 * 60 * 60 * 1000; // 7 days — matches JWT expiry
+
+function setAuthCookie(res: Response, token: string): void {
+  res.cookie(COOKIE_NAME, token, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'strict',
+    maxAge: COOKIE_MAX_AGE,
+    path: '/',
+  });
+}
+
+function clearAuthCookie(res: Response): void {
+  res.clearCookie(COOKIE_NAME, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'strict',
+    path: '/',
+  });
 }
 
 // Check if superadmin exists; create default if not
@@ -95,7 +118,7 @@ router.post('/register', async (req: Request, res: Response, next: NextFunction)
     if (existing) return res.status(400).json({ error: 'User already exists' });
 
     // Validate invite code if provided
-    let role = 'staff';
+    let role: UserRole = 'staff';
     if (inviteCode) {
       const invite = await prisma.inviteCode.findUnique({ where: { code: inviteCode } });
       if (!invite) return res.status(400).json({ error: 'Invalid invite code' });
@@ -128,6 +151,7 @@ router.post('/register', async (req: Request, res: Response, next: NextFunction)
     }
 
     const token = signToken(user.id, user.role, user.departmentId ?? undefined);
+    setAuthCookie(res, token);
     res.json({
       token,
       user: { id: user.id, name: user.name, email: user.email, role: user.role, departmentId: user.departmentId, initialSetupComplete: user.initialSetupComplete }
@@ -185,6 +209,7 @@ router.post('/login', async (req: Request, res: Response, next: NextFunction) =>
     }) : [];
 
     const token = signToken(user.id, user.role, user.departmentId ?? undefined);
+    setAuthCookie(res, token);
     res.json({
       token,
       user: {
@@ -336,6 +361,7 @@ router.post('/complete-initial-setup', authMiddleware, async (req: AuthRequest, 
     });
 
     const token = signToken(updatedUser.id, updatedUser.role, updatedUser.departmentId ?? undefined);
+    setAuthCookie(res, token);
     res.json({
       token,
       user: {
@@ -350,6 +376,11 @@ router.post('/complete-initial-setup', authMiddleware, async (req: AuthRequest, 
   } catch (error) {
     next(error);
   }
+});
+
+router.post('/logout', (req: Request, res: Response) => {
+  clearAuthCookie(res);
+  res.json({ message: 'Logged out' });
 });
 
 export default router;
