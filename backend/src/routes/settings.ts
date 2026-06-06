@@ -1,6 +1,7 @@
 import { Router, Response, NextFunction } from 'express';
 import prisma from '../utils/prisma';
 import { AuthRequest } from '../middleware/auth';
+import { logAudit, getClientIp } from '../utils/audit';
 
 const router = Router();
 
@@ -44,6 +45,7 @@ router.post('/danger/delete-data', async (req: AuthRequest, res: Response, next:
       return counts;
     });
 
+    logAudit({ userId: req.userId, action: 'DANGER_DELETE_ALL_DATA', entityType: 'system', entityId: 'global', changes: result, ipAddress: getClientIp(req) });
     res.json({
       message: 'Operational data deleted. Users, departments, and department assignments were preserved.',
       deleted: result,
@@ -118,6 +120,7 @@ router.post('/danger/delete-department-data', async (req: AuthRequest, res: Resp
       return counts;
     });
 
+    logAudit({ userId: req.userId, action: 'DANGER_DELETE_DEPARTMENT_DATA', entityType: 'department', entityId: departmentId, changes: { departmentName: department.name, ...result }, ipAddress: getClientIp(req) });
     res.json({
       message: `Data for department "${department.name}" has been deleted.`,
       deleted: result,

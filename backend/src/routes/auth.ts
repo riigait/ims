@@ -3,6 +3,7 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
 import prisma from '../utils/prisma';
+import { logAudit, getClientIp } from '../utils/audit';
 import { passwordLimiter } from '../middleware/rateLimiter';
 import { authMiddleware, AuthRequest, getJwtSecret } from '../middleware/auth';
 import { validatePassword } from '../utils/passwordPolicy';
@@ -160,6 +161,7 @@ router.post('/login', async (req: Request, res: Response, next: NextFunction) =>
         where: { id: user.id },
         data: { failedLoginAttempts: attempts, ...(lockout ? { lockedUntil: lockout } : {}) },
       });
+      logAudit({ userId: user.id, action: 'LOGIN_FAILURE', entityType: 'user', entityId: user.id, changes: { attempts, locked: !!lockout }, ipAddress: getClientIp(req) });
       const msg = lockout
         ? 'Too many failed attempts. Account locked for 15 minutes.'
         : `Invalid credentials. ${5 - attempts} attempt(s) remaining.`;
@@ -170,6 +172,7 @@ router.post('/login', async (req: Request, res: Response, next: NextFunction) =>
       where: { id: user.id },
       data: { failedLoginAttempts: 0, lockedUntil: null },
     });
+    logAudit({ userId: user.id, action: 'LOGIN_SUCCESS', entityType: 'user', entityId: user.id, ipAddress: getClientIp(req) });
 
     const adminDepartments = user.role === 'admin' ? await prisma.adminDepartment.findMany({
       where: { userId: user.id },
@@ -256,6 +259,7 @@ router.post('/change-password', authMiddleware, async (req: AuthRequest, res: Re
       where: { id: req.userId },
       data: { passwordHash },
     });
+    logAudit({ userId: req.userId, action: 'PASSWORD_CHANGE', entityType: 'user', entityId: req.userId!, ipAddress: getClientIp(req) });
 
     res.json({ message: 'Password changed successfully' });
   } catch (error) {
@@ -283,6 +287,7 @@ router.post('/reset-password/:userId', passwordLimiter, authMiddleware, async (r
       where: { id: req.params.userId },
       data: { passwordHash },
     });
+    logAudit({ userId: req.userId, action: 'PASSWORD_RESET', entityType: 'user', entityId: req.params.userId, changes: { targetEmail: targetUser.email }, ipAddress: getClientIp(req) });
 
     res.json({ message: `Password reset for ${targetUser.email}` });
   } catch (error) {
