@@ -3,6 +3,7 @@ import cors from 'cors';
 import helmet from 'helmet';
 import { authMiddleware, requireDepartmentScopedWriteAccess, requireSpecificDepartmentForWrite } from './middleware/auth';
 import { authLimiter, dangerLimiter } from './middleware/rateLimiter';
+import { requestLogger } from './middleware/requestLogger';
 import authRoutes from './routes/auth';
 import productsRoutes from './routes/products';
 import categoriesRoutes from './routes/categories';
@@ -34,6 +35,7 @@ const allowedOrigins = process.env.ALLOWED_ORIGINS
   ? process.env.ALLOWED_ORIGINS.split(',')
   : ['http://localhost:5173', 'http://localhost:3000'];
 
+app.use(requestLogger);
 app.use(helmet({
   crossOriginResourcePolicy: { policy: 'cross-origin' },
   contentSecurityPolicy: {

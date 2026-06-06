@@ -13,6 +13,13 @@ interface AuditParams {
   entityId: string;
   changes?: object;
   ipAddress?: string;
+  requestId?: string;
+}
+
+function buildChanges(changes: object | undefined, requestId: string | undefined): string | null {
+  if (changes) return JSON.stringify({ ...changes, requestId });
+  if (requestId) return JSON.stringify({ requestId });
+  return null;
 }
 
 export async function logAudit(params: AuditParams): Promise<void> {
@@ -23,7 +30,7 @@ export async function logAudit(params: AuditParams): Promise<void> {
         action: params.action,
         entityType: params.entityType,
         entityId: params.entityId,
-        changes: params.changes ? JSON.stringify(params.changes) : null,
+        changes: buildChanges(params.changes, params.requestId),
         ipAddress: params.ipAddress ?? null,
       },
     });
