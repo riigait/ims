@@ -147,8 +147,29 @@ router.post('/login', async (req: Request, res: Response, next: NextFunction) =>
     const user = await prisma.user.findUnique({ where: { email } });
     if (!user) return res.status(401).json({ error: 'Invalid credentials' });
 
+    if (user.lockedUntil && user.lockedUntil > new Date()) {
+      const minutesLeft = Math.ceil((user.lockedUntil.getTime() - Date.now()) / 60000);
+      return res.status(429).json({ error: `Account locked. Try again in ${minutesLeft} minute(s).` });
+    }
+
     const passwordMatch = await bcrypt.compare(password, user.passwordHash);
-    if (!passwordMatch) return res.status(401).json({ error: 'Invalid credentials' });
+    if (!passwordMatch) {
+      const attempts = user.failedLoginAttempts + 1;
+      const lockout = attempts >= 5 ? new Date(Date.now() + 15 * 60 * 1000) : null;
+      await prisma.user.update({
+        where: { id: user.id },
+        data: { failedLoginAttempts: attempts, ...(lockout ? { lockedUntil: lockout } : {}) },
+      });
+      const msg = lockout
+        ? 'Too many failed attempts. Account locked for 15 minutes.'
+        : `Invalid credentials. ${5 - attempts} attempt(s) remaining.`;
+      return res.status(401).json({ error: msg });
+    }
+
+    await prisma.user.update({
+      where: { id: user.id },
+      data: { failedLoginAttempts: 0, lockedUntil: null },
+    });
 
     const adminDepartments = user.role === 'admin' ? await prisma.adminDepartment.findMany({
       where: { userId: user.id },
