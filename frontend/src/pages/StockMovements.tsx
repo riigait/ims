@@ -68,6 +68,7 @@ const emptyForm = {
   deploymentLongitude: '',
   deployedToName: '',
   deploymentNotes: '',
+  custodianName: '',
   items: [{ stockDetailId: '', productId: '', quantity: 0, fromLocationId: '', toLocationId: '', reason: '' }],
 };
 
@@ -216,6 +217,10 @@ export default function StockMovements() {
       setFormError('Please select at least one product and enter a valid quantity');
       return;
     }
+    if (formData.movementType === 'borrowed' && !formData.custodianName.trim()) {
+      setFormError('Please enter the name of the person borrowing the item');
+      return;
+    }
     if (formData.movementType === 'moved_to_department') {
       if (!formData.toDepartmentId) {
         setFormError('Please select a destination department');
@@ -237,6 +242,7 @@ export default function StockMovements() {
         deploymentLongitude: formData.deploymentLongitude ? Number(formData.deploymentLongitude) : undefined,
         deployedToName: formData.deployedToName || undefined,
         deploymentNotes: formData.deploymentNotes || undefined,
+        custodianName: formData.custodianName || undefined,
         items: validItems,
       });
       await loadMovements();
@@ -282,7 +288,7 @@ export default function StockMovements() {
     return products.find(p => p.id === productId)?.name ?? 'Unknown';
   };
 
-  // Server handles search/type/status/dept â€” client handles dateRange only
+  // Server handles search/type/status/dept — client handles dateRange only
   const clientFilters = { ...filters, search: '', movementType: undefined, movementStatus: undefined, departmentId: undefined };
   const filteredAndSortedMovements = sortStockMovements(
     filterStockMovements(movements, clientFilters, getProductName),
@@ -310,22 +316,23 @@ export default function StockMovements() {
           : <>{movements.length} total</>
         }
         {pendingCount > 0 && (
-          <> Â· <span className="text-orange-500 font-medium">{pendingCount} unconfirmed</span></>
+          <>{" · "}<span className="text-orange-500 font-medium">{pendingCount} unconfirmed</span></>
         )}
-        {' Â· '}<span className="text-green-600">{mvCount('stock_in')} stock in</span>
-        {' Â· '}<span className="text-red-500">{mvCount('stock_out')} stock out</span>
-        {' Â· '}<span className="text-purple-600">{mvCount('transfer')} transfers</span>
-        {' Â· '}<span className="text-cyan-600">{mvCount('pre_deployment') + mvCount('post_deployment')} deployments</span>
-        {' Â· '}<span className="text-violet-600">{mvCount('borrowed')} borrowed</span>
-        {' Â· '}<span className="text-teal-600">{mvCount('returned')} returned</span>
-        {' Â· '}<span className="text-yellow-600">{mvCount('repair_out') + mvCount('repair_return')} repairs</span>
-        {' Â· '}<span className="text-blue-600">{mvCount('adjustment')} adjustments</span>
+        {mvCount('opening_stock') > 0 && <>{" · "}<span className="text-indigo-600">{mvCount('opening_stock')} opening stock</span></>}
+        {" · "}<span className="text-green-600">{mvCount('stock_in')} stock in</span>
+        {" · "}<span className="text-red-500">{mvCount('stock_out')} stock out</span>
+        {" · "}<span className="text-purple-600">{mvCount('transfer')} transfers</span>
+        {" · "}<span className="text-cyan-600">{mvCount('pre_deployment') + mvCount('post_deployment')} deployments</span>
+        {" · "}<span className="text-violet-600">{mvCount('borrowed')} borrowed</span>
+        {" · "}<span className="text-teal-600">{mvCount('returned')} returned</span>
+        {" · "}<span className="text-yellow-600">{mvCount('repair_out') + mvCount('repair_return')} repairs</span>
+        {" · "}<span className="text-blue-600">{mvCount('adjustment')} adjustments</span>
         {(mvCount('damaged') + mvCount('defective') + mvCount('disposal') + mvCount('lost')) > 0 && (
-          <> Â· <span className="text-orange-600">{mvCount('damaged') + mvCount('defective') + mvCount('disposal') + mvCount('lost')} losses</span></>
+          <>{" · "}<span className="text-orange-600">{mvCount('damaged') + mvCount('defective') + mvCount('disposal') + mvCount('lost')} losses</span></>
         )}
       </p>
       <div className="flex gap-2">
-        <input type="text" placeholder="Search by product nameâ€¦"
+        <input type="text" placeholder="Search by product name…"
           value={searchInput} onChange={e => setSearchInput(e.target.value)}
           className="flex-1 px-4 py-2 border border-[var(--border)] rounded-lg text-sm bg-[var(--surface)] text-[var(--text)]" />
         <select value={sortBy} onChange={e => { setSortBy(e.target.value); setCurrentPage(1); }}
@@ -449,11 +456,11 @@ export default function StockMovements() {
               <div className="space-y-1">
                 {(movement.items || []).slice(0, 3).map((item: any, idx: number) => (
                   <div key={idx} className="text-xs text-[var(--text-muted)]">
-                    <span className="font-medium text-[var(--text)]">{item.product?.name || 'Unknown'}</span>
-                    <span className="mx-1">Â·</span>
+                    <span className="font-medium text-[var(--text)]">{item.product?.name || "Unknown"}</span>
+                    {" · "}
                     <span>qty {item.quantity}</span>
                     {(item.fromLocation || item.toLocation) && (
-                      <span className="mx-1">Â· {item.fromLocation?.name ?? '?'} â†’ {item.toLocation?.name ?? '?'}</span>
+                      <span>{" · "}{item.fromLocation?.name ?? "?"}{" -> "}{item.toLocation?.name ?? "?"}</span>
                     )}
                   </div>
                 ))}
@@ -463,9 +470,9 @@ export default function StockMovements() {
               </div>
               {movement.movementType === 'moved_to_department' ? (
                 <p className="text-xs text-[var(--text-muted)] mt-2">
-                  <span>{movement.department?.name || 'â€”'}</span>
-                  <span className="mx-1">â†’</span>
-                  <span className="text-[var(--primary)] font-medium">{(movement as any).toDepartment?.name || 'â€”'}</span>
+                  <span>{movement.department?.name || '—'}</span>
+                  <span className="mx-1">{'->'}</span>
+                  <span className="text-[var(--primary)] font-medium">{(movement as any).toDepartment?.name || '—'}</span>
                 </p>
               ) : movement.department?.name ? (
                 <p className="text-xs text-[var(--text-muted)] mt-2">{movement.department.name}</p>
@@ -542,21 +549,21 @@ export default function StockMovements() {
                         ))}
                       </select>
                       <p className="text-xs text-[var(--text-muted)] mt-1">
-                        {formData.movementType === 'stock_in' && 'Add quantity â€” received goods or new stock arriving'}
-                        {formData.movementType === 'stock_out' && 'Remove quantity â€” sales, shipments, or stock leaving'}
-                        {formData.movementType === 'adjustment' && 'Adjust stock â€” positive quantity adds, negative quantity deducts'}
-                        {formData.movementType === 'returned' && 'Add quantity â€” customer returns or items coming back'}
-                        {formData.movementType === 'damaged' && 'Remove quantity â€” marks item as damaged, removed from available stock'}
-                        {formData.movementType === 'transfer' && 'Move item between locations â€” no quantity change'}
-                        {formData.movementType === 'moved_to_department' && 'Reassign product to a different department â€” no quantity change, keeps the same product ID'}
-                        {formData.movementType === 'pre_deployment' && 'Send item out for deployment â€” deducts from stock'}
-                        {formData.movementType === 'post_deployment' && 'Return deployed item back to active stock â€” restores quantity'}
-                        {formData.movementType === 'repair_out' && 'Send item out for repair â€” deducts from stock, status changes to Under Repair'}
-                        {formData.movementType === 'repair_return' && 'Return item from repair back to active stock â€” restores quantity'}
-                        {formData.movementType === 'defective' && 'Mark item as defective â€” deducts from stock permanently'}
-                        {formData.movementType === 'disposal' && 'Remove quantity â€” mark item as disposed or retired'}
-                        {formData.movementType === 'borrowed' && 'Remove quantity â€” mark item as temporarily borrowed or issued'}
-                        {formData.movementType === 'lost' && 'Remove quantity â€” mark item as lost or missing'}
+                        {formData.movementType === 'stock_in' && 'Add quantity — received goods or new stock arriving'}
+                        {formData.movementType === 'stock_out' && 'Remove quantity — sales, shipments, or stock leaving'}
+                        {formData.movementType === 'adjustment' && 'Adjust stock — positive quantity adds, negative quantity deducts'}
+                        {formData.movementType === 'returned' && 'Add quantity — customer returns or items coming back'}
+                        {formData.movementType === 'damaged' && 'Remove quantity — marks item as damaged, removed from available stock'}
+                        {formData.movementType === 'transfer' && 'Move item between locations — no quantity change'}
+                        {formData.movementType === 'moved_to_department' && 'Reassign product to a different department — no quantity change, keeps the same product ID'}
+                        {formData.movementType === 'pre_deployment' && 'Send item out for deployment — deducts from stock'}
+                        {formData.movementType === 'post_deployment' && 'Return deployed item back to active stock — restores quantity'}
+                        {formData.movementType === 'repair_out' && 'Send item out for repair — deducts from stock, status changes to Under Repair'}
+                        {formData.movementType === 'repair_return' && 'Return item from repair back to active stock — restores quantity'}
+                        {formData.movementType === 'defective' && 'Mark item as defective — deducts from stock permanently'}
+                        {formData.movementType === 'disposal' && 'Remove quantity — mark item as disposed or retired'}
+                        {formData.movementType === 'borrowed' && 'Remove quantity — mark item as temporarily borrowed or issued to a person'}
+                        {formData.movementType === 'lost' && 'Remove quantity — mark item as lost or missing'}
                         {formData.movementType === 'found' && 'Restore a lost item - record where it was found, then choose its final location'}
                       </p>
                     </div>
@@ -567,6 +574,15 @@ export default function StockMovements() {
                         placeholder="e.g., Purchase order #123, Batch adjustment..."
                         className="w-full px-3 py-2 border border-[var(--border)] rounded-lg text-sm bg-[var(--surface)] text-[var(--text)]" />
                     </div>
+                    {formData.movementType === 'borrowed' && (
+                      <div>
+                        <label className="block text-xs font-medium text-[var(--text-muted)] mb-1">Borrowed By / Custodian *</label>
+                        <input type="text" value={formData.custodianName}
+                          onChange={e => setFormData({ ...formData, custodianName: e.target.value })}
+                          placeholder="Name of person borrowing the item"
+                          className="w-full px-3 py-2 border border-[var(--border)] rounded-lg text-sm bg-[var(--surface)] text-[var(--text)]" />
+                      </div>
+                    )}
                     {formData.movementType === 'pre_deployment' && (
                       <div className="space-y-3">
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -640,7 +656,7 @@ export default function StockMovements() {
                             await loadDepartmentLocations(toDepartmentId);
                           }}
                           className="w-full px-3 py-2 border border-[var(--border)] rounded-lg text-sm bg-[var(--surface)] text-[var(--text)]">
-                          <option value="">â€” Select destination department â€”</option>
+                          <option value="">— Select destination department —</option>
                           {departments
                             .filter(d => d.id !== currentDepartmentId)
                             .map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
@@ -715,7 +731,7 @@ export default function StockMovements() {
                                   </span>
                                 </label>
                                 {itemStockDetails[idx] === undefined ? (
-                                  <p className="text-xs text-[var(--text-muted)] italic px-1">Loading itemsâ€¦</p>
+                                  <p className="text-xs text-[var(--text-muted)] italic px-1">Loading items…</p>
                                 ) : itemStockDetails[idx].length === 0 ? (
                                   <p className="text-xs text-orange-500 px-1">
                                     {formData.movementType === 'returned'
@@ -775,8 +791,8 @@ export default function StockMovements() {
                               {item.stockDetailId ? (
                                 <div className="w-full px-2 py-1.5 text-sm border border-[var(--border)] rounded bg-[var(--surface-2)] text-[var(--text-muted)] select-none">
                                   {STATUS_CHANGE_ONLY_TYPES.includes(formData.movementType)
-                                    ? <span>0 <span className="text-xs">(no stock change â€” status update only)</span></span>
-                                    : <span>{item.quantity < 0 ? 'âˆ’1' : '1'} <span className="text-xs">(fixed â€” 1 specific unit)</span></span>}
+                                    ? <span>0 <span className="text-xs">(no stock change — status update only)</span></span>
+                                    : <span>{item.quantity < 0 ? "-1" : "1"} <span className="text-xs">(fixed - 1 specific unit)</span></span>}
                                 </div>
                               ) : formData.movementType === 'adjustment' ? (
                                 <div className="flex gap-1.5">
@@ -787,11 +803,11 @@ export default function StockMovements() {
                                       const abs = Math.abs(newItems[idx].quantity || 0) || 1;
                                       const isNeg = newItems[idx].quantity < 0;
                                       if (isNeg) {
-                                        // going positive â€” clear specific item
+                                        // going positive — clear specific item
                                         newItems[idx] = { ...newItems[idx], quantity: abs, stockDetailId: '' };
                                         setItemStockDetails(prev => { const n = { ...prev }; delete n[idx]; return n; });
                                       } else {
-                                        // going negative â€” load stock details if product selected
+                                        // going negative — load stock details if product selected
                                         newItems[idx] = { ...newItems[idx], quantity: -abs };
                                         if (newItems[idx].productId) {
                                           try {
@@ -805,7 +821,7 @@ export default function StockMovements() {
                                     }}
                                     className={`flex-shrink-0 w-9 h-[34px] rounded text-sm font-bold border transition-colors ${item.quantity < 0 ? 'bg-red-500 text-white border-red-500' : 'bg-green-500 text-white border-green-500'}`}
                                   >
-                                    {item.quantity < 0 ? 'âˆ’' : '+'}
+                                    {item.quantity < 0 ? "-" : "+"}
                                   </button>
                                   <input
                                     type="number"
@@ -845,7 +861,7 @@ export default function StockMovements() {
                               </label>
                               {formData.movementType === 'post_deployment' ? (
                                 <div className="w-full px-2 py-1.5 text-sm border border-[var(--border)] rounded bg-[var(--surface-2)] text-[var(--text-muted)] min-h-[34px]">
-                                  {postDeploymentFromAddress[idx] || (item.stockDetailId ? 'No deployment address found' : 'â€” Select an item first â€”')}
+                                  {postDeploymentFromAddress[idx] || (item.stockDetailId ? 'No deployment address found' : '— Select an item first —')}
                                 </div>
                               ) : formData.movementType === 'moved_to_department' && item.stockDetailId ? (
                                 <div className="w-full px-2 py-1.5 text-sm border border-[var(--border)] rounded bg-[var(--surface-2)] text-[var(--text-muted)]">
@@ -877,7 +893,7 @@ export default function StockMovements() {
                                   >
                                     <MapPin size={13} className="flex-shrink-0 text-[var(--text-muted)]" />
                                     <span className={formData.deploymentAddress ? 'text-[var(--text)] truncate' : 'text-[var(--text-muted)]'}>
-                                      {formData.deploymentAddress || 'Select repair location on mapâ€¦'}
+                                      {formData.deploymentAddress || 'Select repair location on map…'}
                                     </span>
                                   </button>
                                   {formData.deploymentLatitude && formData.deploymentLongitude && (
@@ -969,7 +985,7 @@ export default function StockMovements() {
                               type="text"
                               value={itemsSearch}
                               onChange={e => { setItemsSearch(e.target.value); setItemsPage(1); }}
-                              placeholder="Search by product name or stock IDâ€¦"
+                              placeholder="Search by product name or stock ID…"
                               className="flex-1 text-xs bg-transparent outline-none text-[var(--text)] placeholder:text-[var(--text-muted)]"
                             />
                             {itemsSearch && (
@@ -993,7 +1009,7 @@ export default function StockMovements() {
                                   </div>
                                   <div>
                                     <p className="text-xs text-[var(--text-muted)]">Stock ID</p>
-                                    <p className="text-[var(--text)] font-mono text-xs">{item.stockDetail?.stockId || 'â€”'}</p>
+                                    <p className="text-[var(--text)] font-mono text-xs">{item.stockDetail?.stockId || '—'}</p>
                                   </div>
                                   <div>
                                     <p className="text-xs text-[var(--text-muted)]">Quantity</p>
@@ -1001,7 +1017,7 @@ export default function StockMovements() {
                                   </div>
                                   <div>
                                     <p className="text-xs text-[var(--text-muted)]">Locations</p>
-                                    <p className="text-[var(--text)]">{item.fromLocation?.name || 'â€”'} â†’ {item.toLocation?.name || 'â€”'}</p>
+                                    <p className="text-[var(--text)]">{item.fromLocation?.name || "none"}{" -> "}{item.toLocation?.name || "none"}</p>
                                   </div>
                                 </div>
                                 {item.reason && (
@@ -1021,7 +1037,7 @@ export default function StockMovements() {
                                 <ChevronLeft size={13} /> Prev
                               </button>
                               <span className="text-xs text-[var(--text-muted)]">
-                                Page {itemsPage} of {totalItemPages} Â· {filteredItems.length} items
+                                Page {itemsPage} of {totalItemPages} · {filteredItems.length} items
                               </span>
                               <button
                                 type="button"
@@ -1044,17 +1060,17 @@ export default function StockMovements() {
                         <>
                           <div>
                             <p className="text-xs text-[var(--text-muted)] mb-0.5">Moved From</p>
-                            <p className="text-sm text-[var(--text)]">{drawerItem.department?.name || 'â€”'}</p>
+                            <p className="text-sm text-[var(--text)]">{drawerItem.department?.name || '—'}</p>
                           </div>
                           <div>
                             <p className="text-xs text-[var(--text-muted)] mb-0.5">Moved To</p>
-                            <p className="text-sm font-medium text-[var(--primary)]">{(drawerItem as any).toDepartment?.name || 'â€”'}</p>
+                            <p className="text-sm font-medium text-[var(--primary)]">{(drawerItem as any).toDepartment?.name || '—'}</p>
                           </div>
                         </>
                       ) : (
                         <div>
                           <p className="text-xs text-[var(--text-muted)] mb-0.5">Department</p>
-                          <p className="text-sm text-[var(--text)]">{drawerItem.department?.name || 'â€”'}</p>
+                          <p className="text-sm text-[var(--text)]">{drawerItem.department?.name || '—'}</p>
                         </div>
                       )}
                       <div>
@@ -1101,7 +1117,7 @@ export default function StockMovements() {
                       onClick={doConfirm}
                       disabled={confirmingStatus}
                       className="flex items-center gap-2 px-4 py-2 bg-[var(--primary)] text-white text-sm rounded-lg hover:opacity-90 disabled:opacity-50">
-                      {confirmingStatus ? 'Confirmingâ€¦' : 'Confirm Movement'}
+                      {confirmingStatus ? 'Confirming…' : 'Confirm Movement'}
                     </button>
                   )}
                   <button onClick={() => setConfirmingDelete(true)}

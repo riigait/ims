@@ -8,6 +8,7 @@ import FloorPlanThumbnail from '@/components/floorplan/FloorPlanThumbnail';
 import Pagination from '@/components/Pagination';
 import { ALL_DEPARTMENTS_ID } from '@/constants/app';
 import { validateFloorplanObjects } from '@/utils/floorplanValidation';
+import { applyAutoFixes } from '@/utils/floorplanFixer';
 
 interface Department {
   id: string;
@@ -141,6 +142,7 @@ export default function FloorPlans() {
 
   // Per-plan feedback state: planId -> feedback value
   const [planFeedback, setPlanFeedback] = useState<Record<string, FeedbackState>>({});
+  const [errorPanelPlanId, setErrorPanelPlanId] = useState<string | null>(null);
   // Per-plan regenerating state
   const [regeneratingId, setRegeneratingId] = useState<string | null>(null);
   // Per-plan saving-as-template state
@@ -281,8 +283,27 @@ export default function FloorPlans() {
     try {
       setRegeneratingId(planId);
       const response = await floorPlansApi.regenerate(planId);
+      const rawObjects = response.data.objects || [];
+      const { objects: fixedObjects, fixedCount } = applyAutoFixes(rawObjects);
+      const finalObjects = fixedCount > 0 ? fixedObjects : rawObjects;
+
+      if (fixedCount > 0) {
+        const existing = floorPlans.find(p => p.id === planId);
+        try {
+          await floorPlansApi.update(planId, {
+            name: existing?.name,
+            width: existing?.width,
+            height: existing?.height,
+            locationId: existing?.locationId ?? undefined,
+            objects: fixedObjects,
+          });
+        } catch {
+          // fixes not critical — user can apply them manually in the editor
+        }
+      }
+
       setFloorPlans(prev => prev.map(p => p.id === planId
-        ? { ...p, objects: response.data.objects, generationScore: response.data.generationScore, isApproved: false }
+        ? { ...p, objects: finalObjects, generationScore: response.data.generationScore, isApproved: false }
         : p
       ));
       setPlanFeedback(prev => ({ ...prev, [planId]: null }));
@@ -692,11 +713,13 @@ export default function FloorPlans() {
                   )}
 
                   {validation && !validation.valid && (
-                    <span
-                      className="absolute bottom-1 left-1 text-[10px] font-bold px-1.5 py-0.5 rounded bg-red-600 text-white flex items-center gap-0.5"
-                      title={validation.errors[0]?.message}>
-                      <AlertTriangle size={10} /> Check
-                    </span>
+                    <button
+                      className="absolute bottom-1 left-1 flex items-center gap-0.5 text-[10px] font-bold px-1.5 py-0.5 rounded bg-red-600 text-white z-10"
+                      onClick={e => { e.stopPropagation(); setErrorPanelPlanId(errorPanelPlanId === plan.id ? null : plan.id); }}
+                    >
+                      <AlertTriangle size={10} />
+                      {validation.errors.length} issue{validation.errors.length > 1 ? "s" : ""}
+                    </button>
                   )}
 
                   {/* Template badge */}
@@ -746,41 +769,6 @@ export default function FloorPlans() {
                             className="px-1 py-0.5 bg-red-50 text-red-600 text-xs rounded hover:bg-red-100"
                             title="Delete">
                             <Trash2 size={10} />
-                          </button>
-                        </div>
-                        <div className="flex gap-0.5">
-                          <button
-                            onClick={() => handleFeedback(plan.id, 'approved')}
-                            disabled={isApproved}
-                            className={`flex-1 px-1 py-0.5 text-xs rounded flex items-center justify-center gap-0.5 ${
-                              isApproved
-                                ? 'bg-green-600 text-white cursor-default'
-                                : 'bg-green-50 text-green-700 hover:bg-green-100'
-                            }`}
-                            title="Approve this layout">
-                            <CheckCircle size={10} /> {isApproved ? 'Approved' : 'Approve'}
-                          </button>
-                          <button
-                            onClick={() => handleFeedback(plan.id, 'bad_layout')}
-                            disabled={feedback === 'bad_layout'}
-                            className={`flex-1 px-1 py-0.5 text-xs rounded flex items-center justify-center gap-0.5 ${
-                              feedback === 'bad_layout'
-                                ? 'bg-red-600 text-white cursor-default'
-                                : 'bg-red-50 text-red-600 hover:bg-red-100'
-                            }`}
-                            title="Mark as bad layout">
-                            <XCircle size={10} /> Bad
-                          </button>
-                          <button
-                            onClick={() => handleSaveAsTemplate(plan)}
-                            disabled={isTemplate || isSavingTemplate}
-                            className={`flex-1 px-1 py-0.5 text-xs rounded flex items-center justify-center gap-0.5 ${
-                              isTemplate
-                                ? 'bg-purple-600 text-white cursor-default'
-                                : 'bg-purple-50 text-purple-700 hover:bg-purple-100'
-                            }`}
-                            title="Save as approved template">
-                            <BookmarkCheck size={10} /> {isTemplate ? 'Saved' : 'Template'}
                           </button>
                         </div>
                       </div>
@@ -869,24 +857,7 @@ export default function FloorPlans() {
                         ) : <span className="text-[var(--text-muted)]">—</span>}
                       </td>
                       <td className="px-4 py-2 text-center">
-                        {isAutoGenerated ? (
-                          <div className="flex gap-1 justify-center">
-                            <button
-                              onClick={() => handleFeedback(plan.id, 'approved')}
-                              disabled={isApproved}
-                              className={`text-xs px-2 py-0.5 rounded flex items-center gap-1 ${isApproved ? 'bg-green-600 text-white' : 'bg-green-50 text-green-700 hover:bg-green-100'}`}
-                              title="Approve layout">
-                              <CheckCircle size={11} /> {isApproved ? 'Approved' : 'Approve'}
-                            </button>
-                            <button
-                              onClick={() => handleFeedback(plan.id, 'bad_layout')}
-                              disabled={feedback === 'bad_layout'}
-                              className={`text-xs px-2 py-0.5 rounded flex items-center gap-1 ${feedback === 'bad_layout' ? 'bg-red-600 text-white' : 'bg-red-50 text-red-600 hover:bg-red-100'}`}
-                              title="Mark as bad layout">
-                              <XCircle size={11} /> Bad
-                            </button>
-                          </div>
-                        ) : <span className="text-xs text-[var(--text-muted)]">Manual</span>}
+                        <span className="text-xs text-[var(--text-muted)]">{isAutoGenerated ? 'Auto' : 'Manual'}</span>
                       </td>
                       <td className="px-4 py-2 text-[var(--text)]">
                         {departmentName ? (
@@ -948,6 +919,46 @@ export default function FloorPlans() {
         </>
       )}
       </div>
+
+      {/* Fixed error panel — shown when a validation badge is clicked */}
+      {errorPanelPlanId && (() => {
+        const plan = floorPlans.find(p => p.id === errorPanelPlanId);
+        if (!plan) return null;
+        const errs = validateFloorplanObjects(plan.objects || []).errors;
+        return (
+          <div className="fixed bottom-6 right-6 z-50 bg-[var(--surface)] border border-red-300 rounded-xl shadow-2xl w-80 max-h-[60vh] flex flex-col">
+            <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--border)]">
+              <div className="flex items-center gap-2 text-red-600 font-semibold text-sm">
+                <AlertTriangle size={15} />
+                {errs.length} issue{errs.length > 1 ? "s" : ""} — {plan.name}
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => { setErrorPanelPlanId(null); navigate(`/floor-plans/${errorPanelPlanId}/edit`); }}
+                  className="text-xs px-2 py-1 bg-[var(--primary)] text-white rounded hover:bg-[var(--primary-hover)]"
+                >
+                  Open Editor
+                </button>
+                <button onClick={() => setErrorPanelPlanId(null)} className="text-[var(--text-muted)] hover:text-[var(--text)]">
+                  <XCircle size={16} />
+                </button>
+              </div>
+            </div>
+            <div className="overflow-y-auto p-3 flex flex-col gap-2">
+              {errs.map((e, i) => (
+                <button
+                  key={i}
+                  onClick={() => { setErrorPanelPlanId(null); navigate(`/floor-plans/${errorPanelPlanId}/edit`); }}
+                  className="flex items-start gap-2 text-xs text-[var(--text)] leading-snug text-left w-full hover:bg-[var(--surface-2)] rounded px-1 py-1 transition-colors"
+                >
+                  <AlertTriangle size={11} className="mt-0.5 flex-shrink-0 text-red-500" />
+                  {e.message}
+                </button>
+              ))}
+            </div>
+          </div>
+        );
+      })()}
     </>
   );
 }

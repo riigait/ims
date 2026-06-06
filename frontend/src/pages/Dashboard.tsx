@@ -391,8 +391,8 @@ export default function Dashboard() {
           <StatCard label="Inventory Items" value={stats.totalInventoryItems}  sub="Tagged items"         icon={Boxes}       accent="bg-indigo-100 text-indigo-600 dark:bg-indigo-950 dark:text-indigo-400"   onClick={() => navigate('/inventory-items')} />
           <StatCard label="Total Stock"     value={stats.totalStock}           sub="Quantity on hand"     icon={CheckCircle} accent="bg-green-100 text-green-600 dark:bg-green-950 dark:text-green-400"       onClick={() => navigate('/products')} />
           <StatCard label="Inventory Value" value={formatValue(stats.totalInventoryValue)} sub="Est. value"  icon={PesoSign}    accent="bg-emerald-100 text-emerald-600 dark:bg-emerald-950 dark:text-emerald-400" />
-          <StatCard label="Available"       value={stats.itemsAvailable}       sub="Ready to use"         icon={Zap}         accent="bg-sky-100 text-sky-600 dark:bg-sky-950 dark:text-sky-400"               onClick={() => navigate('/inventory-items')} />
-          <StatCard label="In Use"          value={stats.itemsInUse}           sub="Deployed / borrowed"  icon={Wrench}      accent="bg-violet-100 text-violet-600 dark:bg-violet-950 dark:text-violet-400"   onClick={() => navigate('/inventory-items')} />
+          <StatCard label="Available"       value={stats.itemsAvailable}       sub="Ready to use"         icon={Zap}         accent="bg-sky-100 text-sky-600 dark:bg-sky-950 dark:text-sky-400"               onClick={() => navigate('/inventory-items', { state: { filterStatus: 'active' } })} />
+          <StatCard label="In Use"          value={stats.itemsInUse}           sub="Deployed / borrowed"  icon={Wrench}      accent="bg-violet-100 text-violet-600 dark:bg-violet-950 dark:text-violet-400"   onClick={() => navigate('/inventory-items', { state: { filterStatus: 'borrowed' } })} />
         </div>
       </div>
 

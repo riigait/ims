@@ -134,8 +134,8 @@ const OUTER_T       = 10;   // outer wall thickness
 const INNER_T       = 6;    // inner wall thickness
 const ROOM_Y_START  = 120;  // top-row rooms start here
 const CELL_GAP      = 10;
-const ZONE_LABEL_H  = 45;   // label area inside each zone
-const ZONE_BOT_PAD  = 20;   // bottom padding inside each zone
+const ZONE_LABEL_H  = 52;   // label area inside each zone (>= door clearance 46 px)
+const ZONE_BOT_PAD  = 52;   // bottom padding inside each zone (>= door clearance 46 px)
 const MIN_CELL_H    = 28;
 const ROW_SPLIT_Y   = 400;  // zones with y < this are "top row"
 
@@ -580,16 +580,29 @@ function buildValidatedLayoutFloorPlan(floorLabel: string, locations: Array<{ id
   locations.forEach(location => {
     const n = location.name.toLowerCase();
     let key = zones[zones.length - 1].key;
-    if (n.includes('rack') || n.includes('server') || n.includes('radio'))
-      key = zones.find(z => z.key.includes('rack') || z.key.includes('control'))?.key ?? key;
-    else if (n.includes('cabinet') || n.includes('box') || n.includes('shelf') || n.includes('storage') || n.includes('drawer'))
-      key = zones.find(z => z.key.includes('storage') || z.key.includes('shelf'))?.key ?? key;
-    else if (n.includes('table') || n.includes('office') || n.includes('work'))
-      key = zones.find(z => z.key.includes('office') || z.key.includes('work'))?.key ?? key;
-    else if (n.includes('reception') || n.includes('waiting'))
-      key = zones.find(z => z.key.includes('reception'))?.key ?? key;
-    else if (n.includes('dorm') || n.includes('room'))
-      key = zones.find(z => z.key.includes('room'))?.key ?? key;
+
+    const pick = (nameKw: string[], zoneKw: string[]): boolean => {
+      if (!nameKw.some(k => n.includes(k))) return false;
+      const z = zones.find(z => zoneKw.some(kw => z.key.includes(kw)));
+      if (z) { key = z.key; return true; }
+      return false;
+    };
+
+    pick(['ups', 'pdu', 'battery', 'inverter', 'power-dist'],      ['ups', 'power']) ||
+    pick(['cable', 'patch', 'switch', 'router', 'raceway'],         ['cable', 'net']) ||
+    pick(['rack', 'server', 'radio', 'blade'],                      ['rack', 'racks', 'console', 'control']) ||
+    pick(['pallet', 'bulk', 'loading', 'receiving', 'dispatch'],    ['pallet', 'loading', 'bulk', 'receiving']) ||
+    pick(['electrical', 'utility', 'mechanical', 'breaker'],        ['electrical', 'utility']) ||
+    pick(['meeting', 'conference', 'briefing', 'training'],         ['meeting']) ||
+    pick(['supervisor', 'manager', 'engineer', 'director'],         ['supervisor', 'offices', 'manager']) ||
+    pick(['reception', 'front desk', 'admin', 'counter'],           ['reception']) ||
+    pick(['waiting', 'lobby', 'lounge', 'visitor'],                 ['waiting']) ||
+    pick(['locker', 'bunk', 'dorm', 'bed', 'linen'],                ['dorm', 'room', 'sleeping']) ||
+    pick(['common', 'dining', 'shared', 'pantry', 'canteen'],       ['common', 'dining', 'facilities']) ||
+    pick(['cabinet', 'shelf', 'drawer', 'bin', 'box', 'storage'],   ['storage', 'shelf', 'wall', 'side', 'box']) ||
+    pick(['table', 'office', 'work', 'desk', 'station'],            ['office', 'work', 'work-area']) ||
+    pick(['room', 'area', 'zone'],                                   ['dorm', 'room', 'left', 'right']);
+
     grouped.get(key)?.push(location);
   });
 
@@ -628,8 +641,10 @@ export function getLocationPlanGroup(name: string) {
 
 export function determineTemplateType(templateName: string): string {
   const l = templateName.toLowerCase();
-  if (l.includes('server') || l.includes('scada') || l.includes('network') || l.includes('data center')) return 'technical';
-  if (l.includes('warehouse') || l.includes('storage')) return 'warehouse';
+  if (l.includes('scada')) return 'technical';
+  if (l.includes('server') || l.includes('network') || l.includes('data center')) return 'technical';
+  if (l.includes('warehouse')) return 'warehouse';
+  if (l.includes('storage')) return 'warehouse';
   if (l.includes('dormitory') || l.includes('dorm') || l.includes('boarding')) return 'dormitory';
   return 'office';
 }
@@ -728,35 +743,82 @@ export function buildGeneratedFloorPlan(floorLabel: string, locations: Array<{ i
 export function buildKnowledgeTemplateFloorPlan(templateName: string, departmentName: string, locations: Array<{ id: string; name: string }>) {
   const floorLabel = `${departmentName} ${templateName}`;
   const l = templateName.toLowerCase();
-  const isTechnical = l.includes('server') || l.includes('scada');
-  const isWarehouse  = l.includes('warehouse') || l.includes('storage');
-  const isDormitory  = l.includes('dormitory');
-  const isReception  = l.includes('reception');
+  // Separate detection so each template gets its own image-accurate layout
+  const isSCADA       = l.includes('scada');
+  const isServerRoom  = l.includes('server') && !l.includes('scada');
+  const isWarehouse   = l.includes('warehouse');
+  const isStorageRoom = l.includes('storage');
+  const isDormitory   = l.includes('dormitory');
+  const isReception   = l.includes('reception');
+  // default falls through to office layout
 
-  const zones: RoomZone[] = isTechnical ? [
-    { key: 'control', label: l.includes('scada') ? 'SCADA / Control Room' : 'Server Rack Room', x: 90,   y: 120, w: 610, h: 390, color: '#dbeafe', cols: 3, doorX: 395,  doorY: 510, windowX: 260,  windowY: OUTER_TOP_Y, windowWidth: 190 },
-    { key: 'network', label: 'Network / Electrical Room',                                        x: 760,  y: 120, w: 360, h: 390, color: '#fef3c7', cols: 2, doorX: 940,  doorY: 510, windowX: 860,  windowY: OUTER_TOP_Y, windowWidth: 140 },
-    { key: 'storage', label: 'Controlled Storage',                                               x: 1180, y: 120, w: 480, h: 390, color: '#ede9fe', cols: 2, doorX: 1420, doorY: 510, windowX: 1330, windowY: OUTER_TOP_Y, windowWidth: 160 },
-    { key: 'work',    label: 'Workstations / Monitoring',                                        x: 90,   y: 660, w: 760, h: 360, color: '#dcfce7', cols: 4, doorX: 470,  doorY: 660 },
-    { key: 'support', label: 'Support / Overflow',                                               x: 910,  y: 660, w: 750, h: 360, color: '#f3f4f6', cols: 4, doorX: 1285, doorY: 660 },
+  // ── Server Room ────────────────────────────────────────────────────────────
+  // Image: UPS/Power left | Left rack bay | Right rack bay | Cable/network right
+  // Single row (no bottom zones) — secure, square layout
+  const zones: RoomZone[] = isServerRoom ? [
+    { key: 'ups-power',   label: 'UPS / Power Area',          x: 90,   y: 120, w: 280, h: 580, color: '#fef3c7', cols: 1, doorX: 230,  doorY: 700 },
+    { key: 'left-racks',  label: 'Left Server Rack Bay',       x: 410,  y: 120, w: 380, h: 580, color: '#dbeafe', cols: 1, doorX: 600,  doorY: 700, windowX: 500,  windowY: OUTER_TOP_Y, windowWidth: 220 },
+    { key: 'right-racks', label: 'Right Server Rack Bay',      x: 830,  y: 120, w: 380, h: 580, color: '#dbeafe', cols: 1, doorX: 1020, doorY: 700, windowX: 920,  windowY: OUTER_TOP_Y, windowWidth: 220 },
+    { key: 'cable-net',   label: 'Network / Cable Management', x: 1250, y: 120, w: 280, h: 580, color: '#ede9fe', cols: 1, doorX: 1390, doorY: 700 },
+
+  // ── SCADA Control Room ─────────────────────────────────────────────────────
+  // Image: Video wall + operator console (top, wide) | Equipment cabinet (right)
+  //        Supervisor desk (bottom-left) | Meeting table (bottom-centre) | Support
+  ] : isSCADA ? [
+    { key: 'console',    label: 'Operator Console / Video Wall',     x: 90,   y: 120, w: 880, h: 380, color: '#dbeafe', cols: 3, doorX: 530,  doorY: 500, windowX: 290, windowY: OUTER_TOP_Y, windowWidth: 380 },
+    { key: 'equipment',  label: 'Equipment / Server Cabinet',        x: 1020, y: 120, w: 340, h: 380, color: '#ede9fe', cols: 1, doorX: 1190, doorY: 500, windowX: 1090, windowY: OUTER_TOP_Y, windowWidth: 180 },
+    { key: 'supervisor', label: 'Supervisor / Engineering Desk',     x: 90,   y: 660, w: 430, h: 320, color: '#dcfce7', cols: 2, doorX: 305,  doorY: 660 },
+    { key: 'meeting',    label: 'Meeting / Briefing Area',           x: 570,  y: 660, w: 430, h: 320, color: '#fef3c7', cols: 2, doorX: 785,  doorY: 660 },
+    { key: 'support',    label: 'Support / Overflow',                x: 1060, y: 660, w: 300, h: 320, color: '#f3f4f6', cols: 2, doorX: 1210, doorY: 660 },
+
+  // ── Warehouse ──────────────────────────────────────────────────────────────
+  // Image: Pallet area left | Storage racks centre (wide) | Pallet area right
+  //        Warehouse office | Loading / dock bay | Electrical room
   ] : isWarehouse ? [
-    { key: 'rack',      label: 'Warehouse Racking',        x: 90,   y: 120, w: 780, h: 390, color: '#fef3c7', cols: 4, doorX: 480,  doorY: 510, windowX: 300,  windowY: OUTER_TOP_Y, windowWidth: 220 },
-    { key: 'storage',   label: 'Bulk Storage',             x: 930,  y: 120, w: 730, h: 390, color: '#ede9fe', cols: 4, doorX: 1295, doorY: 510, windowX: 1180, windowY: OUTER_TOP_Y, windowWidth: 220 },
-    { key: 'receiving', label: 'Receiving / Dispatch Bay', x: 90,   y: 660, w: 610, h: 360, color: '#dbeafe', cols: 3, doorX: 395,  doorY: 1080 },
-    { key: 'office',    label: 'Warehouse Office',         x: 760,  y: 660, w: 390, h: 360, color: '#dcfce7', cols: 2, doorX: 955,  doorY: 660 },
-    { key: 'overflow',  label: 'Other Locations',          x: 1210, y: 660, w: 450, h: 360, color: '#f3f4f6', cols: 2, doorX: 1435, doorY: 660 },
+    { key: 'pallet-left',  label: 'Pallet / Bulk Storage Area',   x: 90,   y: 120, w: 300, h: 420, color: '#fef3c7', cols: 2, doorX: 240,  doorY: 540 },
+    { key: 'rack-storage', label: 'Storage Racks / Rack Aisles',  x: 440,  y: 120, w: 940, h: 420, color: '#ede9fe', cols: 4, doorX: 910,  doorY: 540, windowX: 680, windowY: OUTER_TOP_Y, windowWidth: 380 },
+    { key: 'pallet-right', label: 'Overflow / Pallet Storage',    x: 1430, y: 120, w: 300, h: 420, color: '#fef3c7', cols: 2, doorX: 1580, doorY: 540 },
+    { key: 'office',       label: 'Warehouse Office',             x: 90,   y: 660, w: 380, h: 340, color: '#dcfce7', cols: 2, doorX: 280,  doorY: 660 },
+    { key: 'loading',      label: 'Loading / Receiving Bay',      x: 520,  y: 660, w: 720, h: 340, color: '#dbeafe', cols: 3, doorX: 880,  doorY: 1000 },
+    { key: 'electrical',   label: 'Electrical / Utility Room',    x: 1290, y: 660, w: 440, h: 340, color: '#f3f4f6', cols: 2, doorX: 1510, doorY: 660 },
+
+  // ── Storage Room ───────────────────────────────────────────────────────────
+  // Image: Wall shelving across top + left/right walls | Central aisle & worktable
+  //        Stacked boxes (bottom-left) | Pallet area (bottom-right)
+  ] : isStorageRoom ? [
+    { key: 'wall-shelving', label: 'Shelving Units / Storage Wall',  x: 90,   y: 120, w: 680, h: 380, color: '#ede9fe', cols: 3, doorX: 430,  doorY: 500, windowX: 240, windowY: OUTER_TOP_Y, windowWidth: 280 },
+    { key: 'side-shelving', label: 'Side Wall Storage',              x: 820,  y: 120, w: 540, h: 380, color: '#ede9fe', cols: 2, doorX: 1090, doorY: 500, windowX: 940, windowY: OUTER_TOP_Y, windowWidth: 220 },
+    { key: 'box-pallet',    label: 'Stacked Boxes / Pallet Area',   x: 90,   y: 660, w: 560, h: 300, color: '#fef3c7', cols: 3, doorX: 370,  doorY: 660 },
+    { key: 'work-table',    label: 'Work Table / Central Aisle',    x: 700,  y: 660, w: 420, h: 300, color: '#dcfce7', cols: 2, doorX: 910,  doorY: 660 },
+    { key: 'overflow',      label: 'Other Locations',               x: 1180, y: 660, w: 380, h: 300, color: '#f3f4f6', cols: 2, doorX: 1370, doorY: 660 },
+
+  // ── Dormitory ──────────────────────────────────────────────────────────────
+  // Image: Left bunk/locker area | Common area + shared table | Right bunk/locker area
+  //        Utility / linen | Other locations
   ] : isDormitory ? [
-    { key: 'rooms',    label: 'Dorm Rooms',            x: 90,   y: 120, w: 780, h: 390, color: '#dbeafe', cols: 4, doorX: 480,  doorY: 510, windowX: 300,  windowY: OUTER_TOP_Y, windowWidth: 220 },
-    { key: 'common',   label: 'Common Area',           x: 930,  y: 120, w: 350, h: 390, color: '#dcfce7', cols: 2, doorX: 1105, doorY: 510, windowX: 1020, windowY: OUTER_TOP_Y, windowWidth: 140 },
-    { key: 'storage',  label: 'Dorm Storage',          x: 1340, y: 120, w: 320, h: 390, color: '#ede9fe', cols: 2, doorX: 1500, doorY: 510, windowX: 1430, windowY: OUTER_TOP_Y, windowWidth: 120 },
-    { key: 'utility',  label: 'Utility / Service',     x: 90,   y: 660, w: 610, h: 360, color: '#fef3c7', cols: 3, doorX: 395,  doorY: 660 },
-    { key: 'overflow', label: 'Other Locations',       x: 760,  y: 660, w: 900, h: 360, color: '#f3f4f6', cols: 5, doorX: 1210, doorY: 660 },
+    { key: 'left-dorm',  label: 'Left Sleeping / Locker Area',   x: 90,   y: 120, w: 440, h: 400, color: '#dbeafe', cols: 2, doorX: 310,  doorY: 520, windowX: 170, windowY: OUTER_TOP_Y, windowWidth: 180 },
+    { key: 'common',     label: 'Common Area / Dining',           x: 580,  y: 120, w: 480, h: 400, color: '#dcfce7', cols: 2, doorX: 820,  doorY: 520, windowX: 700, windowY: OUTER_TOP_Y, windowWidth: 220 },
+    { key: 'right-dorm', label: 'Right Sleeping / Locker Area',  x: 1110, y: 120, w: 440, h: 400, color: '#dbeafe', cols: 2, doorX: 1330, doorY: 520, windowX: 1200, windowY: OUTER_TOP_Y, windowWidth: 180 },
+    { key: 'utility',    label: 'Utility / Linen / Restroom',    x: 90,   y: 660, w: 490, h: 300, color: '#fef3c7', cols: 2, doorX: 335,  doorY: 660 },
+    { key: 'overflow',   label: 'Other Locations',               x: 630,  y: 660, w: 920, h: 300, color: '#f3f4f6', cols: 4, doorX: 1090, doorY: 660 },
+
+  // ── Reception ──────────────────────────────────────────────────────────────
+  // Image: Waiting/lobby area (left) | Reception desk (centre-right) | Storage (top-right, small)
+  // Single row — open-plan with entrance at bottom
+  ] : isReception ? [
+    { key: 'waiting',   label: 'Waiting / Lobby Area',    x: 90,   y: 120, w: 500, h: 420, color: '#dbeafe', cols: 2, doorX: 340,  doorY: 540, windowX: 170, windowY: OUTER_TOP_Y, windowWidth: 200 },
+    { key: 'reception', label: 'Reception / Admin Desk',  x: 640,  y: 120, w: 480, h: 420, color: '#dcfce7', cols: 2, doorX: 880,  doorY: 540, windowX: 760, windowY: OUTER_TOP_Y, windowWidth: 200 },
+    { key: 'storage',   label: 'Storage / Closet',        x: 1170, y: 120, w: 280, h: 420, color: '#ede9fe', cols: 1, doorX: 1310, doorY: 540 },
+
+  // ── Office Layout (default) ────────────────────────────────────────────────
+  // Image: Meeting + manager offices (left col) | Open work area (centre) | Pantry/storage/restroom (right col)
+  //        Waiting / lounge (bottom-left) | Reception / front desk (bottom-right)
   ] : [
-    { key: 'reception', label: isReception ? 'Reception / Waiting' : 'Reception',  x: 90,   y: 120, w: 390, h: 390, color: '#dbeafe', cols: 2, doorX: 285,  doorY: 510, windowX: 190,  windowY: OUTER_TOP_Y, windowWidth: 160 },
-    { key: 'office',    label: 'Office Work Area',                                  x: 540,  y: 120, w: 560, h: 390, color: '#dcfce7', cols: 3, doorX: 820,  doorY: 510, windowX: 720,  windowY: OUTER_TOP_Y, windowWidth: 180 },
-    { key: 'meeting',   label: 'Meeting / Training Room',                           x: 1160, y: 120, w: 500, h: 390, color: '#fef3c7', cols: 3, doorX: 1410, doorY: 510, windowX: 1320, windowY: OUTER_TOP_Y, windowWidth: 180 },
-    { key: 'storage',   label: 'Storage / Equipment',                               x: 90,   y: 660, w: 710, h: 360, color: '#ede9fe', cols: 4, doorX: 445,  doorY: 660 },
-    { key: 'overflow',  label: 'Other Locations',                                   x: 860,  y: 660, w: 800, h: 360, color: '#f3f4f6', cols: 4, doorX: 1260, doorY: 660 },
+    { key: 'offices',    label: 'Meeting / Manager Offices',     x: 90,   y: 120, w: 400, h: 390, color: '#fef3c7', cols: 2, doorX: 290,  doorY: 510 },
+    { key: 'work-area',  label: 'Open Work Area',                x: 540,  y: 120, w: 620, h: 390, color: '#dcfce7', cols: 3, doorX: 850,  doorY: 510, windowX: 660, windowY: OUTER_TOP_Y, windowWidth: 280 },
+    { key: 'facilities', label: 'Pantry / Storage / Restroom',   x: 1210, y: 120, w: 400, h: 390, color: '#ede9fe', cols: 2, doorX: 1410, doorY: 510, windowX: 1290, windowY: OUTER_TOP_Y, windowWidth: 180 },
+    { key: 'waiting',    label: 'Waiting / Lounge Area',         x: 90,   y: 660, w: 520, h: 330, color: '#dbeafe', cols: 2, doorX: 350,  doorY: 660 },
+    { key: 'reception',  label: 'Reception / Front Desk',        x: 660,  y: 660, w: 950, h: 330, color: '#f3f4f6', cols: 4, doorX: 1135, doorY: 660 },
   ];
 
   const objects = buildValidatedLayoutFloorPlan(floorLabel, locations, zones);

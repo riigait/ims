@@ -68,8 +68,8 @@ export default function BulkAddProducts() {
   const [savedCount, setSavedCount] = useState(0);
 
   useEffect(() => {
-    categoriesApi.getAll().then(r => setCategories(r.data)).catch(() => {}); // non-critical preload — dropdowns populate if available
-    locationsApi.getAll().then(r => setLocations(r.data)).catch(() => {}); // non-critical preload — dropdowns populate if available
+    categoriesApi.getAll().then(r => setCategories(Array.isArray(r.data) ? r.data : (r.data.data ?? []))).catch(() => {});
+    locationsApi.getAll().then(r => setLocations(Array.isArray(r.data) ? r.data : (r.data.data ?? []))).catch(() => {});
   }, []);
 
   if (user.role === 'superadmin' || currentDeptId === ALL_DEPARTMENTS_ID) {

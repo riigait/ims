@@ -9,6 +9,8 @@ import {
 import { floorPlansApi, locationsApi, productsApi } from '@/services/api';
 import { useFloorPlanStore } from '@/services/floorPlanStore';
 import { FloorPlanObject, WallObject, RectangleObject, LabelObject, DoorObject, WindowObject, EntranceObject, InventoryMarkerObject } from '@/types/floorplan';
+import { validateFloorplanObjects, FloorplanValidationResult } from '@/utils/floorplanValidation';
+import { applyAutoFixes } from '@/utils/floorplanFixer';
 import { Location, Product } from '@/types/inventory';
 
 // Stock status for a set of products at a location
@@ -87,6 +89,9 @@ export default function FloorPlanEditor() {
   const [selectRectStart, setSelectRectStart] = useState<{ x: number; y: number } | null>(null);
   const [selectRectEnd, setSelectRectEnd] = useState<{ x: number; y: number } | null>(null);
 
+  // Validation
+  const [validationErrors, setValidationErrors] = useState<FloorplanValidationResult['errors']>([]);
+
   // Derived maps
   const productsByLocation = useMemo(() => {
     const map = new Map<string, Product[]>();
@@ -112,6 +117,12 @@ export default function FloorPlanEditor() {
     };
     init();
   }, [id]);
+
+  useEffect(() => {
+    if (currentFloorPlan?.objects) {
+      setValidationErrors(validateFloorplanObjects(currentFloorPlan.objects).errors);
+    }
+  }, [currentFloorPlan?.objects]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -329,6 +340,17 @@ export default function FloorPlanEditor() {
       } else {
         drawObject(ctx, obj, isSelected);
       }
+      // Red dashed outline for objects with validation errors
+      if (validationErrors.some(e => e.objectId === obj.id) && 'x' in obj && 'width' in obj && 'height' in obj) {
+        const r = obj as { x: number; y: number; width: number; height: number };
+        ctx.save();
+        ctx.strokeStyle = '#ef4444';
+        ctx.lineWidth = 2;
+        ctx.setLineDash([5, 3]);
+        ctx.strokeRect(r.x - 3, r.y - 3, r.width + 6, r.height + 6);
+        ctx.setLineDash([]);
+        ctx.restore();
+      }
     });
 
     // Draw group bounding boxes for selected grouped objects
@@ -525,7 +547,7 @@ export default function FloorPlanEditor() {
       ctx.stroke();
       ctx.setLineDash([]);
     }
-  }, [currentFloorPlan, editorState, selectedObjectIds, startPos, currentMousePos, isSelectingRect, selectRectStart, selectRectEnd, productsByLocation, locationsMap]);
+  }, [currentFloorPlan, editorState, selectedObjectIds, startPos, currentMousePos, isSelectingRect, selectRectStart, selectRectEnd, productsByLocation, locationsMap, validationErrors]);
 
   useEffect(() => {
     redrawCanvas();
@@ -1919,11 +1941,52 @@ export default function FloorPlanEditor() {
     return <KonvaRect x={x} y={y} width={width} height={height} stroke="#2563eb" strokeWidth={1} dash={[4, 4]} fill="rgba(37,99,235,0.08)" />;
   };
 
+  function autoNudge(blockerId: string, doorId?: string) {
+    const objects = currentFloorPlan?.objects || [];
+    const blocker = objects.find(o => o.id === blockerId);
+    if (!blocker || !('x' in blocker) || !('width' in blocker) || !('height' in blocker)) return;
+    const b = blocker as { x: number; y: number; width: number; height: number };
+
+    const door = objects.find(o => o.id === doorId);
+    if (!door || !('x' in door) || !('width' in door)) return;
+    const d = door as { x: number; y: number; width: number };
+
+    const MARGIN = 12;
+    // Door clearance zone bounds (matches floorplanValidation.ts)
+    const zLeft   = d.x - d.width / 2;
+    const zRight  = d.x + d.width / 2;
+    const zTop    = d.y - d.width / 2;
+    const zBottom = d.y + d.width / 2;
+
+    // Overlap on each side (positive = overlapping, Infinity = no contact on that side)
+    const overlapL = (b.x + b.width) - zLeft;   // push blocker left
+    const overlapR = zRight - b.x;              // push blocker right
+    const overlapT = (b.y + b.height) - zTop;   // push blocker up
+    const overlapB = zBottom - b.y;             // push blocker down
+
+    const pl = overlapL > 0 ? overlapL : Infinity;
+    const pr = overlapR > 0 ? overlapR : Infinity;
+    const pt = overlapT > 0 ? overlapT : Infinity;
+    const pb = overlapB > 0 ? overlapB : Infinity;
+
+    const min = Math.min(pl, pr, pt, pb);
+    if (!isFinite(min)) return; // no actual overlap
+
+    let newX = b.x, newY = b.y;
+    if (min === pl) newX = Math.round(zLeft  - b.width - MARGIN);
+    else if (min === pr) newX = Math.round(zRight  + MARGIN);
+    else if (min === pt) newY = Math.round(zTop    - b.height - MARGIN);
+    else                 newY = Math.round(zBottom + MARGIN);
+
+    updateObject(blockerId, { x: newX, y: newY });
+    useFloorPlanStore.getState().pushHistory();
+  }
+
   if (loading) return <div className="text-center py-12 text-[var(--text-muted)]">Loading...</div>;
   if (!currentFloorPlan) return <div className="text-center py-12 text-[var(--text-muted)]">Floor plan not found</div>;
 
   return (
-    <div className="h-screen flex flex-col bg-[var(--bg)] text-[var(--text)]">
+    <div className="h-screen flex flex-col bg-[var(--bg)] text-[var(--text)] relative">
       {/* Top Bar */}
       <div className="bg-[var(--surface)] border-b border-[var(--border)] px-6 py-3 flex justify-between items-center shadow-sm">
         <div className="flex items-center gap-4">
@@ -2680,6 +2743,53 @@ export default function FloorPlanEditor() {
           )}
         </div>
       </div>
+
+      {/* Validation error panel */}
+      {validationErrors.length > 0 && (
+        <div className="absolute top-[72px] right-[328px] bg-[var(--surface)] border border-red-300 rounded-lg p-3 max-w-[280px] z-50 shadow-lg pointer-events-auto">
+          <div className="flex items-center justify-between mb-2">
+            <div className="flex items-center gap-1.5 text-red-600 font-semibold text-xs">
+              <AlertTriangle size={13} />
+              {validationErrors.length} issue{validationErrors.length > 1 ? "s" : ""}
+            </div>
+            {validationErrors.some(e => e.code === "door_blocked") && (
+              <button
+                onClick={() => {
+                  const { objects: fixed } = applyAutoFixes(currentFloorPlan!.objects);
+                  fixed.forEach((obj, i) => {
+                    const orig = currentFloorPlan!.objects[i];
+                    if ('x' in obj && 'x' in orig && (obj.x !== (orig as any).x || (obj as any).y !== (orig as any).y)) {
+                      updateObject(obj.id, { x: (obj as any).x, y: (obj as any).y });
+                    }
+                  });
+                  useFloorPlanStore.getState().pushHistory();
+                }}
+                className="text-[10px] bg-red-500 hover:bg-red-600 text-white px-2 py-0.5 rounded font-medium"
+              >
+                Fix All
+              </button>
+            )}
+          </div>
+          {validationErrors.map((err, i) => (
+            <div key={i} className="flex items-start justify-between gap-2 mb-2 last:mb-0">
+              <span
+                className="text-xs text-[var(--text)] cursor-pointer hover:text-red-500 leading-snug"
+                onClick={() => err.objectId && setSelectedObject(err.objectId)}
+              >
+                {err.message}
+              </span>
+              {err.code === "door_blocked" && err.objectId && (
+                <button
+                  onClick={() => autoNudge(err.objectId!, err.doorId)}
+                  className="flex-shrink-0 text-[10px] bg-red-500 hover:bg-red-600 text-white px-1.5 py-0.5 rounded"
+                >
+                  Fix
+                </button>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
