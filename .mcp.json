@@ -1,11 +1,14 @@
 {
   "mcpServers": {
-    "openai": {
-      "command": "npx",
-      "args": ["-y", "@openai/mcp-server-openai"],
-      "env": {
-        "OPENAI_API_KEY": "${OPENAI_API_KEY}"
-      }
+    "postgres": {
+      "command": "powershell.exe",
+      "args": [
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        "scripts/mcp-postgres.ps1"
+      ]
     }
   }
 }

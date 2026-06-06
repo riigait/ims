@@ -139,7 +139,7 @@ export const floorPlansApi = {
   delete: (id: string) => api.delete(`/floor-plans/${id}`),
   feedback: (id: string, data: { feedback: string; rating?: number; correctedData?: string }) =>
     api.post(`/floor-plans/${id}/feedback`, data),
-  regenerate: (id: string) => api.post(`/floor-plans/${id}/regenerate`, {}),
+  regenerate: (id: string, data?: object) => api.post(`/floor-plans/${id}/regenerate`, data || {}),
   getRules: () => api.get('/floor-plans/rules'),
 };
 

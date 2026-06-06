@@ -21,6 +21,17 @@ function Get-PortProcess {
     return $null
 }
 
+function Get-IMSDevProcessIds {
+    $escapedRoot = [regex]::Escape($rootPath)
+    return @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
+        Where-Object {
+            $_.CommandLine -and
+            $_.CommandLine -match $escapedRoot -and
+            $_.CommandLine -match '(scripts[\\/]dev-start\.js|concurrently|backend[\\/].*(nodemon|ts-node)|frontend[\\/].*vite)'
+        } |
+        Select-Object -ExpandProperty ProcessId -Unique)
+}
+
 function Invoke-IMSCommand {
     param(
         [string]$Name,
@@ -32,8 +43,9 @@ function Invoke-IMSCommand {
 
     Push-Location $Path
     try {
-        Invoke-Expression $Command
-        if ($LASTEXITCODE -ne 0) {
+        Invoke-Expression $Command | Out-Host
+        $exitCode = $LASTEXITCODE
+        if ($exitCode -ne 0) {
             Write-Host "[FAIL] $Name check failed." -ForegroundColor Red
             return $false
         }
@@ -104,17 +116,12 @@ function Stop-IMSApp {
 
     $backendPid = Get-PortProcess $backendPort
     $frontendPid = Get-PortProcess $frontendPort
+    $devProcessIds = Get-IMSDevProcessIds
 
-    if ($backendPid) {
-        Write-Host "Killing backend process (PID: $backendPid)..."
-        Stop-Process -Id $backendPid -Force -ErrorAction SilentlyContinue
-        Start-Sleep -Milliseconds 500
-    }
-
-    if ($frontendPid) {
-        Write-Host "Killing frontend process (PID: $frontendPid)..."
-        Stop-Process -Id $frontendPid -Force -ErrorAction SilentlyContinue
-        Start-Sleep -Milliseconds 500
+    if ($devProcessIds.Count -gt 0) {
+        Write-Host "Stopping IMS development processes..."
+        Stop-Process -Id $devProcessIds -Force -ErrorAction SilentlyContinue
+        Start-Sleep -Seconds 1
     }
 
     Write-Host "Stopping Docker containers..." -ForegroundColor Cyan
@@ -127,7 +134,7 @@ function Stop-IMSApp {
         Pop-Location
     }
 
-    if (-not $backendPid -and -not $frontendPid) {
+    if (-not $backendPid -and -not $frontendPid -and $devProcessIds.Count -eq 0) {
         Write-Host "No running processes found." -ForegroundColor Yellow
     } else {
         Write-Host "IMS app stopped." -ForegroundColor Green

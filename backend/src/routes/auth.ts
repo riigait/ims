@@ -5,7 +5,7 @@ import crypto from 'crypto';
 import type { UserRole } from '@prisma/client';
 import prisma from '../utils/prisma';
 import { logAudit, getRequestMeta } from '../utils/audit';
-import { passwordLimiter } from '../middleware/rateLimiter';
+import { authLimiter, passwordLimiter } from '../middleware/rateLimiter';
 import { authMiddleware, AuthRequest, getJwtSecret } from '../middleware/auth';
 import { validatePassword } from '../utils/passwordPolicy';
 
@@ -62,7 +62,7 @@ function clearAuthCookie(res: Response): void {
 }
 
 // Check if superadmin exists; create default if not
-router.post('/ensure-superadmin', async (req: Request, res: Response, next: NextFunction) => {
+router.post('/ensure-superadmin', authLimiter, async (req: Request, res: Response, next: NextFunction) => {
   try {
     const bootstrapAllowed = process.env.NODE_ENV !== 'production' || process.env.ALLOW_SUPERADMIN_BOOTSTRAP === 'true';
     const remoteBootstrapAllowed = process.env.ALLOW_REMOTE_SUPERADMIN_BOOTSTRAP === 'true';
@@ -104,7 +104,7 @@ router.post('/ensure-superadmin', async (req: Request, res: Response, next: Next
 });
 
 // Register — use invite code to get role; defaults to staff if no invite
-router.post('/register', async (req: Request, res: Response, next: NextFunction) => {
+router.post('/register', authLimiter, async (req: Request, res: Response, next: NextFunction) => {
   try {
     const validationError = validateRegister(req.body);
     if (validationError) return res.status(400).json({ error: validationError });
@@ -162,7 +162,7 @@ router.post('/register', async (req: Request, res: Response, next: NextFunction)
 });
 
 // Login
-router.post('/login', async (req: Request, res: Response, next: NextFunction) => {
+router.post('/login', authLimiter, async (req: Request, res: Response, next: NextFunction) => {
   try {
     const validationError = validateLogin(req.body);
     if (validationError) return res.status(400).json({ error: validationError });
@@ -170,7 +170,10 @@ router.post('/login', async (req: Request, res: Response, next: NextFunction) =>
     const { email, password } = req.body;
 
     const user = await prisma.user.findUnique({ where: { email } });
-    if (!user) return res.status(401).json({ error: 'Invalid credentials' });
+    if (!user) {
+      logAudit({ action: 'LOGIN_FAILURE', entityType: 'user', entityId: 'unknown', changes: { email, reason: 'user_not_found' }, ...getRequestMeta(req) });
+      return res.status(401).json({ error: 'Invalid credentials' });
+    }
 
     if (user.lockedUntil && user.lockedUntil > new Date()) {
       const minutesLeft = Math.ceil((user.lockedUntil.getTime() - Date.now()) / 60000);
@@ -185,7 +188,7 @@ router.post('/login', async (req: Request, res: Response, next: NextFunction) =>
         where: { id: user.id },
         data: { failedLoginAttempts: attempts, ...(lockout ? { lockedUntil: lockout } : {}) },
       });
-      logAudit({ userId: user.id, action: 'LOGIN_FAILURE', entityType: 'user', entityId: user.id, changes: { attempts, locked: !!lockout }, ...getRequestMeta(req) });
+      logAudit({ userId: user.id, action: 'LOGIN_FAILURE', entityType: 'user', entityId: user.id, changes: { email: user.email, name: user.name, attempts, locked: !!lockout }, ...getRequestMeta(req) });
       const msg = lockout
         ? 'Too many failed attempts. Account locked for 15 minutes.'
         : `Invalid credentials. ${5 - attempts} attempt(s) remaining.`;
@@ -196,7 +199,7 @@ router.post('/login', async (req: Request, res: Response, next: NextFunction) =>
       where: { id: user.id },
       data: { failedLoginAttempts: 0, lockedUntil: null },
     });
-    logAudit({ userId: user.id, action: 'LOGIN_SUCCESS', entityType: 'user', entityId: user.id, ...getRequestMeta(req) });
+    logAudit({ userId: user.id, action: 'LOGIN_SUCCESS', entityType: 'user', entityId: user.id, changes: { email: user.email, name: user.name, role: user.role }, ...getRequestMeta(req) });
 
     const adminDepartments = user.role === 'admin' ? await prisma.adminDepartment.findMany({
       where: { userId: user.id },

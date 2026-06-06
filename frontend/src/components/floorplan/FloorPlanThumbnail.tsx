@@ -1,5 +1,5 @@
 import { Fragment } from 'react';
-import { Layer, Line, Rect, Stage, Text } from 'react-konva';
+import { Circle, Layer, Line, Rect, Stage, Text } from 'react-konva';
 import { FloorPlan, FloorPlanObject, LabelObject, RectangleObject, WallObject } from '@/types/floorplan';
 
 interface Props {
@@ -14,6 +14,14 @@ const RECT_FILL: Record<string, string> = {
   rack: '#fef3c7',
   shelf: '#dbeafe',
 };
+
+function getServiceRoomKind(label?: string): 'stairs' | 'elevator' | 'bathroom' | null {
+  const normalized = label?.toLowerCase() ?? '';
+  if (normalized.startsWith('stairs')) return 'stairs';
+  if (normalized.startsWith('elevator')) return 'elevator';
+  if (normalized.includes('bathroom') || normalized.includes('restroom')) return 'bathroom';
+  return null;
+}
 
 function getBounds(objects: FloorPlanObject[], plan: FloorPlan) {
   if (!objects.length) return { minX: 0, minY: 0, maxX: plan.width, maxY: plan.height };
@@ -103,6 +111,7 @@ export default function FloorPlanThumbnail({ plan, width = 280, height = 160, hi
             const w = rect.width * scale;
             const h = rect.height * scale;
             const label = obj.label || '';
+            const serviceRoomKind = getServiceRoomKind(label);
             return (
               <Fragment key={obj.id}>
                 <Rect
@@ -115,6 +124,15 @@ export default function FloorPlanThumbnail({ plan, width = 280, height = 160, hi
                   stroke={isHighlighted ? '#2563eb' : (rect.color ?? '#64748b')}
                   strokeWidth={isHighlighted ? 1.5 : 0.8}
                 />
+                {serviceRoomKind === 'stairs' && Array.from({ length: 4 }, (_, index) => (
+                  <Line key={index} points={[x + w * 0.2, y + h * (index + 1) / 6, x + w * 0.8, y + h * (index + 1) / 6]} stroke="#b45309" strokeWidth={Math.max(0.8, scale * 2)} />
+                ))}
+                {serviceRoomKind === 'elevator' && (
+                  <Rect x={x + w * 0.25} y={y + h * 0.18} width={w * 0.5} height={h * 0.5} stroke="#7e22ce" strokeWidth={Math.max(0.8, scale * 2)} />
+                )}
+                {serviceRoomKind === 'bathroom' && (
+                  <Circle x={x + w / 2} y={y + h * 0.34} radius={Math.min(w, h) * 0.12} stroke="#0369a1" strokeWidth={Math.max(0.8, scale * 2)} />
+                )}
                 {w > 24 && h > 14 && label && (
                   <Text
                     x={x + 3}

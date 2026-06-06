@@ -3,7 +3,31 @@ import prisma from '../utils/prisma';
 import { AuthRequest, canAccessDepartment } from '../middleware/auth';
 import { logAudit } from '../utils/audit';
 import { csvToJson, jsonToCsv } from '../utils/csv';
-import { generateStockId, generateMovementNo, generateSku, generateRequestNo, generateImportBatchId } from '../utils/idGenerator';
+import { generateStockId, generateMovementNo, generateSku, generateRequestNo } from '../utils/idGenerator';
+
+function padCsvNumber(n: number): string {
+  return String(n).padStart(6, '0');
+}
+
+function formatCsvRangeId(start: number, end: number): string {
+  return `csv-${padCsvNumber(start)}-${padCsvNumber(end)}`;
+}
+
+async function allocateCsvRange(count: number): Promise<{ csvImportId: string; startNumber: number }> {
+  return prisma.$transaction(async (tx) => {
+    const counter = await tx.importCounter.upsert({
+      where: { name: 'product_csv_import' },
+      create: { name: 'product_csv_import', nextNumber: 1 },
+      update: {},
+    });
+    const startNumber = counter.nextNumber;
+    await tx.importCounter.update({
+      where: { name: 'product_csv_import' },
+      data: { nextNumber: startNumber + count },
+    });
+    return { csvImportId: formatCsvRangeId(startNumber, startNumber + count - 1), startNumber };
+  });
+}
 
 const router = Router();
 
@@ -219,7 +243,12 @@ function applyDataQualityFilter(where: any, dataQuality: string): void {
   const now = new Date();
   const in30 = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
   if (dataQuality === 'missing-location' || dataQuality === 'incomplete') {
-    where.locationId = null;
+    where.AND = [...(where.AND || []), {
+      OR: [
+        { locationId: null },
+        { location: { name: { contains: 'unassigned', mode: 'insensitive' } } },
+      ],
+    }];
   } else if (dataQuality === 'no-threshold') {
     where.lowStockThreshold = 0;
   } else if (dataQuality === 'expiry-expired') {
@@ -259,9 +288,16 @@ function applyProductQueryFilters(base: Record<string, any>, query: Record<strin
   const where: any = { ...base };
   const { search, categoryId, locationId, status, unit, source, csvImportId, stockStatus, departmentId, dataQuality, priceStatus, dateAdded } = query;
   if (departmentId && !base.departmentId) where.departmentId = departmentId;
-  if (search) where.AND = [{ OR: [{ name: { contains: search, mode: 'insensitive' } }, { sku: { contains: search, mode: 'insensitive' } }] }];
+  if (search) where.AND = [...(where.AND || []), { OR: [{ name: { contains: search, mode: 'insensitive' } }, { sku: { contains: search, mode: 'insensitive' } }] }];
   if (categoryId) where.categoryId = categoryId;
-  if (locationId === '__UNASSIGNED__') where.locationId = null;
+  if (locationId === '__UNASSIGNED__') {
+    where.AND = [...(where.AND || []), {
+      OR: [
+        { locationId: null },
+        { location: { name: { contains: 'unassigned', mode: 'insensitive' } } },
+      ],
+    }];
+  }
   else if (locationId) where.locationId = locationId;
   if (status) where.status = status;
   if (unit) where.unit = unit;
@@ -294,16 +330,20 @@ async function verifyLocationAccess(locationId: string | undefined | null, req: 
 
 async function findExistingProduct(row: any) {
   if (row.id) return prisma.product.findUnique({ where: { id: row.id } });
-  if (row.sku) return prisma.product.findFirst({ where: { sku: row.sku } });
-  if (row.name) return prisma.product.findFirst({ where: { name: { equals: row.name, mode: 'insensitive' } } });
   return null;
 }
 
-async function processImportRow(row: any, req: AuthRequest, csvImportId: string): Promise<any> {
+async function processImportRow(row: any, req: AuthRequest, csvImportId: string, assignedId?: string): Promise<any> {
   const locationId = await resolveImportLocationId(row, req);
   const categoryId = await resolveImportCategoryId(row, req);
+  const existing = await findExistingProduct(row);
+  const requestedSku = row.sku?.trim();
+  const duplicateSku = !existing && requestedSku
+    ? await prisma.product.findUnique({ where: { sku: requestedSku }, select: { id: true } })
+    : null;
+  const sku = duplicateSku ? await generateSku() : requestedSku || (existing ? existing.sku : await generateSku());
   const data = {
-    sku: row.sku, name: row.name, description: row.description || null, categoryId, locationId,
+    sku, name: row.name, description: row.description || null, categoryId, locationId,
     departmentId: req.departmentId, unit: row.unit || 'pcs',
     currentStock: Number.parseInt(row.currentStock) || 0,
     lowStockThreshold: Number.parseInt(row.lowStockThreshold) || 10,
@@ -312,10 +352,9 @@ async function processImportRow(row: any, req: AuthRequest, csvImportId: string)
     leadTimeDays: row.leadTimeDays ? Number.parseInt(row.leadTimeDays) : null,
     notes: row.notes || null, source: 'csv_import', csvImportId, pendingApproval: true,
   } as any;
-  const existing = await findExistingProduct(row);
   const product = existing
     ? await prisma.product.update({ where: { id: existing.id }, data })
-    : await prisma.product.create({ data: { ...(row.id ? { id: row.id } : {}), ...data } });
+    : await prisma.product.create({ data: { ...(assignedId ? { id: assignedId } : {}), ...data } });
   const isTransfer = !!existing && !!req.departmentId && existing.departmentId !== req.departmentId;
   if (!existing) {
     await createOpeningStockForProduct(product, data.currentStock, data.locationId, req);
@@ -746,11 +785,12 @@ router.post('/import/csv', async (req: AuthRequest, res: Response, next: NextFun
     const errors = [];
 
     const now = new Date();
-    const csvImportId = await generateImportBatchId();
+    const { csvImportId, startNumber } = await allocateCsvRange(rows.length);
 
     for (let i = 0; i < rows.length; i++) {
+      const assignedId = `csv-${padCsvNumber(startNumber + i)}`;
       try {
-        created.push(await processImportRow(rows[i], req, csvImportId));
+        created.push(await processImportRow(rows[i], req, csvImportId, assignedId));
       } catch (err: any) {
         errors.push({ row: i + 1, error: err.message });
       }

@@ -101,6 +101,8 @@ const TEMPLATE_RULES_PREVIEW: Record<string, {
 type AutoGenerateStatus = {
   type: 'info' | 'success' | 'error';
   message: string;
+  progress?: number;
+  logs?: string[];
 } | null;
 
 type FeedbackState = 'approved' | 'bad_layout' | null;
@@ -136,8 +138,13 @@ export default function FloorPlans() {
   const [autoGenerating, setAutoGenerating] = useState(false);
   const [showAutoGenerateConfirm, setShowAutoGenerateConfirm] = useState(false);
   const [autoGenerateStatus, setAutoGenerateStatus] = useState<AutoGenerateStatus>(null);
-  const [autoGenerateCount, setAutoGenerateCount] = useState(3);
-  const [autoGenerateTemplates, setAutoGenerateTemplates] = useState<string[]>(['Office layout', 'Storage room', 'SCADA control room']);
+  const [autoGenerateCount, setAutoGenerateCount] = useState(1);
+  const [autoGenerateFloorCount, setAutoGenerateFloorCount] = useState(2);
+  const [autoGenerateFloorTemplates, setAutoGenerateFloorTemplates] = useState<string[]>(['Storage room', 'SCADA control room']);
+  const [autoGenerateVerticalAccess, setAutoGenerateVerticalAccess] = useState<'stairs' | 'elevator' | 'both'>('both');
+  const [pairStairsByFloors, setPairStairsByFloors] = useState(true);
+  const [addRooftopFloor, setAddRooftopFloor] = useState(true);
+  const [regenerateOutdoorWalls, setRegenerateOutdoorWalls] = useState(true);
   const [showRulesPreview, setShowRulesPreview] = useState(false);
 
   // Per-plan feedback state: planId -> feedback value
@@ -146,7 +153,6 @@ export default function FloorPlans() {
   // Per-plan regenerating state
   const [regeneratingId, setRegeneratingId] = useState<string | null>(null);
   // Per-plan saving-as-template state
-  const [savingTemplateId, setSavingTemplateId] = useState<string | null>(null);
 
   const fetchFloorPlans = async () => {
     try {
@@ -251,38 +257,103 @@ export default function FloorPlans() {
     try {
       setShowAutoGenerateConfirm(false);
       setAutoGenerating(true);
-      setAutoGenerateStatus({ type: 'info', message: 'Applying template rules and relationship constraints...' });
+      setAutoGenerateStatus({
+        type: 'info',
+        message: 'Generating floor-plan objects...',
+        progress: 15,
+        logs: ['Started generation', 'Applying template rules and relationships'],
+      });
       const response = await floorPlansApi.autoGenerate({
         count: autoGenerateCount,
-        templates: autoGenerateTemplates,
+        floorCount: autoGenerateFloorCount,
+        floorTemplates: autoGenerateFloorTemplates,
+        verticalAccess: autoGenerateVerticalAccess,
+        pairStairsByFloors,
+        addRooftopFloor,
+        regenerateOutdoorWalls,
         ...(user.role === 'superadmin' ? { departmentId: selectedDepartmentId } : {}),
       });
-      setAutoGenerateStatus({ type: 'info', message: 'Validating and scoring generated layouts...' });
+      setAutoGenerateStatus({
+        type: 'info',
+        message: 'Checking object fit and layout issues...',
+        progress: 70,
+        logs: ['Generated all requested floors', 'Fitted indoor objects inside walls', 'Validating layouts'],
+      });
       await wait(700);
+      setAutoGenerateStatus({
+        type: 'info',
+        message: 'Saving validated floor plans...',
+        progress: 90,
+        logs: ['Generated all requested floors', 'Fitted indoor objects inside walls', 'Validation completed', 'Refreshing floor-plan list'],
+      });
       await fetchFloorPlans();
-      setAutoGenerateStatus({ type: 'success', message: response.data.message || 'Floor plans generated.' });
+      setAutoGenerateStatus({
+        type: 'success',
+        message: response.data.message || 'Floor plans generated.',
+        progress: 100,
+        logs: ['Generated all requested floors', 'Fitted indoor objects inside walls', 'Validation completed', 'No unresolved generation issues'],
+      });
       window.setTimeout(() => setAutoGenerateStatus(null), 5000);
     } catch (error: any) {
-      setAutoGenerateStatus({ type: 'error', message: error.response?.data?.error || 'Failed to auto-generate floor plans.' });
+      if (error.response?.data?.requiresMoreFloors) {
+        const suggestedTemplates = error.response.data.suggestedFloorTemplates as string[];
+        setAutoGenerateFloorCount(error.response.data.suggestedFloorCount);
+        setAutoGenerateFloorTemplates(suggestedTemplates);
+        setShowAutoGenerateConfirm(true);
+        setAutoGenerateStatus({
+          type: 'error',
+          message: error.response.data.error,
+          progress: 100,
+          logs: [
+            `${error.response.data.overflowCount} locations would overflow`,
+            `Suggested ${error.response.data.suggestedFloorCount} floors`,
+            'Generation paused until the floor recommendation is reviewed',
+          ],
+        });
+        return;
+      }
+      setAutoGenerateStatus({
+        type: 'error',
+        message: error.response?.data?.error || 'Failed to auto-generate floor plans.',
+        progress: 100,
+        logs: ['Generation stopped because an issue remains'],
+      });
     } finally {
       setAutoGenerating(false);
     }
   };
 
-  const handleFeedback = async (planId: string, feedback: 'approved' | 'bad_layout') => {
-    try {
-      await floorPlansApi.feedback(planId, { feedback });
-      setPlanFeedback(prev => ({ ...prev, [planId]: feedback }));
-      if (feedback === 'approved') {
-        setFloorPlans(prev => prev.map(p => p.id === planId ? { ...p, isApproved: true } : p));
-      }
-    } catch { }
-  };
-
   const handleRegenerate = async (planId: string) => {
     try {
       setRegeneratingId(planId);
-      const response = await floorPlansApi.regenerate(planId);
+      setAutoGenerateStatus({
+        type: 'info',
+        message: regenerateOutdoorWalls ? 'Regenerating indoor and outdoor layouts...' : 'Keeping outdoor walls fixed and fitting indoor layouts...',
+        progress: 25,
+        logs: ['Started regeneration', regenerateOutdoorWalls ? 'Rebuilding outdoor walls' : 'Preserving outdoor walls'],
+      });
+      const response = await floorPlansApi.regenerate(planId, { regenerateOutdoorWalls, pairStairsByFloors });
+      setAutoGenerateStatus({
+        type: 'info',
+        message: 'Checking fit and resolving layout issues...',
+        progress: 80,
+        logs: ['Regenerated requested floors', 'Fitted room, rack, and shelf objects', 'Validating layouts'],
+      });
+      if (Array.isArray(response.data.regenerated)) {
+        await fetchFloorPlans();
+        setAutoGenerateStatus({
+          type: 'success',
+          message: response.data.message,
+          progress: 100,
+          logs: ['Regenerated all building floors', 'Fit checks completed', 'No unresolved regeneration issues'],
+        });
+        setPlanFeedback(prev => {
+          const next = { ...prev };
+          response.data.regenerated.forEach((plan: FloorPlan) => { next[plan.id] = null; });
+          return next;
+        });
+        return;
+      }
       const rawObjects = response.data.objects || [];
       const { objects: fixedObjects, fixedCount } = applyAutoFixes(rawObjects);
       const finalObjects = fixedCount > 0 ? fixedObjects : rawObjects;
@@ -307,27 +378,39 @@ export default function FloorPlans() {
         : p
       ));
       setPlanFeedback(prev => ({ ...prev, [planId]: null }));
+      setAutoGenerateStatus({
+        type: 'success',
+        message: response.data.message || 'Floor plan regenerated.',
+        progress: 100,
+        logs: ['Regenerated floor plan', 'Fit checks completed', 'No unresolved regeneration issues'],
+      });
     } catch (error: any) {
+      if (error.response?.data?.requiresMoreFloors) {
+        const suggestedTemplates = error.response.data.suggestedFloorTemplates as string[];
+        setAutoGenerateFloorCount(error.response.data.suggestedFloorCount);
+        setAutoGenerateFloorTemplates(suggestedTemplates);
+        setShowAutoGenerateConfirm(true);
+        setAutoGenerateStatus({
+          type: 'error',
+          message: error.response.data.error,
+          progress: 100,
+          logs: [
+            `${error.response.data.overflowCount} locations would overflow`,
+            `Suggested ${error.response.data.suggestedFloorCount} floors per building`,
+            'Regeneration paused until the floor recommendation is reviewed',
+          ],
+        });
+        return;
+      }
+      setAutoGenerateStatus({
+        type: 'error',
+        message: error.response?.data?.error || 'Failed to regenerate floor plan',
+        progress: 100,
+        logs: ['Regeneration stopped because an issue remains'],
+      });
       alert(error.response?.data?.error || 'Failed to regenerate floor plan');
     } finally {
       setRegeneratingId(null);
-    }
-  };
-
-  const handleSaveAsTemplate = async (plan: FloorPlan) => {
-    try {
-      setSavingTemplateId(plan.id);
-      await floorPlansApi.update(plan.id, {
-        name: plan.name,
-        width: plan.width,
-        height: plan.height,
-        objects: plan.objects,
-        isTemplate: true,
-      });
-      setFloorPlans(prev => prev.map(p => p.id === plan.id ? { ...p, isTemplate: true } : p));
-    } catch {
-    } finally {
-      setSavingTemplateId(null);
     }
   };
 
@@ -355,7 +438,7 @@ export default function FloorPlans() {
   };
 
   // Rules preview for selected templates
-  const selectedRules = autoGenerateTemplates.map(t => ({ name: t, rules: TEMPLATE_RULES_PREVIEW[t] })).filter(r => r.rules);
+  const selectedRules = [...new Set(autoGenerateFloorTemplates)].map(t => ({ name: t, rules: TEMPLATE_RULES_PREVIEW[t] })).filter(r => r.rules);
 
   if (loading) return <div className="text-center py-12 text-[var(--text-muted)]">Loading...</div>;
   if (locationId && locationLookupFailed) {
@@ -412,6 +495,24 @@ export default function FloorPlans() {
             )}
             <p className="text-sm font-medium">{autoGenerateStatus.message}</p>
           </div>
+          {autoGenerateStatus.progress !== undefined && (
+            <div className="mt-3">
+              <div className="h-2 overflow-hidden rounded-full bg-[var(--surface-2)]">
+                <div
+                  className={`h-full transition-all duration-500 ${autoGenerateStatus.type === 'error' ? 'bg-red-500' : autoGenerateStatus.type === 'success' ? 'bg-green-500' : 'bg-[var(--primary)]'}`}
+                  style={{ width: `${autoGenerateStatus.progress}%` }}
+                />
+              </div>
+              <div className="mt-2 space-y-1">
+                {autoGenerateStatus.logs?.map((log, index) => (
+                  <div key={`${log}-${index}`} className="flex items-center gap-2 text-xs opacity-80">
+                    <span>{index === (autoGenerateStatus.logs?.length ?? 1) - 1 && autoGenerateStatus.type === 'info' ? '...' : 'OK'}</span>
+                    <span>{log}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -425,9 +526,9 @@ export default function FloorPlans() {
                 Applies template rules, room relationships, and validation scoring. Replaces existing auto-generated plans for this department.
               </p>
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-[180px_1fr] gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <label className="block text-xs font-medium text-[var(--text-muted)] mb-1">How many</label>
+                <label className="block text-xs font-medium text-[var(--text-muted)] mb-1">How many buildings</label>
                 <input
                   type="number"
                   min={1}
@@ -438,28 +539,106 @@ export default function FloorPlans() {
                 />
               </div>
               <div>
-                <p className="text-xs font-medium text-[var(--text-muted)] mb-2">Templates</p>
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-                  {AUTO_GENERATE_TEMPLATES.map(template => (
-                    <label key={template} className="flex items-center gap-2 text-sm text-[var(--text)] bg-[var(--surface-2)] border border-[var(--border)] rounded px-3 py-2 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={autoGenerateTemplates.includes(template)}
-                        onChange={e => {
-                          setAutoGenerateTemplates(current => e.target.checked
-                            ? [...current, template]
-                            : current.filter(item => item !== template));
-                        }}
-                      />
-                      <span>{template}</span>
-                    </label>
-                  ))}
-                </div>
+                <label className="block text-xs font-medium text-[var(--text-muted)] mb-1">How many floors per building</label>
+                <input
+                  type="number"
+                  min={1}
+                  max={12}
+                  value={autoGenerateFloorCount}
+                  onChange={e => {
+                    const count = Math.max(1, Math.min(12, Number(e.target.value) || 1));
+                    setAutoGenerateFloorCount(count);
+                    setAutoGenerateFloorTemplates(current => Array.from(
+                      { length: count },
+                      (_, index) => current[index] || AUTO_GENERATE_TEMPLATES[index % AUTO_GENERATE_TEMPLATES.length],
+                    ));
+                  }}
+                  className="w-full px-3 py-2 border border-[var(--border)] rounded text-sm bg-[var(--surface)] text-[var(--text)]"
+                />
               </div>
             </div>
 
+            <div>
+              <label className="block text-xs font-medium text-[var(--text-muted)] mb-1">Vertical access (required)</label>
+              <select
+                value={autoGenerateVerticalAccess}
+                onChange={e => setAutoGenerateVerticalAccess(e.target.value as 'stairs' | 'elevator' | 'both')}
+                className="w-full px-3 py-2 border border-[var(--border)] rounded text-sm bg-[var(--surface)] text-[var(--text)]"
+              >
+                <option value="stairs">Stairs</option>
+                <option value="elevator">Elevator</option>
+                <option value="both">Both stairs and elevator</option>
+              </select>
+              <p className="mt-2 text-xs text-[var(--text-muted)]">Elevators use one fixed 2.00 m by 2.00 m shaft in the same location on every floor. Every floor receives one shared Restroom or a grouped Male/Female restroom pair.</p>
+            </div>
+
+            <label className={`flex items-start gap-3 text-sm text-[var(--text)] bg-[var(--surface-2)] border border-[var(--border)] rounded px-3 py-3 ${autoGenerateVerticalAccess === 'elevator' ? 'opacity-50' : ''}`}>
+              <input
+                type="checkbox"
+                checked={pairStairsByFloors}
+                disabled={autoGenerateVerticalAccess === 'elevator'}
+                onChange={e => setPairStairsByFloors(e.target.checked)}
+                className="mt-0.5"
+              />
+              <span>
+                <span className="block font-medium">Pair stairs by floors</span>
+                <span className="block mt-1 text-xs text-[var(--text-muted)]">
+                  Checked: Floors 1-2, 3-4, and 5-6 share stair positions. An unpaired odd floor connects to the rooftop. Unchecked: Floor 1 stairs are reused on every floor.
+                </span>
+              </span>
+            </label>
+
+            <label className="flex items-start gap-3 text-sm text-[var(--text)] bg-[var(--surface-2)] border border-[var(--border)] rounded px-3 py-3">
+              <input
+                type="checkbox"
+                checked={addRooftopFloor}
+                onChange={e => setAddRooftopFloor(e.target.checked)}
+                className="mt-0.5"
+              />
+              <span>
+                <span className="block font-medium">Add rooftop floor</span>
+                <span className="block mt-1 text-xs text-[var(--text-muted)]">
+                  Adds a location-free rooftop after the requested floors. Stairs use a fixed 2.00 m by 2.00 m space.
+                </span>
+              </span>
+            </label>
+
+            <label className="flex items-start gap-3 text-sm text-[var(--text)] bg-[var(--surface-2)] border border-[var(--border)] rounded px-3 py-3">
+              <input
+                type="checkbox"
+                checked={regenerateOutdoorWalls}
+                onChange={e => setRegenerateOutdoorWalls(e.target.checked)}
+                className="mt-0.5"
+              />
+              <span>
+                <span className="block font-medium">Regenerate outdoor walls</span>
+                <span className="block mt-1 text-xs text-[var(--text-muted)]">
+                  Uncheck to keep outdoor walls fixed when regenerating and randomize only indoor objects.
+                </span>
+              </span>
+            </label>
+
+            <div>
+              <p className="text-xs font-medium text-[var(--text-muted)] mb-2">Template for each floor</p>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                {autoGenerateFloorTemplates.map((template, index) => (
+                  <label key={index} className="flex items-center gap-3 text-sm text-[var(--text)] bg-[var(--surface-2)] border border-[var(--border)] rounded px-3 py-2">
+                    <span className="font-medium min-w-16">Floor {index + 1}</span>
+                    <select
+                      value={template}
+                      onChange={e => setAutoGenerateFloorTemplates(current => current.map((item, itemIndex) => itemIndex === index ? e.target.value : item))}
+                      className="flex-1 px-3 py-2 border border-[var(--border)] rounded text-sm bg-[var(--surface)] text-[var(--text)]"
+                    >
+                      {AUTO_GENERATE_TEMPLATES.map(option => <option key={option} value={option}>{option}</option>)}
+                    </select>
+                  </label>
+                ))}
+              </div>
+              <p className="mt-2 text-xs text-[var(--text-muted)]">Floor 1 defines the outdoor-wall shape. Every next floor in the building uses the same outdoor-wall shape.</p>
+            </div>
+
             {/* Rules Preview */}
-            {autoGenerateTemplates.length > 0 && (
+            {autoGenerateFloorTemplates.length > 0 && (
               <div className="border border-[var(--border)] rounded-lg overflow-hidden">
                 <button
                   type="button"
@@ -684,7 +863,10 @@ export default function FloorPlans() {
             const isApproved = feedback === 'approved' || plan.isApproved;
             const isTemplate = plan.isTemplate;
             const isRegenerating = regeneratingId === plan.id;
-            const isSavingTemplate = savingTemplateId === plan.id;
+            const canRegeneratePlan = isAutoGenerated && (
+              !/ - Building \d+ - Floor \d+ - /.test(plan.name)
+              || / - Building \d+ - Floor 1 - /.test(plan.name)
+            );
             const validation = isAutoGenerated ? validateFloorplanObjects(plan.objects || []) : null;
 
             return (
@@ -758,13 +940,15 @@ export default function FloorPlans() {
                             title="Edit">
                             <Edit size={10} /> Edit
                           </button>
-                          <button
-                            onClick={() => handleRegenerate(plan.id)}
-                            disabled={isRegenerating}
-                            className="px-1 py-0.5 bg-[var(--surface-2)] text-[var(--text)] text-xs rounded hover:bg-[var(--border)] disabled:opacity-50"
-                            title="Regenerate">
-                            <RefreshCw size={10} className={isRegenerating ? 'animate-spin' : ''} />
-                          </button>
+                          {canRegeneratePlan && (
+                            <button
+                              onClick={() => handleRegenerate(plan.id)}
+                              disabled={isRegenerating}
+                              className="px-1 py-0.5 bg-[var(--surface-2)] text-[var(--text)] text-xs rounded hover:bg-[var(--border)] disabled:opacity-50"
+                              title="Regenerate all building floors">
+                              <RefreshCw size={10} className={isRegenerating ? 'animate-spin' : ''} />
+                            </button>
+                          )}
                           <button onClick={() => setConfirmingDeleteId(plan.id)}
                             className="px-1 py-0.5 bg-red-50 text-red-600 text-xs rounded hover:bg-red-100"
                             title="Delete">
@@ -832,6 +1016,10 @@ export default function FloorPlans() {
                   const isApproved = feedback === 'approved' || plan.isApproved;
                   const isTemplate = plan.isTemplate;
                   const isRegenerating = regeneratingId === plan.id;
+                  const canRegeneratePlan = isAutoGenerated && (
+                    !/ - Building \d+ - Floor \d+ - /.test(plan.name)
+                    || / - Building \d+ - Floor 1 - /.test(plan.name)
+                  );
 
                   return (
                     <tr key={plan.id} className="hover:bg-[var(--surface-2)] transition-colors">
@@ -877,12 +1065,12 @@ export default function FloorPlans() {
                             </span>
                           ) : (
                             <span className="inline-flex gap-2 items-center">
-                              {isAutoGenerated && (
+                              {canRegeneratePlan && (
                                 <button
                                   onClick={() => handleRegenerate(plan.id)}
                                   disabled={isRegenerating}
                                   className="text-[var(--text-muted)] hover:text-[var(--text)] disabled:opacity-50"
-                                  title="Regenerate">
+                                  title="Regenerate all building floors">
                                   <RefreshCw size={16} className={isRegenerating ? 'animate-spin' : ''} />
                                 </button>
                               )}

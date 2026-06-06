@@ -505,6 +505,11 @@ model ImportRequest {
   @@index([departmentId])
 }
 
+model ImportCounter {
+  name       String @id
+  nextNumber Int    @default(1)
+}
+
 model ExportRequest {
   id              String      @id @default(cuid())
   type            String      // products, categories, locations, unified

@@ -54,7 +54,7 @@ app.use(cookieParser());
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
-app.use('/api/auth', authLimiter, authRoutes);
+app.use('/api/auth', authRoutes);
 app.use('/api/invites', authLimiter, invitesRoutes);
 
 app.use('/api/products', authMiddleware, requireDepartmentScopedWriteAccess, productsRoutes);

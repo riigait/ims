@@ -35,7 +35,25 @@ const DEFAULT_RECT_FILL: Record<string, string> = {
   room:  'rgba(224,224,224,0.5)',
   rack:  'rgba(255,235,59,0.5)',
   shelf: 'rgba(144,202,249,0.5)',
+  stairs: '#fef3c7',
+  elevator: '#e9d5ff',
+  bathroom: '#dbeafe',
 };
+
+const RECT_DRAWING_TOOLS = ['room', 'rack', 'shelf', 'stairs', 'elevator', 'bathroom'];
+const ROOM_PRESET_LABELS: Record<string, string> = {
+  stairs: 'Stairs',
+  elevator: 'Elevator',
+  bathroom: 'Restroom',
+};
+
+function getServiceRoomKind(label?: string): 'stairs' | 'elevator' | 'bathroom' | null {
+  const normalized = label?.toLowerCase() ?? '';
+  if (normalized.startsWith('stairs')) return 'stairs';
+  if (normalized.startsWith('elevator')) return 'elevator';
+  if (normalized.includes('bathroom') || normalized.includes('restroom')) return 'bathroom';
+  return null;
+}
 
 export default function FloorPlanEditor() {
   const { id } = useParams<{ id: string }>();
@@ -379,7 +397,7 @@ export default function FloorPlanEditor() {
 
 
     // Live drawing preview
-    const drawingTools = ['wall', 'room', 'rack', 'shelf', 'door', 'window', 'entrance'];
+    const drawingTools = ['wall', ...RECT_DRAWING_TOOLS, 'door', 'window', 'entrance'];
     if (startPos && currentMousePos && drawingTools.includes(editorState.tool)) {
       ctx.save();
       ctx.setLineDash([6, 4]);
@@ -391,7 +409,7 @@ export default function FloorPlanEditor() {
         ctx.moveTo(startPos.x, startPos.y);
         ctx.lineTo(currentMousePos.x, currentMousePos.y);
         ctx.stroke();
-      } else if (['room', 'rack', 'shelf'].includes(editorState.tool)) {
+      } else if (RECT_DRAWING_TOOLS.includes(editorState.tool)) {
         ctx.fillStyle = DEFAULT_RECT_FILL[editorState.tool] ?? 'rgba(200,200,200,0.4)';
         ctx.strokeStyle = '#475569';
         ctx.lineWidth = 1.5;
@@ -691,6 +709,38 @@ export default function FloorPlanEditor() {
     ctx.strokeStyle = strokeColor;
     ctx.lineWidth = isSelected ? 2.5 : 1.5;
     ctx.strokeRect(rect.x, rect.y, rect.width, rect.height);
+
+    const serviceRoomKind = getServiceRoomKind(obj.label);
+    if (serviceRoomKind) {
+      ctx.save();
+      ctx.strokeStyle = serviceRoomKind === 'stairs' ? '#b45309' : serviceRoomKind === 'elevator' ? '#7e22ce' : '#0369a1';
+      ctx.lineWidth = 2;
+      if (serviceRoomKind === 'stairs') {
+        for (let step = 1; step <= 5; step++) {
+          const y = rect.y + (rect.height * step) / 7;
+          ctx.beginPath();
+          ctx.moveTo(rect.x + rect.width * 0.2, y);
+          ctx.lineTo(rect.x + rect.width * 0.8, y);
+          ctx.stroke();
+        }
+      } else if (serviceRoomKind === 'elevator') {
+        ctx.strokeRect(rect.x + rect.width * 0.25, rect.y + rect.height * 0.18, rect.width * 0.5, rect.height * 0.5);
+        ctx.beginPath();
+        ctx.moveTo(rect.x + rect.width * 0.4, rect.y + rect.height * 0.48);
+        ctx.lineTo(rect.x + rect.width * 0.4, rect.y + rect.height * 0.3);
+        ctx.lineTo(rect.x + rect.width * 0.34, rect.y + rect.height * 0.37);
+        ctx.moveTo(rect.x + rect.width * 0.6, rect.y + rect.height * 0.3);
+        ctx.lineTo(rect.x + rect.width * 0.6, rect.y + rect.height * 0.48);
+        ctx.lineTo(rect.x + rect.width * 0.54, rect.y + rect.height * 0.41);
+        ctx.stroke();
+      } else {
+        ctx.beginPath();
+        ctx.arc(rect.x + rect.width / 2, rect.y + rect.height * 0.34, Math.min(rect.width, rect.height) * 0.12, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.strokeRect(rect.x + rect.width * 0.34, rect.y + rect.height * 0.48, rect.width * 0.32, rect.height * 0.16);
+      }
+      ctx.restore();
+    }
 
     // Draw location name + product count inside the object
     if (linkedId) {
@@ -1293,7 +1343,7 @@ export default function FloorPlanEditor() {
     } else if (editorState.tool === 'delete') {
       const objId = getObjectAtPoint(pos.x, pos.y);
       if (objId) { deleteObject(objId); setSelectedObject(null); useFloorPlanStore.getState().pushHistory(); }
-    } else if (['wall', 'room', 'rack', 'shelf', 'door', 'window', 'entrance'].includes(editorState.tool)) {
+    } else if (['wall', ...RECT_DRAWING_TOOLS, 'door', 'window', 'entrance'].includes(editorState.tool)) {
       (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
       setStartPos(pos); setCurrentMousePos(pos);
     } else if (editorState.tool === 'label') {
@@ -1535,13 +1585,13 @@ export default function FloorPlanEditor() {
     } else if (isDragging) {
       setIsDragging(false); setDragStart(null); setDragSnapshot(null); dragSnapshotsRef.current = [];
     } else if (startPos) {
-      const colorMap: Record<string, string> = { room: '#e0e0e0', rack: '#ffeb3b', shelf: '#90caf9' };
       const snappedPos = pos;
 
       if (editorState.tool === 'wall' && Math.abs(pos.x - startPos.x) + Math.abs(pos.y - startPos.y) > 10) {
         addObject({ id: 'wall_' + Date.now(), type: 'wall', startX: startPos.x, startY: startPos.y, endX: snappedPos.x, endY: snappedPos.y, thickness: 8, color: '#1e293b' } as WallObject);
-      } else if (['room', 'rack', 'shelf'].includes(editorState.tool) && Math.abs(pos.x - startPos.x) > 10 && Math.abs(pos.y - startPos.y) > 10) {
-        addObject({ id: `${editorState.tool}_${Date.now()}`, type: editorState.tool as 'room' | 'rack' | 'shelf', x: Math.min(startPos.x, pos.x), y: Math.min(startPos.y, pos.y), width: Math.abs(pos.x - startPos.x), height: Math.abs(pos.y - startPos.y), rotation: 0, color: colorMap[editorState.tool] } as RectangleObject);
+      } else if (RECT_DRAWING_TOOLS.includes(editorState.tool) && Math.abs(pos.x - startPos.x) > 10 && Math.abs(pos.y - startPos.y) > 10) {
+        const presetLabel = ROOM_PRESET_LABELS[editorState.tool];
+        addObject({ id: `${editorState.tool}_${Date.now()}`, type: presetLabel ? 'room' : editorState.tool as 'room' | 'rack' | 'shelf', x: Math.min(startPos.x, pos.x), y: Math.min(startPos.y, pos.y), width: Math.abs(pos.x - startPos.x), height: Math.abs(pos.y - startPos.y), rotation: 0, label: presetLabel, color: DEFAULT_RECT_FILL[editorState.tool] } as RectangleObject);
       } else if (editorState.tool === 'door' && Math.abs(pos.x - startPos.x) + Math.abs(pos.y - startPos.y) > 10) {
         const nearestWall = getWallAtPoint(startPos.x, startPos.y);
         if (nearestWall) {
@@ -1828,6 +1878,7 @@ export default function FloorPlanEditor() {
     const strokeColor = isSelected ? '#2563eb' : (rect.color ?? colors.stroke);
     const label = linkedId ? (locationsMap.get(linkedId)?.name ?? 'Linked') : (obj.label || obj.type);
     const fontSize = Math.min(12, Math.max(8, rect.height / 4));
+    const serviceRoomKind = getServiceRoomKind(obj.label);
 
     return (
       <Group key={obj.id}>
@@ -1840,6 +1891,27 @@ export default function FloorPlanEditor() {
           stroke={strokeColor}
           strokeWidth={isSelected ? 2.5 : 1.5}
         />
+        {serviceRoomKind === 'stairs' && Array.from({ length: 5 }, (_, index) => (
+          <Line
+            key={`stair-${index}`}
+            points={[rect.x + rect.width * 0.2, rect.y + rect.height * (index + 1) / 7, rect.x + rect.width * 0.8, rect.y + rect.height * (index + 1) / 7]}
+            stroke="#b45309"
+            strokeWidth={2}
+          />
+        ))}
+        {serviceRoomKind === 'elevator' && (
+          <>
+            <KonvaRect x={rect.x + rect.width * 0.25} y={rect.y + rect.height * 0.18} width={rect.width * 0.5} height={rect.height * 0.5} stroke="#7e22ce" strokeWidth={2} />
+            <Line points={[rect.x + rect.width * 0.4, rect.y + rect.height * 0.48, rect.x + rect.width * 0.4, rect.y + rect.height * 0.3, rect.x + rect.width * 0.34, rect.y + rect.height * 0.37]} stroke="#7e22ce" strokeWidth={2} />
+            <Line points={[rect.x + rect.width * 0.6, rect.y + rect.height * 0.3, rect.x + rect.width * 0.6, rect.y + rect.height * 0.48, rect.x + rect.width * 0.54, rect.y + rect.height * 0.41]} stroke="#7e22ce" strokeWidth={2} />
+          </>
+        )}
+        {serviceRoomKind === 'bathroom' && (
+          <>
+            <Circle x={rect.x + rect.width / 2} y={rect.y + rect.height * 0.34} radius={Math.min(rect.width, rect.height) * 0.12} stroke="#0369a1" strokeWidth={2} />
+            <KonvaRect x={rect.x + rect.width * 0.34} y={rect.y + rect.height * 0.48} width={rect.width * 0.32} height={rect.height * 0.16} stroke="#0369a1" strokeWidth={2} />
+          </>
+        )}
         <KonvaText
           x={rect.x + 4}
           y={rect.y + rect.height / 2 - fontSize}
@@ -1903,7 +1975,7 @@ export default function FloorPlanEditor() {
       return <Line points={[startPos.x, startPos.y, currentMousePos.x, currentMousePos.y]} stroke="#334155" strokeWidth={8} dash={[6, 4]} opacity={0.55} lineCap="round" />;
     }
 
-    if (editorState.tool === 'room' || editorState.tool === 'rack' || editorState.tool === 'shelf') {
+    if (RECT_DRAWING_TOOLS.includes(editorState.tool)) {
       const x = Math.min(startPos.x, currentMousePos.x);
       const y = Math.min(startPos.y, currentMousePos.y);
       const width = Math.abs(currentMousePos.x - startPos.x);
@@ -2066,6 +2138,9 @@ export default function FloorPlanEditor() {
               { tool: 'room',  icon: <Square size={18} />,  title: 'Room/Area' },
               { tool: 'rack',  icon: <Box size={18} />,     title: 'Rack' },
               { tool: 'shelf', icon: <Package size={18} />, title: 'Shelf' },
+              { tool: 'stairs', icon: <Square size={18} />, title: 'Stairs' },
+              { tool: 'elevator', icon: <Square size={18} />, title: 'Elevator' },
+              { tool: 'bathroom', icon: <Square size={18} />, title: 'Restroom' },
               { tool: 'label', icon: <Type size={18} />,    title: 'Label' },
               { tool: 'door',  icon: <DoorOpen size={18} />, title: 'Door' },
               { tool: 'window', icon: <Grid2x2 size={18} />, title: 'Window' },

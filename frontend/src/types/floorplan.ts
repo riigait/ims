@@ -54,6 +54,7 @@ export interface WindowObject extends BaseFloorPlanObject {
   x: number;
   y: number;
   width: number;
+  height?: number;
   angle: number;
   color?: string;
 }
@@ -98,7 +99,7 @@ export interface FloorPlan {
 // Editor state
 export interface FloorPlanEditorState {
   selectedObjectId: string | null;
-  tool: 'select' | 'wall' | 'room' | 'rack' | 'shelf' | 'label' | 'door' | 'window' | 'entrance' | 'marker' | 'delete';
+  tool: 'select' | 'wall' | 'room' | 'rack' | 'shelf' | 'stairs' | 'elevator' | 'bathroom' | 'label' | 'door' | 'window' | 'entrance' | 'marker' | 'delete';
   zoomLevel: number;
   panX: number;
   panY: number;
