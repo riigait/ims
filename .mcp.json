@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "openai": {
+      "command": "npx",
+      "args": ["-y", "@openai/mcp-server-openai"],
+      "env": {
+        "OPENAI_API_KEY": "${OPENAI_API_KEY}"
+      }
+    }
+  }
+}
