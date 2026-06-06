@@ -14,9 +14,15 @@
   "jest": {
     "preset": "ts-jest",
     "testEnvironment": "node",
-    "roots": ["<rootDir>/src"],
-    "testMatch": ["**/__tests__/**/*.test.ts"],
-    "setupFiles": ["<rootDir>/src/__tests__/setup.ts"]
+    "roots": [
+      "<rootDir>/src"
+    ],
+    "testMatch": [
+      "**/__tests__/**/*.test.ts"
+    ],
+    "setupFiles": [
+      "<rootDir>/src/__tests__/setup.ts"
+    ]
   },
   "dependencies": {
     "@prisma/client": "^5.4.2",
@@ -25,6 +31,7 @@
     "csv-parse": "^6.2.1",
     "dotenv": "^16.3.1",
     "express": "^4.18.2",
+    "express-rate-limit": "^8.5.2",
     "json2csv": "^6.0.0-alpha.2",
     "jsonwebtoken": "^9.0.2"
   },

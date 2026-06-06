@@ -3,6 +3,7 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
 import prisma from '../utils/prisma';
+import { passwordLimiter } from '../middleware/rateLimiter';
 import { authMiddleware, AuthRequest, getJwtSecret } from '../middleware/auth';
 import { validatePassword } from '../utils/passwordPolicy';
 
@@ -242,7 +243,7 @@ router.post('/change-password', authMiddleware, async (req: AuthRequest, res: Re
 });
 
 // Reset user password — superadmin only (set temporary password)
-router.post('/reset-password/:userId', authMiddleware, async (req: AuthRequest, res: Response, next: NextFunction) => {
+router.post('/reset-password/:userId', passwordLimiter, authMiddleware, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const requester = await prisma.user.findUnique({ where: { id: req.userId } });
     if (!requester || requester.role !== 'superadmin') {

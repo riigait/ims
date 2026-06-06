@@ -1,6 +1,7 @@
 import express, { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
 import { authMiddleware, requireDepartmentScopedWriteAccess, requireSpecificDepartmentForWrite } from './middleware/auth';
+import { authLimiter, passwordLimiter, dangerLimiter } from './middleware/rateLimiter';
 import authRoutes from './routes/auth';
 import productsRoutes from './routes/products';
 import categoriesRoutes from './routes/categories';
@@ -36,8 +37,8 @@ app.use(cors({ origin: allowedOrigins, credentials: true }));
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
-app.use('/api/auth', authRoutes);
-app.use('/api/invites', invitesRoutes);
+app.use('/api/auth', authLimiter, authRoutes);
+app.use('/api/invites', authLimiter, invitesRoutes);
 
 app.use('/api/products', authMiddleware, requireDepartmentScopedWriteAccess, productsRoutes);
 app.use('/api/categories', authMiddleware, requireDepartmentScopedWriteAccess, categoriesRoutes);
@@ -56,7 +57,7 @@ app.use('/api/notifications', authMiddleware, notificationsRoutes);
 app.use('/api/admin-departments', authMiddleware, adminDepartmentsRoutes);
 app.use('/api/staff-departments', authMiddleware, staffDepartmentsRoutes);
 app.use('/api/password-requests', authMiddleware, passwordRequestsRoutes);
-app.use('/api/settings', authMiddleware, settingsRoutes);
+app.use('/api/settings', authMiddleware, dangerLimiter, settingsRoutes);
 app.use('/api/import-requests', authMiddleware, importRequestsRoutes);
 app.use('/api/verify-requests', authMiddleware, verifyRequestsRoutes);
 app.use('/api/map', authMiddleware, mapRoutes);
