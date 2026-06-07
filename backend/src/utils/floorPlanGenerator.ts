@@ -219,6 +219,7 @@ type GenerationOptions = {
   verticalAccess?: 'stairs' | 'elevator' | 'both';
   totalFloors?: number;
   maxLayoutWidth?: number;
+  maxLayoutHeight?: number;
 };
 
 // ─── Internal helpers ──────────────────────────────────────────────────────────
@@ -438,6 +439,7 @@ function expandAndReflow(
   grouped: Map<string, Array<{ id: string; name: string }>>,
   variant: LayoutVariant,
   maxWidth?: number,
+  maxHeight?: number,
 ): { zones: RoomZone[]; outerBottomY: number; topRow: RowBox; botRow: RowBox | null } {
   const isTop = (z: RoomZone) => z.y < ROW_SPLIT_Y;
   const groupedRestroomSizes = new Map<string, { w: number; h: number }>();
@@ -475,10 +477,17 @@ function expandAndReflow(
     const unitGap = 24;
     const unitWidth = unit.reduce((width, zone) => width + zone.w, 0) + unitGap * (unit.length - 1);
     if (cursorX > startX && cursorX + unitWidth > startX + targetRowWidth) {
-      cursorY += rowHeight + randomInt(variant.rowGap, variant.rowGap + 16);
-      cursorX = startX + randomInt(0, Math.max(variant.bottomRowOffset, variant.rowStagger * 2));
-      rowHeight = 0;
-      rowIndex++;
+      // Don't start a new row if it would push outerBottomY past the shared wall height.
+      const nextCursorY = cursorY + rowHeight + variant.rowGap + 16;
+      const estimatedNextH = Math.max(...unit.map(z => z.h));
+      const wouldOverflow = maxHeight !== undefined
+        && nextCursorY + estimatedNextH + variant.bottomPad > OUTER_TOP_Y + maxHeight;
+      if (!wouldOverflow) {
+        cursorY += rowHeight + randomInt(variant.rowGap, variant.rowGap + 16);
+        cursorX = startX + randomInt(0, Math.max(variant.bottomRowOffset, variant.rowStagger * 2));
+        rowHeight = 0;
+        rowIndex++;
+      }
     }
 
     const yOffset = randomInt(0, variant.rowStagger * 2);
@@ -882,7 +891,7 @@ function buildValidatedLayoutFloorPlan(floorLabel: string, locations: Array<{ id
   });
 
   // 2. Expand zone heights (capped at 2× default) + reflow positions
-  const { zones: reflowed, outerBottomY } = expandAndReflow(layoutZones, grouped, layoutVariant, options.maxLayoutWidth);
+  const { zones: reflowed, outerBottomY } = expandAndReflow(layoutZones, grouped, layoutVariant, options.maxLayoutWidth, options.maxLayoutHeight);
 
   // 3. Outer building walls with hard turns around occupied room areas
   const perimeterPts = traceHardTurnPerimeter(reflowed, layoutVariant);

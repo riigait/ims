@@ -18,6 +18,11 @@ import {
 
 const router = Router();
 
+// Margin between the outdoor wall polygon and the usable indoor area.
+// Must stay in sync with `margin` in fitIndoorObjectsInsideOutdoorWalls
+// and `WALL_MARGIN` in resolveIndoorObjectOverlaps (both are 28).
+const OUTDOOR_WALL_MARGIN = 28;
+
 // â”€â”€â”€ Helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 function getDepartmentFilter(req: AuthRequest) {
@@ -134,7 +139,13 @@ function fitIndoorObjectsInsideOutdoorWalls(objects: FloorPlanObject[]): FloorPl
   const isFixedVerticalAccess = (object: FloorPlanObject) => (
     object.id.includes('reserved-stairs') || object.id.includes('reserved-elevator')
   );
-  const outdoorWalls = objects.filter(isOutdoorWall);
+  // Sort by the numeric suffix in "-ow-N" so the polygon vertices are in
+  // traversal order even if the objects array was shuffled (e.g. by layer sort).
+  const owIndex = (wall: FloorPlanObject) => {
+    const m = wall.id.match(/-ow-(\d+)$/);
+    return m ? Number(m[1]) : 0;
+  };
+  const outdoorWalls = objects.filter(isOutdoorWall).sort((a, b) => owIndex(a) - owIndex(b));
   const indoorObjects = objects.filter((object) => !isOutdoorWall(object));
   if (outdoorWalls.length === 0 || indoorObjects.length === 0) return objects;
 
@@ -172,14 +183,22 @@ function fitIndoorObjectsInsideOutdoorWalls(objects: FloorPlanObject[]): FloorPl
   const sourceHeight = Math.max(1, Math.max(...ys) - sourceTop);
   const targetWidth = Math.max(1, targetRight - targetLeft);
   const targetHeight = Math.max(1, targetBottom - targetTop);
+
+  // Scale down uniformly if the source content is larger than the target area.
+  // Never scale up (cap at 1) — only shrink to fit when needed.
+  const scale = Math.min(1, targetWidth / sourceWidth, targetHeight / sourceHeight);
+  const scaledW = sourceWidth  * scale;
+  const scaledH = sourceHeight * scale;
+
   const rectangles = indoorObjects.filter((object) =>
     (object.type === 'room' || object.type === 'rack' || object.type === 'shelf')
     && !isFixedVerticalAccess(object));
-  const transformFits = (offsetX: number, offsetY: number) => rectangles.every((object) => {
-    const left = offsetX + object.x - sourceLeft;
-    const top = offsetY + object.y - sourceTop;
-    const right = left + object.width;
-    const bottom = top + object.height;
+  // offsetX/Y is the target-space coordinate of the scaled content's top-left corner.
+  const transformFits = (ox: number, oy: number) => rectangles.every((object) => {
+    const left   = ox + (object.x - sourceLeft) * scale;
+    const top    = oy + (object.y - sourceTop)  * scale;
+    const right  = left + object.width  * scale;
+    const bottom = top  + object.height * scale;
     return [
       [left, top], [(left + right) / 2, top], [right, top],
       [left, (top + bottom) / 2], [right, (top + bottom) / 2],
@@ -187,44 +206,35 @@ function fitIndoorObjectsInsideOutdoorWalls(objects: FloorPlanObject[]): FloorPl
     ].every(([x, y]) => pointInsidePolygon(x, y));
   });
 
+  const availableX = Math.max(0, targetWidth  - scaledW);
+  const availableY = Math.max(0, targetHeight - scaledH);
+  // Fast path: if scale=1 and the current position already fits, keep it in place.
   let offsetX = sourceLeft;
   let offsetY = sourceTop;
-  let foundPlacement = transformFits(offsetX, offsetY);
-  const availableX = Math.max(0, targetWidth - sourceWidth);
-  const availableY = Math.max(0, targetHeight - sourceHeight);
+  let foundPlacement = scale === 1 && transformFits(sourceLeft, sourceTop);
   for (let yStep = 0; yStep <= 12 && !foundPlacement; yStep++) {
     for (let xStep = 0; xStep <= 12; xStep++) {
-      const candidateX = targetLeft + availableX * (xStep / 12);
-      const candidateY = targetTop + availableY * (yStep / 12);
-      if (transformFits(candidateX, candidateY)) {
-        offsetX = candidateX;
-        offsetY = candidateY;
+      const cx = targetLeft + availableX * (xStep / 12);
+      const cy = targetTop  + availableY * (yStep / 12);
+      if (transformFits(cx, cy)) {
+        offsetX = cx;
+        offsetY = cy;
         foundPlacement = true;
         break;
       }
     }
   }
   if (!foundPlacement) {
-    // Best-effort: center the content layout inside the outdoor bounding box.
-    offsetX = targetLeft + Math.max(0, availableX) / 2;
-    offsetY = targetTop + Math.max(0, availableY) / 2;
+    offsetX = targetLeft + availableX / 2;
+    offsetY = targetTop  + availableY / 2;
   }
 
-  const mapX = (value: number) => offsetX + value - sourceLeft;
-  const mapY = (value: number) => offsetY + value - sourceTop;
-  const fixedAccessRooms = indoorObjects.filter((object) => object.type === 'room' && isFixedVerticalAccess(object));
-  const getFixedAccessRoom = (object: FloorPlanObject) => fixedAccessRooms.find((room) => (
-    object.id.includes('reserved-stairs') === room.id.includes('reserved-stairs')
-    && object.id.includes('reserved-elevator') === room.id.includes('reserved-elevator')
-  ));
-  const mapFixedX = (object: FloorPlanObject, value: number) => {
-    const room = getFixedAccessRoom(object);
-    return room ? mapX(room.x) + value - room.x : mapX(value);
-  };
-  const mapFixedY = (object: FloorPlanObject, value: number) => {
-    const room = getFixedAccessRoom(object);
-    return room ? mapY(room.y) + value - room.y : mapY(value);
-  };
+  const mapX = (value: number) => offsetX + (value - sourceLeft) * scale;
+  const mapY = (value: number) => offsetY + (value - sourceTop)  * scale;
+  // Stairs/elevators are replaced with shared floor-1 objects after fitting,
+  // so their exact transformation here doesn't matter — mapX/Y is sufficient.
+  const mapFixedX = (_object: FloorPlanObject, value: number) => mapX(value);
+  const mapFixedY = (_object: FloorPlanObject, value: number) => mapY(value);
 
   return objects.map((object) => {
     if (isOutdoorWall(object)) return object;
@@ -268,8 +278,10 @@ function fitIndoorObjectsInsideOutdoorWalls(objects: FloorPlanObject[]): FloorPl
     }
     return {
       ...object,
-      x: mapX(object.x),
-      y: mapY(object.y),
+      x:      mapX(object.x),
+      y:      mapY(object.y),
+      width:  object.width  * scale,
+      height: object.height * scale,
     };
   });
 }
@@ -683,10 +695,14 @@ router.post('/auto-generate', async (req: AuthRequest, res: Response, next: Next
 
         const generatedFloorCount = floorCount + (addRooftopFloor ? 1 : 0);
         let siblingMaxLayoutWidth: number | undefined;
+        let siblingMaxLayoutHeight: number | undefined;
         if (preservedWalls.length > 0) {
           const wallXs = preservedWalls.flatMap((w) => [w.startX ?? w.x, w.endX ?? w.x + w.width]);
-          const span = Math.max(...wallXs) - Math.min(...wallXs);
-          if (span > 0) siblingMaxLayoutWidth = Math.floor(span * 0.85);
+          const wallYs = preservedWalls.flatMap((w) => [w.startY ?? w.y, w.endY ?? w.y + w.height]);
+          const xSpan = Math.max(...wallXs) - Math.min(...wallXs);
+          const ySpan = Math.max(...wallYs) - Math.min(...wallYs);
+          if (xSpan > 0) siblingMaxLayoutWidth  = Math.max(0, xSpan - 2 * OUTDOOR_WALL_MARGIN);
+          if (ySpan > 0) siblingMaxLayoutHeight = Math.max(0, ySpan - 2 * OUTDOOR_WALL_MARGIN);
         }
         for (let floorIndex = 0; floorIndex < generatedFloorCount; floorIndex++) {
           const isRooftop = addRooftopFloor && floorIndex === floorCount;
@@ -696,7 +712,8 @@ router.post('/auto-generate', async (req: AuthRequest, res: Response, next: Next
           let objects = buildKnowledgeTemplateFloorPlan(templateName, department.name, assignedLocations, {
             verticalAccess,
             totalFloors: generatedFloorCount,
-            ...(floorIndex > 0 && siblingMaxLayoutWidth ? { maxLayoutWidth: siblingMaxLayoutWidth } : {}),
+            ...(floorIndex > 0 && siblingMaxLayoutWidth  ? { maxLayoutWidth:  siblingMaxLayoutWidth  } : {}),
+            ...(floorIndex > 0 && siblingMaxLayoutHeight ? { maxLayoutHeight: siblingMaxLayoutHeight } : {}),
           });
           objects = objects.filter((object) => (
             (verticalAccess !== 'stairs' || !object.id.includes('reserved-elevator'))
@@ -706,8 +723,11 @@ router.post('/auto-generate', async (req: AuthRequest, res: Response, next: Next
           if (floorIndex === 0 && sharedOutdoorWalls.length === 0) {
             sharedOutdoorWalls = objects.filter(isOutdoorWall).map((wall) => ({ ...wall }));
             const wallXs = sharedOutdoorWalls.flatMap((w) => [w.startX ?? w.x, w.endX ?? w.x + w.width]);
-            const span = Math.max(...wallXs) - Math.min(...wallXs);
-            if (span > 0) siblingMaxLayoutWidth = Math.floor(span * 0.85);
+            const wallYs = sharedOutdoorWalls.flatMap((w) => [w.startY ?? w.y, w.endY ?? w.y + w.height]);
+            const xSpan = Math.max(...wallXs) - Math.min(...wallXs);
+            const ySpan = Math.max(...wallYs) - Math.min(...wallYs);
+            if (xSpan > 0) siblingMaxLayoutWidth  = Math.floor(xSpan * 0.85);
+            if (ySpan > 0) siblingMaxLayoutHeight = Math.floor(ySpan * 0.85);
           }
           if (sharedOutdoorWalls.length > 0) {
             objects = [
@@ -1041,16 +1061,21 @@ router.post('/:id/regenerate', async (req: AuthRequest, res: Response, next: Nex
           hasStairs && hasElevator ? 'both' : hasElevator ? 'elevator' : 'stairs';
 
         let maxLayoutWidth: number | undefined;
+        let maxLayoutHeight: number | undefined;
         if (existingOutdoorWalls.length > 0) {
           const wallXs = existingOutdoorWalls.flatMap(w => [w.startX ?? w.x, w.endX ?? w.x + w.width]);
-          const span = Math.max(...wallXs) - Math.min(...wallXs);
-          if (span > 0) maxLayoutWidth = Math.floor(span * 0.85);
+          const wallYs = existingOutdoorWalls.flatMap(w => [w.startY ?? w.y, w.endY ?? w.y + w.height]);
+          const xSpan = Math.max(...wallXs) - Math.min(...wallXs);
+          const ySpan = Math.max(...wallYs) - Math.min(...wallYs);
+          if (xSpan > 0) maxLayoutWidth  = Math.max(0, xSpan - 2 * OUTDOOR_WALL_MARGIN);
+          if (ySpan > 0) maxLayoutHeight = Math.max(0, ySpan - 2 * OUTDOOR_WALL_MARGIN);
         }
 
         let newFloorObjects = buildKnowledgeTemplateFloorPlan(floorTemplate, dept.name, floorLocations, {
           verticalAccess: floorVerticalAccess,
           totalFloors: 1,
-          ...(maxLayoutWidth ? { maxLayoutWidth } : {}),
+          ...(maxLayoutWidth  ? { maxLayoutWidth  } : {}),
+          ...(maxLayoutHeight ? { maxLayoutHeight } : {}),
         });
         newFloorObjects = [
           ...newFloorObjects.filter(o => !isOW(o)),
@@ -1161,12 +1186,16 @@ router.post('/:id/regenerate', async (req: AuthRequest, res: Response, next: Nex
         const regenerated = [];
         let occupiedFloorIndex = 0;
 
-        // Compute width constraint for sibling layouts from the preserved or initial outdoor walls.
+        // Compute width + height constraints for sibling layouts from the preserved or initial outdoor walls.
         let siblingMaxLayoutWidth: number | undefined;
+        let siblingMaxLayoutHeight: number | undefined;
         if (!regenerateOutdoorWalls && existingWalls.length > 0) {
           const wallXs = existingWalls.flatMap((w) => [w.startX ?? w.x, w.endX ?? w.x + w.width]);
-          const span = Math.max(...wallXs) - Math.min(...wallXs);
-          if (span > 0) siblingMaxLayoutWidth = Math.floor(span * 0.85);
+          const wallYs = existingWalls.flatMap((w) => [w.startY ?? w.y, w.endY ?? w.y + w.height]);
+          const xSpan = Math.max(...wallXs) - Math.min(...wallXs);
+          const ySpan = Math.max(...wallYs) - Math.min(...wallYs);
+          if (xSpan > 0) siblingMaxLayoutWidth  = Math.max(0, xSpan - 2 * OUTDOOR_WALL_MARGIN);
+          if (ySpan > 0) siblingMaxLayoutHeight = Math.max(0, ySpan - 2 * OUTDOOR_WALL_MARGIN);
         }
 
         for (let index = 0; index < buildingFloors.length; index++) {
@@ -1177,14 +1206,18 @@ router.post('/:id/regenerate', async (req: AuthRequest, res: Response, next: Nex
           let objects = buildKnowledgeTemplateFloorPlan(templateName, department.name, assignedLocations, {
             verticalAccess,
             totalFloors: buildingFloors.length,
-            ...(index > 0 && siblingMaxLayoutWidth ? { maxLayoutWidth: siblingMaxLayoutWidth } : {}),
+            ...(index > 0 && siblingMaxLayoutWidth  ? { maxLayoutWidth:  siblingMaxLayoutWidth  } : {}),
+            ...(index > 0 && siblingMaxLayoutHeight ? { maxLayoutHeight: siblingMaxLayoutHeight } : {}),
           });
 
           if (index === 0 && regenerateOutdoorWalls) {
             sharedOutdoorWalls = objects.filter(isOutdoorWall).map((wall) => ({ ...wall }));
             const wallXs = sharedOutdoorWalls.flatMap((w) => [w.startX ?? w.x, w.endX ?? w.x + w.width]);
-            const span = Math.max(...wallXs) - Math.min(...wallXs);
-            if (span > 0) siblingMaxLayoutWidth = Math.floor(span * 0.85);
+            const wallYs = sharedOutdoorWalls.flatMap((w) => [w.startY ?? w.y, w.endY ?? w.y + w.height]);
+            const xSpan = Math.max(...wallXs) - Math.min(...wallXs);
+            const ySpan = Math.max(...wallYs) - Math.min(...wallYs);
+            if (xSpan > 0) siblingMaxLayoutWidth  = Math.floor(xSpan * 0.85);
+            if (ySpan > 0) siblingMaxLayoutHeight = Math.floor(ySpan * 0.85);
           }
           if (sharedOutdoorWalls.length > 0) {
             objects = [
