@@ -53,7 +53,11 @@ $RECYCLE.BIN/
 # Claude Code — only machine-specific files are ignored; Markdown memory is committed
 .claude/settings.local.json
 .claude/generated/
+.claude/sessions/
 CLAUDE.local.md
+
+# Generated / tool output
+repomix-output.xml
 
 # Deployment
 .vercel/
