@@ -23,6 +23,10 @@ const router = Router();
 // and `WALL_MARGIN` in resolveIndoorObjectOverlaps (both are 28).
 const OUTDOOR_WALL_MARGIN = 28;
 
+// Matches all restroom objects (single, male, or female variant).
+// Used to share restroom positions across sibling floors the same way stairs are shared.
+const isRestroomObject = (o: FloorPlanObject) => /reserved-(male-|female-)?restroom/.test(o.id);
+
 // â”€â”€â”€ Helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 function getDepartmentFilter(req: AuthRequest) {
@@ -137,7 +141,9 @@ function suggestFloorTemplates(locations: Array<{ id: string; name: string }>, e
 function fitIndoorObjectsInsideOutdoorWalls(objects: FloorPlanObject[]): FloorPlanObject[] {
   const isOutdoorWall = (object: FloorPlanObject) => object.type === 'wall' && object.id.includes('-ow-');
   const isFixedVerticalAccess = (object: FloorPlanObject) => (
-    object.id.includes('reserved-stairs') || object.id.includes('reserved-elevator')
+    object.id.includes('reserved-stairs') ||
+    object.id.includes('reserved-elevator') ||
+    /reserved-(male-|female-)?restroom/.test(object.id)
   );
   // Sort by the numeric suffix in "-ow-N" so the polygon vertices are in
   // traversal order even if the objects array was shuffled (e.g. by layer sort).
@@ -692,6 +698,7 @@ router.post('/auto-generate', async (req: AuthRequest, res: Response, next: Next
         let sharedOutdoorWalls: FloorPlanObject[] = preservedWalls.map((wall) => ({ ...wall }));
         const sharedStairs = new Map<number, FloorPlanObject[]>();
         let sharedElevator: FloorPlanObject[] = [];
+        let sharedRestrooms: FloorPlanObject[] = [];
 
         const generatedFloorCount = floorCount + (addRooftopFloor ? 1 : 0);
         let siblingMaxLayoutWidth: number | undefined;
@@ -726,8 +733,8 @@ router.post('/auto-generate', async (req: AuthRequest, res: Response, next: Next
             const wallYs = sharedOutdoorWalls.flatMap((w) => [w.startY ?? w.y, w.endY ?? w.y + w.height]);
             const xSpan = Math.max(...wallXs) - Math.min(...wallXs);
             const ySpan = Math.max(...wallYs) - Math.min(...wallYs);
-            if (xSpan > 0) siblingMaxLayoutWidth  = Math.floor(xSpan * 0.85);
-            if (ySpan > 0) siblingMaxLayoutHeight = Math.floor(ySpan * 0.85);
+            if (xSpan > 0) siblingMaxLayoutWidth  = Math.max(0, xSpan - 2 * OUTDOOR_WALL_MARGIN);
+            if (ySpan > 0) siblingMaxLayoutHeight = Math.max(0, ySpan - 2 * OUTDOOR_WALL_MARGIN);
           }
           if (sharedOutdoorWalls.length > 0) {
             objects = [
@@ -761,6 +768,15 @@ router.post('/auto-generate', async (req: AuthRequest, res: Response, next: Next
             } else {
               sharedElevator = objects.filter((object) => object.id.includes('reserved-elevator')).map((object) => ({ ...object }));
             }
+          }
+          // Restrooms are stacked vertically like stairs — every floor shares floor-1 positions.
+          if (sharedRestrooms.length > 0) {
+            objects = [
+              ...objects.filter((object) => !isRestroomObject(object)),
+              ...sharedRestrooms.map((object) => ({ ...object })),
+            ];
+          } else {
+            sharedRestrooms = objects.filter(isRestroomObject).map((object) => ({ ...object }));
           }
 
           objects = resolveIndoorObjectOverlaps(objects);
@@ -1031,7 +1047,7 @@ router.post('/:id/regenerate', async (req: AuthRequest, res: Response, next: Nex
 
         const isOW = (o: FloorPlanObject) => o.type === 'wall' && o.id.includes('-ow-');
         const isAccess = (o: FloorPlanObject) =>
-          o.id.includes('reserved-stairs') || o.id.includes('reserved-elevator');
+          o.id.includes('reserved-stairs') || o.id.includes('reserved-elevator') || isRestroomObject(o);
 
         const existingOutdoorWalls = existingObjects.filter(isOW);
         const existingAccessObjects = existingObjects.filter(isAccess);
@@ -1183,6 +1199,7 @@ router.post('/:id/regenerate', async (req: AuthRequest, res: Response, next: Nex
           : existingWalls.map((wall) => ({ ...wall }));
         const sharedStairs = new Map<number, FloorPlanObject[]>();
         let sharedElevator: FloorPlanObject[] = [];
+        let sharedRestrooms: FloorPlanObject[] = [];
         const regenerated = [];
         let occupiedFloorIndex = 0;
 
@@ -1216,8 +1233,8 @@ router.post('/:id/regenerate', async (req: AuthRequest, res: Response, next: Nex
             const wallYs = sharedOutdoorWalls.flatMap((w) => [w.startY ?? w.y, w.endY ?? w.y + w.height]);
             const xSpan = Math.max(...wallXs) - Math.min(...wallXs);
             const ySpan = Math.max(...wallYs) - Math.min(...wallYs);
-            if (xSpan > 0) siblingMaxLayoutWidth  = Math.floor(xSpan * 0.85);
-            if (ySpan > 0) siblingMaxLayoutHeight = Math.floor(ySpan * 0.85);
+            if (xSpan > 0) siblingMaxLayoutWidth  = Math.max(0, xSpan - 2 * OUTDOOR_WALL_MARGIN);
+            if (ySpan > 0) siblingMaxLayoutHeight = Math.max(0, ySpan - 2 * OUTDOOR_WALL_MARGIN);
           }
           if (sharedOutdoorWalls.length > 0) {
             objects = [
@@ -1251,6 +1268,15 @@ router.post('/:id/regenerate', async (req: AuthRequest, res: Response, next: Nex
             } else {
               sharedElevator = objects.filter((object) => object.id.includes('reserved-elevator')).map((object) => ({ ...object }));
             }
+          }
+          // Restrooms are stacked vertically like stairs — every floor shares floor-1 positions.
+          if (sharedRestrooms.length > 0) {
+            objects = [
+              ...objects.filter((object) => !isRestroomObject(object)),
+              ...sharedRestrooms.map((object) => ({ ...object })),
+            ];
+          } else {
+            sharedRestrooms = objects.filter(isRestroomObject).map((object) => ({ ...object }));
           }
 
           objects = resolveIndoorObjectOverlaps(objects);
