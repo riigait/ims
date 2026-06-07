@@ -128,9 +128,10 @@ It highlights:
 ims/
 ├── backend/          # Express + Prisma API
 ├── frontend/         # React + Vite app
-├── csv-corrector/    # CSV utility scripts
+├── scripts/          # Dev utility scripts
 ├── .github/          # CI workflows and issue templates
-└── docker-compose.yml
+├── docker-compose.yml
+└── docker-compose.prod.yml
 ```
 
 ## Repository Policy
