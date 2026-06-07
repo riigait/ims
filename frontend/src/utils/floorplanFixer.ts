@@ -1,5 +1,5 @@
 import { FloorPlanObject, RectangleObject, WindowObject } from '@/types/floorplan';
-import { validateFloorplanObjects, FloorplanValidationResult } from './floorplanValidation';
+import { getDoorClearanceZone, validateFloorplanObjects, FloorplanValidationResult } from './floorplanValidation';
 import { generateId } from '@/utils/ids';
 
 const MARGIN = 12;
@@ -33,16 +33,12 @@ function fixDoorBlocked(
   if (!err.doorId) return false;
   const idx = fixed.findIndex(o => o.id === err.objectId);
   const door = fixed.find(o => o.id === err.doorId);
-  if (idx === -1 || !door || !('x' in door) || !('width' in door)) return false;
+  if (idx === -1 || !door || (door.type !== 'door' && door.type !== 'entrance')) return false;
   const blocker = fixed[idx];
   if (!('x' in blocker) || !('width' in blocker) || !('height' in blocker)) return false;
 
   const b = blocker as unknown as { x: number; y: number; width: number; height: number };
-  const d = door as unknown as { x: number; y: number; width: number };
-  const pos = nudgeOutOfZone(b.x, b.y, b.width, b.height, {
-    left: d.x - d.width / 2, right: d.x + d.width / 2,
-    top: d.y - d.width / 2, bottom: d.y + d.width / 2,
-  });
+  const pos = nudgeOutOfZone(b.x, b.y, b.width, b.height, getDoorClearanceZone(door));
   if (!pos) return false;
   fixed[idx] = { ...blocker, ...pos } as FloorPlanObject;
   return true;

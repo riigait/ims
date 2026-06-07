@@ -9,7 +9,7 @@ import {
 import { floorPlansApi, locationsApi, productsApi } from '@/services/api';
 import { useFloorPlanStore } from '@/services/floorPlanStore';
 import { FloorPlanObject, WallObject, RectangleObject, LabelObject, DoorObject, WindowObject, EntranceObject, InventoryMarkerObject } from '@/types/floorplan';
-import { validateFloorplanObjects, FloorplanValidationResult } from '@/utils/floorplanValidation';
+import { getDoorClearanceZone, validateFloorplanObjects, FloorplanValidationResult } from '@/utils/floorplanValidation';
 import { applyAutoFixes } from '@/utils/floorplanFixer';
 import { Location, Product } from '@/types/inventory';
 
@@ -2020,15 +2020,11 @@ export default function FloorPlanEditor() {
     const b = blocker as { x: number; y: number; width: number; height: number };
 
     const door = objects.find(o => o.id === doorId);
-    if (!door || !('x' in door) || !('width' in door)) return;
-    const d = door as { x: number; y: number; width: number };
+    if (!door || (door.type !== 'door' && door.type !== 'entrance')) return;
 
     const MARGIN = 12;
     // Door clearance zone bounds (matches floorplanValidation.ts)
-    const zLeft   = d.x - d.width / 2;
-    const zRight  = d.x + d.width / 2;
-    const zTop    = d.y - d.width / 2;
-    const zBottom = d.y + d.width / 2;
+    const { left: zLeft, right: zRight, top: zTop, bottom: zBottom } = getDoorClearanceZone(door);
 
     // Overlap on each side (positive = overlapping, Infinity = no contact on that side)
     const overlapL = (b.x + b.width) - zLeft;   // push blocker left

@@ -19,6 +19,15 @@ export interface FloorplanValidationResult {
 
 const CLEARANCE = 4;
 const EDGE_TOLERANCE = 20;
+const DOOR_CLEARANCE_DEPTH = 92;
+
+export interface DoorClearanceZone {
+  polygon: Feature<Polygon>;
+  left: number;
+  right: number;
+  top: number;
+  bottom: number;
+}
 
 function rectPolygon(rect: { x: number; y: number; width: number; height: number }, inset = 0): Feature<Polygon> {
   return bboxPolygon([
@@ -49,6 +58,37 @@ function isRectObject(obj: FloorPlanObject): obj is RectangleObject {
 
 function isDoorLike(obj: FloorPlanObject): obj is DoorObject | EntranceObject {
   return obj.type === 'door' || obj.type === 'entrance';
+}
+
+export function getDoorClearanceZone(door: DoorObject | EntranceObject): DoorClearanceZone {
+  const halfWidth = door.width / 2;
+  const halfDepth = DOOR_CLEARANCE_DEPTH / 2;
+  const cos = Math.cos(door.angle);
+  const sin = Math.sin(door.angle);
+  const corners = [
+    [-halfWidth, -halfDepth],
+    [halfWidth, -halfDepth],
+    [halfWidth, halfDepth],
+    [-halfWidth, halfDepth],
+  ].map(([x, y]) => [
+    door.x + x * cos - y * sin,
+    door.y + x * sin + y * cos,
+  ]);
+  const xs = corners.map(([x]) => x);
+  const ys = corners.map(([, y]) => y);
+  const polygon: Feature<Polygon> = {
+    type: 'Feature',
+    properties: {},
+    geometry: { type: 'Polygon', coordinates: [[...corners, corners[0]]] },
+  };
+
+  return {
+    polygon,
+    left: Math.min(...xs),
+    right: Math.max(...xs),
+    top: Math.min(...ys),
+    bottom: Math.max(...ys),
+  };
 }
 
 function pointNearRectEdge(x: number, y: number, room: RectangleObject, tolerance = EDGE_TOLERANCE) {
@@ -154,7 +194,7 @@ export function validateFloorplanObjects(objects: FloorPlanObject[]): FloorplanV
 
   // Only flag furniture (racks/shelves) blocking door clearance — not room-sized objects
   doors.forEach((door) => {
-    const doorZone = rectPolygon({ x: door.x - door.width / 2, y: door.y - door.width / 2, width: door.width, height: door.width });
+    const doorZone = getDoorClearanceZone(door).polygon;
     placedFurniture.forEach((obj) => {
       if (booleanIntersects(rectPolygon(obj), doorZone)) {
         const name = (obj as any).label || obj.type;

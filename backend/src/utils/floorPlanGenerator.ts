@@ -474,7 +474,7 @@ function expandAndReflow(
   const reflowed: RoomZone[] = [];
 
   placementUnits.forEach((unit) => {
-    const unitGap = 24;
+    const unitGap = unit.some(zone => zone.objectGroupId?.includes('restroom-group')) ? 0 : 24;
     const unitWidth = unit.reduce((width, zone) => width + zone.w, 0) + unitGap * (unit.length - 1);
     if (cursorX > startX && cursorX + unitWidth > startX + targetRowWidth) {
       // Don't start a new row if it would push outerBottomY past the shared wall height.
@@ -593,10 +593,41 @@ function traceHardTurnPerimeter(zones: RoomZone[], variant: LayoutVariant): Poin
   return compactPolygon(pts);
 }
 
+function centerDoorOnEdge(room: RoomZone, edge: 'left' | 'right' | 'top' | 'bottom'): RoomZone {
+  if (edge === 'left') return { ...room, doorX: room.x, doorY: room.y + room.h / 2, doorAngle: Math.PI / 2 };
+  if (edge === 'right') return { ...room, doorX: room.x + room.w, doorY: room.y + room.h / 2, doorAngle: Math.PI / 2 };
+  if (edge === 'top') return { ...room, doorX: room.x + room.w / 2, doorY: room.y, doorAngle: 0 };
+  return { ...room, doorX: room.x + room.w / 2, doorY: room.y + room.h, doorAngle: 0 };
+}
+
+function alignSnappedDoorsToIndoorWalls(zones: RoomZone[]): RoomZone[] {
+  const restroomDoorEdges = new Map<string, 'top' | 'bottom'>();
+
+  zones.forEach((zone) => {
+    if (!zone.objectGroupId?.includes('restroom-group') || !zone.snappedEdge || restroomDoorEdges.has(zone.objectGroupId)) return;
+    const group = zones.filter(member => member.objectGroupId === zone.objectGroupId);
+    const snappedEdges = new Set(group.map(member => member.snappedEdge));
+    restroomDoorEdges.set(zone.objectGroupId, snappedEdges.has('top') ? 'bottom' : 'top');
+  });
+
+  return zones.map((zone) => {
+    if (zone.objectGroupId?.includes('restroom-group') && restroomDoorEdges.has(zone.objectGroupId)) {
+      return centerDoorOnEdge(zone, restroomDoorEdges.get(zone.objectGroupId)!);
+    }
+    if (!zone.snappedEdge) return zone;
+
+    const indoorEdge = zone.snappedEdge === 'left' ? 'right'
+      : zone.snappedEdge === 'right' ? 'left'
+      : zone.snappedEdge === 'top' ? 'bottom'
+      : 'top';
+    return centerDoorOnEdge(zone, indoorEdge);
+  });
+}
+
 function snapBoundaryRoomsToPerimeter(zones: RoomZone[], perimeter: Point[], threshold = 100): RoomZone[] {
   const segments = perimeter.map((start, index) => ({ start, end: perimeter[(index + 1) % perimeter.length] }));
 
-  return zones.map((zone) => {
+  const snappedZones = zones.map((zone) => {
     if (zone.fixedSize) return zone;
     const left = zone.x;
     const right = zone.x + zone.w;
@@ -637,12 +668,10 @@ function snapBoundaryRoomsToPerimeter(zones: RoomZone[], perimeter: Point[], thr
     const resized = resizeZone(zone, snappedLeft, snappedTop, snappedRight, snappedBottom);
     const snappedEdge = selected[0]?.edge;
     if (!snappedEdge) return resized;
-
-    if (snappedEdge === 'left') return { ...resized, snappedEdge, doorX: resized.x + resized.w, doorY: resized.y + resized.h / 2, doorAngle: 90 };
-    if (snappedEdge === 'right') return { ...resized, snappedEdge, doorX: resized.x, doorY: resized.y + resized.h / 2, doorAngle: 90 };
-    if (snappedEdge === 'top') return { ...resized, snappedEdge, doorX: resized.x + resized.w / 2, doorY: resized.y + resized.h, doorAngle: 0 };
-    return { ...resized, snappedEdge, doorX: resized.x + resized.w / 2, doorY: resized.y, doorAngle: 0 };
+    return { ...resized, snappedEdge };
   });
+
+  return alignSnappedDoorsToIndoorWalls(snappedZones);
 }
 
 /**
