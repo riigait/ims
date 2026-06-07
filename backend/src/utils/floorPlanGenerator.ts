@@ -86,6 +86,18 @@ export const ZONE_RACK_SHELF_DEFAULTS: Record<string, number> = {
 export const MAX_ZONE_FILL_RATIO = 0.35; // 35 % max area covered by racks/shelves
 export const MIN_WALKWAY_MM      = 1200; // minimum clear aisle (mm)
 
+// Drawing layer order — objects are sorted by this before saving so the canvas
+// always renders in the correct stacking order regardless of creation sequence.
+export const FLOORPLAN_LAYERS = {
+  BACKGROUND:   1,
+  ROOM_FILL:    2,
+  OUTDOOR_WALL: 3,
+  INDOOR_WALL:  4,
+  OPENING:      5, // doors, windows, entrances
+  FURNITURE:    6, // racks, shelves, desks, equipment
+  LABEL:        7,
+} as const;
+
 export const TEMPLATE_RULES: Record<string, {
   requiredRooms: string[];
   relationships: Array<{ type: 'near' | 'away_from' | 'restricted'; source: string; target?: string; description: string }>;
@@ -142,6 +154,7 @@ export type FloorPlanObject = {
   y: number;
   width: number;
   height: number;
+  layer?: number;
   label?: string;
   color?: string;
   linkedLocationId?: string;
@@ -214,7 +227,7 @@ function classifyLocation(name: string) {
   const n = name.toLowerCase();
   if (n.includes('rack')) return 'rack';
   if (n.includes('cabinet') || n.includes('box') || n.includes('drawer') || n.includes('table') || n.includes('shelf') || n.includes('orocan') || n.includes('pedestal')) return 'shelf';
-  return 'room';
+  return 'shelf'; // 'room' is reserved for zone containers; location items are always rack or shelf
 }
 
 function slug(value: string, fallback: string) {
@@ -508,11 +521,67 @@ function expandAndReflow(
 
 function traceHardTurnPerimeter(zones: RoomZone[], variant: LayoutVariant): Point[] {
   if (zones.length === 0) return [];
-  const left = Math.min(...zones.map(zone => zone.x)) - variant.outerPad;
-  const right = Math.max(...zones.map(zone => zone.x + zone.w)) + variant.outerPad;
-  const top = Math.min(OUTER_TOP_Y, Math.min(...zones.map(zone => zone.y)) - variant.outerPad);
-  const bottom = Math.max(...zones.map(zone => zone.y + zone.h)) + variant.bottomPad;
-  return [[left, top], [right, top], [right, bottom], [left, bottom]];
+
+  // Cluster zones into rows. Same-row zones are within rowStagger*2 (~72 px)
+  // of each other vertically; the minimum gap between rows is rowGap (~72 px).
+  // Threshold of rowGap*0.5 safely separates rows from same-row stagger spread.
+  const sorted = [...zones].sort((a, b) => a.y - b.y);
+  type Band = { left: number; right: number; top: number; bottom: number };
+  const bands: Band[] = [];
+  for (const z of sorted) {
+    const last = bands[bands.length - 1];
+    if (last && z.y < last.bottom + variant.rowGap * 0.5) {
+      last.left   = Math.min(last.left,  z.x);
+      last.right  = Math.max(last.right, z.x + z.w);
+      last.bottom = Math.max(last.bottom, z.y + z.h);
+    } else {
+      bands.push({ left: z.x, right: z.x + z.w, top: z.y, bottom: z.y + z.h });
+    }
+  }
+
+  const pad           = variant.outerPad;
+  const overallTop    = Math.min(OUTER_TOP_Y, bands[0].top - pad);
+  // Must match outerBottomY from expandAndReflow so the entrance lands on a wall point.
+  const overallBottom = Math.max(...zones.map(z => z.y + z.h)) + variant.bottomPad;
+
+  const rows = bands.map((b, i) => ({
+    left:   b.left  - pad,
+    right:  b.right + pad,
+    top:    i === 0 ? overallTop : b.top - Math.round(pad / 2),
+    bottom: i === bands.length - 1 ? overallBottom : b.bottom + Math.round(pad / 2),
+  }));
+
+  if (rows.length === 1) {
+    return [[rows[0].left, rows[0].top], [rows[0].right, rows[0].top],
+            [rows[0].right, overallBottom], [rows[0].left, overallBottom]];
+  }
+
+  // Multiple rows → clockwise polygon with hard 90° turns at each row boundary.
+  const pts: Point[] = [];
+  pts.push([rows[0].left,  rows[0].top]);
+  pts.push([rows[0].right, rows[0].top]);
+
+  // Right side: descend with a 90° step wherever adjacent rows differ in width.
+  for (let i = 0; i < rows.length - 1; i++) {
+    const stepY = Math.round((bands[i].bottom + bands[i + 1].top) / 2);
+    if (Math.abs(rows[i].right - rows[i + 1].right) > 4) {
+      pts.push([rows[i].right,     stepY]);
+      pts.push([rows[i + 1].right, stepY]);
+    }
+  }
+  pts.push([rows[rows.length - 1].right, overallBottom]);
+  pts.push([rows[rows.length - 1].left,  overallBottom]);
+
+  // Left side: ascend with a 90° step wherever adjacent rows differ in width.
+  for (let i = rows.length - 2; i >= 0; i--) {
+    const stepY = Math.round((bands[i].bottom + bands[i + 1].top) / 2);
+    if (Math.abs(rows[i].left - rows[i + 1].left) > 4) {
+      pts.push([rows[i + 1].left, stepY]);
+      pts.push([rows[i].left,     stepY]);
+    }
+  }
+
+  return compactPolygon(pts);
 }
 
 function snapBoundaryRoomsToPerimeter(zones: RoomZone[], perimeter: Point[], threshold = 100): RoomZone[] {
@@ -617,6 +686,7 @@ function buildPerimeterWalls(floorLabel: string, pts: Point[], outerBottomY: num
       height: Math.abs(y2 - y1) || OUTER_T,
       startX: x1, startY: y1, endX: x2, endY: y2,
       thickness: OUTER_T, color: '#1e293b', groupId: outdoorWallGroupId,
+      layer: FLOORPLAN_LAYERS.OUTDOOR_WALL,
     });
   }
 
@@ -625,8 +695,8 @@ function buildPerimeterWalls(floorLabel: string, pts: Point[], outerBottomY: num
   const midX = bottomPts.length >= 2
     ? (Math.min(...bottomPts.map(([x]) => x)) + Math.max(...bottomPts.map(([x]) => x))) / 2 - 90
     : perimeter[0][0] + 810;
-  objects.push({ id: `${floorLabel}-entrance`, type: 'entrance', x: midX, y: outerBottomY, width: 180, height: 20, angle: 0, style: 'double', label: 'Entrance', color: '#16a34a' });
-  objects.push({ id: `${floorLabel}-title`,    type: 'label',    x: perimeter[0][0] + 40, y: 45, width: 600, height: 35, text: floorLabel, fontSize: 22, label: floorLabel, color: '#0f172a' });
+  objects.push({ id: `${floorLabel}-entrance`, type: 'entrance', x: midX, y: outerBottomY, width: 180, height: 20, angle: 0, style: 'double', label: 'Entrance', color: '#16a34a', layer: FLOORPLAN_LAYERS.OPENING });
+  objects.push({ id: `${floorLabel}-title`,    type: 'label',    x: perimeter[0][0] + 40, y: 45, width: 600, height: 35, text: floorLabel, fontSize: 22, label: floorLabel, color: '#0f172a', layer: FLOORPLAN_LAYERS.LABEL });
 
   return objects;
 }
@@ -639,19 +709,20 @@ function addWall(objects: FloorPlanObject[], id: string, startX: number, startY:
     width: Math.abs(endX - startX) || thickness,
     height: Math.abs(endY - startY) || thickness,
     startX, startY, endX, endY, thickness, color: '#334155', groupId,
+    layer: FLOORPLAN_LAYERS.INDOOR_WALL,
   });
 }
 
 function addSpace(objects: FloorPlanObject[], id: string, label: string, x: number, y: number, width: number, height: number, color: string, type = 'room', groupId?: string) {
-  objects.push({ id, type, x, y, width, height, label, color, groupId });
+  objects.push({ id, type, x, y, width, height, label, color, groupId, layer: FLOORPLAN_LAYERS.ROOM_FILL });
 }
 
 function addOpening(objects: FloorPlanObject[], id: string, label: string, x: number, y: number, width: number, angle = 0, style = 'single', groupId?: string) {
-  objects.push({ id, type: 'entrance', x, y, width, height: 18, angle, style, label, color: '#16a34a', groupId });
+  objects.push({ id, type: 'entrance', x, y, width, height: 18, angle, style, label, color: '#16a34a', groupId, layer: FLOORPLAN_LAYERS.OPENING });
 }
 
 function addWindow(objects: FloorPlanObject[], id: string, x: number, y: number, width: number, angle = 0, groupId?: string) {
-  objects.push({ id, type: 'window', x, y, width, height: 18, angle, color: '#38bdf8', groupId });
+  objects.push({ id, type: 'window', x, y, width, height: 18, angle, color: '#38bdf8', groupId, layer: FLOORPLAN_LAYERS.OPENING });
 }
 
 function openingTouchesRoom(room: FloorPlanObject, opening: FloorPlanObject): boolean {
@@ -717,7 +788,7 @@ function placeLocationsInZone(
   groupId?: string,
 ) {
   if (!objects.some(o => o.type === 'room' && o.label === zone.label && o.x === zone.x && o.y === zone.y)) {
-    objects.push({ id: `zone-${zone.key}`, type: 'room', x: zone.x, y: zone.y, width: zone.w, height: zone.h, label: zone.label, color: zone.color, ...(groupId ? { groupId } : {}) });
+    objects.push({ id: `zone-${zone.key}`, type: 'room', x: zone.x, y: zone.y, width: zone.w, height: zone.h, label: zone.label, color: zone.color, layer: FLOORPLAN_LAYERS.ROOM_FILL, ...(groupId ? { groupId } : {}) });
   }
 
   const gap = CELL_GAP;
@@ -749,6 +820,7 @@ function placeLocationsInZone(
       width: cellWidth, height: cellHeight,
       label: location.name, linkedLocationId: location.id,
       color: type === 'rack' ? '#f59e0b' : type === 'shelf' ? '#8b5cf6' : '#3b82f6',
+      layer: FLOORPLAN_LAYERS.FURNITURE,
       ...(groupId ? { groupId } : {}),
     });
   });
@@ -823,7 +895,11 @@ function buildValidatedLayoutFloorPlan(floorLabel: string, locations: Array<{ id
   reflowed.forEach(z => placeLocationsInZone(objects, z, grouped.get(z.key) ?? [], z.objectGroupId ?? `${prefix}-${z.key}-group`));
 
   // 6. Dimension label
-  objects.push({ id: `${prefix}-measure`, type: 'label', x: 720, y: outerBottomY + 30, width: 500, height: 24, text: `Floor plan · ${reflowed.length} zones · ${locations.length} locations`, label: 'Dimensions', fontSize: 14, color: '#475569' });
+  objects.push({ id: `${prefix}-measure`, type: 'label', x: 720, y: outerBottomY + 30, width: 500, height: 24, text: `Floor plan · ${reflowed.length} zones · ${locations.length} locations`, label: 'Dimensions', fontSize: 14, color: '#475569', layer: FLOORPLAN_LAYERS.LABEL });
+
+  // 7. Sort by layer so the canvas always draws in the correct stacking order
+  //    regardless of the order objects were created above.
+  objects.sort((a, b) => (a.layer ?? 0) - (b.layer ?? 0));
 
   return objects;
 }
@@ -1034,6 +1110,7 @@ export function buildKnowledgeTemplateFloorPlan(templateName: string, department
     x: 80, y: 20, width: 1200, height: 30,
     text: `Generated using IMS floor plan knowledge: ${FLOORPLAN_KNOWLEDGE.imsUseful.join(', ')}`,
     fontSize: 14, label: 'Generation note', color: '#475569',
+    layer: FLOORPLAN_LAYERS.LABEL,
   });
 
   return objects;

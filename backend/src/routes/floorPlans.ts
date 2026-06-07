@@ -286,7 +286,9 @@ function resolveIndoorObjectOverlaps(objects: FloorPlanObject[], minGap = 16): F
     isOW(o) || o.id.includes('reserved-stairs') || o.id.includes('reserved-elevator');
 
   // Only push zone rects — racks/shelves follow their zone via groupId so grid alignment is preserved.
-  const isMovableZone = (o: FloorPlanObject) => o.type === 'room' && !isFixed(o);
+  // linkedLocationId marks individual inventory items — they are never zone containers
+  // and must not be pushed by the overlap resolver even if type === 'room'.
+  const isMovableZone = (o: FloorPlanObject) => o.type === 'room' && !isFixed(o) && !o.linkedLocationId;
 
   const movable: FloorPlanObject[] = objects.filter(isMovableZone).map(o => ({ ...o }));
   if (movable.length < 2) return objects;

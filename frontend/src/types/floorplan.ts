@@ -4,6 +4,7 @@ export type FloorPlanObjectType = 'wall' | 'room' | 'rack' | 'shelf' | 'label' |
 export interface BaseFloorPlanObject {
   id: string;
   type: FloorPlanObjectType;
+  layer?: number;
   label?: string;
   notes?: string;
   linkedLocationId?: string;
