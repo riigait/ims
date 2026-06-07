@@ -895,13 +895,19 @@ function buildValidatedLayoutFloorPlan(floorLabel: string, locations: Array<{ id
 
   // 3. Outer building walls with hard turns around occupied room areas
   const perimeterPts = traceHardTurnPerimeter(reflowed, layoutVariant);
+
+  // 3b. Snap boundary zones flush to the perimeter so there are no thin gaps
+  //     between a zone edge and the outer wall. fixedSize zones (stairs, elevators)
+  //     are excluded inside snapBoundaryRoomsToPerimeter.
+  const snapped = snapBoundaryRoomsToPerimeter(reflowed, perimeterPts);
+
   const objects = buildPerimeterWalls(floorLabel, perimeterPts, outerBottomY);
 
   // 4. Room shells (inner walls + zone backgrounds)
-  reflowed.forEach(z => addRoomShell(objects, prefix, z));
+  snapped.forEach(z => addRoomShell(objects, prefix, z));
 
   // 5. Place location objects inside zones (share the same groupId as the room shell)
-  reflowed.forEach(z => placeLocationsInZone(objects, z, grouped.get(z.key) ?? [], z.objectGroupId ?? `${prefix}-${z.key}-group`));
+  snapped.forEach(z => placeLocationsInZone(objects, z, grouped.get(z.key) ?? [], z.objectGroupId ?? `${prefix}-${z.key}-group`));
 
   // 6. Dimension label
   objects.push({ id: `${prefix}-measure`, type: 'label', x: 720, y: outerBottomY + 30, width: 500, height: 24, text: `Floor plan · ${reflowed.length} zones · ${locations.length} locations`, label: 'Dimensions', fontSize: 14, color: '#475569', layer: FLOORPLAN_LAYERS.LABEL });
