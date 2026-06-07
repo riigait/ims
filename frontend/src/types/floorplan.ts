@@ -88,13 +88,16 @@ export interface FloorPlan {
   scale: {
     pixelsPerMeter: number;
   };
-  objects: FloorPlanObject[];
+  objects?: FloorPlanObject[];
   isApproved?: boolean;
   isTemplate?: boolean;
   generationScore?: number;
   createdAt: string;
   updatedAt: string;
 }
+
+// Floor plan with objects guaranteed present — used by the editor store (GET /:id always returns full data)
+export type LoadedFloorPlan = FloorPlan & { objects: FloorPlanObject[] };
 
 // Editor state
 export interface FloorPlanEditorState {

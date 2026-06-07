@@ -39,6 +39,53 @@ export const FLOORPLAN_KNOWLEDGE = {
 };
 export const DEFAULT_AUTO_GENERATE_TEMPLATES = ['Office layout', 'Storage room', 'SCADA control room'];
 
+// Real-world size reference (all values in millimetres).
+// Used to keep generated layouts proportionally realistic.
+export const FLOORPLAN_SIZE_REFERENCE = {
+  humanTopView:       { w: 600,  h: 600  },
+  interiorDoor:       { w: 900,  h: 18   },
+  mainEntrance:       { w: 1200, h: 20   },
+  doubleEntrance:     { w: 1600, h: 20   },
+  hallwayMin:         { w: 1200          },
+  windowSmall:        { w: 600,  h: 100  },
+  windowNormal:       { w: 1200, h: 100  },
+  windowOfficeDorm:   { w: 1500, h: 100  },
+  stairWidth:         { w: 1200          },
+  stairTread:         { d: 280           },
+  stairLanding:       { w: 1200, h: 1200 },
+  elevatorShaft:      { w: 1800, h: 1800 },
+  elevatorCar:        { w: 1100, h: 1400 },
+  elevatorDoor:       { w: 900,  h: 18   },
+  singleOfficeRoom:   { w: 3000, h: 3000 },
+  smallDormRoom:      { w: 3000, h: 3000 },
+  twoPersonDorm:      { w: 3000, h: 4500 },
+  receptionArea:      { w: 3000, h: 4000 },
+  storageRoom:        { w: 2500, h: 3000 },
+  serverRoomSmall:    { w: 3000, h: 4000 },
+  generalShelf:       { w: 900,  h: 450  },
+  tallCabinet:        { w: 900,  h: 450  },
+  warehouseRack:      { w: 1200, h: 600  },
+  serverRack:         { w: 600,  h: 1000 },
+  rackFrontClearance: 1000,
+  rackRearClearance:  1000,
+} as const;
+
+// Maximum recommended shelf/rack count per zone type.
+// Rule: never fill more than 30-40% of a room; keep at least 900-1200 mm walkway.
+// One physical shelf or rack may hold many inventory location records.
+export const ZONE_RACK_SHELF_DEFAULTS: Record<string, number> = {
+  storage_room:  6,   // 3 shelves each side of central walkway
+  control_room:  2,   // prioritise operator desks; do not overcrowd
+  office_room:   2,
+  server_room:   4,   // 2 per bay, front+rear clearance required
+  dormitory:     2,   // per sleeping zone; keep bed/walkway clear
+  factory:      18,   // medium factory default; scales with aisle count
+  reception:     1,   // keep it clean — front desk + waiting only
+};
+
+export const MAX_ZONE_FILL_RATIO = 0.35; // 35 % max area covered by racks/shelves
+export const MIN_WALKWAY_MM      = 1200; // minimum clear aisle (mm)
+
 export const TEMPLATE_RULES: Record<string, {
   requiredRooms: string[];
   relationships: Array<{ type: 'near' | 'away_from' | 'restricted'; source: string; target?: string; description: string }>;
@@ -191,26 +238,25 @@ function createLayoutVariant(): LayoutVariant {
   };
 }
 
-function randomizeZoneSize(zone: RoomZone, grouped: Map<string, Array<{ id: string; name: string }>>, isTop: boolean): RoomZone {
+function sizeZoneForContents(zone: RoomZone, grouped: Map<string, Array<{ id: string; name: string }>>, isTop: boolean): RoomZone {
   if (zone.fixedSize) return zone;
   const count = (grouped.get(zone.key) ?? []).length;
-  const newH = requiredZoneH(zone.h, count, zone.cols) + randomInt(0, 100);
-  const newW = Math.max(260, zone.w + randomInt(-80, 140));
+  const newH = requiredZoneH(zone.h, count, zone.cols);
   const doorWasOnBottom = Math.abs(zone.doorY - (zone.y + zone.h)) <= 4;
   return {
     ...zone,
-    w: newW,
     h: newH,
     doorY: isTop && doorWasOnBottom ? zone.y + newH : zone.doorY,
   };
 }
 
-/** Minimum zone height needed to fit `count` items in `cols` columns without overflow. */
+/** Minimum zone height needed to fit `count` items in `cols` columns without overflow.
+ *  Capped at 2× the template default so zones never inflate enough to push siblings. */
 function requiredZoneH(originalH: number, count: number, cols: number): number {
   if (count === 0) return originalH;
   const rows = Math.ceil(count / Math.max(1, cols));
   const needed = ZONE_LABEL_H + rows * (MIN_CELL_H + CELL_GAP) - CELL_GAP + ZONE_BOT_PAD;
-  return Math.max(originalH, needed);
+  return Math.max(originalH, Math.min(needed, originalH * 2));
 }
 
 function remapEdgeCoordinate(originalStart: number, originalSize: number, newStart: number, newSize: number, value: number): number {
@@ -383,18 +429,18 @@ function expandAndReflow(
   const isTop = (z: RoomZone) => z.y < ROW_SPLIT_Y;
   const groupedRestroomSizes = new Map<string, { w: number; h: number }>();
   const expanded = zones.map(z => {
-    const randomized = randomizeZoneSize(z, grouped, isTop(z));
-    if (!z.objectGroupId?.includes('restroom-group')) return randomized;
+    const sized = sizeZoneForContents(z, grouped, isTop(z));
+    if (!z.objectGroupId?.includes('restroom-group')) return sized;
 
-    const sharedSize = groupedRestroomSizes.get(z.objectGroupId) ?? { w: randomized.w, h: randomized.h };
+    const sharedSize = groupedRestroomSizes.get(z.objectGroupId) ?? { w: sized.w, h: sized.h };
     groupedRestroomSizes.set(z.objectGroupId, sharedSize);
     const doorWasOnBottom = Math.abs(z.doorY - (z.y + z.h)) <= 4;
     return {
-      ...randomized,
+      ...sized,
       w: sharedSize.w,
       h: sharedSize.h,
       doorX: z.x + sharedSize.w / 2,
-      doorY: doorWasOnBottom ? z.y + sharedSize.h : randomized.doorY,
+      doorY: doorWasOnBottom ? z.y + sharedSize.h : sized.doorY,
     };
   });
   const placementUnits = [...expanded.reduce((units, zone) => {
@@ -461,7 +507,12 @@ function expandAndReflow(
 }
 
 function traceHardTurnPerimeter(zones: RoomZone[], variant: LayoutVariant): Point[] {
-  return traceOccupiedBoundary(buildPerimeterRects(zones, variant));
+  if (zones.length === 0) return [];
+  const left = Math.min(...zones.map(zone => zone.x)) - variant.outerPad;
+  const right = Math.max(...zones.map(zone => zone.x + zone.w)) + variant.outerPad;
+  const top = Math.min(OUTER_TOP_Y, Math.min(...zones.map(zone => zone.y)) - variant.outerPad);
+  const bottom = Math.max(...zones.map(zone => zone.y + zone.h)) + variant.bottomPad;
+  return [[left, top], [right, top], [right, bottom], [left, bottom]];
 }
 
 function snapBoundaryRoomsToPerimeter(zones: RoomZone[], perimeter: Point[], threshold = 100): RoomZone[] {
@@ -634,7 +685,8 @@ function openingTouchesRoom(room: FloorPlanObject, opening: FloorPlanObject): bo
 }
 
 function addRoomShell(objects: FloorPlanObject[], prefix: string, room: RoomZone) {
-  const wallGroupId = room.objectGroupId ?? `${prefix}-${room.key}-indoor-walls`;
+  // One shared groupId for the room rect, all its indoor walls, door, and window.
+  const roomGroupId = room.objectGroupId ?? `${prefix}-${room.key}-group`;
   const hasOutdoorWall = (startX: number, startY: number, endX: number, endY: number) => objects.some((object) => {
     if (object.type !== 'wall' || !object.id.includes('-ow-')) return false;
     if (startY === endY && object.startY === object.endY && object.startY === startY) {
@@ -647,14 +699,14 @@ function addRoomShell(objects: FloorPlanObject[], prefix: string, room: RoomZone
     }
     return false;
   });
-  addSpace(objects, `${prefix}-${room.key}`, room.label, room.x, room.y, room.w, room.h, room.color, 'room', room.objectGroupId);
-  if (!hasOutdoorWall(room.x, room.y, room.x + room.w, room.y)) addWall(objects, `${prefix}-${room.key}-wall-top`, room.x, room.y, room.x + room.w, room.y, INNER_T, wallGroupId);
-  if (!hasOutdoorWall(room.x, room.y + room.h, room.x + room.w, room.y + room.h)) addWall(objects, `${prefix}-${room.key}-wall-bottom`, room.x, room.y + room.h, room.x + room.w, room.y + room.h, INNER_T, wallGroupId);
-  if (!hasOutdoorWall(room.x, room.y, room.x, room.y + room.h)) addWall(objects, `${prefix}-${room.key}-wall-left`, room.x, room.y, room.x, room.y + room.h, INNER_T, wallGroupId);
-  if (!hasOutdoorWall(room.x + room.w, room.y, room.x + room.w, room.y + room.h)) addWall(objects, `${prefix}-${room.key}-wall-right`, room.x + room.w, room.y, room.x + room.w, room.y + room.h, INNER_T, wallGroupId);
-  addOpening(objects, `${prefix}-${room.key}-door`, `${room.label} Door`, room.doorX, room.doorY, 92, room.doorAngle ?? 0, 'single', room.objectGroupId);
+  addSpace(objects, `${prefix}-${room.key}`, room.label, room.x, room.y, room.w, room.h, room.color, 'room', roomGroupId);
+  if (!hasOutdoorWall(room.x, room.y, room.x + room.w, room.y)) addWall(objects, `${prefix}-${room.key}-wall-top`, room.x, room.y, room.x + room.w, room.y, INNER_T, roomGroupId);
+  if (!hasOutdoorWall(room.x, room.y + room.h, room.x + room.w, room.y + room.h)) addWall(objects, `${prefix}-${room.key}-wall-bottom`, room.x, room.y + room.h, room.x + room.w, room.y + room.h, INNER_T, roomGroupId);
+  if (!hasOutdoorWall(room.x, room.y, room.x, room.y + room.h)) addWall(objects, `${prefix}-${room.key}-wall-left`, room.x, room.y, room.x, room.y + room.h, INNER_T, roomGroupId);
+  if (!hasOutdoorWall(room.x + room.w, room.y, room.x + room.w, room.y + room.h)) addWall(objects, `${prefix}-${room.key}-wall-right`, room.x + room.w, room.y, room.x + room.w, room.y + room.h, INNER_T, roomGroupId);
+  addOpening(objects, `${prefix}-${room.key}-door`, `${room.label} Door`, room.doorX, room.doorY, 92, room.doorAngle ?? 0, 'single', roomGroupId);
   if (room.windowX !== undefined && room.windowY !== undefined) {
-    addWindow(objects, `${prefix}-${room.key}-window`, room.windowX, room.windowY, room.windowWidth ?? 140, room.windowAngle ?? 0, room.objectGroupId);
+    addWindow(objects, `${prefix}-${room.key}-window`, room.windowX, room.windowY, room.windowWidth ?? 140, room.windowAngle ?? 0, roomGroupId);
   }
 }
 
@@ -662,19 +714,31 @@ function placeLocationsInZone(
   objects: FloorPlanObject[],
   zone: { key: string; label: string; x: number; y: number; w: number; h: number; color: string; cols: number },
   locations: Array<{ id: string; name: string }>,
+  groupId?: string,
 ) {
   if (!objects.some(o => o.type === 'room' && o.label === zone.label && o.x === zone.x && o.y === zone.y)) {
-    objects.push({ id: `zone-${zone.key}`, type: 'room', x: zone.x, y: zone.y, width: zone.w, height: zone.h, label: zone.label, color: zone.color });
+    objects.push({ id: `zone-${zone.key}`, type: 'room', x: zone.x, y: zone.y, width: zone.w, height: zone.h, label: zone.label, color: zone.color, ...(groupId ? { groupId } : {}) });
   }
 
   const gap = CELL_GAP;
   const topPadding = ZONE_LABEL_H;
   const cols = Math.max(1, zone.cols);
-  const rows = Math.max(1, Math.ceil(locations.length / cols));
   const cellWidth = Math.floor((zone.w - 30 - gap * (cols - 1)) / cols);
-  const cellHeight = Math.max(MIN_CELL_H, Math.min(44, Math.floor((zone.h - topPadding - ZONE_BOT_PAD - gap * (rows - 1)) / rows)));
 
-  locations.forEach((location, index) => {
+  // Guard: zone too narrow to fit even a single column without overlap.
+  if (cellWidth < 1) return;
+
+  // Cap rows to what fits vertically so racks never overflow zone bounds.
+  const availH = zone.h - topPadding - ZONE_BOT_PAD;
+  const maxRows = Math.max(1, Math.floor((availH + gap) / (MIN_CELL_H + gap)));
+  const rows = Math.min(Math.max(1, Math.ceil(locations.length / cols)), maxRows);
+  const cellHeight = Math.max(MIN_CELL_H, Math.min(44, Math.floor((availH - gap * (rows - 1)) / rows)));
+
+  // Only place as many items as the capped grid can hold — excess items are
+  // deferred until the zone is resized or the layout is regenerated.
+  const maxItems = rows * cols;
+
+  locations.slice(0, maxItems).forEach((location, index) => {
     const col = index % cols;
     const row = Math.floor(index / cols);
     const type = classifyLocation(location.name);
@@ -685,6 +749,7 @@ function placeLocationsInZone(
       width: cellWidth, height: cellHeight,
       label: location.name, linkedLocationId: location.id,
       color: type === 'rack' ? '#f59e0b' : type === 'shelf' ? '#8b5cf6' : '#3b82f6',
+      ...(groupId ? { groupId } : {}),
     });
   });
 }
@@ -744,19 +809,18 @@ function buildValidatedLayoutFloorPlan(floorLabel: string, locations: Array<{ id
     grouped.get(key)?.push(location);
   });
 
-  // 2. Expand zone heights + reflow positions so content stays inside the building
+  // 2. Expand zone heights (capped at 2× default) + reflow positions
   const { zones: reflowed, outerBottomY } = expandAndReflow(layoutZones, grouped, layoutVariant, options.maxLayoutWidth);
 
   // 3. Outer building walls with hard turns around occupied room areas
   const perimeterPts = traceHardTurnPerimeter(reflowed, layoutVariant);
   const objects = buildPerimeterWalls(floorLabel, perimeterPts, outerBottomY);
-  const snappedZones = snapBoundaryRoomsToPerimeter(reflowed, perimeterPts);
 
   // 4. Room shells (inner walls + zone backgrounds)
-  snappedZones.forEach(z => addRoomShell(objects, prefix, z));
+  reflowed.forEach(z => addRoomShell(objects, prefix, z));
 
-  // 5. Place location objects inside zones
-  snappedZones.forEach(z => placeLocationsInZone(objects, z, grouped.get(z.key) ?? []));
+  // 5. Place location objects inside zones (share the same groupId as the room shell)
+  reflowed.forEach(z => placeLocationsInZone(objects, z, grouped.get(z.key) ?? [], z.objectGroupId ?? `${prefix}-${z.key}-group`));
 
   // 6. Dimension label
   objects.push({ id: `${prefix}-measure`, type: 'label', x: 720, y: outerBottomY + 30, width: 500, height: 24, text: `Floor plan · ${reflowed.length} zones · ${locations.length} locations`, label: 'Dimensions', fontSize: 14, color: '#475569' });
@@ -939,10 +1003,10 @@ export function buildKnowledgeTemplateFloorPlan(templateName: string, department
   // Image: Left bunk/locker area | Common area + shared table | Right bunk/locker area
   //        Utility / linen | Other locations
   ] : isDormitory ? [
-    { key: 'left-dorm',  label: 'Left Sleeping / Locker Area',   x: 90,   y: 120, w: 440, h: 400, color: '#dbeafe', cols: 2, doorX: 310,  doorY: 520, windowX: 170, windowY: OUTER_TOP_Y, windowWidth: 180 },
+    { key: 'left-dorm',  label: 'Left Sleeping / Locker Area',   x: 90,   y: 120, w: 440, h: 400, color: '#dbeafe', cols: 1, doorX: 310,  doorY: 520, windowX: 170, windowY: OUTER_TOP_Y, windowWidth: 180 },
     { key: 'common',     label: 'Common Area / Dining',           x: 580,  y: 120, w: 480, h: 400, color: '#dcfce7', cols: 2, doorX: 820,  doorY: 520, windowX: 700, windowY: OUTER_TOP_Y, windowWidth: 220 },
-    { key: 'right-dorm', label: 'Right Sleeping / Locker Area',  x: 1110, y: 120, w: 440, h: 400, color: '#dbeafe', cols: 2, doorX: 1330, doorY: 520, windowX: 1200, windowY: OUTER_TOP_Y, windowWidth: 180 },
-    { key: 'utility',    label: 'Utility / Linen / Restroom',    x: 90,   y: 660, w: 490, h: 300, color: '#fef3c7', cols: 2, doorX: 335,  doorY: 660 },
+    { key: 'right-dorm', label: 'Right Sleeping / Locker Area',  x: 1110, y: 120, w: 440, h: 400, color: '#dbeafe', cols: 1, doorX: 1330, doorY: 520, windowX: 1200, windowY: OUTER_TOP_Y, windowWidth: 180 },
+    { key: 'utility',    label: 'Utility / Linen / Restroom',    x: 90,   y: 660, w: 490, h: 300, color: '#fef3c7', cols: 1, doorX: 335,  doorY: 660 },
     { key: 'overflow',   label: 'Other Locations',               x: 630,  y: 660, w: 920, h: 300, color: '#f3f4f6', cols: 4, doorX: 1090, doorY: 660 },
 
   // ── Reception ──────────────────────────────────────────────────────────────

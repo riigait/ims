@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Plus, Trash2, MapPin, LayoutGrid, List, Edit, Sparkles, CheckCircle, XCircle, RefreshCw, BookmarkCheck, ChevronDown, ChevronUp, Info, AlertTriangle } from 'lucide-react';
 import { formatDate } from '@/utils/ids';
@@ -154,11 +154,14 @@ export default function FloorPlans() {
   const [regeneratingId, setRegeneratingId] = useState<string | null>(null);
   // Per-plan saving-as-template state
 
+  // Tracks in-flight per-plan full fetches so we don't double-fetch
+  const fetchingPlansRef = useRef<Set<string>>(new Set());
+
   const fetchFloorPlans = async () => {
     try {
-      const response = await floorPlansApi.getAll();
+      // Summary mode: metadata only — no objects. Thumbnails lazy-fetch full data on visibility.
+      const response = await floorPlansApi.getAll(true);
       setFloorPlans(response.data);
-      // Seed feedback state from isApproved
       const fb: Record<string, FeedbackState> = {};
       response.data.forEach((p: any) => {
         if (p.isApproved) fb[p.id] = 'approved';
@@ -169,6 +172,20 @@ export default function FloorPlans() {
       setLoading(false);
     }
   };
+
+  // Called by FloorPlanThumbnail when a card enters the viewport without objects loaded
+  const handlePlanVisible = useCallback(async (planId: string) => {
+    if (fetchingPlansRef.current.has(planId)) return;
+    fetchingPlansRef.current.add(planId);
+    try {
+      const response = await floorPlansApi.getById(planId);
+      setFloorPlans(prev => prev.map(p => p.id === planId ? { ...p, objects: response.data.objects } : p));
+    } catch {
+      // non-critical — thumbnail stays as spinner; user can refresh
+    } finally {
+      fetchingPlansRef.current.delete(planId);
+    }
+  }, []);
 
   useEffect(() => {
     const handleStorageChange = () => {
@@ -340,7 +357,15 @@ export default function FloorPlans() {
         logs: ['Regenerated requested floors', 'Fitted room, rack, and shelf objects', 'Validating layouts'],
       });
       if (Array.isArray(response.data.regenerated)) {
-        await fetchFloorPlans();
+        // Update only the regenerated plans in-place so thumbnails reflect new objects immediately.
+        // fetchFloorPlans() fetches summary-only (no objects) and strips them from state, causing
+        // the thumbnail to stay as a spinner because the intersection observer already disconnected.
+        const regeneratedMap = new Map(
+          (response.data.regenerated as FloorPlan[]).map((p) => [p.id, p])
+        );
+        setFloorPlans(prev => prev.map(p =>
+          regeneratedMap.has(p.id) ? { ...p, ...regeneratedMap.get(p.id)! } : p
+        ));
         setAutoGenerateStatus({
           type: 'success',
           message: response.data.message,
@@ -414,19 +439,39 @@ export default function FloorPlans() {
     }
   };
 
-  const filteredAndSortedPlans = floorPlans
-    .filter(plan => {
-      const matchesSearch = plan.name.toLowerCase().includes(searchTerm.toLowerCase());
-      const matchesDept = !departmentFilter || plan.departmentId === departmentFilter;
-      return matchesSearch && matchesDept;
-    })
-    .sort((a, b) => {
-      if (sortBy === 'name') return a.name.localeCompare(b.name);
-      if (sortBy === 'recently-added') return new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime();
-      if (sortBy === 'object-count') return (b.objects?.length || 0) - (a.objects?.length || 0);
-      if (sortBy === 'score') return (b.generationScore || 0) - (a.generationScore || 0);
-      return 0;
+  const filteredAndSortedPlans = useMemo(() =>
+    floorPlans
+      .filter(plan => {
+        const matchesSearch = plan.name.toLowerCase().includes(searchTerm.toLowerCase());
+        const matchesDept = !departmentFilter || plan.departmentId === departmentFilter;
+        return matchesSearch && matchesDept;
+      })
+      .sort((a, b) => {
+        if (sortBy === 'name') return a.name.localeCompare(b.name);
+        if (sortBy === 'recently-added') return new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime();
+        if (sortBy === 'object-count') return (b.objects?.length || 0) - (a.objects?.length || 0);
+        if (sortBy === 'score') return (b.generationScore || 0) - (a.generationScore || 0);
+        return 0;
+      }),
+    [floorPlans, searchTerm, departmentFilter, sortBy],
+  );
+
+  // Pre-computed validation per auto-generated plan; recomputed only when objects change
+  const validationMap = useMemo(() => {
+    const map = new Map<string, ReturnType<typeof validateFloorplanObjects>>();
+    floorPlans.forEach(plan => {
+      if (plan.name.startsWith('Auto - ') && plan.objects) {
+        map.set(plan.id, validateFloorplanObjects(plan.objects));
+      }
     });
+    return map;
+  }, [floorPlans]);
+
+  // Built once per departments change, not per table row
+  const departmentsMap = useMemo(
+    () => departments.reduce((acc, dept) => { acc[dept.id] = dept.name; return acc; }, {} as Record<string, string>),
+    [departments],
+  );
 
   const paginatedPlans = filteredAndSortedPlans.slice((currentPage - 1) * pageSize, currentPage * pageSize);
 
@@ -863,11 +908,15 @@ export default function FloorPlans() {
             const isApproved = feedback === 'approved' || plan.isApproved;
             const isTemplate = plan.isTemplate;
             const isRegenerating = regeneratingId === plan.id;
-            const canRegeneratePlan = isAutoGenerated && (
-              !/ - Building \d+ - Floor \d+ - /.test(plan.name)
-              || / - Building \d+ - Floor 1 - /.test(plan.name)
-            );
-            const validation = isAutoGenerated ? validateFloorplanObjects(plan.objects || []) : null;
+            const canRegeneratePlan = isAutoGenerated;
+            const isBuildingFloor1 = / - Building \d+ - Floor 1 - /.test(plan.name);
+            const isBuildingFloorOther = / - Building \d+ - Floor [2-9]\d* - /.test(plan.name);
+            const regenerateTitle = isBuildingFloorOther
+              ? 'Regenerate this floor\'s indoor layout'
+              : isBuildingFloor1
+                ? 'Regenerate all building floors'
+                : 'Regenerate floor plan';
+            const validation = isAutoGenerated ? (validationMap.get(plan.id) ?? null) : null;
 
             return (
               <div key={plan.id}
@@ -877,8 +926,9 @@ export default function FloorPlans() {
                 } ${isApproved ? 'ring-2 ring-green-400' : ''}`}>
                 {/* Thumbnail */}
                 <div className="flex-1 overflow-hidden rounded-t-lg bg-slate-100 relative">
-                  <FloorPlanThumbnail plan={plan} width={400} height={400}
-                    highlightLocationId={locationId ?? undefined} />
+                  <FloorPlanThumbnail plan={plan} width={200} height={200}
+                    highlightLocationId={locationId ?? undefined}
+                    onVisible={() => handlePlanVisible(plan.id)} />
 
                   {/* Score badge */}
                   {isAutoGenerated && score !== undefined && (
@@ -945,7 +995,7 @@ export default function FloorPlans() {
                               onClick={() => handleRegenerate(plan.id)}
                               disabled={isRegenerating}
                               className="px-1 py-0.5 bg-[var(--surface-2)] text-[var(--text)] text-xs rounded hover:bg-[var(--border)] disabled:opacity-50"
-                              title="Regenerate all building floors">
+                              title={regenerateTitle}>
                               <RefreshCw size={10} className={isRegenerating ? 'animate-spin' : ''} />
                             </button>
                           )}
@@ -1008,7 +1058,6 @@ export default function FloorPlans() {
               </thead>
               <tbody className="divide-y divide-[var(--border)]">
                 {paginatedPlans.map((plan) => {
-                  const departmentsMap = departments.reduce((map, dept) => ({ ...map, [dept.id]: dept.name }), {} as Record<string, string>);
                   const departmentName = plan.departmentId ? departmentsMap[plan.departmentId] : null;
                   const isAutoGenerated = plan.name.startsWith('Auto - ');
                   const score = plan.generationScore as number | undefined;
@@ -1016,10 +1065,14 @@ export default function FloorPlans() {
                   const isApproved = feedback === 'approved' || plan.isApproved;
                   const isTemplate = plan.isTemplate;
                   const isRegenerating = regeneratingId === plan.id;
-                  const canRegeneratePlan = isAutoGenerated && (
-                    !/ - Building \d+ - Floor \d+ - /.test(plan.name)
-                    || / - Building \d+ - Floor 1 - /.test(plan.name)
-                  );
+                  const canRegeneratePlan = isAutoGenerated;
+                  const isBuildingFloor1List = / - Building \d+ - Floor 1 - /.test(plan.name);
+                  const isBuildingFloorOtherList = / - Building \d+ - Floor [2-9]\d* - /.test(plan.name);
+                  const regenerateTitleList = isBuildingFloorOtherList
+                    ? 'Regenerate this floor\'s indoor layout'
+                    : isBuildingFloor1List
+                      ? 'Regenerate all building floors'
+                      : 'Regenerate floor plan';
 
                   return (
                     <tr key={plan.id} className="hover:bg-[var(--surface-2)] transition-colors">
@@ -1070,7 +1123,7 @@ export default function FloorPlans() {
                                   onClick={() => handleRegenerate(plan.id)}
                                   disabled={isRegenerating}
                                   className="text-[var(--text-muted)] hover:text-[var(--text)] disabled:opacity-50"
-                                  title="Regenerate all building floors">
+                                  title={regenerateTitleList}>
                                   <RefreshCw size={16} className={isRegenerating ? 'animate-spin' : ''} />
                                 </button>
                               )}
@@ -1112,7 +1165,7 @@ export default function FloorPlans() {
       {errorPanelPlanId && (() => {
         const plan = floorPlans.find(p => p.id === errorPanelPlanId);
         if (!plan) return null;
-        const errs = validateFloorplanObjects(plan.objects || []).errors;
+        const errs = validationMap.get(errorPanelPlanId)?.errors ?? [];
         return (
           <div className="fixed bottom-6 right-6 z-50 bg-[var(--surface)] border border-red-300 rounded-xl shadow-2xl w-80 max-h-[60vh] flex flex-col">
             <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--border)]">

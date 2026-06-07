@@ -9,7 +9,8 @@ export type FloorplanValidationError =
   | 'object_crosses_wall'
   | 'object_overlap'
   | 'door_missing'
-  | 'door_blocked';
+  | 'door_blocked'
+  | 'object_outside_outdoor_walls';
 
 export interface FloorplanValidationResult {
   valid: boolean;
@@ -56,6 +57,62 @@ function pointNearRectEdge(x: number, y: number, room: RectangleObject, toleranc
   const nearVertical = Math.abs(x - room.x) <= tolerance || Math.abs(x - (room.x + room.width)) <= tolerance;
   const nearHorizontal = Math.abs(y - room.y) <= tolerance || Math.abs(y - (room.y + room.height)) <= tolerance;
   return (nearVertical && inY) || (nearHorizontal && inX);
+}
+
+// Traces connected outdoor-wall segments into an ordered closed-loop vertex list.
+// Returns null if the segments are disconnected or don't close back to the start.
+function buildOutdoorLoop(segs: WallObject[], snapTol = 2): [number, number][] | null {
+  if (segs.length < 3) return null;
+  const remaining = [...segs];
+  const loop: [number, number][] = [];
+
+  let cur = remaining.splice(0, 1)[0];
+  const sx = cur.startX, sy = cur.startY;
+  loop.push([sx, sy]);
+  let ex = cur.endX, ey = cur.endY;
+
+  while (remaining.length > 0) {
+    const idx = remaining.findIndex(w =>
+      Math.hypot(w.startX - ex, w.startY - ey) < snapTol ||
+      Math.hypot(w.endX - ex, w.endY - ey) < snapTol
+    );
+    if (idx === -1) return null; // disconnected — skip validation
+    const next = remaining.splice(idx, 1)[0];
+    const atStart = Math.hypot(next.startX - ex, next.startY - ey) < snapTol;
+    loop.push(atStart ? [next.startX, next.startY] : [next.endX, next.endY]);
+    ex = atStart ? next.endX : next.startX;
+    ey = atStart ? next.endY : next.startY;
+  }
+
+  // Loop must close back to its own starting point
+  return Math.hypot(ex - sx, ey - sy) <= snapTol * 2 ? loop : null;
+}
+
+// Ray-casting point-in-polygon test — correct for convex and concave polygons.
+function pointInsideLoop(px: number, py: number, loop: [number, number][]): boolean {
+  let inside = false;
+  const n = loop.length;
+  for (let i = 0, j = n - 1; i < n; j = i++) {
+    const [xi, yi] = loop[i], [xj, yj] = loop[j];
+    if ((yi > py) !== (yj > py) && px < ((xj - xi) * (py - yi)) / (yj - yi) + xi) {
+      inside = !inside;
+    }
+  }
+  return inside;
+}
+
+// Minimum distance from point (px, py) to any edge of the loop.
+function distToLoop(px: number, py: number, loop: [number, number][]): number {
+  let min = Infinity;
+  const n = loop.length;
+  for (let i = 0, j = n - 1; i < n; j = i++) {
+    const [ax, ay] = loop[j], [bx, by] = loop[i];
+    const dx = bx - ax, dy = by - ay;
+    const lenSq = dx * dx + dy * dy;
+    const t = lenSq > 0 ? Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / lenSq)) : 0;
+    min = Math.min(min, Math.hypot(px - (ax + t * dx), py - (ay + t * dy)));
+  }
+  return min;
 }
 
 export function validateFloorplanObjects(objects: FloorPlanObject[]): FloorplanValidationResult {
@@ -105,6 +162,36 @@ export function validateFloorplanObjects(objects: FloorPlanObject[]): FloorplanV
       }
     });
   });
+
+  // Trace outdoor wall segments into a real closed loop, then use ray-casting
+  // point-in-polygon plus a distance tolerance so snapped/boundary objects pass.
+  // If the loop cannot be built (disconnected walls), skip this check entirely.
+  const outdoorWalls = walls.filter(w => w.id.includes('-ow-'));
+  if (outdoorWalls.length > 0) {
+    const loop = buildOutdoorLoop(outdoorWalls);
+    if (loop) {
+      const TOLERANCE = 6; // px — corners within this distance of the boundary are not flagged
+      objects.filter(isRectObject).forEach(obj => {
+        const corners: [number, number][] = [
+          [obj.x,             obj.y],
+          [obj.x + obj.width, obj.y],
+          [obj.x + obj.width, obj.y + obj.height],
+          [obj.x,             obj.y + obj.height],
+        ];
+        const overflows = corners.some(([px, py]) =>
+          !pointInsideLoop(px, py, loop) && distToLoop(px, py, loop) > TOLERANCE
+        );
+        if (overflows) {
+          const label = obj.label ? `"${obj.label}"` : obj.type;
+          errors.push({
+            code: 'object_outside_outdoor_walls',
+            objectId: obj.id,
+            message: `${label} is outside the outdoor wall boundary.`,
+          });
+        }
+      });
+    }
+  }
 
   return { valid: errors.length === 0, errors };
 }

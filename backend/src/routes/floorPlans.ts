@@ -44,13 +44,16 @@ function canManageFloorPlan(req: AuthRequest, departmentId: string | null) {
 
 type LocationKind = 'rack' | 'shelf' | 'room';
 
+// Per-floor location-assignment caps aligned with ZONE_RACK_SHELF_DEFAULTS.
+// Values represent location DB records (not physical units); one shelf/rack can
+// hold many records. Caps prevent a single floor from becoming visually unreadable.
 const FLOOR_CAPACITY: Record<string, Record<LocationKind, number>> = {
-  warehouse: { rack: 400, shelf: 200, room: 20 },
-  storage: { rack: 80, shelf: 120, room: 20 },
-  dormitory: { rack: 30, shelf: 120, room: 40 },
-  office: { rack: 20, shelf: 120, room: 60 },
-  technical: { rack: 20, shelf: 25, room: 20 },
-  reception: { rack: 6, shelf: 25, room: 30 },
+  warehouse: { rack: 24,  shelf: 50,  room: 10 },
+  storage:   { rack: 4,   shelf: 6,   room: 10 },
+  dormitory: { rack: 2,   shelf: 4,   room: 40 },
+  office:    { rack: 2,   shelf: 4,   room: 60 },
+  technical: { rack: 4,   shelf: 2,   room: 10 },
+  reception: { rack: 1,   shelf: 1,   room: 20 },
 };
 
 function getLocationKind(name: string): LocationKind {
@@ -271,12 +274,145 @@ function fitIndoorObjectsInsideOutdoorWalls(objects: FloorPlanObject[]): FloorPl
   });
 }
 
+// Push overlapping indoor rect objects apart so every pair has at least minGap px
+// of clearance, then clamp each object back inside the outdoor wall boundary so
+// no object can escape the enclosure. Fixed objects (outdoor walls, stairs,
+// elevators) are never moved. Runs up to MAX_ITER passes and stops early when stable.
+// minGap = 16: racks sit 15 px inside each zone edge, so a 16 px zone gap gives
+// ~46 px clearance between racks in adjacent zones — well above the 6 px minimum.
+function resolveIndoorObjectOverlaps(objects: FloorPlanObject[], minGap = 16): FloorPlanObject[] {
+  const isOW = (o: FloorPlanObject) => o.type === 'wall' && o.id.includes('-ow-');
+  const isFixed = (o: FloorPlanObject) =>
+    isOW(o) || o.id.includes('reserved-stairs') || o.id.includes('reserved-elevator');
+
+  // Only push zone rects — racks/shelves follow their zone via groupId so grid alignment is preserved.
+  const isMovableZone = (o: FloorPlanObject) => o.type === 'room' && !isFixed(o);
+
+  const movable: FloorPlanObject[] = objects.filter(isMovableZone).map(o => ({ ...o }));
+  if (movable.length < 2) return objects;
+
+  // Derive interior bounds from outdoor walls so pushed zones are clamped inside.
+  const outdoorWalls = objects.filter(isOW);
+  const WALL_MARGIN = 28; // matches fitIndoorObjectsInsideOutdoorWalls
+  let bMinX = -Infinity, bMinY = -Infinity, bMaxX = Infinity, bMaxY = Infinity;
+  if (outdoorWalls.length > 0) {
+    const xs = outdoorWalls.flatMap(w => [w.startX ?? w.x, w.endX ?? w.x + w.width]);
+    const ys = outdoorWalls.flatMap(w => [w.startY ?? w.y, w.endY ?? w.y + w.height]);
+    bMinX = Math.min(...xs) + WALL_MARGIN;
+    bMinY = Math.min(...ys) + WALL_MARGIN;
+    bMaxX = Math.max(...xs) - WALL_MARGIN;
+    bMaxY = Math.max(...ys) - WALL_MARGIN;
+  }
+  const hasBounds = Number.isFinite(bMinX);
+  const clamp = (o: FloorPlanObject) => {
+    if (!hasBounds) return;
+    o.x = Math.max(bMinX, Math.min(bMaxX - o.width,  o.x));
+    o.y = Math.max(bMinY, Math.min(bMaxY - o.height, o.y));
+  };
+
+  const MAX_ITER = 80;
+  for (let iter = 0; iter < MAX_ITER; iter++) {
+    let moved = false;
+    for (let i = 0; i < movable.length; i++) {
+      for (let j = i + 1; j < movable.length; j++) {
+        const a = movable[i], b = movable[j];
+        // Positive overlap = rooms intersect on that axis; skip pairs that don't actually overlap.
+        const overlapX = Math.min(a.x + a.width,  b.x + b.width)  - Math.max(a.x, b.x);
+        const overlapY = Math.min(a.y + a.height, b.y + b.height) - Math.max(a.y, b.y);
+        if (overlapX <= 0 || overlapY <= 0) continue;
+
+        // Push along the axis of minimum penetration.
+        // Distribute the required push proportionally to each room's available space
+        // so a room pressed against a boundary hands its unused share to its partner
+        // instead of both clamping to the same spot and leaving the overlap unresolved.
+        const pushAlongX = overlapX <= overlapY;
+        const needed = (pushAlongX ? overlapX : overlapY) + minGap;
+
+        if (pushAlongX) {
+          const dir = (a.x + a.width / 2) <= (b.x + b.width / 2) ? 1 : -1;
+          const aRoom = dir > 0 ? Math.max(0, a.x - bMinX)           : Math.max(0, bMaxX - a.width  - a.x);
+          const bRoom = dir > 0 ? Math.max(0, bMaxX - b.width - b.x) : Math.max(0, b.x - bMinX);
+          const total  = aRoom + bRoom || 1;
+          const aPush  = hasBounds ? Math.min(aRoom, needed * aRoom / total) : needed / 2;
+          const bPush  = hasBounds ? Math.min(bRoom, needed - aPush)         : needed / 2;
+          a.x -= dir * aPush;
+          b.x += dir * bPush;
+        } else {
+          const dir = (a.y + a.height / 2) <= (b.y + b.height / 2) ? 1 : -1;
+          const aRoom = dir > 0 ? Math.max(0, a.y - bMinY)              : Math.max(0, bMaxY - a.height - a.y);
+          const bRoom = dir > 0 ? Math.max(0, bMaxY - b.height - b.y)   : Math.max(0, b.y - bMinY);
+          const total  = aRoom + bRoom || 1;
+          const aPush  = hasBounds ? Math.min(aRoom, needed * aRoom / total) : needed / 2;
+          const bPush  = hasBounds ? Math.min(bRoom, needed - aPush)         : needed / 2;
+          a.y -= dir * aPush;
+          b.y += dir * bPush;
+        }
+        clamp(a);
+        clamp(b);
+        moved = true;
+      }
+    }
+    if (!moved) break;
+  }
+
+  // Compute per-groupId deltas so every child (walls, door, window, racks, shelves) follows its zone rect.
+  const deltas = new Map<string, { dx: number; dy: number }>();
+  for (const mz of movable) {
+    if (!mz.groupId) continue;
+    const orig = objects.find(o => o.id === mz.id);
+    if (!orig) continue;
+    const dx = mz.x - orig.x, dy = mz.y - orig.y;
+    if (dx !== 0 || dy !== 0) deltas.set(mz.groupId, { dx, dy });
+  }
+
+  return objects.map(o => {
+    // Zone rect itself
+    const movedZone = movable.find(m => m.id === o.id);
+    if (movedZone) return movedZone;
+    // Children: shift by same delta as their zone so racks/shelves stay grid-aligned
+    if (o.groupId) {
+      const d = deltas.get(o.groupId);
+      if (d) {
+        if (o.type === 'wall') {
+          return { ...o, startX: (o as any).startX + d.dx, startY: (o as any).startY + d.dy, endX: (o as any).endX + d.dx, endY: (o as any).endY + d.dy };
+        }
+        return { ...o, x: (o as any).x + d.dx, y: (o as any).y + d.dy };
+      }
+    }
+    return o;
+  });
+}
+
 // â”€â”€â”€ Routes â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 // Get all floor plans
+// ?summary=true — returns metadata only (no objects); use GET /:id for full data
 router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const departmentFilter = getDepartmentFilter(req);
+    const summary = req.query.summary === 'true';
+
+    if (summary) {
+      const plans = await prisma.floorPlan.findMany({
+        where: departmentFilter,
+        select: {
+          id: true,
+          name: true,
+          locationId: true,
+          departmentId: true,
+          width: true,
+          height: true,
+          isApproved: true,
+          isTemplate: true,
+          generationScore: true,
+          createdAt: true,
+          updatedAt: true,
+          location: { select: { id: true, name: true } },
+        },
+      });
+      return res.json(plans);
+    }
+
     const floorPlans = await prisma.floorPlan.findMany({
       where: departmentFilter,
       include: { location: true },
@@ -605,6 +741,7 @@ router.post('/auto-generate', async (req: AuthRequest, res: Response, next: Next
             }
           }
 
+          objects = resolveIndoorObjectOverlaps(objects);
           const templateType = determineTemplateType(templateName);
           const validation = validateGeneratedFloorPlan(objects, templateType);
           const floorPlan = await prisma.floorPlan.create({
@@ -669,7 +806,8 @@ router.post('/auto-generate', async (req: AuthRequest, res: Response, next: Next
     const groupSlots = Math.max(0, planCount - templatesToGenerate.length);
     for (const [groupName, groupLocations] of Array.from(locationGroups.entries()).slice(0, groupSlots)) {
       const name = `${GENERATED_FLOORPLAN_PREFIX}${department.name} - ${groupName}`;
-      const objects = buildGeneratedFloorPlan(name, groupLocations);
+      let objects = buildGeneratedFloorPlan(name, groupLocations);
+      objects = resolveIndoorObjectOverlaps(objects);
       const validation = validateGeneratedFloorPlan(objects, 'office');
       const floorPlan = await prisma.floorPlan.create({
         data: {
@@ -694,7 +832,8 @@ router.post('/auto-generate', async (req: AuthRequest, res: Response, next: Next
 
     for (const templateName of templatesToGenerate) {
       const name = `${GENERATED_FLOORPLAN_PREFIX}${department.name} - ${templateName}`;
-      const objects = buildKnowledgeTemplateFloorPlan(templateName, department.name, locations);
+      let objects = buildKnowledgeTemplateFloorPlan(templateName, department.name, locations);
+      objects = resolveIndoorObjectOverlaps(objects);
       const templateType = determineTemplateType(templateName);
       const validation = validateGeneratedFloorPlan(objects, templateType);
       const floorPlan = await prisma.floorPlan.create({
@@ -862,7 +1001,90 @@ router.post('/:id/regenerate', async (req: AuthRequest, res: Response, next: Nex
     const buildingMatch = floorPlan.name.match(/^(Auto - .+ - Building \d+) - Floor \d+ - /);
     if (buildingMatch) {
       if (!/ - Floor 1 - /.test(floorPlan.name)) {
-        return res.status(400).json({ error: 'Only Floor 1 can regenerate a multi-floor building' });
+        // Single-floor regeneration: rebuild only this floor's indoor objects.
+        // Outdoor walls and stair/elevator positions are preserved from existing data.
+        const floorNum = Number(floorPlan.name.match(/ - Floor (\d+) - /)?.[1] ?? 1);
+        let existingObjects: FloorPlanObject[] = [];
+        try { existingObjects = JSON.parse(floorPlan.planJson || '[]'); } catch { existingObjects = []; }
+
+        const isOW = (o: FloorPlanObject) => o.type === 'wall' && o.id.includes('-ow-');
+        const isAccess = (o: FloorPlanObject) =>
+          o.id.includes('reserved-stairs') || o.id.includes('reserved-elevator');
+
+        const existingOutdoorWalls = existingObjects.filter(isOW);
+        const existingAccessObjects = existingObjects.filter(isAccess);
+        const assignedIds = existingObjects
+          .filter(o => o.linkedLocationId)
+          .map(o => o.linkedLocationId as string);
+
+        const dept = await prisma.department.findUnique({ where: { id: departmentId } });
+        if (!dept) return res.status(404).json({ error: 'Department not found' });
+
+        const floorLocations = assignedIds.length > 0
+          ? await prisma.location.findMany({
+              where: { id: { in: assignedIds } },
+              orderBy: { name: 'asc' },
+              select: { id: true, name: true },
+            })
+          : [];
+
+        const floorTemplate =
+          FLOORPLAN_KNOWLEDGE.imsUseful.find(t => floorPlan.name.endsWith(` - ${t}`)) ||
+          floorPlan.name.split(' - ').pop() ||
+          floorPlan.name;
+
+        const hasStairs = existingObjects.some(o => o.id.includes('reserved-stairs'));
+        const hasElevator = existingObjects.some(o => o.id.includes('reserved-elevator'));
+        const floorVerticalAccess: 'stairs' | 'elevator' | 'both' =
+          hasStairs && hasElevator ? 'both' : hasElevator ? 'elevator' : 'stairs';
+
+        let maxLayoutWidth: number | undefined;
+        if (existingOutdoorWalls.length > 0) {
+          const wallXs = existingOutdoorWalls.flatMap(w => [w.startX ?? w.x, w.endX ?? w.x + w.width]);
+          const span = Math.max(...wallXs) - Math.min(...wallXs);
+          if (span > 0) maxLayoutWidth = Math.floor(span * 0.85);
+        }
+
+        let newFloorObjects = buildKnowledgeTemplateFloorPlan(floorTemplate, dept.name, floorLocations, {
+          verticalAccess: floorVerticalAccess,
+          totalFloors: 1,
+          ...(maxLayoutWidth ? { maxLayoutWidth } : {}),
+        });
+        newFloorObjects = [
+          ...newFloorObjects.filter(o => !isOW(o)),
+          ...existingOutdoorWalls,
+        ];
+        newFloorObjects = fitIndoorObjectsInsideOutdoorWalls(newFloorObjects);
+        newFloorObjects = resolveIndoorObjectOverlaps(newFloorObjects);
+        // Restore stairs/elevators at their existing positions (shared across sibling floors)
+        newFloorObjects = [
+          ...newFloorObjects.filter(o => !isAccess(o)),
+          ...existingAccessObjects,
+        ];
+
+        const floorValidation = validateGeneratedFloorPlan(newFloorObjects, determineTemplateType(floorTemplate));
+        const updatedFloor = await prisma.floorPlan.update({
+          where: { id: floorPlan.id },
+          data: {
+            planJson: JSON.stringify(newFloorObjects),
+            generationScore: floorValidation.score,
+            isApproved: false,
+          },
+        });
+        await prisma.floorPlanGenerationLog.create({
+          data: {
+            floorPlanId: updatedFloor.id,
+            templateUsed: floorTemplate,
+            score: floorValidation.score,
+            validationResult: JSON.stringify(floorValidation),
+          },
+        });
+        return res.json({
+          ...updatedFloor,
+          objects: newFloorObjects,
+          generationScore: floorValidation.score,
+          message: `Regenerated Floor ${floorNum} indoor layout`,
+        });
       }
       const buildingFloors = await prisma.floorPlan.findMany({
         where: {
@@ -996,6 +1218,7 @@ router.post('/:id/regenerate', async (req: AuthRequest, res: Response, next: Nex
             }
           }
 
+          objects = resolveIndoorObjectOverlaps(objects);
           const validation = validateGeneratedFloorPlan(objects, determineTemplateType(templateName));
           const updated = await prisma.floorPlan.update({
             where: { id: sibling.id },
@@ -1068,6 +1291,7 @@ router.post('/:id/regenerate', async (req: AuthRequest, res: Response, next: Nex
       ];
       objects = fitIndoorObjectsInsideOutdoorWalls(objects);
     }
+    objects = resolveIndoorObjectOverlaps(objects);
 
     const templateType = determineTemplateType(templateName);
     const validation = validateGeneratedFloorPlan(objects, templateType);

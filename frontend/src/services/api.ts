@@ -130,7 +130,7 @@ export const stockDetailsApi = {
 
 // Floor Plans
 export const floorPlansApi = {
-  getAll: () => api.get('/floor-plans'),
+  getAll: (summary = false) => api.get('/floor-plans', summary ? { params: { summary: 'true' } } : undefined),
   getByLocation: (locationId: string) => api.get(`/floor-plans/by-location/${locationId}`),
   getById: (id: string) => api.get(`/floor-plans/${id}`),
   autoGenerate: (data?: object) => api.post('/floor-plans/auto-generate', data),
