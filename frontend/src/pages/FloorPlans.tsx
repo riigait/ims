@@ -3,7 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Plus, Trash2, MapPin, LayoutGrid, List, Edit, Sparkles, CheckCircle, XCircle, RefreshCw, BookmarkCheck, ChevronDown, ChevronUp, Info, AlertTriangle } from 'lucide-react';
 import { formatDate } from '@/utils/ids';
 import { floorPlansApi, departmentsApi } from '@/services/api';
-import { FloorPlan, WallObject } from '@/types/floorplan';
+import { FloorPlan, FloorPlanObject, RectangleObject, WallObject } from '@/types/floorplan';
 import FloorPlanThumbnail from '@/components/floorplan/FloorPlanThumbnail';
 import Pagination from '@/components/Pagination';
 import { ALL_DEPARTMENTS_ID } from '@/constants/app';
@@ -115,6 +115,43 @@ const SCORE_COLOR = (score: number) =>
   'text-red-600 bg-red-50 border-red-200';
 
 const MERGE_COLORS = ['#2563eb', '#16a34a', '#f97316', '#9333ea', '#0f766e', '#dc2626'];
+const MERGE_GRID_SIZE = 20;
+
+type OutdoorWallBox = {
+  minX: number;
+  minY: number;
+  maxX: number;
+  maxY: number;
+  width: number;
+  height: number;
+};
+
+type AlignmentAnchorKind = 'building-origin' | 'vertical-core' | 'main-entrance' | 'door' | 'grid-column' | 'bbox-top-left';
+
+type AlignmentAnchor = {
+  kind: AlignmentAnchorKind;
+  x: number;
+  y: number;
+};
+
+type AlignedOutdoorWallEntry = {
+  plan: FloorPlan;
+  floorNumber: number;
+  originalBounds: OutdoorWallBox;
+  sharedAnchor: AlignmentAnchor;
+  selectedAnchor: AlignmentAnchor;
+  alignedBounds: OutdoorWallBox;
+  dx: number;
+  dy: number;
+  walls: WallObject[];
+  fixedObjects: RectangleObject[];
+};
+
+type AlignedOutdoorWallResult = {
+  entries: AlignedOutdoorWallEntry[];
+  previewBounds: OutdoorWallBox;
+  totalWalls: number;
+};
 
 function getBuildingInfo(name: string): { key: string; label: string; floorNumber: number } | null {
   const match = name.match(/^(Auto - .+ - Building \d+) - Floor (\d+) - /);
@@ -136,16 +173,209 @@ function outdoorWallsFor(plan: FloorPlan): WallObject[] {
     });
 }
 
-function outdoorWallBounds(plans: FloorPlan[]) {
-  const walls = plans.flatMap(outdoorWallsFor);
-  if (walls.length === 0) return { minX: 0, minY: 0, maxX: 1200, maxY: 800 };
+function fixedObjectsFor(plan: FloorPlan): RectangleObject[] {
+  return (plan.objects ?? []).filter((obj): obj is RectangleObject => {
+    if (obj.type !== 'room') return false;
+    const id = obj.id.toLowerCase();
+    const label = (obj.label ?? '').toLowerCase();
+    return (
+      id.includes('reserved-stairs') ||
+      id.includes('reserved-elevator') ||
+      /reserved-(male-|female-)?restroom/.test(id) ||
+      label.startsWith('stairs') ||
+      label.startsWith('elevator') ||
+      label.includes('restroom') ||
+      label.includes('bathroom')
+    );
+  });
+}
+
+function snapMergeGrid(value: number): number {
+  return Math.round(value / MERGE_GRID_SIZE) * MERGE_GRID_SIZE;
+}
+
+function snapOutdoorWall(wall: WallObject): WallObject {
+  const startX = snapMergeGrid(wall.startX);
+  const startY = snapMergeGrid(wall.startY);
+  const endX = snapMergeGrid(wall.endX);
+  const endY = snapMergeGrid(wall.endY);
+  const bounds = {
+    x: Math.min(startX, endX),
+    y: Math.min(startY, endY),
+    width: Math.abs(endX - startX),
+    height: Math.abs(endY - startY),
+  };
+  return {
+    ...wall,
+    ...bounds,
+    startX,
+    startY,
+    endX,
+    endY,
+  };
+}
+
+function boundsForWalls(walls: WallObject[]): OutdoorWallBox | null {
+  if (walls.length === 0) return null;
   const xs = walls.flatMap(wall => [wall.startX, wall.endX]);
   const ys = walls.flatMap(wall => [wall.startY, wall.endY]);
+  const minX = Math.min(...xs);
+  const minY = Math.min(...ys);
+  const maxX = Math.max(...xs);
+  const maxY = Math.max(...ys);
   return {
-    minX: Math.min(...xs),
-    minY: Math.min(...ys),
-    maxX: Math.max(...xs),
-    maxY: Math.max(...ys),
+    minX,
+    minY,
+    maxX,
+    maxY,
+    width: maxX - minX,
+    height: maxY - minY,
+  };
+}
+
+function mergeBounds(boxes: OutdoorWallBox[]): OutdoorWallBox {
+  if (boxes.length === 0) return { minX: 0, minY: 0, maxX: 1200, maxY: 800, width: 1200, height: 800 };
+  const minX = Math.min(...boxes.map(box => box.minX));
+  const minY = Math.min(...boxes.map(box => box.minY));
+  const maxX = Math.max(...boxes.map(box => box.maxX));
+  const maxY = Math.max(...boxes.map(box => box.maxY));
+  return { minX, minY, maxX, maxY, width: maxX - minX, height: maxY - minY };
+}
+
+function anchorCenter(object: FloorPlanObject): { x: number; y: number } | null {
+  if ('x' in object && 'y' in object) {
+    return {
+      x: object.x + ('width' in object ? object.width / 2 : 0),
+      y: object.y + ('height' in object && object.height ? object.height / 2 : 0),
+    };
+  }
+  return null;
+}
+
+function alignmentAnchorsForPlan(plan: FloorPlan, bounds: OutdoorWallBox): AlignmentAnchor[] {
+  const dynamicPlan = plan as FloorPlan & {
+    buildingOrigin?: { x: number; y: number };
+    buildingAnchor?: { x: number; y: number };
+  };
+  const anchors: AlignmentAnchor[] = [];
+  const buildingAnchor = dynamicPlan.buildingOrigin ?? dynamicPlan.buildingAnchor;
+  if (buildingAnchor) anchors.push({ kind: 'building-origin', x: buildingAnchor.x, y: buildingAnchor.y });
+
+  const objects = plan.objects ?? [];
+  // Prefer stairs (most stable across floors), then elevator, then any core label
+  const core = objects.find(obj => /reserved-stairs/.test(obj.id))
+    ?? objects.find(obj => /reserved-elevator/.test(obj.id))
+    ?? objects.find(obj => /core|stair|elevator/i.test(`${obj.id} ${obj.label ?? ''}`));
+  const coreCenter = core ? anchorCenter(core) : null;
+  if (coreCenter) anchors.push({ kind: 'vertical-core', ...coreCenter });
+
+  const mainEntrance = objects.find(obj => obj.type === 'entrance' || /main.*(entrance|door)|entrance.*main/i.test(`${obj.id} ${obj.label ?? ''}`));
+  const mainEntranceCenter = mainEntrance ? anchorCenter(mainEntrance) : null;
+  if (mainEntranceCenter) anchors.push({ kind: 'main-entrance', ...mainEntranceCenter });
+
+  const door = objects.find(obj => obj.type === 'door');
+  const doorCenter = door ? anchorCenter(door) : null;
+  if (doorCenter) anchors.push({ kind: 'door', ...doorCenter });
+
+  const column = objects.find(obj => /grid|column/i.test(`${obj.id} ${obj.label ?? ''} ${obj.groupId ?? ''}`));
+  const columnCenter = column ? anchorCenter(column) : null;
+  if (columnCenter) anchors.push({ kind: 'grid-column', ...columnCenter });
+
+  anchors.push({ kind: 'bbox-top-left', x: bounds.minX, y: bounds.minY });
+  return anchors;
+}
+
+function moveOutdoorWall(wall: WallObject, dx: number, dy: number): WallObject {
+  return snapOutdoorWall({
+    ...wall,
+    startX: wall.startX + dx,
+    startY: wall.startY + dy,
+    endX: wall.endX + dx,
+    endY: wall.endY + dy,
+  });
+}
+
+function moveObject(obj: FloorPlanObject, dx: number, dy: number): FloorPlanObject {
+  if (dx === 0 && dy === 0) return obj;
+  if (obj.type === 'wall') return moveOutdoorWall(obj as WallObject, dx, dy);
+  if ('x' in obj && 'y' in obj) return { ...obj, x: (obj as { x: number }).x + dx, y: (obj as { y: number }).y + dy };
+  return obj;
+}
+
+function alignOutdoorWallsToSharedCoordinateSystem(plans: FloorPlan[], debug = false): AlignedOutdoorWallResult {
+  const candidates = plans.map((plan) => {
+    const info = getBuildingInfo(plan.name);
+    const walls = outdoorWallsFor(plan).map(snapOutdoorWall);
+    const bounds = boundsForWalls(walls);
+    const anchors = bounds ? alignmentAnchorsForPlan(plan, bounds) : [];
+    return {
+      plan,
+      floorNumber: info?.floorNumber ?? Number.MAX_SAFE_INTEGER,
+      walls,
+      bounds,
+      anchors,
+    };
+  }).filter((item): item is {
+    plan: FloorPlan;
+    floorNumber: number;
+    walls: WallObject[];
+    bounds: OutdoorWallBox;
+    anchors: AlignmentAnchor[];
+  } => Boolean(item.bounds));
+
+  if (candidates.length === 0) return { entries: [], previewBounds: mergeBounds([]), totalWalls: 0 };
+
+  const anchorPriority: AlignmentAnchorKind[] = ['building-origin', 'vertical-core', 'main-entrance', 'door', 'grid-column', 'bbox-top-left'];
+  const selectedKind = anchorPriority.find(kind => candidates.every(item => item.anchors.some(anchor => anchor.kind === kind))) ?? 'bbox-top-left';
+  const reference = candidates.find(item => item.floorNumber === 1 && item.anchors.some(anchor => anchor.kind === selectedKind))
+    ?? candidates.find(item => item.anchors.some(anchor => anchor.kind === selectedKind))
+    ?? candidates[0];
+  const sharedAnchor = reference.anchors.find(anchor => anchor.kind === selectedKind) ?? reference.anchors[reference.anchors.length - 1];
+  const entries = candidates.map((item) => {
+    const selectedAnchor = item.anchors.find(anchor => anchor.kind === selectedKind) ?? item.anchors[item.anchors.length - 1];
+    const dx = snapMergeGrid(sharedAnchor.x - selectedAnchor.x);
+    const dy = snapMergeGrid(sharedAnchor.y - selectedAnchor.y);
+    const alignedWalls = item.walls.map(wall => moveOutdoorWall(wall, dx, dy));
+    const alignedBounds = boundsForWalls(alignedWalls) ?? item.bounds;
+
+    if (debug) {
+      console.debug('[OutdoorWallMerge]', {
+        floorNumber: item.floorNumber,
+        selectedAnchor,
+        sharedAnchor,
+        originalBounds: item.bounds,
+        dx,
+        dy,
+        alignedBounds,
+        wallCountBefore: item.walls.length,
+        wallCountAfter: alignedWalls.length,
+      });
+    }
+
+    const fixedObjects = fixedObjectsFor(item.plan).map(obj => ({
+      ...obj,
+      x: obj.x + dx,
+      y: obj.y + dy,
+    }));
+
+    return {
+      plan: item.plan,
+      floorNumber: item.floorNumber,
+      originalBounds: item.bounds,
+      sharedAnchor,
+      selectedAnchor,
+      alignedBounds,
+      dx,
+      dy,
+      walls: alignedWalls,
+      fixedObjects,
+    };
+  }).sort((a, b) => a.floorNumber - b.floorNumber);
+
+  return {
+    entries,
+    previewBounds: mergeBounds(entries.map(entry => entry.alignedBounds)),
+    totalWalls: entries.reduce((sum, entry) => sum + entry.walls.length, 0),
   };
 }
 
@@ -186,6 +416,7 @@ export default function FloorPlans() {
   const [mergeSelectedIds, setMergeSelectedIds] = useState<string[]>([]);
   const [mergePreviewPlans, setMergePreviewPlans] = useState<FloorPlan[]>([]);
   const [mergeLoading, setMergeLoading] = useState(false);
+  const [mergeApplying, setMergeApplying] = useState(false);
   const [mergeError, setMergeError] = useState<string | null>(null);
 
   // Per-plan feedback state: planId -> feedback value
@@ -587,6 +818,7 @@ export default function FloorPlans() {
       }));
 
       fullPlans.sort((a, b) => (getBuildingInfo(a.name)?.floorNumber ?? 0) - (getBuildingInfo(b.name)?.floorNumber ?? 0));
+      alignOutdoorWallsToSharedCoordinateSystem(fullPlans, true);
       setFloorPlans(prev => prev.map(plan => {
         const full = fullPlans.find(candidate => candidate.id === plan.id);
         return full ? { ...plan, objects: full.objects } : plan;
@@ -598,6 +830,52 @@ export default function FloorPlans() {
       setMergeError('Failed to load selected floor plans for merge preview.');
     } finally {
       setMergeLoading(false);
+    }
+  };
+
+  const applyMergedOutdoorWalls = async () => {
+    if (mergePreviewPlans.length === 0) return;
+    const aligned = alignOutdoorWallsToSharedCoordinateSystem(mergePreviewPlans, true);
+    if (aligned.entries.length === 0) {
+      setMergeError('No outdoor walls found to apply.');
+      return;
+    }
+
+    try {
+      setMergeApplying(true);
+      const updatedPlans = await Promise.all(aligned.entries.map(async (entry) => {
+        const { dx, dy } = entry;
+        const objects = (entry.plan.objects ?? []).map(obj => {
+          // Outdoor walls: use the already-aligned+snapped versions from entry.walls
+          if (obj.type === 'wall' && obj.id.includes('-ow-')) {
+            const aligned = entry.walls.find(w => w.id === obj.id);
+            return aligned ?? moveObject(obj, dx, dy);
+          }
+          return moveObject(obj, dx, dy);
+        });
+
+        await floorPlansApi.update(entry.plan.id, {
+          name: entry.plan.name,
+          width: entry.plan.width,
+          height: entry.plan.height,
+          scale: entry.plan.scale,
+          locationId: entry.plan.locationId,
+          objects,
+        });
+
+        return { ...entry.plan, objects };
+      }));
+
+      setFloorPlans(prev => prev.map(plan => {
+        const updated = updatedPlans.find(candidate => candidate.id === plan.id);
+        return updated ? { ...plan, objects: updated.objects } : plan;
+      }));
+      setMergePreviewPlans(updatedPlans);
+      setMergeError('Outdoor wall alignment applied to selected floors.');
+    } catch {
+      setMergeError('Failed to apply outdoor wall alignment.');
+    } finally {
+      setMergeApplying(false);
     }
   };
 
@@ -1345,10 +1623,11 @@ export default function FloorPlans() {
 
       {/* Fixed error panel — shown when a validation badge is clicked */}
       {mergePreviewPlans.length > 0 && (() => {
-        const bounds = outdoorWallBounds(mergePreviewPlans);
+        const aligned = alignOutdoorWallsToSharedCoordinateSystem(mergePreviewPlans);
+        const bounds = aligned.previewBounds;
         const pad = 80;
         const viewBox = `${bounds.minX - pad} ${bounds.minY - pad} ${Math.max(1, bounds.maxX - bounds.minX + pad * 2)} ${Math.max(1, bounds.maxY - bounds.minY + pad * 2)}`;
-        const totalWalls = mergePreviewPlans.reduce((sum, plan) => sum + outdoorWallsFor(plan).length, 0);
+        const totalWalls = aligned.totalWalls;
         return (
           <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
             <div className="w-full max-w-6xl h-[88vh] bg-[var(--surface)] border border-[var(--border)] rounded-lg shadow-2xl flex flex-col overflow-hidden">
@@ -1358,15 +1637,31 @@ export default function FloorPlans() {
                   <p className="text-xs text-[var(--text-muted)] mt-0.5">
                     {mergePreviewPlans.length} floor plan{mergePreviewPlans.length === 1 ? '' : 's'} selected · {totalWalls} outdoor wall segment{totalWalls === 1 ? '' : 's'} · indoor objects removed
                   </p>
+                  {mergeError && (
+                    <p className="text-xs text-[var(--primary)] mt-1">{mergeError}</p>
+                  )}
                 </div>
-                <button
-                  type="button"
-                  onClick={() => setMergePreviewPlans([])}
-                  className="p-1.5 rounded hover:bg-[var(--surface-2)] text-[var(--text-muted)] hover:text-[var(--text)]"
-                  aria-label="Close merge preview"
-                >
-                  <XCircle size={20} />
-                </button>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={applyMergedOutdoorWalls}
+                    disabled={mergeApplying || aligned.entries.length === 0}
+                    className="px-3 py-1.5 rounded bg-[var(--primary)] text-white text-sm font-medium disabled:opacity-60 disabled:cursor-not-allowed"
+                  >
+                    {mergeApplying ? 'Applying...' : 'Apply Alignment'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMergePreviewPlans([]);
+                      setMergeError(null);
+                    }}
+                    className="p-1.5 rounded hover:bg-[var(--surface-2)] text-[var(--text-muted)] hover:text-[var(--text)]"
+                    aria-label="Close merge preview"
+                  >
+                    <XCircle size={20} />
+                  </button>
+                </div>
               </div>
 
               <div className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-[1fr_260px]">
@@ -1378,30 +1673,69 @@ export default function FloorPlans() {
                       </pattern>
                     </defs>
                     <rect x={bounds.minX - pad} y={bounds.minY - pad} width={bounds.maxX - bounds.minX + pad * 2} height={bounds.maxY - bounds.minY + pad * 2} fill="url(#merge-grid)" />
-                    {mergePreviewPlans.map((plan, planIndex) => (
-                      <g key={plan.id}>
-                        {outdoorWallsFor(plan).map((wall) => (
-                          <line
-                            key={wall.id}
-                            x1={wall.startX}
-                            y1={wall.startY}
-                            x2={wall.endX}
-                            y2={wall.endY}
-                            stroke={MERGE_COLORS[planIndex % MERGE_COLORS.length]}
-                            strokeWidth={Math.max(6, wall.thickness)}
-                            strokeLinecap="round"
-                            opacity={0.62}
-                          />
-                        ))}
-                      </g>
-                    ))}
+                    {aligned.entries.map((entry, planIndex) => {
+                      const color = MERGE_COLORS[planIndex % MERGE_COLORS.length];
+                      return (
+                        <g key={entry.plan.id}>
+                          {entry.fixedObjects.map((obj) => {
+                            const fontSize = Math.max(10, Math.min(obj.width, obj.height) * 0.18);
+                            const cx = obj.x + obj.width / 2;
+                            const cy = obj.y + (obj.height ?? 0) / 2;
+                            return (
+                              <g key={obj.id}>
+                                <rect
+                                  x={obj.x}
+                                  y={obj.y}
+                                  width={obj.width}
+                                  height={obj.height}
+                                  fill={color}
+                                  fillOpacity={0.18}
+                                  stroke={color}
+                                  strokeWidth={2}
+                                  strokeOpacity={0.7}
+                                  strokeDasharray="6 3"
+                                />
+                                {obj.label && (
+                                  <text
+                                    x={cx}
+                                    y={cy}
+                                    textAnchor="middle"
+                                    dominantBaseline="middle"
+                                    fontSize={fontSize}
+                                    fill={color}
+                                    fontWeight="600"
+                                    style={{ pointerEvents: 'none', userSelect: 'none' }}
+                                  >
+                                    {obj.label}
+                                  </text>
+                                )}
+                              </g>
+                            );
+                          })}
+                          {entry.walls.map((wall) => (
+                            <line
+                              key={wall.id}
+                              x1={wall.startX}
+                              y1={wall.startY}
+                              x2={wall.endX}
+                              y2={wall.endY}
+                              stroke={color}
+                              strokeWidth={Math.max(6, wall.thickness)}
+                              strokeLinecap="round"
+                              opacity={0.62}
+                            />
+                          ))}
+                        </g>
+                      );
+                    })}
                   </svg>
                 </div>
 
                 <div className="border-t lg:border-t-0 lg:border-l border-[var(--border)] p-4 overflow-y-auto">
                   <p className="text-xs font-semibold uppercase tracking-wide text-[var(--text-muted)] mb-3">Selected Floors</p>
                   <div className="space-y-2">
-                    {mergePreviewPlans.map((plan, index) => {
+                    {aligned.entries.map((entry, index) => {
+                      const plan = entry.plan;
                       const info = getBuildingInfo(plan.name);
                       return (
                         <div key={plan.id} className="flex items-start gap-2 rounded border border-[var(--border)] px-2 py-2">
@@ -1409,7 +1743,10 @@ export default function FloorPlans() {
                           <div className="min-w-0">
                             <p className="text-xs font-medium text-[var(--text)] truncate">{info ? `Floor ${info.floorNumber}` : plan.name}</p>
                             <p className="text-[11px] text-[var(--text-muted)] truncate">{plan.name}</p>
-                            <p className="text-[11px] text-[var(--text-muted)]">{outdoorWallsFor(plan).length} outdoor walls</p>
+                            <p className="text-[11px] text-[var(--text-muted)]">{entry.walls.length} outdoor walls</p>
+                            {entry.fixedObjects.length > 0 && (
+                              <p className="text-[11px] text-[var(--text-muted)]">{entry.fixedObjects.length} fixed object{entry.fixedObjects.length === 1 ? '' : 's'} (stairs/elevator/restroom)</p>
+                            )}
                           </div>
                         </div>
                       );
