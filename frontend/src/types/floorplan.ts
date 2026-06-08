@@ -11,6 +11,8 @@ export interface BaseFloorPlanObject {
   groupId?: string;
 }
 
+export type WallType = 'floor_original_outdoor' | 'floor_indoor' | 'finalized_building_perimeter';
+
 export interface WallObject extends BaseFloorPlanObject {
   type: 'wall';
   startX: number;
@@ -19,6 +21,8 @@ export interface WallObject extends BaseFloorPlanObject {
   endY: number;
   thickness: number;
   color?: string;
+  wallType?: WallType;
+  isFinalizedPerimeter?: boolean;
 }
 
 export interface RectangleObject extends BaseFloorPlanObject {
