@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { Plus, Trash2, MapPin, LayoutGrid, List, Edit, Sparkles, CheckCircle, XCircle, RefreshCw, BookmarkCheck, ChevronDown, ChevronUp, Info, AlertTriangle } from 'lucide-react';
+import { Plus, Trash2, MapPin, LayoutGrid, List, Edit, Sparkles, CheckCircle, XCircle, RefreshCw, BookmarkCheck, ChevronDown, ChevronUp, Info, AlertTriangle, Layers } from 'lucide-react';
 import { formatDate } from '@/utils/ids';
 import { floorPlansApi, departmentsApi } from '@/services/api';
 import { FloorPlan, FloorPlanObject, RectangleObject, WallObject } from '@/types/floorplan';
@@ -403,6 +403,102 @@ function alignOutdoorWallsToSharedCoordinateSystem(plans: FloorPlan[], debug = f
   };
 }
 
+// ─── Finalize: union perimeter of all aligned floor footprints ─────────────────
+//
+// Strategy: collect every wall endpoint from every floor, compute the axis-aligned
+// bounding box of all points, then trace a rectilinear perimeter that hugs the
+// UNION of all individual floor bounding boxes. This gives a clean shared outer
+// shell that covers the entire building footprint.
+//
+// For rectilinear (L-shaped, T-shaped) buildings we compute the actual union
+// outline by scanning all unique X/Y grid lines and keeping only the outermost
+// edge segments that face open space.
+
+
+function mergeCollinear1D(
+  segs: Array<{ a: number; b: number; fixed: number }>,
+  _dir: 'h' | 'v',
+): Array<{ a: number; b: number; fixed: number }> {
+  const groups = new Map<number, Array<[number, number]>>();
+  segs.forEach(s => {
+    if (!groups.has(s.fixed)) groups.set(s.fixed, []);
+    groups.get(s.fixed)!.push([Math.min(s.a, s.b), Math.max(s.a, s.b)]);
+  });
+  const result: Array<{ a: number; b: number; fixed: number }> = [];
+  groups.forEach((intervals, fixed) => {
+    intervals.sort((a, b) => a[0] - b[0]);
+    let cur = intervals[0];
+    for (let i = 1; i < intervals.length; i++) {
+      if (intervals[i][0] <= cur[1]) {
+        cur = [cur[0], Math.max(cur[1], intervals[i][1])];
+      } else {
+        result.push({ a: cur[0], b: cur[1], fixed });
+        cur = intervals[i];
+      }
+    }
+    result.push({ a: cur[0], b: cur[1], fixed });
+  });
+  return result;
+}
+
+// Build WallObject array from a union outline, tagged with a prefix so they
+// can be identified and replaced as finalized outdoor walls.
+function buildFinalizedWalls(
+  boxes: OutdoorWallBox[],
+  prefix: string,
+  thickness = 14,
+): WallObject[] {
+  const walls: WallObject[] = [];
+  if (boxes.length === 0) return walls;
+
+  const xs = [...new Set(boxes.flatMap(b => [b.minX, b.maxX]))].sort((a, b) => a - b);
+  const ys = [...new Set(boxes.flatMap(b => [b.minY, b.maxY]))].sort((a, b) => a - b);
+  const inside = (cx: number, cy: number) =>
+    boxes.some(b => cx >= b.minX && cx < b.maxX && cy >= b.minY && cy < b.maxY);
+
+  // Collect boundary segments
+  const hSegs: Array<{ x1: number; x2: number; y: number }> = [];
+  const vSegs: Array<{ x: number; y1: number; y2: number }> = [];
+
+  for (let xi = 0; xi < xs.length - 1; xi++) {
+    for (let yi = 0; yi < ys.length - 1; yi++) {
+      const cellIn = inside(xs[xi], ys[yi]);
+      if (cellIn && !inside(xs[xi], ys[yi] - 1)) hSegs.push({ x1: xs[xi], x2: xs[xi + 1], y: ys[yi] });
+      if (cellIn && !inside(xs[xi], ys[yi + 1])) hSegs.push({ x1: xs[xi], x2: xs[xi + 1], y: ys[yi + 1] });
+      if (cellIn && !inside(xs[xi] - 1, ys[yi])) vSegs.push({ x: xs[xi], y1: ys[yi], y2: ys[yi + 1] });
+      if (cellIn && !inside(xs[xi + 1], ys[yi])) vSegs.push({ x: xs[xi + 1], y1: ys[yi], y2: ys[yi + 1] });
+    }
+  }
+
+  const mergedH = mergeCollinear1D(hSegs.map(s => ({ a: s.x1, b: s.x2, fixed: s.y })), 'h');
+  const mergedV = mergeCollinear1D(vSegs.map(s => ({ a: s.y1, b: s.y2, fixed: s.x })), 'v');
+
+  let idx = 0;
+  mergedH.forEach(s => {
+    walls.push({
+      id: `${prefix}-final-ow-h-${idx++}`,
+      type: 'wall',
+      startX: s.a, startY: s.fixed,
+      endX: s.b, endY: s.fixed,
+      thickness,
+      color: '#1e293b',
+      layer: 1,
+    });
+  });
+  mergedV.forEach(s => {
+    walls.push({
+      id: `${prefix}-final-ow-v-${idx++}`,
+      type: 'wall',
+      startX: s.fixed, startY: s.a,
+      endX: s.fixed, endY: s.b,
+      thickness,
+      color: '#1e293b',
+      layer: 1,
+    });
+  });
+  return walls;
+}
+
 export default function FloorPlans() {
   const navigate = useNavigate();
   const user = JSON.parse(localStorage.getItem('user') || '{}');
@@ -442,6 +538,8 @@ export default function FloorPlans() {
   const [mergeLoading, setMergeLoading] = useState(false);
   const [mergeApplying, setMergeApplying] = useState(false);
   const [mergeError, setMergeError] = useState<string | null>(null);
+  const [showFinalizePreview, setShowFinalizePreview] = useState(false);
+  const [finalizing, setFinalizing] = useState(false);
 
   // Per-plan feedback state: planId -> feedback value
   const [planFeedback, setPlanFeedback] = useState<Record<string, FeedbackState>>({});
@@ -900,6 +998,51 @@ export default function FloorPlans() {
       setMergeError('Failed to apply outdoor wall alignment.');
     } finally {
       setMergeApplying(false);
+    }
+  };
+
+  const applyFinalizedPerimeter = async () => {
+    if (mergePreviewPlans.length === 0) return;
+    const aligned = alignOutdoorWallsToSharedCoordinateSystem(mergePreviewPlans);
+    if (aligned.entries.length === 0) return;
+
+    // Union of all aligned floor bounding boxes → single shared perimeter
+    const boxes = aligned.entries.map(e => e.alignedBounds);
+    const buildingPrefix = getBuildingInfo(mergePreviewPlans[0].name)?.key.replace(/\s+/g, '-').toLowerCase() ?? 'building';
+    const finalWalls = buildFinalizedWalls(boxes, buildingPrefix);
+
+    try {
+      setFinalizing(true);
+      const updatedPlans = await Promise.all(aligned.entries.map(async (entry) => {
+        const { dx, dy } = entry;
+        // Keep all non-outdoor-wall objects, shifted to the aligned coordinate system
+        const indoorObjects = (entry.plan.objects ?? [])
+          .filter(obj => !(obj.type === 'wall' && (obj.id.includes('-ow-') || obj.id.includes('-final-ow-'))))
+          .map(obj => moveObject(obj, dx, dy));
+        const objects = [...indoorObjects, ...finalWalls];
+
+        await floorPlansApi.update(entry.plan.id, {
+          name: entry.plan.name,
+          width: entry.plan.width,
+          height: entry.plan.height,
+          scale: entry.plan.scale,
+          locationId: entry.plan.locationId,
+          objects,
+        });
+        return { ...entry.plan, objects };
+      }));
+
+      setFloorPlans(prev => prev.map(plan => {
+        const updated = updatedPlans.find(c => c.id === plan.id);
+        return updated ? { ...plan, objects: updated.objects } : plan;
+      }));
+      setMergePreviewPlans(updatedPlans);
+      setShowFinalizePreview(false);
+      setMergeError('Finalized perimeter applied to all selected floors.');
+    } catch {
+      setMergeError('Failed to apply finalized perimeter.');
+    } finally {
+      setFinalizing(false);
     }
   };
 
@@ -1669,15 +1812,30 @@ export default function FloorPlans() {
                   <button
                     type="button"
                     onClick={applyMergedOutdoorWalls}
-                    disabled={mergeApplying || aligned.entries.length === 0}
+                    disabled={mergeApplying || finalizing || aligned.entries.length === 0}
                     className="px-3 py-1.5 rounded bg-[var(--primary)] text-white text-sm font-medium disabled:opacity-60 disabled:cursor-not-allowed"
                   >
                     {mergeApplying ? 'Applying...' : 'Apply Alignment'}
                   </button>
                   <button
                     type="button"
+                    onClick={() => setShowFinalizePreview(v => !v)}
+                    disabled={mergeApplying || finalizing || aligned.entries.length === 0}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded text-sm font-medium border transition-colors disabled:opacity-60 disabled:cursor-not-allowed ${
+                      showFinalizePreview
+                        ? 'bg-slate-800 text-white border-slate-800'
+                        : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'
+                    }`}
+                    title="Preview the unified building perimeter across all floors"
+                  >
+                    <Layers size={15} />
+                    Finalize Floorplan
+                  </button>
+                  <button
+                    type="button"
                     onClick={() => {
                       setMergePreviewPlans([]);
+                      setShowFinalizePreview(false);
                       setMergeError(null);
                     }}
                     className="p-1.5 rounded hover:bg-[var(--surface-2)] text-[var(--text-muted)] hover:text-[var(--text)]"
@@ -1697,85 +1855,170 @@ export default function FloorPlans() {
                       </pattern>
                     </defs>
                     <rect x={bounds.minX - pad} y={bounds.minY - pad} width={bounds.maxX - bounds.minX + pad * 2} height={bounds.maxY - bounds.minY + pad * 2} fill="url(#merge-grid)" />
-                    {aligned.entries.map((entry, planIndex) => {
-                      const color = MERGE_COLORS[planIndex % MERGE_COLORS.length];
-                      return (
-                        <g key={entry.plan.id}>
-                          {entry.fixedObjects.map((obj) => {
-                            const fontSize = Math.max(10, Math.min(obj.width, obj.height) * 0.18);
-                            const cx = obj.x + obj.width / 2;
-                            const cy = obj.y + (obj.height ?? 0) / 2;
-                            return (
-                              <g key={obj.id}>
-                                <rect
-                                  x={obj.x}
-                                  y={obj.y}
-                                  width={obj.width}
-                                  height={obj.height}
-                                  fill={color}
-                                  fillOpacity={0.18}
-                                  stroke={color}
-                                  strokeWidth={2}
-                                  strokeOpacity={0.7}
-                                  strokeDasharray="6 3"
-                                />
-                                {obj.label && (
-                                  <text
-                                    x={cx}
-                                    y={cy}
-                                    textAnchor="middle"
-                                    dominantBaseline="middle"
-                                    fontSize={fontSize}
+                    {/* Per-floor colored walls and fixed objects (dimmed in finalize mode) */}
+                    <g opacity={showFinalizePreview ? 0.25 : 1}>
+                      {aligned.entries.map((entry, planIndex) => {
+                        const color = MERGE_COLORS[planIndex % MERGE_COLORS.length];
+                        return (
+                          <g key={entry.plan.id}>
+                            {entry.fixedObjects.map((obj) => {
+                              const fontSize = Math.max(10, Math.min(obj.width, obj.height) * 0.18);
+                              const cx = obj.x + obj.width / 2;
+                              const cy = obj.y + (obj.height ?? 0) / 2;
+                              return (
+                                <g key={obj.id}>
+                                  <rect
+                                    x={obj.x}
+                                    y={obj.y}
+                                    width={obj.width}
+                                    height={obj.height}
                                     fill={color}
-                                    fontWeight="600"
-                                    style={{ pointerEvents: 'none', userSelect: 'none' }}
-                                  >
-                                    {obj.label}
-                                  </text>
-                                )}
-                              </g>
+                                    fillOpacity={0.18}
+                                    stroke={color}
+                                    strokeWidth={2}
+                                    strokeOpacity={0.7}
+                                    strokeDasharray="6 3"
+                                  />
+                                  {obj.label && (
+                                    <text
+                                      x={cx}
+                                      y={cy}
+                                      textAnchor="middle"
+                                      dominantBaseline="middle"
+                                      fontSize={fontSize}
+                                      fill={color}
+                                      fontWeight="600"
+                                      style={{ pointerEvents: 'none', userSelect: 'none' }}
+                                    >
+                                      {obj.label}
+                                    </text>
+                                  )}
+                                </g>
+                              );
+                            })}
+                            {entry.walls.map((wall) => (
+                              <line
+                                key={wall.id}
+                                x1={wall.startX}
+                                y1={wall.startY}
+                                x2={wall.endX}
+                                y2={wall.endY}
+                                stroke={color}
+                                strokeWidth={Math.max(6, wall.thickness)}
+                                strokeLinecap="round"
+                                opacity={0.62}
+                              />
+                            ))}
+                          </g>
+                        );
+                      })}
+                    </g>
+
+                    {/* Finalized unified perimeter overlay */}
+                    {showFinalizePreview && (() => {
+                      const boxes = aligned.entries.map(e => e.alignedBounds);
+                      const buildingPrefix = getBuildingInfo(mergePreviewPlans[0].name)?.key.replace(/\s+/g, '-').toLowerCase() ?? 'building';
+                      const finalWalls = buildFinalizedWalls(boxes, buildingPrefix);
+                      return (
+                        <g>
+                          {/* Filled silhouette to show the unified building shape */}
+                          {(() => {
+                            const xs = [...new Set(boxes.flatMap(b => [b.minX, b.maxX]))].sort((a, b) => a - b);
+                            const ys = [...new Set(boxes.flatMap(b => [b.minY, b.maxY]))].sort((a, b) => a - b);
+                            const inside = (cx: number, cy: number) =>
+                              boxes.some(b => cx >= b.minX && cx < b.maxX && cy >= b.minY && cy < b.maxY);
+                            return xs.slice(0, -1).flatMap((x1, xi) =>
+                              ys.slice(0, -1).map((y1, yi) =>
+                                inside(x1, y1) ? (
+                                  <rect
+                                    key={`fill-${xi}-${yi}`}
+                                    x={x1} y={y1}
+                                    width={xs[xi + 1] - x1}
+                                    height={ys[yi + 1] - y1}
+                                    fill="#1e293b"
+                                    fillOpacity={0.06}
+                                  />
+                                ) : null
+                              )
                             );
-                          })}
-                          {entry.walls.map((wall) => (
+                          })()}
+                          {/* Finalized outer walls — thick dark lines */}
+                          {finalWalls.map(wall => (
                             <line
                               key={wall.id}
                               x1={wall.startX}
                               y1={wall.startY}
                               x2={wall.endX}
                               y2={wall.endY}
-                              stroke={color}
-                              strokeWidth={Math.max(6, wall.thickness)}
-                              strokeLinecap="round"
-                              opacity={0.62}
+                              stroke="#1e293b"
+                              strokeWidth={14}
+                              strokeLinecap="square"
                             />
                           ))}
                         </g>
                       );
-                    })}
+                    })()}
                   </svg>
                 </div>
 
                 <div className="border-t lg:border-t-0 lg:border-l border-[var(--border)] p-4 overflow-y-auto">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-[var(--text-muted)] mb-3">Selected Floors</p>
-                  <div className="space-y-2">
-                    {aligned.entries.map((entry, index) => {
-                      const plan = entry.plan;
-                      const info = getBuildingInfo(plan.name);
-                      return (
-                        <div key={plan.id} className="flex items-start gap-2 rounded border border-[var(--border)] px-2 py-2">
-                          <span className="mt-1 h-2.5 w-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: MERGE_COLORS[index % MERGE_COLORS.length] }} />
-                          <div className="min-w-0">
-                            <p className="text-xs font-medium text-[var(--text)] truncate">{info ? `Floor ${info.floorNumber}` : plan.name}</p>
-                            <p className="text-[11px] text-[var(--text-muted)] truncate">{plan.name}</p>
-                            <p className="text-[11px] text-[var(--text-muted)]">{entry.walls.length} outdoor walls</p>
-                            {entry.fixedObjects.length > 0 && (
-                              <p className="text-[11px] text-[var(--text-muted)]">{entry.fixedObjects.length} fixed object{entry.fixedObjects.length === 1 ? '' : 's'} (stairs/elevator/restroom)</p>
-                            )}
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
+                  {showFinalizePreview ? (
+                    <div className="flex flex-col gap-3">
+                      <div>
+                        <p className="text-xs font-semibold uppercase tracking-wide text-[var(--text)] mb-1 flex items-center gap-1.5">
+                          <Layers size={13} /> Finalize Floorplan
+                        </p>
+                        <p className="text-[11px] text-[var(--text-muted)] leading-relaxed">
+                          The dark outline shows the unified building perimeter — the union of all floor footprints merged into one clean outer shell.
+                        </p>
+                        <p className="text-[11px] text-[var(--text-muted)] leading-relaxed mt-1.5">
+                          Applying this replaces each floor's individual outdoor walls with this shared perimeter and shifts all indoor objects to the aligned coordinate system.
+                        </p>
+                      </div>
+                      <div className="rounded border border-amber-200 bg-amber-50 px-2.5 py-2 text-[11px] text-amber-800">
+                        This action overwrites all outdoor walls on every selected floor. It cannot be undone from this screen — open the editor to make further adjustments.
+                      </div>
+                      <button
+                        type="button"
+                        onClick={applyFinalizedPerimeter}
+                        disabled={finalizing}
+                        className="w-full flex items-center justify-center gap-1.5 px-3 py-2 rounded bg-slate-800 text-white text-sm font-medium hover:bg-slate-900 disabled:opacity-60 disabled:cursor-not-allowed"
+                      >
+                        <Layers size={14} />
+                        {finalizing ? 'Applying...' : `Apply to ${aligned.entries.length} Floor${aligned.entries.length === 1 ? '' : 's'}`}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setShowFinalizePreview(false)}
+                        className="w-full px-3 py-1.5 rounded border border-[var(--border)] text-sm text-[var(--text-muted)] hover:bg-[var(--surface-2)]"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  ) : (
+                    <>
+                      <p className="text-xs font-semibold uppercase tracking-wide text-[var(--text-muted)] mb-3">Selected Floors</p>
+                      <div className="space-y-2">
+                        {aligned.entries.map((entry, index) => {
+                          const plan = entry.plan;
+                          const info = getBuildingInfo(plan.name);
+                          return (
+                            <div key={plan.id} className="flex items-start gap-2 rounded border border-[var(--border)] px-2 py-2">
+                              <span className="mt-1 h-2.5 w-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: MERGE_COLORS[index % MERGE_COLORS.length] }} />
+                              <div className="min-w-0">
+                                <p className="text-xs font-medium text-[var(--text)] truncate">{info ? `Floor ${info.floorNumber}` : plan.name}</p>
+                                <p className="text-[11px] text-[var(--text-muted)] truncate">{plan.name}</p>
+                                <p className="text-[11px] text-[var(--text-muted)]">{entry.walls.length} outdoor walls</p>
+                                {entry.fixedObjects.length > 0 && (
+                                  <p className="text-[11px] text-[var(--text-muted)]">{entry.fixedObjects.length} fixed object{entry.fixedObjects.length === 1 ? '' : 's'} (stairs/elevator/restroom)</p>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </>
+                  )}
                 </div>
               </div>
             </div>
