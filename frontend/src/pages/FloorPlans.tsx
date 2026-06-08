@@ -165,7 +165,7 @@ function getBuildingInfo(name: string): { key: string; label: string; floorNumbe
 
 function outdoorWallsFor(plan: FloorPlan): WallObject[] {
   return (plan.objects ?? [])
-    .filter((obj): obj is WallObject => obj.type === 'wall' && obj.id.includes('-ow-'))
+    .filter((obj): obj is WallObject => obj.type === 'wall' && obj.id.includes('-ow-') && !obj.id.includes('-final-ow-'))
     .sort((a, b) => {
       const ai = Number(a.id.match(/-ow-(\d+)$/)?.[1] ?? 0);
       const bi = Number(b.id.match(/-ow-(\d+)$/)?.[1] ?? 0);
@@ -1016,11 +1016,11 @@ export default function FloorPlans() {
         const { dx, dy } = entry;
         const floorPrefix = `floor${entry.floorNumber}-final`;
         const finalWalls = buildFinalizedWalls(boxes, floorPrefix);
-        // Keep all non-outdoor-wall objects, shifted to the aligned coordinate system
-        const indoorObjects = (entry.plan.objects ?? [])
-          .filter(obj => !(obj.type === 'wall' && (obj.id.includes('-ow-') || obj.id.includes('-final-ow-'))))
+        // Keep each floor's own outdoor walls, then add the finalized perimeter as extra walls.
+        const retainedObjects = (entry.plan.objects ?? [])
+          .filter(obj => !(obj.type === 'wall' && obj.id.includes('-final-ow-')))
           .map(obj => moveObject(obj, dx, dy));
-        const objects = [...indoorObjects, ...finalWalls];
+        const objects = [...retainedObjects, ...finalWalls];
 
         await floorPlansApi.update(entry.plan.id, {
           name: entry.plan.name,
@@ -1856,8 +1856,8 @@ export default function FloorPlans() {
                       </pattern>
                     </defs>
                     <rect x={bounds.minX - pad} y={bounds.minY - pad} width={bounds.maxX - bounds.minX + pad * 2} height={bounds.maxY - bounds.minY + pad * 2} fill="url(#merge-grid)" />
-                    {/* Per-floor colored walls and fixed objects (dimmed in finalize mode) */}
-                    <g opacity={showFinalizePreview ? 0.25 : 1}>
+                    {/* Per-floor walls retained after finalize, plus fixed objects. */}
+                    <g opacity={1}>
                       {aligned.entries.map((entry, planIndex) => {
                         const color = MERGE_COLORS[planIndex % MERGE_COLORS.length];
                         return (
@@ -1874,7 +1874,7 @@ export default function FloorPlans() {
                                     width={obj.width}
                                     height={obj.height}
                                     fill={obj.color ?? '#e2e8f0'}
-                                    fillOpacity={0.85}
+                                    fillOpacity={showFinalizePreview ? 0.45 : 0.85}
                                     stroke={color}
                                     strokeWidth={2}
                                     strokeOpacity={0.9}
@@ -1907,7 +1907,7 @@ export default function FloorPlans() {
                                 stroke={color}
                                 strokeWidth={Math.max(6, wall.thickness)}
                                 strokeLinecap="round"
-                                opacity={0.62}
+                                opacity={showFinalizePreview ? 0.8 : 0.62}
                               />
                             ))}
                           </g>
@@ -1915,7 +1915,7 @@ export default function FloorPlans() {
                       })}
                     </g>
 
-                    {/* Finalized unified perimeter overlay */}
+                    {/* Finalized perimeter preview: extra outdoor walls added on apply. */}
                     {showFinalizePreview && (() => {
                       const boxes = aligned.entries.map(e => e.alignedBounds);
                       const buildingPrefix = getBuildingInfo(mergePreviewPlans[0].name)?.key.replace(/\s+/g, '-').toLowerCase() ?? 'building';
@@ -1973,10 +1973,13 @@ export default function FloorPlans() {
                           The dark outline shows the unified building perimeter — the union of all floor footprints merged into one clean outer shell.
                         </p>
                         <p className="text-[11px] text-[var(--text-muted)] leading-relaxed mt-1.5">
-                          Applying this replaces each floor's individual outdoor walls with this shared perimeter and shifts all indoor objects to the aligned coordinate system.
+                          Applying this adds the shared perimeter as extra outdoor walls while keeping each floor's individual outdoor wall outline.
                         </p>
                       </div>
                       <div className="rounded border border-amber-200 bg-amber-50 px-2.5 py-2 text-[11px] text-amber-800">
+                        This action removes old finalized perimeter walls before adding the new perimeter, but keeps each floor's own outdoor walls.
+                      </div>
+                      <div className="hidden">
                         This action overwrites all outdoor walls on every selected floor. It cannot be undone from this screen — open the editor to make further adjustments.
                       </div>
                       <button

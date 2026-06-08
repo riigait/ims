@@ -24,12 +24,135 @@ const router = Router();
 const OUTDOOR_WALL_MARGIN = 28;
 const GENERATED_FLOOR_WIDTH = 1800;
 const GENERATED_FLOOR_HEIGHT = 1200;
+const OUTDOOR_WALL_GRID_SIZE = 20;
 
 // Matches all restroom objects (single, male, or female variant).
 // Used to share restroom positions across sibling floors the same way stairs are shared.
 const isRestroomObject = (o: FloorPlanObject) => /reserved-(male-|female-)?restroom/.test(o.id);
 const isFixedFloorObject = (o: FloorPlanObject) =>
   o.id.includes('reserved-stairs') || o.id.includes('reserved-elevator') || isRestroomObject(o);
+const isOutdoorWallObject = (object: FloorPlanObject) => object.type === 'wall' && object.id.includes('-ow-');
+
+type OutdoorWallBounds = {
+  minX: number;
+  minY: number;
+  maxX: number;
+  maxY: number;
+  width: number;
+  height: number;
+};
+
+type OutdoorWallAlignmentAnchor = {
+  kind: 'vertical-core' | 'main-entrance' | 'door' | 'grid-column' | 'bbox-top-left';
+  x: number;
+  y: number;
+};
+
+function outdoorWallOrder(wall: FloorPlanObject): number {
+  return Number(wall.id.match(/-ow-(\d+)$/)?.[1] ?? 0);
+}
+
+function snapOutdoorWallCoordinate(value: number | undefined, fallback: number): number {
+  return Math.round((value ?? fallback) / OUTDOOR_WALL_GRID_SIZE) * OUTDOOR_WALL_GRID_SIZE;
+}
+
+function snapOutdoorWallObject(wall: FloorPlanObject): FloorPlanObject {
+  const startX = snapOutdoorWallCoordinate(wall.startX, wall.x);
+  const startY = snapOutdoorWallCoordinate(wall.startY, wall.y);
+  const endX = snapOutdoorWallCoordinate(wall.endX, wall.x + wall.width);
+  const endY = snapOutdoorWallCoordinate(wall.endY, wall.y + wall.height);
+
+  return {
+    ...wall,
+    x: Math.min(startX, endX),
+    y: Math.min(startY, endY),
+    width: Math.abs(endX - startX) || wall.width,
+    height: Math.abs(endY - startY) || wall.height,
+    startX,
+    startY,
+    endX,
+    endY,
+  };
+}
+
+function getOutdoorWallObjects(objects: FloorPlanObject[]): FloorPlanObject[] {
+  return objects
+    .filter(isOutdoorWallObject)
+    .sort((a, b) => outdoorWallOrder(a) - outdoorWallOrder(b))
+    .map(snapOutdoorWallObject);
+}
+
+function outdoorWallBounds(walls: FloorPlanObject[]): OutdoorWallBounds | null {
+  if (walls.length === 0) return null;
+  const xs = walls.flatMap((wall) => [wall.startX ?? wall.x, wall.endX ?? wall.x + wall.width]);
+  const ys = walls.flatMap((wall) => [wall.startY ?? wall.y, wall.endY ?? wall.y + wall.height]);
+  const minX = Math.min(...xs);
+  const minY = Math.min(...ys);
+  const maxX = Math.max(...xs);
+  const maxY = Math.max(...ys);
+  return { minX, minY, maxX, maxY, width: maxX - minX, height: maxY - minY };
+}
+
+function objectCenter(object: FloorPlanObject) {
+  return {
+    x: object.x + object.width / 2,
+    y: object.y + object.height / 2,
+  };
+}
+
+function detectOutdoorWallAlignmentAnchor(objects: FloorPlanObject[], bounds: OutdoorWallBounds): OutdoorWallAlignmentAnchor {
+  const core = objects.find((object) => /reserved-stairs|reserved-elevator|core|stair|elevator/i.test(`${object.id} ${object.label ?? ''}`));
+  if (core) return { kind: 'vertical-core', ...objectCenter(core) };
+
+  const mainEntrance = objects.find((object) => object.type === 'entrance' || /main.*(entrance|door)|entrance.*main/i.test(`${object.id} ${object.label ?? ''}`));
+  if (mainEntrance) return { kind: 'main-entrance', ...objectCenter(mainEntrance) };
+
+  const door = objects.find((object) => object.type === 'door');
+  if (door) return { kind: 'door', ...objectCenter(door) };
+
+  const column = objects.find((object) => /grid|column/i.test(`${object.id} ${object.label ?? ''} ${object.groupId ?? ''}`));
+  if (column) return { kind: 'grid-column', ...objectCenter(column) };
+
+  return { kind: 'bbox-top-left', x: bounds.minX, y: bounds.minY };
+}
+
+function translateOutdoorWallsToSharedAnchor(
+  objects: FloorPlanObject[],
+  sharedAnchor: OutdoorWallAlignmentAnchor,
+) {
+  const originalWalls = getOutdoorWallObjects(objects);
+  const originalBounds = outdoorWallBounds(originalWalls);
+  if (!originalBounds) {
+    return { objects, selectedAnchor: sharedAnchor, dx: 0, dy: 0, originalBounds, alignedBounds: originalBounds, wallCountBefore: 0, wallCountAfter: 0 };
+  }
+
+  const selectedAnchor = detectOutdoorWallAlignmentAnchor(objects, originalBounds);
+  const dx = snapOutdoorWallCoordinate(sharedAnchor.x - selectedAnchor.x, 0);
+  const dy = snapOutdoorWallCoordinate(sharedAnchor.y - selectedAnchor.y, 0);
+  const alignedWalls = originalWalls.map((wall) => snapOutdoorWallObject({
+    ...wall,
+    startX: (wall.startX ?? wall.x) + dx,
+    startY: (wall.startY ?? wall.y) + dy,
+    endX: (wall.endX ?? wall.x + wall.width) + dx,
+    endY: (wall.endY ?? wall.y + wall.height) + dy,
+  }));
+
+  const alignedBounds = outdoorWallBounds(alignedWalls);
+
+  return {
+    objects: [
+      ...objects.filter((object) => !isOutdoorWallObject(object)),
+      ...alignedWalls,
+    ],
+    selectedAnchor,
+    dx,
+    dy,
+    originalBounds,
+    alignedBounds,
+    wallCountBefore: originalWalls.length,
+    wallCountAfter: alignedWalls.length,
+  };
+}
 
 function centerFloorPlanObjects(objects: FloorPlanObject[], width: number, height: number): FloorPlanObject[] {
   const outdoorWalls = objects.filter((object) => object.type === 'wall' && object.id.includes('-ow-'));
@@ -945,11 +1068,10 @@ router.post('/auto-generate', async (req: AuthRequest, res: Response, next: Next
       });
 
       const created = [];
-      const isOutdoorWall = (object: FloorPlanObject) => object.type === 'wall' && object.id.includes('-ow-');
-
       for (let buildingIndex = 0; buildingIndex < planCount; buildingIndex++) {
-        let parentOutdoorWalls = (preservedOutdoorWalls.get(buildingIndex + 1) ?? []).map((wall) => ({ ...wall }));
+        const preservedFloorOneOutdoorWalls = (preservedOutdoorWalls.get(buildingIndex + 1) ?? []).map((wall) => ({ ...wall }));
         const preservedFixed = preservedFixedObjects.get(buildingIndex + 1) ?? [];
+        let buildingAlignmentAnchor: OutdoorWallAlignmentAnchor | null = null;
         const sharedStairs = new Map<number, FloorPlanObject[]>();
         if (preservedFixed.some((object) => object.id.includes('reserved-stairs'))) {
           sharedStairs.set(0, preservedFixed.filter((object) => object.id.includes('reserved-stairs')).map((object) => ({ ...object })));
@@ -972,16 +1094,45 @@ router.post('/auto-generate', async (req: AuthRequest, res: Response, next: Next
             && (verticalAccess !== 'elevator' || !object.id.includes('reserved-stairs'))
           ));
 
-          if (parentOutdoorWalls.length > 0) {
+          if (floorIndex === 0 && preservedFloorOneOutdoorWalls.length > 0) {
             objects = [
-              ...objects.filter((object) => !isOutdoorWall(object)),
-              ...parentOutdoorWalls.map((wall) => ({ ...wall })),
+              ...objects.filter((object) => !isOutdoorWallObject(object)),
+              ...preservedFloorOneOutdoorWalls.map(snapOutdoorWallObject),
             ];
             objects = fitIndoorObjectsInsideOutdoorWalls(objects);
           }
           objects = centerFloorPlanObjects(objects, GENERATED_FLOOR_WIDTH, GENERATED_FLOOR_HEIGHT);
-          if (floorIndex === 0) {
-            parentOutdoorWalls = objects.filter(isOutdoorWall).map((wall) => ({ ...wall }));
+          const centeredOutdoorWalls = getOutdoorWallObjects(objects);
+          const centeredOutdoorBounds = outdoorWallBounds(centeredOutdoorWalls);
+          if (floorIndex === 0 && centeredOutdoorBounds) {
+            buildingAlignmentAnchor = detectOutdoorWallAlignmentAnchor(objects, centeredOutdoorBounds);
+            console.debug('[OutdoorWallGenerateAlign]', {
+              buildingNumber: buildingIndex + 1,
+              floorNumber: floorIndex + 1,
+              originalBounds: centeredOutdoorBounds,
+              selectedAnchor: buildingAlignmentAnchor,
+              sharedAnchor: buildingAlignmentAnchor,
+              dx: 0,
+              dy: 0,
+              alignedBounds: centeredOutdoorBounds,
+              wallCountBefore: centeredOutdoorWalls.length,
+              wallCountAfter: centeredOutdoorWalls.length,
+            });
+          } else if (buildingAlignmentAnchor) {
+            const alignment = translateOutdoorWallsToSharedAnchor(objects, buildingAlignmentAnchor);
+            objects = alignment.objects;
+            console.debug('[OutdoorWallGenerateAlign]', {
+              buildingNumber: buildingIndex + 1,
+              floorNumber: floorIndex + 1,
+              originalBounds: alignment.originalBounds,
+              selectedAnchor: alignment.selectedAnchor,
+              sharedAnchor: buildingAlignmentAnchor,
+              dx: alignment.dx,
+              dy: alignment.dy,
+              alignedBounds: alignment.alignedBounds,
+              wallCountBefore: alignment.wallCountBefore,
+              wallCountAfter: alignment.wallCountAfter,
+            });
           }
           if (verticalAccess === 'stairs' || verticalAccess === 'both') {
             const stairObjects = sharedStairs.get(0);
