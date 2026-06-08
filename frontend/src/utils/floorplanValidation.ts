@@ -60,6 +60,27 @@ function isDoorLike(obj: FloorPlanObject): obj is DoorObject | EntranceObject {
   return obj.type === 'door' || obj.type === 'entrance';
 }
 
+function isOutdoorWall(wall: WallObject): boolean {
+  return wall.id.includes('-ow-');
+}
+
+function isFixedObject(obj: FloorPlanObject): boolean {
+  return obj.id.includes('reserved-stairs') ||
+    obj.id.includes('reserved-elevator') ||
+    /reserved-(male-|female-)?restroom/.test(obj.id);
+}
+
+function rectsOverlap(a: RectangleObject, b: RectangleObject, gap = 0): boolean {
+  return a.x < b.x + b.width + gap &&
+    a.x + a.width + gap > b.x &&
+    a.y < b.y + b.height + gap &&
+    a.y + a.height + gap > b.y;
+}
+
+function labelFor(obj: FloorPlanObject): string {
+  return obj.label ? `"${obj.label}"` : obj.type;
+}
+
 export function getDoorClearanceZone(door: DoorObject | EntranceObject): DoorClearanceZone {
   const halfWidth = door.width / 2;
   const halfDepth = DOOR_CLEARANCE_DEPTH / 2;
@@ -163,6 +184,9 @@ export function validateFloorplanObjects(objects: FloorPlanObject[]): FloorplanV
   const placedFurniture = placedObjects.filter(o => o.type === 'rack' || o.type === 'shelf');
   const walls = objects.filter((obj): obj is WallObject => obj.type === 'wall');
   const doors = objects.filter(isDoorLike);
+  const indoorWalls = walls.filter(w => !isOutdoorWall(w));
+  const fixedStructuralRooms = structuralRooms.filter(isFixedObject);
+  const movableStructuralRooms = structuralRooms.filter(room => !isFixedObject(room));
 
   // Only check containment when there are explicit structural rooms drawn
   if (structuralRooms.length > 0) {
@@ -178,6 +202,40 @@ export function validateFloorplanObjects(objects: FloorPlanObject[]): FloorplanV
       }
     });
   }
+
+  movableStructuralRooms.forEach((room) => {
+    const overlappingRoom = structuralRooms.find((other) => other.id !== room.id && rectsOverlap(room, other));
+    if (overlappingRoom) {
+      errors.push({
+        code: 'object_overlap',
+        objectId: room.id,
+        message: `${labelFor(room)} overlaps ${labelFor(overlappingRoom)}.`,
+      });
+    }
+  });
+
+  placedFurniture.forEach((obj) => {
+    const fixedBlocker = fixedStructuralRooms.find((fixed) => rectsOverlap(obj, fixed));
+    if (fixedBlocker) {
+      errors.push({
+        code: 'object_overlap',
+        objectId: obj.id,
+        message: `${labelFor(obj)} overlaps fixed ${labelFor(fixedBlocker)}.`,
+      });
+    }
+  });
+
+  structuralRooms.forEach((room) => {
+    const roomPoly = rectPolygon(room, CLEARANCE);
+    const crossingWall = indoorWalls.find((wall) => wall.groupId !== room.groupId && booleanIntersects(wallPolygon(wall), roomPoly));
+    if (crossingWall) {
+      errors.push({
+        code: 'object_crosses_wall',
+        objectId: room.id,
+        message: `Indoor wall crosses ${isFixedObject(room) ? 'fixed ' : ''}${labelFor(room)}.`,
+      });
+    }
+  });
 
   placedFurniture.forEach((obj) => {
     const objPoly = rectPolygon(obj);

@@ -62,6 +62,7 @@ export const FLOORPLAN_SIZE_REFERENCE = {
   receptionArea:      { w: 3000, h: 4000 },
   storageRoom:        { w: 2500, h: 3000 },
   serverRoomSmall:    { w: 3000, h: 4000 },
+  restroomRoom:       { w: 2400, h: 2400 },
   generalShelf:       { w: 900,  h: 450  },
   tallCabinet:        { w: 900,  h: 450  },
   warehouseRack:      { w: 1200, h: 600  },
@@ -194,14 +195,27 @@ type RoomZone = {
 // ─── Layout constants ──────────────────────────────────────────────────────────
 
 const OUTER_TOP_Y   = 70;   // fixed top of outer walls
-const OUTER_T       = 10;   // outer wall thickness
-const INNER_T       = 6;    // inner wall thickness
 const ROOM_Y_START  = 120;  // top-row rooms start here
 const CELL_GAP      = 10;
 const ZONE_LABEL_H  = 52;   // label area inside each zone (>= door clearance 46 px)
 const ZONE_BOT_PAD  = 52;   // bottom padding inside each zone (>= door clearance 46 px)
 const MIN_CELL_H    = 28;
 const ROW_SPLIT_Y   = 400;  // zones with y < this are "top row"
+const GENERATED_PIXELS_PER_METER = 50;
+const mmToGeneratedPixels = (millimetres: number) => Math.round((millimetres / 1000) * GENERATED_PIXELS_PER_METER);
+const OUTER_T = mmToGeneratedPixels(200);
+const INNER_T = mmToGeneratedPixels(120);
+const INTERIOR_DOOR_WIDTH = mmToGeneratedPixels(FLOORPLAN_SIZE_REFERENCE.interiorDoor.w);
+const INTERIOR_DOOR_HEIGHT = Math.max(1, mmToGeneratedPixels(FLOORPLAN_SIZE_REFERENCE.interiorDoor.h));
+const DOUBLE_ENTRANCE_WIDTH = mmToGeneratedPixels(FLOORPLAN_SIZE_REFERENCE.doubleEntrance.w);
+const DOUBLE_ENTRANCE_HEIGHT = Math.max(1, mmToGeneratedPixels(FLOORPLAN_SIZE_REFERENCE.doubleEntrance.h));
+const WINDOW_HEIGHT = Math.max(1, mmToGeneratedPixels(FLOORPLAN_SIZE_REFERENCE.windowNormal.h));
+const RESTROOM_WIDTH = mmToGeneratedPixels(FLOORPLAN_SIZE_REFERENCE.restroomRoom.w);
+const RESTROOM_HEIGHT = mmToGeneratedPixels(FLOORPLAN_SIZE_REFERENCE.restroomRoom.h);
+const STAIR_LANDING_WIDTH = mmToGeneratedPixels(FLOORPLAN_SIZE_REFERENCE.stairLanding.w);
+const STAIR_LANDING_HEIGHT = mmToGeneratedPixels(FLOORPLAN_SIZE_REFERENCE.stairLanding.h);
+const ELEVATOR_SHAFT_WIDTH = mmToGeneratedPixels(FLOORPLAN_SIZE_REFERENCE.elevatorShaft.w);
+const ELEVATOR_SHAFT_HEIGHT = mmToGeneratedPixels(FLOORPLAN_SIZE_REFERENCE.elevatorShaft.h);
 
 type RowBox = { left: number; right: number; top: number; bottom: number };
 type Point  = [number, number];
@@ -229,6 +243,128 @@ function classifyLocation(name: string) {
   if (n.includes('rack')) return 'rack';
   if (n.includes('cabinet') || n.includes('box') || n.includes('drawer') || n.includes('table') || n.includes('shelf') || n.includes('orocan') || n.includes('pedestal')) return 'shelf';
   return 'shelf'; // 'room' is reserved for zone containers; location items are always rack or shelf
+}
+
+function generatedFixtureSize(name: string, type: 'rack' | 'shelf') {
+  const normalized = name.toLowerCase();
+  const reference = type === 'shelf'
+    ? (normalized.includes('cabinet') ? FLOORPLAN_SIZE_REFERENCE.tallCabinet : FLOORPLAN_SIZE_REFERENCE.generalShelf)
+    : (['server', 'radio', 'blade'].some(keyword => normalized.includes(keyword))
+      ? FLOORPLAN_SIZE_REFERENCE.serverRack
+      : FLOORPLAN_SIZE_REFERENCE.warehouseRack);
+  return { width: mmToGeneratedPixels(reference.w), height: mmToGeneratedPixels(reference.h) };
+}
+
+function generatedWindowWidth(roomLabel: string) {
+  const normalized = roomLabel.toLowerCase();
+  const reference = ['dorm', 'office', 'reception', 'waiting', 'common'].some(keyword => normalized.includes(keyword))
+    ? FLOORPLAN_SIZE_REFERENCE.windowOfficeDorm
+    : ['storage', 'utility', 'equipment', 'cable', 'power'].some(keyword => normalized.includes(keyword))
+      ? FLOORPLAN_SIZE_REFERENCE.windowSmall
+      : FLOORPLAN_SIZE_REFERENCE.windowNormal;
+  return mmToGeneratedPixels(reference.w);
+}
+
+type RoomEdge = NonNullable<RoomZone['snappedEdge']>;
+type SnappedWindow = { x: number; y: number; width: number; angle: number };
+
+const HORIZONTAL_ROOM_EDGES: RoomEdge[] = ['top', 'bottom'];
+const VERTICAL_ROOM_EDGES: RoomEdge[] = ['left', 'right'];
+const MIN_GENERATED_WINDOW_WIDTH = 24;
+const WINDOW_EDGE_INSET = 18;
+
+function clamp(value: number, min: number, max: number): number {
+  if (max < min) return (min + max) / 2;
+  return Math.max(min, Math.min(max, value));
+}
+
+function roomEdgeLength(room: RoomZone, edge: RoomEdge): number {
+  return HORIZONTAL_ROOM_EDGES.includes(edge) ? room.w : room.h;
+}
+
+function fitWindowWidth(width: number, edgeLength: number): number {
+  const maxWidth = Math.max(8, edgeLength - WINDOW_EDGE_INSET * 2);
+  const minWidth = Math.min(MIN_GENERATED_WINDOW_WIDTH, maxWidth);
+  return Math.round(Math.min(Math.max(width, minWidth), maxWidth));
+}
+
+function nearestRoomEdge(room: RoomZone, x: number, y: number): RoomEdge {
+  return [
+    { edge: 'top' as const, distance: Math.abs(y - room.y) },
+    { edge: 'bottom' as const, distance: Math.abs(y - (room.y + room.h)) },
+    { edge: 'left' as const, distance: Math.abs(x - room.x) },
+    { edge: 'right' as const, distance: Math.abs(x - (room.x + room.w)) },
+  ].sort((a, b) => a.distance - b.distance)[0].edge;
+}
+
+function snapWindowToRoomEdge(room: RoomZone, edge: RoomEdge, x: number, y: number, width: number): SnappedWindow {
+  const snappedWidth = fitWindowWidth(width, roomEdgeLength(room, edge));
+  const half = snappedWidth / 2;
+
+  if (HORIZONTAL_ROOM_EDGES.includes(edge)) {
+    return {
+      x: Math.round(clamp(x, room.x + WINDOW_EDGE_INSET + half, room.x + room.w - WINDOW_EDGE_INSET - half)),
+      y: Math.round(edge === 'top' ? room.y : room.y + room.h),
+      width: snappedWidth,
+      angle: 0,
+    };
+  }
+
+  return {
+    x: Math.round(edge === 'left' ? room.x : room.x + room.w),
+    y: Math.round(clamp(y, room.y + WINDOW_EDGE_INSET + half, room.y + room.h - WINDOW_EDGE_INSET - half)),
+    width: snappedWidth,
+    angle: Math.PI / 2,
+  };
+}
+
+function snapWindowToNearestRoomWall(room: RoomZone, x: number, y: number, width: number): SnappedWindow {
+  return snapWindowToRoomEdge(room, nearestRoomEdge(room, x, y), x, y, width);
+}
+
+function shouldAddIndoorWindow(room: RoomZone): boolean {
+  if (room.fixedSize) return false;
+  const normalized = room.label.toLowerCase();
+  return !['restroom', 'toilet', 'bathroom', 'stairs', 'elevator'].some(keyword => normalized.includes(keyword));
+}
+
+function uniqueEdges(edges: RoomEdge[]): RoomEdge[] {
+  return edges.filter((edge, index) => edges.indexOf(edge) === index);
+}
+
+function indoorWindowEdges(room: RoomZone): RoomEdge[] {
+  const doorEdge = nearestRoomEdge(room, room.doorX, room.doorY);
+  const isAvailable = (edge: RoomEdge) => edge !== room.snappedEdge;
+  const horizontal = HORIZONTAL_ROOM_EDGES.filter(isAvailable);
+  const vertical = VERTICAL_ROOM_EDGES.filter(isAvailable);
+  return uniqueEdges([
+    ...horizontal.filter(edge => edge !== doorEdge),
+    ...vertical.filter(edge => edge !== doorEdge),
+    ...horizontal,
+    ...vertical,
+  ]);
+}
+
+function indoorWindowForRoom(room: RoomZone): SnappedWindow | null {
+  if (!shouldAddIndoorWindow(room)) return null;
+
+  const doorEdge = nearestRoomEdge(room, room.doorX, room.doorY);
+  for (const edge of indoorWindowEdges(room)) {
+    const edgeLength = roomEdgeLength(room, edge);
+    if (edgeLength < MIN_GENERATED_WINDOW_WIDTH + WINDOW_EDGE_INSET * 2) continue;
+
+    const sameEdgeAsDoor = edge === doorEdge;
+    const desiredX = HORIZONTAL_ROOM_EDGES.includes(edge)
+      ? (sameEdgeAsDoor && room.doorX <= room.x + room.w / 2 ? room.x + room.w * 0.72 : sameEdgeAsDoor ? room.x + room.w * 0.28 : room.x + room.w / 2)
+      : (edge === 'left' ? room.x : room.x + room.w);
+    const desiredY = VERTICAL_ROOM_EDGES.includes(edge)
+      ? (sameEdgeAsDoor && room.doorY <= room.y + room.h / 2 ? room.y + room.h * 0.72 : sameEdgeAsDoor ? room.y + room.h * 0.28 : room.y + room.h / 2)
+      : (edge === 'top' ? room.y : room.y + room.h);
+
+    return snapWindowToRoomEdge(room, edge, desiredX, desiredY, generatedWindowWidth(room.label));
+  }
+
+  return null;
 }
 
 function slug(value: string, fallback: string) {
@@ -731,9 +867,9 @@ function buildPerimeterWalls(floorLabel: string, pts: Point[], outerBottomY: num
   // Entrance at the widest bottom-row midpoint
   const bottomPts = perimeter.filter(([, y]) => y === outerBottomY);
   const midX = bottomPts.length >= 2
-    ? (Math.min(...bottomPts.map(([x]) => x)) + Math.max(...bottomPts.map(([x]) => x))) / 2 - 90
+    ? (Math.min(...bottomPts.map(([x]) => x)) + Math.max(...bottomPts.map(([x]) => x))) / 2
     : perimeter[0][0] + 810;
-  objects.push({ id: `${floorLabel}-entrance`, type: 'entrance', x: midX, y: outerBottomY, width: 180, height: 20, angle: 0, style: 'double', label: 'Entrance', color: '#16a34a', layer: FLOORPLAN_LAYERS.OPENING });
+  objects.push({ id: `${floorLabel}-entrance`, type: 'entrance', x: midX, y: outerBottomY, width: DOUBLE_ENTRANCE_WIDTH, height: DOUBLE_ENTRANCE_HEIGHT, angle: 0, style: 'double', label: 'Entrance', color: '#16a34a', layer: FLOORPLAN_LAYERS.OPENING });
   objects.push({ id: `${floorLabel}-title`,    type: 'label',    x: perimeter[0][0] + 40, y: 45, width: 600, height: 35, text: floorLabel, fontSize: 22, label: floorLabel, color: '#0f172a', layer: FLOORPLAN_LAYERS.LABEL });
 
   return objects;
@@ -756,17 +892,17 @@ function addSpace(objects: FloorPlanObject[], id: string, label: string, x: numb
 }
 
 function addOpening(objects: FloorPlanObject[], id: string, label: string, x: number, y: number, width: number, angle = 0, style = 'single', groupId?: string) {
-  objects.push({ id, type: 'entrance', x, y, width, height: 18, angle, style, label, color: '#16a34a', groupId, layer: FLOORPLAN_LAYERS.OPENING });
+  objects.push({ id, type: 'entrance', x, y, width, height: INTERIOR_DOOR_HEIGHT, angle, style, label, color: '#16a34a', groupId, layer: FLOORPLAN_LAYERS.OPENING });
 }
 
 function addWindow(objects: FloorPlanObject[], id: string, x: number, y: number, width: number, angle = 0, groupId?: string) {
-  objects.push({ id, type: 'window', x, y, width, height: 18, angle, color: '#38bdf8', groupId, layer: FLOORPLAN_LAYERS.OPENING });
+  objects.push({ id, type: 'window', x, y, width, height: WINDOW_HEIGHT, angle, color: '#38bdf8', groupId, layer: FLOORPLAN_LAYERS.OPENING });
 }
 
 function openingTouchesRoom(room: FloorPlanObject, opening: FloorPlanObject): boolean {
   const margin = 12;
-  const normalizedAngle = Math.abs(opening.angle ?? 0) % 180;
-  const isVertical = normalizedAngle === 90;
+  const angle = opening.angle ?? 0;
+  const isVertical = Math.abs(Math.sin(angle)) > Math.abs(Math.cos(angle));
   const openingWidth = isVertical ? opening.height : opening.width;
   const openingHeight = isVertical ? opening.width : opening.height;
   const openingLeft = opening.x;
@@ -796,26 +932,20 @@ function openingTouchesRoom(room: FloorPlanObject, opening: FloorPlanObject): bo
 function addRoomShell(objects: FloorPlanObject[], prefix: string, room: RoomZone) {
   // One shared groupId for the room rect, all its indoor walls, door, and window.
   const roomGroupId = room.objectGroupId ?? `${prefix}-${room.key}-group`;
-  const hasOutdoorWall = (startX: number, startY: number, endX: number, endY: number) => objects.some((object) => {
-    if (object.type !== 'wall' || !object.id.includes('-ow-')) return false;
-    if (startY === endY && object.startY === object.endY && object.startY === startY) {
-      return Math.min(object.startX ?? 0, object.endX ?? 0) <= Math.min(startX, endX)
-        && Math.max(object.startX ?? 0, object.endX ?? 0) >= Math.max(startX, endX);
-    }
-    if (startX === endX && object.startX === object.endX && object.startX === startX) {
-      return Math.min(object.startY ?? 0, object.endY ?? 0) <= Math.min(startY, endY)
-        && Math.max(object.startY ?? 0, object.endY ?? 0) >= Math.max(startY, endY);
-    }
-    return false;
-  });
   addSpace(objects, `${prefix}-${room.key}`, room.label, room.x, room.y, room.w, room.h, room.color, 'room', roomGroupId);
-  if (!hasOutdoorWall(room.x, room.y, room.x + room.w, room.y)) addWall(objects, `${prefix}-${room.key}-wall-top`, room.x, room.y, room.x + room.w, room.y, INNER_T, roomGroupId);
-  if (!hasOutdoorWall(room.x, room.y + room.h, room.x + room.w, room.y + room.h)) addWall(objects, `${prefix}-${room.key}-wall-bottom`, room.x, room.y + room.h, room.x + room.w, room.y + room.h, INNER_T, roomGroupId);
-  if (!hasOutdoorWall(room.x, room.y, room.x, room.y + room.h)) addWall(objects, `${prefix}-${room.key}-wall-left`, room.x, room.y, room.x, room.y + room.h, INNER_T, roomGroupId);
-  if (!hasOutdoorWall(room.x + room.w, room.y, room.x + room.w, room.y + room.h)) addWall(objects, `${prefix}-${room.key}-wall-right`, room.x + room.w, room.y, room.x + room.w, room.y + room.h, INNER_T, roomGroupId);
-  addOpening(objects, `${prefix}-${room.key}-door`, `${room.label} Door`, room.doorX, room.doorY, 92, room.doorAngle ?? 0, 'single', roomGroupId);
+  addWall(objects, `${prefix}-${room.key}-wall-top`, room.x, room.y, room.x + room.w, room.y, INNER_T, roomGroupId);
+  addWall(objects, `${prefix}-${room.key}-wall-bottom`, room.x, room.y + room.h, room.x + room.w, room.y + room.h, INNER_T, roomGroupId);
+  addWall(objects, `${prefix}-${room.key}-wall-left`, room.x, room.y, room.x, room.y + room.h, INNER_T, roomGroupId);
+  addWall(objects, `${prefix}-${room.key}-wall-right`, room.x + room.w, room.y, room.x + room.w, room.y + room.h, INNER_T, roomGroupId);
+  addOpening(objects, `${prefix}-${room.key}-door`, `${room.label} Door`, room.doorX, room.doorY, INTERIOR_DOOR_WIDTH, room.doorAngle ?? 0, 'single', roomGroupId);
   if (room.windowX !== undefined && room.windowY !== undefined) {
-    addWindow(objects, `${prefix}-${room.key}-window`, room.windowX, room.windowY, room.windowWidth ?? 140, room.windowAngle ?? 0, roomGroupId);
+    const snapped = snapWindowToNearestRoomWall(room, room.windowX, room.windowY, room.windowWidth ?? generatedWindowWidth(room.label));
+    addWindow(objects, `${prefix}-${room.key}-window`, snapped.x, snapped.y, snapped.width, snapped.angle, roomGroupId);
+  } else {
+    const indoorWindow = indoorWindowForRoom(room);
+    if (indoorWindow) {
+      addWindow(objects, `${prefix}-${room.key}-window`, indoorWindow.x, indoorWindow.y, indoorWindow.width, indoorWindow.angle, roomGroupId);
+    }
   }
 }
 
@@ -841,7 +971,7 @@ function placeLocationsInZone(
   const availH = zone.h - topPadding - ZONE_BOT_PAD;
   const maxRows = Math.max(1, Math.floor((availH + gap) / (MIN_CELL_H + gap)));
   const rows = Math.min(Math.max(1, Math.ceil(locations.length / cols)), maxRows);
-  const cellHeight = Math.max(MIN_CELL_H, Math.min(44, Math.floor((availH - gap * (rows - 1)) / rows)));
+  const cellHeight = Math.max(MIN_CELL_H, Math.min(50, Math.floor((availH - gap * (rows - 1)) / rows)));
 
   // Only place as many items as the capped grid can hold — excess items are
   // deferred until the zone is resized or the layout is regenerated.
@@ -851,11 +981,16 @@ function placeLocationsInZone(
     const col = index % cols;
     const row = Math.floor(index / cols);
     const type = classifyLocation(location.name);
+    const footprint = generatedFixtureSize(location.name, type);
+    const width = Math.min(cellWidth, footprint.width);
+    const height = Math.min(cellHeight, footprint.height);
+    const slotX = zone.x + 15 + col * (cellWidth + gap);
+    const slotY = zone.y + topPadding + row * (cellHeight + gap);
     objects.push({
       id: `loc-${location.id}`, type,
-      x: zone.x + 15 + col * (cellWidth + gap),
-      y: zone.y + topPadding + row * (cellHeight + gap),
-      width: cellWidth, height: cellHeight,
+      x: slotX + (cellWidth - width) / 2,
+      y: slotY + (cellHeight - height) / 2,
+      width, height,
       label: location.name, linkedLocationId: location.id,
       color: type === 'rack' ? '#f59e0b' : type === 'shelf' ? '#8b5cf6' : '#3b82f6',
       layer: FLOORPLAN_LAYERS.FURNITURE,
@@ -872,17 +1007,17 @@ function buildValidatedLayoutFloorPlan(floorLabel: string, locations: Array<{ id
   const usePairedRestrooms = Math.random() < 0.5;
   const restroomGroupId = `${prefix}-restroom-group`;
   const reservedSpaces: RoomZone[] = usePairedRestrooms ? [
-    { key: 'reserved-male-restroom', label: 'Male Restroom', x: 1900, y: 660, w: 260, h: 260, color: '#bfdbfe', cols: 1, doorX: 2030, doorY: 660, objectGroupId: restroomGroupId },
-    { key: 'reserved-female-restroom', label: 'Female Restroom', x: 2184, y: 660, w: 260, h: 260, color: '#fbcfe8', cols: 1, doorX: 2314, doorY: 660, objectGroupId: restroomGroupId },
+    { key: 'reserved-male-restroom', label: 'Male Restroom', x: 1900, y: 660, w: RESTROOM_WIDTH, h: RESTROOM_HEIGHT, color: '#bfdbfe', cols: 1, doorX: 1900 + RESTROOM_WIDTH / 2, doorY: 660, objectGroupId: restroomGroupId },
+    { key: 'reserved-female-restroom', label: 'Female Restroom', x: 1900 + RESTROOM_WIDTH, y: 660, w: RESTROOM_WIDTH, h: RESTROOM_HEIGHT, color: '#fbcfe8', cols: 1, doorX: 1900 + RESTROOM_WIDTH * 1.5, doorY: 660, objectGroupId: restroomGroupId },
   ] : [{
-    key: 'reserved-restroom', label: 'Restroom', x: 1900, y: 660, w: 260, h: 260, color: '#dbeafe', cols: 1, doorX: 2030, doorY: 660,
+    key: 'reserved-restroom', label: 'Restroom', x: 1900, y: 660, w: RESTROOM_WIDTH, h: RESTROOM_HEIGHT, color: '#dbeafe', cols: 1, doorX: 1900 + RESTROOM_WIDTH / 2, doorY: 660,
   }];
   const verticalAccess = options.verticalAccess ?? 'both';
   if (verticalAccess === 'stairs' || verticalAccess === 'both') {
-    reservedSpaces.push({ key: 'reserved-stairs', label: 'Stairs', x: 2800, y: 660, w: 200, h: 200, color: '#fef3c7', cols: 1, doorX: 2900, doorY: 660, fixedSize: true });
+    reservedSpaces.push({ key: 'reserved-stairs', label: 'Stairs', x: 2800, y: 660, w: STAIR_LANDING_WIDTH, h: STAIR_LANDING_HEIGHT, color: '#fef3c7', cols: 1, doorX: 2800 + STAIR_LANDING_WIDTH / 2, doorY: 660, fixedSize: true });
   }
   if (verticalAccess === 'elevator' || verticalAccess === 'both') {
-    reservedSpaces.push({ key: 'reserved-elevator', label: 'Elevator', x: 3100, y: 660, w: 200, h: 200, color: '#e9d5ff', cols: 1, doorX: 3200, doorY: 660, fixedSize: true });
+    reservedSpaces.push({ key: 'reserved-elevator', label: 'Elevator', x: 3100, y: 660, w: ELEVATOR_SHAFT_WIDTH, h: ELEVATOR_SHAFT_HEIGHT, color: '#e9d5ff', cols: 1, doorX: 3100 + ELEVATOR_SHAFT_WIDTH / 2, doorY: 660, fixedSize: true });
   }
   const layoutZones = [...zones, ...reservedSpaces];
 

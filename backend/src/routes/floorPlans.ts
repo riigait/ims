@@ -22,10 +22,102 @@ const router = Router();
 // Must stay in sync with `margin` in fitIndoorObjectsInsideOutdoorWalls
 // and `WALL_MARGIN` in resolveIndoorObjectOverlaps (both are 28).
 const OUTDOOR_WALL_MARGIN = 28;
+const GENERATED_FLOOR_WIDTH = 1800;
+const GENERATED_FLOOR_HEIGHT = 1200;
 
 // Matches all restroom objects (single, male, or female variant).
 // Used to share restroom positions across sibling floors the same way stairs are shared.
 const isRestroomObject = (o: FloorPlanObject) => /reserved-(male-|female-)?restroom/.test(o.id);
+const isFixedFloorObject = (o: FloorPlanObject) =>
+  o.id.includes('reserved-stairs') || o.id.includes('reserved-elevator') || isRestroomObject(o);
+
+function centerFloorPlanObjects(objects: FloorPlanObject[], width: number, height: number): FloorPlanObject[] {
+  const outdoorWalls = objects.filter((object) => object.type === 'wall' && object.id.includes('-ow-'));
+  if (outdoorWalls.length === 0) return objects;
+
+  const xs = outdoorWalls.flatMap((wall) => [wall.startX ?? wall.x, wall.endX ?? wall.x + wall.width]);
+  const ys = outdoorWalls.flatMap((wall) => [wall.startY ?? wall.y, wall.endY ?? wall.y + wall.height]);
+  const dx = width / 2 - (Math.min(...xs) + Math.max(...xs)) / 2;
+  const dy = height / 2 - (Math.min(...ys) + Math.max(...ys)) / 2;
+  if (dx === 0 && dy === 0) return objects;
+
+  return objects.map((object) => ({
+    ...object,
+    x: object.x + dx,
+    y: object.y + dy,
+    ...(object.startX !== undefined ? { startX: object.startX + dx } : {}),
+    ...(object.endX !== undefined ? { endX: object.endX + dx } : {}),
+    ...(object.startY !== undefined ? { startY: object.startY + dy } : {}),
+    ...(object.endY !== undefined ? { endY: object.endY + dy } : {}),
+  }));
+}
+
+function objectBounds(object: FloorPlanObject) {
+  if (object.type === 'wall') {
+    const x1 = object.startX ?? object.x;
+    const y1 = object.startY ?? object.y;
+    const x2 = object.endX ?? object.x + object.width;
+    const y2 = object.endY ?? object.y + object.height;
+    return {
+      minX: Math.min(x1, x2),
+      minY: Math.min(y1, y2),
+      maxX: Math.max(x1, x2),
+      maxY: Math.max(y1, y2),
+    };
+  }
+  return {
+    minX: object.x,
+    minY: object.y,
+    maxX: object.x + object.width,
+    maxY: object.y + object.height,
+  };
+}
+
+function expandOutdoorWallsToContainFixedObjects(objects: FloorPlanObject[], fixedObjects: FloorPlanObject[]): FloorPlanObject[] {
+  const outdoorWalls = objects.filter((object) => object.type === 'wall' && object.id.includes('-ow-'));
+  if (outdoorWalls.length === 0 || fixedObjects.length === 0) return objects;
+
+  const wallBounds = outdoorWalls.map(objectBounds);
+  const fixedBounds = fixedObjects.map(objectBounds);
+  const oldMinX = Math.min(...wallBounds.map((bounds) => bounds.minX));
+  const oldMinY = Math.min(...wallBounds.map((bounds) => bounds.minY));
+  const oldMaxX = Math.max(...wallBounds.map((bounds) => bounds.maxX));
+  const oldMaxY = Math.max(...wallBounds.map((bounds) => bounds.maxY));
+  const newMinX = Math.min(oldMinX, Math.min(...fixedBounds.map((bounds) => bounds.minX)) - OUTDOOR_WALL_MARGIN);
+  const newMinY = Math.min(oldMinY, Math.min(...fixedBounds.map((bounds) => bounds.minY)) - OUTDOOR_WALL_MARGIN);
+  const newMaxX = Math.max(oldMaxX, Math.max(...fixedBounds.map((bounds) => bounds.maxX)) + OUTDOOR_WALL_MARGIN);
+  const newMaxY = Math.max(oldMaxY, Math.max(...fixedBounds.map((bounds) => bounds.maxY)) + OUTDOOR_WALL_MARGIN);
+
+  if (newMinX === oldMinX && newMinY === oldMinY && newMaxX === oldMaxX && newMaxY === oldMaxY) return objects;
+
+  const near = (a: number, b: number) => Math.abs(a - b) <= 1;
+  const mapX = (x: number) => near(x, oldMinX) ? newMinX : near(x, oldMaxX) ? newMaxX : x;
+  const mapY = (y: number) => near(y, oldMinY) ? newMinY : near(y, oldMaxY) ? newMaxY : y;
+
+  return objects.map((object) => {
+    if (object.type === 'wall' && object.id.includes('-ow-')) {
+      const startX = mapX(object.startX ?? object.x);
+      const startY = mapY(object.startY ?? object.y);
+      const endX = mapX(object.endX ?? object.x + object.width);
+      const endY = mapY(object.endY ?? object.y + object.height);
+      return {
+        ...object,
+        x: Math.min(startX, endX),
+        y: Math.min(startY, endY),
+        width: Math.abs(endX - startX) || object.width,
+        height: Math.abs(endY - startY) || object.height,
+        startX,
+        startY,
+        endX,
+        endY,
+      };
+    }
+    if (object.type === 'entrance' && near(object.y, oldMaxY)) {
+      return { ...object, x: Math.max(newMinX, Math.min(newMaxX, object.x)), y: newMaxY };
+    }
+    return object;
+  });
+}
 
 // â”€â”€â”€ Helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
@@ -301,7 +393,7 @@ function fitIndoorObjectsInsideOutdoorWalls(objects: FloorPlanObject[]): FloorPl
 function resolveIndoorObjectOverlaps(objects: FloorPlanObject[], minGap = 16): FloorPlanObject[] {
   const isOW = (o: FloorPlanObject) => o.type === 'wall' && o.id.includes('-ow-');
   const isFixed = (o: FloorPlanObject) =>
-    isOW(o) || o.id.includes('reserved-stairs') || o.id.includes('reserved-elevator');
+    isOW(o) || o.id.includes('reserved-stairs') || o.id.includes('reserved-elevator') || isRestroomObject(o);
 
   // Only push zone rects — racks/shelves follow their zone via groupId so grid alignment is preserved.
   // linkedLocationId marks individual inventory items — they are never zone containers
@@ -404,6 +496,163 @@ function resolveIndoorObjectOverlaps(objects: FloorPlanObject[], minGap = 16): F
 }
 
 // â”€â”€â”€ Routes â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+
+function resolveMovableObjectOverlapsWithFixed(objects: FloorPlanObject[], fixedObjects: FloorPlanObject[], minGap = 16): FloorPlanObject[] {
+  const isOW = (o: FloorPlanObject) => o.type === 'wall' && o.id.includes('-ow-');
+  const isMovableZone = (o: FloorPlanObject) =>
+    o.type === 'room' && !isOW(o) && !isFixedFloorObject(o) && !o.linkedLocationId;
+  const blockerObjects = fixedObjects.filter((object) =>
+    object.type === 'room' || object.type === 'rack' || object.type === 'shelf');
+  const movable = objects.filter(isMovableZone).map((object) => ({ ...object }));
+  if (movable.length === 0 || blockerObjects.length === 0) return objects;
+
+  const outdoorWalls = objects.filter(isOW);
+  let bMinX = -Infinity, bMinY = -Infinity, bMaxX = Infinity, bMaxY = Infinity;
+  if (outdoorWalls.length > 0) {
+    const xs = outdoorWalls.flatMap((wall) => [wall.startX ?? wall.x, wall.endX ?? wall.x + wall.width]);
+    const ys = outdoorWalls.flatMap((wall) => [wall.startY ?? wall.y, wall.endY ?? wall.y + wall.height]);
+    bMinX = Math.min(...xs) + OUTDOOR_WALL_MARGIN;
+    bMinY = Math.min(...ys) + OUTDOOR_WALL_MARGIN;
+    bMaxX = Math.max(...xs) - OUTDOOR_WALL_MARGIN;
+    bMaxY = Math.max(...ys) - OUTDOOR_WALL_MARGIN;
+  }
+  const hasBounds = Number.isFinite(bMinX);
+  const clampRect = (rect: FloorPlanObject) => {
+    if (!hasBounds) return rect;
+    return {
+      ...rect,
+      x: Math.max(bMinX, Math.min(bMaxX - rect.width, rect.x)),
+      y: Math.max(bMinY, Math.min(bMaxY - rect.height, rect.y)),
+    };
+  };
+  const overlapArea = (rect: FloorPlanObject, blocker: ReturnType<typeof objectBounds>) => {
+    const overlapX = Math.min(rect.x + rect.width, blocker.maxX) - Math.max(rect.x, blocker.minX);
+    const overlapY = Math.min(rect.y + rect.height, blocker.maxY) - Math.max(rect.y, blocker.minY);
+    return overlapX > 0 && overlapY > 0 ? overlapX * overlapY : 0;
+  };
+  const blockers = blockerObjects.map((object) => {
+    const bounds = objectBounds(object);
+    return {
+      minX: bounds.minX - minGap,
+      minY: bounds.minY - minGap,
+      maxX: bounds.maxX + minGap,
+      maxY: bounds.maxY + minGap,
+    };
+  });
+
+  const MAX_ITER = 60;
+  for (let iter = 0; iter < MAX_ITER; iter++) {
+    let moved = false;
+    for (const zone of movable) {
+      for (const blocker of blockers) {
+        if (overlapArea(zone, blocker) === 0) continue;
+        const candidates = [
+          { ...zone, x: blocker.minX - zone.width },
+          { ...zone, x: blocker.maxX },
+          { ...zone, y: blocker.minY - zone.height },
+          { ...zone, y: blocker.maxY },
+        ].map(clampRect).map((candidate) => ({
+          candidate,
+          overlap: overlapArea(candidate, blocker),
+          move: Math.abs(candidate.x - zone.x) + Math.abs(candidate.y - zone.y),
+        })).sort((a, b) => a.overlap - b.overlap || a.move - b.move);
+
+        const best = candidates[0];
+        if (best && (best.candidate.x !== zone.x || best.candidate.y !== zone.y)) {
+          zone.x = best.candidate.x;
+          zone.y = best.candidate.y;
+          moved = true;
+        }
+      }
+    }
+    if (!moved) break;
+  }
+
+  const deltas = new Map<string, { dx: number; dy: number }>();
+  for (const movedZone of movable) {
+    if (!movedZone.groupId) continue;
+    const original = objects.find((object) => object.id === movedZone.id);
+    if (!original) continue;
+    const dx = movedZone.x - original.x;
+    const dy = movedZone.y - original.y;
+    if (dx !== 0 || dy !== 0) deltas.set(movedZone.groupId, { dx, dy });
+  }
+
+  return objects.map((object) => {
+    const movedZone = movable.find((zone) => zone.id === object.id);
+    if (movedZone) return movedZone;
+    if (!object.groupId) return object;
+    const delta = deltas.get(object.groupId);
+    if (!delta) return object;
+    if (object.type === 'wall') {
+      return {
+        ...object,
+        x: object.x + delta.dx,
+        y: object.y + delta.dy,
+        startX: (object.startX ?? object.x) + delta.dx,
+        startY: (object.startY ?? object.y) + delta.dy,
+        endX: (object.endX ?? object.x + object.width) + delta.dx,
+        endY: (object.endY ?? object.y + object.height) + delta.dy,
+      };
+    }
+    return { ...object, x: object.x + delta.dx, y: object.y + delta.dy };
+  });
+}
+
+function rectsOverlap(a: ReturnType<typeof objectBounds>, b: ReturnType<typeof objectBounds>, gap = 0): boolean {
+  return a.minX < b.maxX + gap && a.maxX + gap > b.minX && a.minY < b.maxY + gap && a.maxY + gap > b.minY;
+}
+
+function hasMovableRoomOverlap(objects: FloorPlanObject[]): boolean {
+  const isOW = (o: FloorPlanObject) => o.type === 'wall' && o.id.includes('-ow-');
+  const rooms = objects.filter((object) =>
+    object.type === 'room' && !isOW(object) && !isFixedFloorObject(object) && !object.linkedLocationId);
+  for (let i = 0; i < rooms.length; i++) {
+    for (let j = i + 1; j < rooms.length; j++) {
+      if (rectsOverlap(objectBounds(rooms[i]), objectBounds(rooms[j]))) return true;
+    }
+  }
+  return false;
+}
+
+function hasMovableFixedOverlap(objects: FloorPlanObject[], fixedObjects: FloorPlanObject[]): boolean {
+  const isOW = (o: FloorPlanObject) => o.type === 'wall' && o.id.includes('-ow-');
+  const rooms = objects.filter((object) =>
+    object.type === 'room' && !isOW(object) && !isFixedFloorObject(object) && !object.linkedLocationId);
+  const blockers = fixedObjects.filter((object) =>
+    object.type === 'room' || object.type === 'rack' || object.type === 'shelf');
+  return rooms.some((room) => blockers.some((blocker) => rectsOverlap(objectBounds(room), objectBounds(blocker))));
+}
+
+function correctRegeneratedLayoutIssues(
+  objects: FloorPlanObject[],
+  fixedObjects: FloorPlanObject[],
+  regenerateOutdoorWalls: boolean,
+): FloorPlanObject[] {
+  let corrected = objects;
+
+  if (hasMovableRoomOverlap(corrected)) {
+    corrected = resolveIndoorObjectOverlaps(corrected);
+  }
+
+  if (fixedObjects.length > 0) {
+    if (regenerateOutdoorWalls) {
+      corrected = expandOutdoorWallsToContainFixedObjects(corrected, fixedObjects);
+    }
+    if (hasMovableFixedOverlap(corrected, fixedObjects)) {
+      corrected = resolveMovableObjectOverlapsWithFixed(corrected, fixedObjects);
+    }
+  }
+
+  if (hasMovableRoomOverlap(corrected)) {
+    corrected = resolveIndoorObjectOverlaps(corrected);
+  }
+  if (fixedObjects.length > 0 && hasMovableFixedOverlap(corrected, fixedObjects)) {
+    corrected = resolveMovableObjectOverlapsWithFixed(corrected, fixedObjects, 0);
+  }
+
+  return corrected;
+}
 
 // Get all floor plans
 // ?summary=true — returns metadata only (no objects); use GET /:id for full data
@@ -661,9 +910,9 @@ router.post('/auto-generate', async (req: AuthRequest, res: Response, next: Next
         });
       }
       const regenerateOutdoorWalls = req.body.regenerateOutdoorWalls !== false;
-      const pairStairsByFloors = req.body.pairStairsByFloors !== false;
       const addRooftopFloor = req.body.addRooftopFloor !== false;
       const preservedOutdoorWalls = new Map<number, FloorPlanObject[]>();
+      const preservedFixedObjects = new Map<number, FloorPlanObject[]>();
       if (!regenerateOutdoorWalls) {
         const existingBuildingFloors = await prisma.floorPlan.findMany({
           where: {
@@ -675,8 +924,13 @@ router.post('/auto-generate', async (req: AuthRequest, res: Response, next: Next
           const match = plan.name.match(/ - Building (\d+) - Floor 1 - /);
           if (!match) return;
           try {
-            const objects: FloorPlanObject[] = JSON.parse(plan.planJson || '[]');
+            const objects = centerFloorPlanObjects(JSON.parse(plan.planJson || '[]'), plan.width, plan.height);
             preservedOutdoorWalls.set(Number(match[1]), objects.filter((object) => object.type === 'wall' && object.id.includes('-ow-')));
+            preservedFixedObjects.set(Number(match[1]), objects.filter((object) => (
+              object.id.includes('reserved-stairs')
+              || object.id.includes('reserved-elevator')
+              || isRestroomObject(object)
+            )));
           } catch {
             // Existing invalid JSON cannot provide a reusable outdoor shell.
           }
@@ -694,23 +948,16 @@ router.post('/auto-generate', async (req: AuthRequest, res: Response, next: Next
       const isOutdoorWall = (object: FloorPlanObject) => object.type === 'wall' && object.id.includes('-ow-');
 
       for (let buildingIndex = 0; buildingIndex < planCount; buildingIndex++) {
-        const preservedWalls = preservedOutdoorWalls.get(buildingIndex + 1) ?? [];
-        let sharedOutdoorWalls: FloorPlanObject[] = preservedWalls.map((wall) => ({ ...wall }));
+        let parentOutdoorWalls = (preservedOutdoorWalls.get(buildingIndex + 1) ?? []).map((wall) => ({ ...wall }));
+        const preservedFixed = preservedFixedObjects.get(buildingIndex + 1) ?? [];
         const sharedStairs = new Map<number, FloorPlanObject[]>();
-        let sharedElevator: FloorPlanObject[] = [];
-        let sharedRestrooms: FloorPlanObject[] = [];
+        if (preservedFixed.some((object) => object.id.includes('reserved-stairs'))) {
+          sharedStairs.set(0, preservedFixed.filter((object) => object.id.includes('reserved-stairs')).map((object) => ({ ...object })));
+        }
+        let sharedElevator = preservedFixed.filter((object) => object.id.includes('reserved-elevator')).map((object) => ({ ...object }));
+        let sharedRestrooms = preservedFixed.filter(isRestroomObject).map((object) => ({ ...object }));
 
         const generatedFloorCount = floorCount + (addRooftopFloor ? 1 : 0);
-        let siblingMaxLayoutWidth: number | undefined;
-        let siblingMaxLayoutHeight: number | undefined;
-        if (preservedWalls.length > 0) {
-          const wallXs = preservedWalls.flatMap((w) => [w.startX ?? w.x, w.endX ?? w.x + w.width]);
-          const wallYs = preservedWalls.flatMap((w) => [w.startY ?? w.y, w.endY ?? w.y + w.height]);
-          const xSpan = Math.max(...wallXs) - Math.min(...wallXs);
-          const ySpan = Math.max(...wallYs) - Math.min(...wallYs);
-          if (xSpan > 0) siblingMaxLayoutWidth  = Math.max(0, xSpan - 2 * OUTDOOR_WALL_MARGIN);
-          if (ySpan > 0) siblingMaxLayoutHeight = Math.max(0, ySpan - 2 * OUTDOOR_WALL_MARGIN);
-        }
         for (let floorIndex = 0; floorIndex < generatedFloorCount; floorIndex++) {
           const isRooftop = addRooftopFloor && floorIndex === floorCount;
           const templateName = isRooftop ? 'Rooftop' : floorTemplates[floorIndex];
@@ -719,44 +966,32 @@ router.post('/auto-generate', async (req: AuthRequest, res: Response, next: Next
           let objects = buildKnowledgeTemplateFloorPlan(templateName, department.name, assignedLocations, {
             verticalAccess,
             totalFloors: generatedFloorCount,
-            ...(floorIndex > 0 && siblingMaxLayoutWidth  ? { maxLayoutWidth:  siblingMaxLayoutWidth  } : {}),
-            ...(floorIndex > 0 && siblingMaxLayoutHeight ? { maxLayoutHeight: siblingMaxLayoutHeight } : {}),
           });
           objects = objects.filter((object) => (
             (verticalAccess !== 'stairs' || !object.id.includes('reserved-elevator'))
             && (verticalAccess !== 'elevator' || !object.id.includes('reserved-stairs'))
           ));
 
-          if (floorIndex === 0 && sharedOutdoorWalls.length === 0) {
-            sharedOutdoorWalls = objects.filter(isOutdoorWall).map((wall) => ({ ...wall }));
-            const wallXs = sharedOutdoorWalls.flatMap((w) => [w.startX ?? w.x, w.endX ?? w.x + w.width]);
-            const wallYs = sharedOutdoorWalls.flatMap((w) => [w.startY ?? w.y, w.endY ?? w.y + w.height]);
-            const xSpan = Math.max(...wallXs) - Math.min(...wallXs);
-            const ySpan = Math.max(...wallYs) - Math.min(...wallYs);
-            if (xSpan > 0) siblingMaxLayoutWidth  = Math.max(0, xSpan - 2 * OUTDOOR_WALL_MARGIN);
-            if (ySpan > 0) siblingMaxLayoutHeight = Math.max(0, ySpan - 2 * OUTDOOR_WALL_MARGIN);
-          }
-          if (sharedOutdoorWalls.length > 0) {
+          if (parentOutdoorWalls.length > 0) {
             objects = [
               ...objects.filter((object) => !isOutdoorWall(object)),
-              ...sharedOutdoorWalls.map((wall, wallIndex) => regenerateOutdoorWalls
-                ? { ...wall, id: `${name}-shared-ow-${wallIndex}` }
-                : { ...wall }),
+              ...parentOutdoorWalls.map((wall) => ({ ...wall })),
             ];
-            if (preservedWalls.length > 0 || floorIndex > 0) {
-              objects = fitIndoorObjectsInsideOutdoorWalls(objects);
-            }
+            objects = fitIndoorObjectsInsideOutdoorWalls(objects);
+          }
+          objects = centerFloorPlanObjects(objects, GENERATED_FLOOR_WIDTH, GENERATED_FLOOR_HEIGHT);
+          if (floorIndex === 0) {
+            parentOutdoorWalls = objects.filter(isOutdoorWall).map((wall) => ({ ...wall }));
           }
           if (verticalAccess === 'stairs' || verticalAccess === 'both') {
-            const stairGroupKey = pairStairsByFloors ? Math.floor(floorIndex / 2) : 0;
-            const stairObjects = sharedStairs.get(stairGroupKey);
+            const stairObjects = sharedStairs.get(0);
             if (stairObjects) {
               objects = [
                 ...objects.filter((object) => !object.id.includes('reserved-stairs')),
                 ...stairObjects.map((object) => ({ ...object })),
               ];
             } else {
-              sharedStairs.set(stairGroupKey, objects.filter((object) => object.id.includes('reserved-stairs')).map((object) => ({ ...object })));
+              sharedStairs.set(0, objects.filter((object) => object.id.includes('reserved-stairs')).map((object) => ({ ...object })));
             }
           }
           if (verticalAccess === 'elevator' || verticalAccess === 'both') {
@@ -785,8 +1020,8 @@ router.post('/auto-generate', async (req: AuthRequest, res: Response, next: Next
           const floorPlan = await prisma.floorPlan.create({
             data: {
               name,
-              width: 1800,
-              height: 1200,
+              width: GENERATED_FLOOR_WIDTH,
+              height: GENERATED_FLOOR_HEIGHT,
               departmentId,
               generationScore: validation.score,
               planJson: JSON.stringify(objects),
@@ -811,7 +1046,7 @@ router.post('/auto-generate', async (req: AuthRequest, res: Response, next: Next
       return res.status(201).json({
         created,
         avgScore,
-        message: `Generated ${planCount} building${planCount === 1 ? '' : 's'} with ${floorCount} occupied floor${floorCount === 1 ? '' : 's'}${addRooftopFloor ? ' plus a rooftop' : ''} each and assigned all ${locations.length} locations exactly once${regenerateOutdoorWalls ? '' : ' while preserving existing outdoor walls'}${verticalAccess === 'elevator' ? '' : pairStairsByFloors ? ' with paired stair positions' : ' with Floor 1 stairs shared across all floors'}.`,
+        message: `Generated ${planCount} building${planCount === 1 ? '' : 's'} with ${floorCount} occupied floor${floorCount === 1 ? '' : 's'}${addRooftopFloor ? ' plus a rooftop' : ''} each and assigned all ${locations.length} locations exactly once${regenerateOutdoorWalls ? '' : ' while preserving existing outdoor walls'} with Floor 1 fixed access positions shared across all floors.`,
       });
     }
 
@@ -845,13 +1080,14 @@ router.post('/auto-generate', async (req: AuthRequest, res: Response, next: Next
     for (const [groupName, groupLocations] of Array.from(locationGroups.entries()).slice(0, groupSlots)) {
       const name = `${GENERATED_FLOORPLAN_PREFIX}${department.name} - ${groupName}`;
       let objects = buildGeneratedFloorPlan(name, groupLocations);
+      objects = centerFloorPlanObjects(objects, GENERATED_FLOOR_WIDTH, GENERATED_FLOOR_HEIGHT);
       objects = resolveIndoorObjectOverlaps(objects);
       const validation = validateGeneratedFloorPlan(objects, 'office');
       const floorPlan = await prisma.floorPlan.create({
         data: {
           name,
-          width: 1800,
-          height: 1200,
+          width: GENERATED_FLOOR_WIDTH,
+          height: GENERATED_FLOOR_HEIGHT,
           departmentId,
           generationScore: validation.score,
           planJson: JSON.stringify(objects),
@@ -871,14 +1107,15 @@ router.post('/auto-generate', async (req: AuthRequest, res: Response, next: Next
     for (const templateName of templatesToGenerate) {
       const name = `${GENERATED_FLOORPLAN_PREFIX}${department.name} - ${templateName}`;
       let objects = buildKnowledgeTemplateFloorPlan(templateName, department.name, locations);
+      objects = centerFloorPlanObjects(objects, GENERATED_FLOOR_WIDTH, GENERATED_FLOOR_HEIGHT);
       objects = resolveIndoorObjectOverlaps(objects);
       const templateType = determineTemplateType(templateName);
       const validation = validateGeneratedFloorPlan(objects, templateType);
       const floorPlan = await prisma.floorPlan.create({
         data: {
           name,
-          width: 1800,
-          height: 1200,
+          width: GENERATED_FLOOR_WIDTH,
+          height: GENERATED_FLOOR_HEIGHT,
           departmentId,
           generationScore: validation.score,
           planJson: JSON.stringify(objects),
@@ -1034,277 +1271,101 @@ router.post('/:id/regenerate', async (req: AuthRequest, res: Response, next: Nex
     const departmentId = floorPlan.departmentId;
     if (!departmentId) return res.status(400).json({ error: 'Floor plan has no department' });
     const regenerateOutdoorWalls = req.body.regenerateOutdoorWalls !== false;
-    const pairStairsByFloors = req.body.pairStairsByFloors !== false;
 
     const buildingMatch = floorPlan.name.match(/^(Auto - .+ - Building \d+) - Floor \d+ - /);
     if (buildingMatch) {
-      if (!/ - Floor 1 - /.test(floorPlan.name)) {
-        // Single-floor regeneration: rebuild only this floor's indoor objects.
-        // Outdoor walls and stair/elevator positions are preserved from existing data.
-        const floorNum = Number(floorPlan.name.match(/ - Floor (\d+) - /)?.[1] ?? 1);
-        let existingObjects: FloorPlanObject[] = [];
-        try { existingObjects = JSON.parse(floorPlan.planJson || '[]'); } catch { existingObjects = []; }
+      const floorNum = Number(floorPlan.name.match(/ - Floor (\d+) - /)?.[1] ?? 1);
+      let existingObjects: FloorPlanObject[] = [];
+      try { existingObjects = JSON.parse(floorPlan.planJson || '[]'); } catch { existingObjects = []; }
+      existingObjects = centerFloorPlanObjects(existingObjects, floorPlan.width, floorPlan.height);
 
-        const isOW = (o: FloorPlanObject) => o.type === 'wall' && o.id.includes('-ow-');
-        const isAccess = (o: FloorPlanObject) =>
-          o.id.includes('reserved-stairs') || o.id.includes('reserved-elevator') || isRestroomObject(o);
+      const isOW = (o: FloorPlanObject) => o.type === 'wall' && o.id.includes('-ow-');
+      const existingOutdoorWalls = existingObjects.filter(isOW);
+      const existingAccessObjects = existingObjects.filter(isFixedFloorObject);
+      const assignedIds = existingObjects
+        .filter(o => o.linkedLocationId)
+        .map(o => o.linkedLocationId as string);
 
-        const existingOutdoorWalls = existingObjects.filter(isOW);
-        const existingAccessObjects = existingObjects.filter(isAccess);
-        const assignedIds = existingObjects
-          .filter(o => o.linkedLocationId)
-          .map(o => o.linkedLocationId as string);
+      const dept = await prisma.department.findUnique({ where: { id: departmentId } });
+      if (!dept) return res.status(404).json({ error: 'Department not found' });
 
-        const dept = await prisma.department.findUnique({ where: { id: departmentId } });
-        if (!dept) return res.status(404).json({ error: 'Department not found' });
+      const floorLocations = assignedIds.length > 0
+        ? await prisma.location.findMany({
+            where: { id: { in: assignedIds } },
+            orderBy: { name: 'asc' },
+            select: { id: true, name: true },
+          })
+        : [];
 
-        const floorLocations = assignedIds.length > 0
-          ? await prisma.location.findMany({
-              where: { id: { in: assignedIds } },
-              orderBy: { name: 'asc' },
-              select: { id: true, name: true },
-            })
-          : [];
+      const floorTemplate =
+        FLOORPLAN_KNOWLEDGE.imsUseful.find(t => floorPlan.name.endsWith(` - ${t}`)) ||
+        floorPlan.name.split(' - ').pop() ||
+        floorPlan.name;
 
-        const floorTemplate =
-          FLOORPLAN_KNOWLEDGE.imsUseful.find(t => floorPlan.name.endsWith(` - ${t}`)) ||
-          floorPlan.name.split(' - ').pop() ||
-          floorPlan.name;
+      const hasStairs = existingObjects.some(o => o.id.includes('reserved-stairs'));
+      const hasElevator = existingObjects.some(o => o.id.includes('reserved-elevator'));
+      const floorVerticalAccess: 'stairs' | 'elevator' | 'both' =
+        hasStairs && hasElevator ? 'both' : hasElevator ? 'elevator' : 'stairs';
 
-        const hasStairs = existingObjects.some(o => o.id.includes('reserved-stairs'));
-        const hasElevator = existingObjects.some(o => o.id.includes('reserved-elevator'));
-        const floorVerticalAccess: 'stairs' | 'elevator' | 'both' =
-          hasStairs && hasElevator ? 'both' : hasElevator ? 'elevator' : 'stairs';
+      let maxLayoutWidth: number | undefined;
+      let maxLayoutHeight: number | undefined;
+      if (!regenerateOutdoorWalls && existingOutdoorWalls.length > 0) {
+        const wallXs = existingOutdoorWalls.flatMap(w => [w.startX ?? w.x, w.endX ?? w.x + w.width]);
+        const wallYs = existingOutdoorWalls.flatMap(w => [w.startY ?? w.y, w.endY ?? w.y + w.height]);
+        const xSpan = Math.max(...wallXs) - Math.min(...wallXs);
+        const ySpan = Math.max(...wallYs) - Math.min(...wallYs);
+        if (xSpan > 0) maxLayoutWidth  = Math.max(0, xSpan - 2 * OUTDOOR_WALL_MARGIN);
+        if (ySpan > 0) maxLayoutHeight = Math.max(0, ySpan - 2 * OUTDOOR_WALL_MARGIN);
+      }
 
-        let maxLayoutWidth: number | undefined;
-        let maxLayoutHeight: number | undefined;
-        if (existingOutdoorWalls.length > 0) {
-          const wallXs = existingOutdoorWalls.flatMap(w => [w.startX ?? w.x, w.endX ?? w.x + w.width]);
-          const wallYs = existingOutdoorWalls.flatMap(w => [w.startY ?? w.y, w.endY ?? w.y + w.height]);
-          const xSpan = Math.max(...wallXs) - Math.min(...wallXs);
-          const ySpan = Math.max(...wallYs) - Math.min(...wallYs);
-          if (xSpan > 0) maxLayoutWidth  = Math.max(0, xSpan - 2 * OUTDOOR_WALL_MARGIN);
-          if (ySpan > 0) maxLayoutHeight = Math.max(0, ySpan - 2 * OUTDOOR_WALL_MARGIN);
-        }
+      let newFloorObjects = buildKnowledgeTemplateFloorPlan(floorTemplate, dept.name, floorLocations, {
+        verticalAccess: floorVerticalAccess,
+        totalFloors: 1,
+        ...(maxLayoutWidth  ? { maxLayoutWidth  } : {}),
+        ...(maxLayoutHeight ? { maxLayoutHeight } : {}),
+      });
 
-        let newFloorObjects = buildKnowledgeTemplateFloorPlan(floorTemplate, dept.name, floorLocations, {
-          verticalAccess: floorVerticalAccess,
-          totalFloors: 1,
-          ...(maxLayoutWidth  ? { maxLayoutWidth  } : {}),
-          ...(maxLayoutHeight ? { maxLayoutHeight } : {}),
-        });
+      if (!regenerateOutdoorWalls) {
         newFloorObjects = [
           ...newFloorObjects.filter(o => !isOW(o)),
           ...existingOutdoorWalls,
         ];
         newFloorObjects = fitIndoorObjectsInsideOutdoorWalls(newFloorObjects);
-        newFloorObjects = resolveIndoorObjectOverlaps(newFloorObjects);
-        // Restore stairs/elevators at their existing positions (shared across sibling floors)
+      }
+
+      newFloorObjects = centerFloorPlanObjects(newFloorObjects, floorPlan.width, floorPlan.height);
+      newFloorObjects = resolveIndoorObjectOverlaps(newFloorObjects);
+      if (existingAccessObjects.length > 0) {
         newFloorObjects = [
-          ...newFloorObjects.filter(o => !isAccess(o)),
+          ...newFloorObjects.filter(o => !isFixedFloorObject(o)),
           ...existingAccessObjects,
         ];
+        newFloorObjects = correctRegeneratedLayoutIssues(newFloorObjects, existingAccessObjects, regenerateOutdoorWalls);
+      }
 
-        const floorValidation = validateGeneratedFloorPlan(newFloorObjects, determineTemplateType(floorTemplate));
-        const updatedFloor = await prisma.floorPlan.update({
-          where: { id: floorPlan.id },
-          data: {
-            planJson: JSON.stringify(newFloorObjects),
-            generationScore: floorValidation.score,
-            isApproved: false,
-          },
-        });
-        await prisma.floorPlanGenerationLog.create({
-          data: {
-            floorPlanId: updatedFloor.id,
-            templateUsed: floorTemplate,
-            score: floorValidation.score,
-            validationResult: JSON.stringify(floorValidation),
-          },
-        });
-        return res.json({
-          ...updatedFloor,
-          objects: newFloorObjects,
+      const floorValidation = validateGeneratedFloorPlan(newFloorObjects, determineTemplateType(floorTemplate));
+      const updatedFloor = await prisma.floorPlan.update({
+        where: { id: floorPlan.id },
+        data: {
+          planJson: JSON.stringify(newFloorObjects),
           generationScore: floorValidation.score,
-          message: `Regenerated Floor ${floorNum} indoor layout`,
-        });
-      }
-      const buildingFloors = await prisma.floorPlan.findMany({
-        where: {
-          departmentId,
-          name: { startsWith: `${buildingMatch[1]} - Floor ` },
+          isApproved: false,
         },
-        orderBy: { name: 'asc' },
       });
-      buildingFloors.sort((a, b) => {
-        const aFloor = Number(a.name.match(/ - Floor (\d+) - /)?.[1] ?? Number.MAX_SAFE_INTEGER);
-        const bFloor = Number(b.name.match(/ - Floor (\d+) - /)?.[1] ?? Number.MAX_SAFE_INTEGER);
-        return aFloor - bFloor;
+      await prisma.floorPlanGenerationLog.create({
+        data: {
+          floorPlanId: updatedFloor.id,
+          templateUsed: floorTemplate,
+          score: floorValidation.score,
+          validationResult: JSON.stringify(floorValidation),
+        },
       });
-      if (buildingFloors.length > 1) {
-        const department = await prisma.department.findUnique({ where: { id: departmentId } });
-        if (!department) return res.status(404).json({ error: 'Department not found' });
-
-        const locations = await prisma.location.findMany({
-          where: { departmentId },
-          orderBy: { name: 'asc' },
-          select: { id: true, name: true },
-        });
-        if (locations.length === 0) return res.status(400).json({ error: 'No locations found for department' });
-
-        let referenceObjects: FloorPlanObject[] = [];
-        try {
-          referenceObjects = JSON.parse(buildingFloors[0].planJson || '[]');
-        } catch {
-          referenceObjects = [];
-        }
-        const hasStairs = referenceObjects.some((object) => object.id.includes('reserved-stairs'));
-        const hasElevator = referenceObjects.some((object) => object.id.includes('reserved-elevator'));
-        const verticalAccess = hasStairs && hasElevator ? 'both' : hasElevator ? 'elevator' : 'stairs';
-        const isOutdoorWall = (object: FloorPlanObject) => object.type === 'wall' && object.id.includes('-ow-');
-        const buildingLocationIds = new Set<string>();
-        buildingFloors.forEach((plan) => {
-          try {
-            const objects: FloorPlanObject[] = JSON.parse(plan.planJson || '[]');
-            objects.forEach((object) => {
-              if (object.linkedLocationId) buildingLocationIds.add(object.linkedLocationId);
-            });
-          } catch {
-            // Invalid existing JSON contributes no reusable location assignments.
-          }
-        });
-        const buildingLocations = buildingLocationIds.size > 0
-          ? locations.filter((location) => buildingLocationIds.has(location.id))
-          : locations;
-        const siblingTemplates = buildingFloors.map((sibling) => (
-          FLOORPLAN_KNOWLEDGE.imsUseful.find((template) => sibling.name.endsWith(` - ${template}`))
-          || sibling.name.split(' - ').pop()
-          || sibling.name
-        ));
-        const occupiedTemplates = siblingTemplates.filter((template) => template.toLowerCase() !== 'rooftop');
-        const locationPlan = assignLocationsToFloors(buildingLocations, occupiedTemplates);
-        if (locationPlan.remaining.length > 0) {
-          const recommendation = suggestFloorTemplates(locationPlan.remaining, siblingTemplates);
-          return res.status(409).json({
-            error: `${locationPlan.remaining.length} assigned locations no longer fit this building. Add floors before regenerating.`,
-            requiresMoreFloors: true,
-            suggestedFloorCount: recommendation.suggestions.length,
-            suggestedFloorTemplates: recommendation.suggestions,
-            overflowCount: locationPlan.remaining.length,
-          });
-        }
-        const existingWalls = referenceObjects.filter(isOutdoorWall);
-        let sharedOutdoorWalls: FloorPlanObject[] = regenerateOutdoorWalls
-          ? []
-          : existingWalls.map((wall) => ({ ...wall }));
-        const sharedStairs = new Map<number, FloorPlanObject[]>();
-        let sharedElevator: FloorPlanObject[] = [];
-        let sharedRestrooms: FloorPlanObject[] = [];
-        const regenerated = [];
-        let occupiedFloorIndex = 0;
-
-        // Compute width + height constraints for sibling layouts from the preserved or initial outdoor walls.
-        let siblingMaxLayoutWidth: number | undefined;
-        let siblingMaxLayoutHeight: number | undefined;
-        if (!regenerateOutdoorWalls && existingWalls.length > 0) {
-          const wallXs = existingWalls.flatMap((w) => [w.startX ?? w.x, w.endX ?? w.x + w.width]);
-          const wallYs = existingWalls.flatMap((w) => [w.startY ?? w.y, w.endY ?? w.y + w.height]);
-          const xSpan = Math.max(...wallXs) - Math.min(...wallXs);
-          const ySpan = Math.max(...wallYs) - Math.min(...wallYs);
-          if (xSpan > 0) siblingMaxLayoutWidth  = Math.max(0, xSpan - 2 * OUTDOOR_WALL_MARGIN);
-          if (ySpan > 0) siblingMaxLayoutHeight = Math.max(0, ySpan - 2 * OUTDOOR_WALL_MARGIN);
-        }
-
-        for (let index = 0; index < buildingFloors.length; index++) {
-          const sibling = buildingFloors[index];
-          const templateName = siblingTemplates[index];
-          const isRooftop = templateName.toLowerCase() === 'rooftop';
-          const assignedLocations = isRooftop ? [] : locationPlan.assignments[occupiedFloorIndex++];
-          let objects = buildKnowledgeTemplateFloorPlan(templateName, department.name, assignedLocations, {
-            verticalAccess,
-            totalFloors: buildingFloors.length,
-            ...(index > 0 && siblingMaxLayoutWidth  ? { maxLayoutWidth:  siblingMaxLayoutWidth  } : {}),
-            ...(index > 0 && siblingMaxLayoutHeight ? { maxLayoutHeight: siblingMaxLayoutHeight } : {}),
-          });
-
-          if (index === 0 && regenerateOutdoorWalls) {
-            sharedOutdoorWalls = objects.filter(isOutdoorWall).map((wall) => ({ ...wall }));
-            const wallXs = sharedOutdoorWalls.flatMap((w) => [w.startX ?? w.x, w.endX ?? w.x + w.width]);
-            const wallYs = sharedOutdoorWalls.flatMap((w) => [w.startY ?? w.y, w.endY ?? w.y + w.height]);
-            const xSpan = Math.max(...wallXs) - Math.min(...wallXs);
-            const ySpan = Math.max(...wallYs) - Math.min(...wallYs);
-            if (xSpan > 0) siblingMaxLayoutWidth  = Math.max(0, xSpan - 2 * OUTDOOR_WALL_MARGIN);
-            if (ySpan > 0) siblingMaxLayoutHeight = Math.max(0, ySpan - 2 * OUTDOOR_WALL_MARGIN);
-          }
-          if (sharedOutdoorWalls.length > 0) {
-            objects = [
-              ...objects.filter((object) => !isOutdoorWall(object)),
-              ...sharedOutdoorWalls.map((wall, wallIndex) => regenerateOutdoorWalls
-                ? { ...wall, id: `${sibling.name}-shared-ow-${wallIndex}` }
-                : { ...wall }),
-            ];
-            if (!regenerateOutdoorWalls || index > 0) {
-              objects = fitIndoorObjectsInsideOutdoorWalls(objects);
-            }
-          }
-          if (verticalAccess === 'stairs' || verticalAccess === 'both') {
-            const stairGroupKey = pairStairsByFloors ? Math.floor(index / 2) : 0;
-            const stairObjects = sharedStairs.get(stairGroupKey);
-            if (stairObjects) {
-              objects = [
-                ...objects.filter((object) => !object.id.includes('reserved-stairs')),
-                ...stairObjects.map((object) => ({ ...object })),
-              ];
-            } else {
-              sharedStairs.set(stairGroupKey, objects.filter((object) => object.id.includes('reserved-stairs')).map((object) => ({ ...object })));
-            }
-          }
-          if (verticalAccess === 'elevator' || verticalAccess === 'both') {
-            if (sharedElevator.length > 0) {
-              objects = [
-                ...objects.filter((object) => !object.id.includes('reserved-elevator')),
-                ...sharedElevator.map((object) => ({ ...object })),
-              ];
-            } else {
-              sharedElevator = objects.filter((object) => object.id.includes('reserved-elevator')).map((object) => ({ ...object }));
-            }
-          }
-          // Restrooms are stacked vertically like stairs — every floor shares floor-1 positions.
-          if (sharedRestrooms.length > 0) {
-            objects = [
-              ...objects.filter((object) => !isRestroomObject(object)),
-              ...sharedRestrooms.map((object) => ({ ...object })),
-            ];
-          } else {
-            sharedRestrooms = objects.filter(isRestroomObject).map((object) => ({ ...object }));
-          }
-
-          objects = resolveIndoorObjectOverlaps(objects);
-          const validation = validateGeneratedFloorPlan(objects, determineTemplateType(templateName));
-          const updated = await prisma.floorPlan.update({
-            where: { id: sibling.id },
-            data: {
-              planJson: JSON.stringify(objects),
-              generationScore: validation.score,
-              isApproved: false,
-            },
-          });
-          await prisma.floorPlanGenerationLog.create({
-            data: {
-              floorPlanId: updated.id,
-              templateUsed: templateName,
-              score: validation.score,
-              validationResult: JSON.stringify(validation),
-            },
-          });
-          regenerated.push({ ...updated, objects, validation });
-        }
-
-        return res.json({
-          regenerated,
-          message: `Regenerated all ${regenerated.length} floors in ${buildingMatch[1]}${regenerateOutdoorWalls ? '' : ' while keeping outdoor walls fixed'}`,
-        });
-      }
+      return res.json({
+        ...updatedFloor,
+        objects: newFloorObjects,
+        generationScore: floorValidation.score,
+        message: `Regenerated Floor ${floorNum}${regenerateOutdoorWalls ? '' : ' with outdoor walls fixed'}`,
+      });
     }
 
     // Extract template from plan name: "Auto - DeptName - TemplateName"
@@ -1338,9 +1399,11 @@ router.post('/:id/regenerate', async (req: AuthRequest, res: Response, next: Nex
     } catch {
       existingObjects = [];
     }
+    existingObjects = centerFloorPlanObjects(existingObjects, floorPlan.width, floorPlan.height);
     const hasStairs = existingObjects.some((object) => object.id.includes('reserved-stairs'));
     const hasElevator = existingObjects.some((object) => object.id.includes('reserved-elevator'));
     const verticalAccess = hasStairs && hasElevator ? 'both' : hasElevator ? 'elevator' : 'stairs';
+    const existingFixedObjects = existingObjects.filter(isFixedFloorObject);
     let objects = isKnownTemplate
       ? buildKnowledgeTemplateFloorPlan(templateName, department.name, locations, { verticalAccess })
       : buildGeneratedFloorPlan(floorPlan.name, locations, { verticalAccess });
@@ -1352,7 +1415,15 @@ router.post('/:id/regenerate', async (req: AuthRequest, res: Response, next: Nex
       ];
       objects = fitIndoorObjectsInsideOutdoorWalls(objects);
     }
+    objects = centerFloorPlanObjects(objects, floorPlan.width, floorPlan.height);
     objects = resolveIndoorObjectOverlaps(objects);
+    if (existingFixedObjects.length > 0) {
+      objects = [
+        ...objects.filter((object) => !isFixedFloorObject(object)),
+        ...existingFixedObjects,
+      ];
+      objects = correctRegeneratedLayoutIssues(objects, existingFixedObjects, regenerateOutdoorWalls);
+    }
 
     const templateType = determineTemplateType(templateName);
     const validation = validateGeneratedFloorPlan(objects, templateType);
