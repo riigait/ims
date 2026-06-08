@@ -297,7 +297,10 @@ function moveOutdoorWall(wall: WallObject, dx: number, dy: number): WallObject {
 
 function moveObject(obj: FloorPlanObject, dx: number, dy: number): FloorPlanObject {
   if (dx === 0 && dy === 0) return obj;
-  if (obj.type === 'wall') return moveOutdoorWall(obj as WallObject, dx, dy);
+  if (obj.type === 'wall') {
+    const w = obj as WallObject;
+    return { ...w, startX: w.startX + dx, startY: w.startY + dy, endX: w.endX + dx, endY: w.endY + dy };
+  }
   if ('x' in obj && 'y' in obj) return { ...obj, x: (obj as { x: number }).x + dx, y: (obj as { y: number }).y + dy };
   return obj;
 }
@@ -325,23 +328,50 @@ function alignOutdoorWallsToSharedCoordinateSystem(plans: FloorPlan[], debug = f
 
   if (candidates.length === 0) return { entries: [], previewBounds: mergeBounds([]), totalWalls: 0 };
 
+  // Pick the best anchor kind that the majority of floors share.
+  // Falls back to bbox-top-left only when nothing better is shared by all.
   const anchorPriority: AlignmentAnchorKind[] = ['building-origin', 'vertical-core', 'main-entrance', 'door', 'grid-column', 'bbox-top-left'];
   const selectedKind = anchorPriority.find(kind => candidates.every(item => item.anchors.some(anchor => anchor.kind === kind))) ?? 'bbox-top-left';
-  const reference = candidates.find(item => item.floorNumber === 1 && item.anchors.some(anchor => anchor.kind === selectedKind))
-    ?? candidates.find(item => item.anchors.some(anchor => anchor.kind === selectedKind))
+
+  // Reference floor: prefer floor 1 with the best anchor; else first floor with any anchor.
+  const reference = candidates.find(item => item.floorNumber === 1 && item.anchors.some(a => a.kind === selectedKind))
+    ?? candidates.find(item => item.anchors.some(a => a.kind === selectedKind))
     ?? candidates[0];
-  const sharedAnchor = reference.anchors.find(anchor => anchor.kind === selectedKind) ?? reference.anchors[reference.anchors.length - 1];
+  const refBestAnchor = (kind: AlignmentAnchorKind) => reference.anchors.find(a => a.kind === kind);
+  // Shared target point — use the best anchor kind available on the reference floor.
+  const sharedAnchor = refBestAnchor(selectedKind) ?? reference.anchors[reference.anchors.length - 1];
+
+  // For floors that lack the selectedKind anchor (e.g. rooftop has no stairs),
+  // fall back to aligning their bbox-top-left so it sits at the same relative
+  // position as the reference floor's bbox-top-left → sharedAnchor offset.
+  const refBbox = refBestAnchor('bbox-top-left') ?? sharedAnchor;
+  const refAnchorToBboxDx = refBbox.x - sharedAnchor.x;
+  const refAnchorToBboxDy = refBbox.y - sharedAnchor.y;
+
   const entries = candidates.map((item) => {
-    const selectedAnchor = item.anchors.find(anchor => anchor.kind === selectedKind) ?? item.anchors[item.anchors.length - 1];
-    const dx = snapMergeGrid(sharedAnchor.x - selectedAnchor.x);
-    const dy = snapMergeGrid(sharedAnchor.y - selectedAnchor.y);
+    const itemAnchor = item.anchors.find(a => a.kind === selectedKind);
+    let dx: number;
+    let dy: number;
+    if (itemAnchor) {
+      // This floor has the shared anchor — align it directly.
+      dx = snapMergeGrid(sharedAnchor.x - itemAnchor.x);
+      dy = snapMergeGrid(sharedAnchor.y - itemAnchor.y);
+    } else {
+      // Floor lacks the anchor (e.g. rooftop) — align its bbox top-left
+      // to where the reference bbox top-left is, preserving relative offset.
+      const itemBbox = item.anchors.find(a => a.kind === 'bbox-top-left') ?? item.anchors[item.anchors.length - 1];
+      const targetX = sharedAnchor.x + refAnchorToBboxDx;
+      const targetY = sharedAnchor.y + refAnchorToBboxDy;
+      dx = snapMergeGrid(targetX - itemBbox.x);
+      dy = snapMergeGrid(targetY - itemBbox.y);
+    }
     const alignedWalls = item.walls.map(wall => moveOutdoorWall(wall, dx, dy));
     const alignedBounds = boundsForWalls(alignedWalls) ?? item.bounds;
 
     if (debug) {
       console.debug('[OutdoorWallMerge]', {
         floorNumber: item.floorNumber,
-        selectedAnchor,
+        usedAnchor: itemAnchor ?? 'bbox-fallback',
         sharedAnchor,
         originalBounds: item.bounds,
         dx,
@@ -363,7 +393,7 @@ function alignOutdoorWallsToSharedCoordinateSystem(plans: FloorPlan[], debug = f
       floorNumber: item.floorNumber,
       originalBounds: item.bounds,
       sharedAnchor,
-      selectedAnchor,
+      selectedAnchor: itemAnchor ?? item.anchors[item.anchors.length - 1],
       alignedBounds,
       dx,
       dy,
@@ -848,8 +878,8 @@ export default function FloorPlans() {
         const objects = (entry.plan.objects ?? []).map(obj => {
           // Outdoor walls: use the already-aligned+snapped versions from entry.walls
           if (obj.type === 'wall' && obj.id.includes('-ow-')) {
-            const aligned = entry.walls.find(w => w.id === obj.id);
-            return aligned ?? moveObject(obj, dx, dy);
+            const snapped = entry.walls.find(w => w.id === obj.id);
+            return snapped ?? moveObject(obj, dx, dy);
           }
           return moveObject(obj, dx, dy);
         });
