@@ -1873,11 +1873,11 @@ export default function FloorPlans() {
                                     y={obj.y}
                                     width={obj.width}
                                     height={obj.height}
-                                    fill={color}
-                                    fillOpacity={0.18}
+                                    fill={obj.color ?? '#e2e8f0'}
+                                    fillOpacity={0.85}
                                     stroke={color}
                                     strokeWidth={2}
-                                    strokeOpacity={0.7}
+                                    strokeOpacity={0.9}
                                     strokeDasharray="6 3"
                                   />
                                   {obj.label && (
@@ -1887,7 +1887,7 @@ export default function FloorPlans() {
                                       textAnchor="middle"
                                       dominantBaseline="middle"
                                       fontSize={fontSize}
-                                      fill={color}
+                                      fill="#1e293b"
                                       fontWeight="600"
                                       style={{ pointerEvents: 'none', userSelect: 'none' }}
                                     >
