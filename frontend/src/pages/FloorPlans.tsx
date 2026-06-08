@@ -3,7 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Plus, Trash2, MapPin, LayoutGrid, List, Edit, Sparkles, CheckCircle, XCircle, RefreshCw, BookmarkCheck, ChevronDown, ChevronUp, Info, AlertTriangle } from 'lucide-react';
 import { formatDate } from '@/utils/ids';
 import { floorPlansApi, departmentsApi } from '@/services/api';
-import { FloorPlan } from '@/types/floorplan';
+import { FloorPlan, WallObject } from '@/types/floorplan';
 import FloorPlanThumbnail from '@/components/floorplan/FloorPlanThumbnail';
 import Pagination from '@/components/Pagination';
 import { ALL_DEPARTMENTS_ID } from '@/constants/app';
@@ -114,6 +114,41 @@ const SCORE_COLOR = (score: number) =>
   score >= 50 ? 'text-yellow-600 bg-yellow-50 border-yellow-200' :
   'text-red-600 bg-red-50 border-red-200';
 
+const MERGE_COLORS = ['#2563eb', '#16a34a', '#f97316', '#9333ea', '#0f766e', '#dc2626'];
+
+function getBuildingInfo(name: string): { key: string; label: string; floorNumber: number } | null {
+  const match = name.match(/^(Auto - .+ - Building \d+) - Floor (\d+) - /);
+  if (!match) return null;
+  return {
+    key: match[1],
+    label: match[1].replace(/^Auto - /, ''),
+    floorNumber: Number(match[2]),
+  };
+}
+
+function outdoorWallsFor(plan: FloorPlan): WallObject[] {
+  return (plan.objects ?? [])
+    .filter((obj): obj is WallObject => obj.type === 'wall' && obj.id.includes('-ow-'))
+    .sort((a, b) => {
+      const ai = Number(a.id.match(/-ow-(\d+)$/)?.[1] ?? 0);
+      const bi = Number(b.id.match(/-ow-(\d+)$/)?.[1] ?? 0);
+      return ai - bi;
+    });
+}
+
+function outdoorWallBounds(plans: FloorPlan[]) {
+  const walls = plans.flatMap(outdoorWallsFor);
+  if (walls.length === 0) return { minX: 0, minY: 0, maxX: 1200, maxY: 800 };
+  const xs = walls.flatMap(wall => [wall.startX, wall.endX]);
+  const ys = walls.flatMap(wall => [wall.startY, wall.endY]);
+  return {
+    minX: Math.min(...xs),
+    minY: Math.min(...ys),
+    maxX: Math.max(...xs),
+    maxY: Math.max(...ys),
+  };
+}
+
 export default function FloorPlans() {
   const navigate = useNavigate();
   const user = JSON.parse(localStorage.getItem('user') || '{}');
@@ -146,6 +181,12 @@ export default function FloorPlans() {
   const [addRooftopFloor, setAddRooftopFloor] = useState(true);
   const [regenerateOutdoorWalls, setRegenerateOutdoorWalls] = useState(true);
   const [showRulesPreview, setShowRulesPreview] = useState(false);
+  const [mergeMode, setMergeMode] = useState(false);
+  const [mergeBuildingKey, setMergeBuildingKey] = useState<string | null>(null);
+  const [mergeSelectedIds, setMergeSelectedIds] = useState<string[]>([]);
+  const [mergePreviewPlans, setMergePreviewPlans] = useState<FloorPlan[]>([]);
+  const [mergeLoading, setMergeLoading] = useState(false);
+  const [mergeError, setMergeError] = useState<string | null>(null);
 
   // Per-plan feedback state: planId -> feedback value
   const [planFeedback, setPlanFeedback] = useState<Record<string, FeedbackState>>({});
@@ -488,6 +529,78 @@ export default function FloorPlans() {
     setCurrentPage(1);
   };
 
+  const startMergeMode = () => {
+    setMergeMode(true);
+    setMergeBuildingKey(null);
+    setMergeSelectedIds([]);
+    setMergePreviewPlans([]);
+    setMergeError(null);
+  };
+
+  const cancelMergeMode = () => {
+    setMergeMode(false);
+    setMergeBuildingKey(null);
+    setMergeSelectedIds([]);
+    setMergeError(null);
+  };
+
+  const selectBuildingForMerge = (plan: FloorPlan) => {
+    const info = getBuildingInfo(plan.name);
+    if (!info) {
+      setMergeError('Only auto-generated building floor plans can be merged.');
+      return;
+    }
+    if (mergeBuildingKey && mergeBuildingKey !== info.key) {
+      setMergeError('Cannot merge floor plans from different buildings.');
+      return;
+    }
+
+    const siblings = floorPlans
+      .filter(candidate => getBuildingInfo(candidate.name)?.key === info.key)
+      .sort((a, b) => (getBuildingInfo(a.name)?.floorNumber ?? 0) - (getBuildingInfo(b.name)?.floorNumber ?? 0));
+    const siblingIds = siblings.map(sibling => sibling.id);
+    const alreadySelected = mergeBuildingKey === info.key && mergeSelectedIds.length === siblingIds.length;
+
+    setMergeBuildingKey(alreadySelected ? null : info.key);
+    setMergeSelectedIds(alreadySelected ? [] : siblingIds);
+    setMergeError(null);
+  };
+
+  const completeMergeSelection = async () => {
+    if (mergeSelectedIds.length === 0 || !mergeBuildingKey) {
+      setMergeError('Select one generated building first.');
+      return;
+    }
+
+    const selectedPlans = floorPlans.filter(plan => mergeSelectedIds.includes(plan.id));
+    if (selectedPlans.some(plan => getBuildingInfo(plan.name)?.key !== mergeBuildingKey)) {
+      setMergeError('Cannot merge floor plans from different buildings.');
+      return;
+    }
+
+    try {
+      setMergeLoading(true);
+      const fullPlans = await Promise.all(selectedPlans.map(async (plan) => {
+        if (plan.objects) return plan;
+        const response = await floorPlansApi.getById(plan.id);
+        return { ...plan, ...response.data } as FloorPlan;
+      }));
+
+      fullPlans.sort((a, b) => (getBuildingInfo(a.name)?.floorNumber ?? 0) - (getBuildingInfo(b.name)?.floorNumber ?? 0));
+      setFloorPlans(prev => prev.map(plan => {
+        const full = fullPlans.find(candidate => candidate.id === plan.id);
+        return full ? { ...plan, objects: full.objects } : plan;
+      }));
+      setMergePreviewPlans(fullPlans);
+      setMergeMode(false);
+      setMergeError(null);
+    } catch {
+      setMergeError('Failed to load selected floor plans for merge preview.');
+    } finally {
+      setMergeLoading(false);
+    }
+  };
+
   // Rules preview for selected templates
   const selectedRules = [...new Set(autoGenerateFloorTemplates)].map(t => ({ name: t, rules: TEMPLATE_RULES_PREVIEW[t] })).filter(r => r.rules);
 
@@ -514,6 +627,14 @@ export default function FloorPlans() {
         </div>
         {canManageFloorPlans && (
           <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={mergeMode ? cancelMergeMode : startMergeMode}
+              disabled={autoGenerating || mergeLoading}
+              className="flex items-center gap-2 bg-[var(--surface-2)] text-[var(--text)] px-4 py-2 rounded-lg hover:bg-[var(--border)] disabled:opacity-60"
+            >
+              <LayoutGrid size={20} /> {mergeMode ? 'Cancel Merge' : 'Merge Walls'}
+            </button>
             <button
               type="button"
               onClick={openAutoGenerateConfirm}
@@ -564,6 +685,38 @@ export default function FloorPlans() {
               </div>
             </div>
           )}
+        </div>
+      )}
+
+      {mergeMode && (
+        <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-4 py-3 shadow-sm">
+          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+            <div>
+              <p className="text-sm font-semibold text-[var(--text)]">Select building floor plans to merge outdoor walls</p>
+              <p className="text-xs text-[var(--text-muted)] mt-1">
+                Selecting one floor automatically selects all sibling floors in the same building. Indoor objects are excluded from the preview.
+              </p>
+              {mergeError && <p className="text-xs text-red-600 mt-2">{mergeError}</p>}
+            </div>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={cancelMergeMode}
+                disabled={mergeLoading}
+                className="px-3 py-2 rounded bg-[var(--surface-2)] text-sm text-[var(--text)] hover:bg-[var(--border)] disabled:opacity-60"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={completeMergeSelection}
+                disabled={mergeLoading || mergeSelectedIds.length === 0}
+                className="px-3 py-2 rounded bg-[var(--primary)] text-sm text-white hover:bg-[var(--primary-hover)] disabled:opacity-60"
+              >
+                {mergeLoading ? 'Loading...' : `Preview ${mergeSelectedIds.length} Floor${mergeSelectedIds.length === 1 ? '' : 's'}`}
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
@@ -923,18 +1076,29 @@ export default function FloorPlans() {
                 ? 'Regenerate this floor plan'
                 : 'Regenerate floor plan';
             const validation = isAutoGenerated ? (validationMap.get(plan.id) ?? null) : null;
+            const buildingInfo = getBuildingInfo(plan.name);
+            const mergeSelected = mergeSelectedIds.includes(plan.id);
+            const mergeDisabled = mergeMode && (!buildingInfo || (mergeBuildingKey !== null && mergeBuildingKey !== buildingInfo.key));
 
             return (
               <div key={plan.id}
-                onClick={() => navigate(`/floor-plans/${plan.id}/edit`)}
+                onClick={() => mergeMode ? selectBuildingForMerge(plan) : navigate(`/floor-plans/${plan.id}/edit`)}
                 className={`aspect-square bg-[var(--surface)] rounded-lg shadow hover:shadow-lg transition cursor-pointer group flex flex-col ${
                   hasLocation ? 'ring-2 ring-[var(--primary)]' : ''
-                } ${isApproved ? 'ring-2 ring-green-400' : ''}`}>
+                } ${isApproved ? 'ring-2 ring-green-400' : ''} ${mergeSelected ? 'ring-2 ring-[var(--primary)]' : ''} ${mergeDisabled ? 'opacity-45' : ''}`}>
                 {/* Thumbnail */}
                 <div className="flex-1 overflow-hidden rounded-t-lg bg-slate-100 relative">
                   <FloorPlanThumbnail plan={plan} width={200} height={200}
                     highlightLocationId={locationId ?? undefined}
                     onVisible={() => handlePlanVisible(plan.id)} />
+
+                  {mergeMode && (
+                    <span className={`absolute top-1 left-1 text-[10px] font-bold px-1.5 py-0.5 rounded border ${
+                      mergeSelected ? 'bg-[var(--primary)] text-white border-[var(--primary)]' : 'bg-white/90 text-slate-700 border-slate-300'
+                    }`}>
+                      {mergeSelected ? 'Selected' : buildingInfo ? `Floor ${buildingInfo.floorNumber}` : 'Not mergeable'}
+                    </span>
+                  )}
 
                   {/* Score badge */}
                   {isAutoGenerated && score !== undefined && (
@@ -945,7 +1109,7 @@ export default function FloorPlans() {
 
                   {/* Approved badge */}
                   {isApproved && (
-                    <span className="absolute top-1 left-1 text-[10px] font-bold px-1.5 py-0.5 rounded bg-green-600 text-white flex items-center gap-0.5">
+                    <span className={`absolute ${mergeMode ? 'top-7' : 'top-1'} left-1 text-[10px] font-bold px-1.5 py-0.5 rounded bg-green-600 text-white flex items-center gap-0.5`}>
                       <CheckCircle size={10} /> OK
                     </span>
                   )}
@@ -1079,12 +1243,24 @@ export default function FloorPlans() {
                     : isBuildingFloor1List
                       ? 'Regenerate this floor plan'
                       : 'Regenerate floor plan';
+                  const buildingInfo = getBuildingInfo(plan.name);
+                  const mergeSelected = mergeSelectedIds.includes(plan.id);
+                  const mergeDisabled = mergeMode && (!buildingInfo || (mergeBuildingKey !== null && mergeBuildingKey !== buildingInfo.key));
 
                   return (
-                    <tr key={plan.id} className="hover:bg-[var(--surface-2)] transition-colors">
+                    <tr key={plan.id} className={`hover:bg-[var(--surface-2)] transition-colors ${mergeSelected ? 'bg-[var(--surface-2)]' : ''} ${mergeDisabled ? 'opacity-45' : ''}`}>
                       <td className="px-4 py-2 text-[var(--text)] font-medium cursor-pointer hover:text-[var(--primary)]"
-                        onClick={() => navigate(`/floor-plans/${plan.id}/edit`)}>
+                        onClick={() => mergeMode ? selectBuildingForMerge(plan) : navigate(`/floor-plans/${plan.id}/edit`)}>
                         <div className="flex items-center gap-1.5">
+                          {mergeMode && (
+                            <input
+                              type="checkbox"
+                              checked={mergeSelected}
+                              readOnly
+                              className="h-3.5 w-3.5"
+                              aria-label={`Select ${plan.name} for outdoor wall merge`}
+                            />
+                          )}
                           {plan.name}
                           {isApproved && <CheckCircle size={13} className="text-green-500 flex-shrink-0" />}
                           {isTemplate && <BookmarkCheck size={13} className="text-purple-500 flex-shrink-0" />}
@@ -1168,6 +1344,84 @@ export default function FloorPlans() {
       </div>
 
       {/* Fixed error panel — shown when a validation badge is clicked */}
+      {mergePreviewPlans.length > 0 && (() => {
+        const bounds = outdoorWallBounds(mergePreviewPlans);
+        const pad = 80;
+        const viewBox = `${bounds.minX - pad} ${bounds.minY - pad} ${Math.max(1, bounds.maxX - bounds.minX + pad * 2)} ${Math.max(1, bounds.maxY - bounds.minY + pad * 2)}`;
+        const totalWalls = mergePreviewPlans.reduce((sum, plan) => sum + outdoorWallsFor(plan).length, 0);
+        return (
+          <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
+            <div className="w-full max-w-6xl h-[88vh] bg-[var(--surface)] border border-[var(--border)] rounded-lg shadow-2xl flex flex-col overflow-hidden">
+              <div className="px-4 py-3 border-b border-[var(--border)] flex items-center justify-between gap-3">
+                <div>
+                  <h2 className="text-base font-semibold text-[var(--text)]">Outdoor Wall Merge Preview</h2>
+                  <p className="text-xs text-[var(--text-muted)] mt-0.5">
+                    {mergePreviewPlans.length} floor plan{mergePreviewPlans.length === 1 ? '' : 's'} selected · {totalWalls} outdoor wall segment{totalWalls === 1 ? '' : 's'} · indoor objects removed
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setMergePreviewPlans([])}
+                  className="p-1.5 rounded hover:bg-[var(--surface-2)] text-[var(--text-muted)] hover:text-[var(--text)]"
+                  aria-label="Close merge preview"
+                >
+                  <XCircle size={20} />
+                </button>
+              </div>
+
+              <div className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-[1fr_260px]">
+                <div className="min-h-0 bg-slate-50 overflow-hidden">
+                  <svg viewBox={viewBox} className="w-full h-full" role="img" aria-label="Merged outdoor wall preview">
+                    <defs>
+                      <pattern id="merge-grid" width="40" height="40" patternUnits="userSpaceOnUse">
+                        <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#dbe4ef" strokeWidth="1" />
+                      </pattern>
+                    </defs>
+                    <rect x={bounds.minX - pad} y={bounds.minY - pad} width={bounds.maxX - bounds.minX + pad * 2} height={bounds.maxY - bounds.minY + pad * 2} fill="url(#merge-grid)" />
+                    {mergePreviewPlans.map((plan, planIndex) => (
+                      <g key={plan.id}>
+                        {outdoorWallsFor(plan).map((wall) => (
+                          <line
+                            key={wall.id}
+                            x1={wall.startX}
+                            y1={wall.startY}
+                            x2={wall.endX}
+                            y2={wall.endY}
+                            stroke={MERGE_COLORS[planIndex % MERGE_COLORS.length]}
+                            strokeWidth={Math.max(6, wall.thickness)}
+                            strokeLinecap="round"
+                            opacity={0.62}
+                          />
+                        ))}
+                      </g>
+                    ))}
+                  </svg>
+                </div>
+
+                <div className="border-t lg:border-t-0 lg:border-l border-[var(--border)] p-4 overflow-y-auto">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-[var(--text-muted)] mb-3">Selected Floors</p>
+                  <div className="space-y-2">
+                    {mergePreviewPlans.map((plan, index) => {
+                      const info = getBuildingInfo(plan.name);
+                      return (
+                        <div key={plan.id} className="flex items-start gap-2 rounded border border-[var(--border)] px-2 py-2">
+                          <span className="mt-1 h-2.5 w-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: MERGE_COLORS[index % MERGE_COLORS.length] }} />
+                          <div className="min-w-0">
+                            <p className="text-xs font-medium text-[var(--text)] truncate">{info ? `Floor ${info.floorNumber}` : plan.name}</p>
+                            <p className="text-[11px] text-[var(--text-muted)] truncate">{plan.name}</p>
+                            <p className="text-[11px] text-[var(--text-muted)]">{outdoorWallsFor(plan).length} outdoor walls</p>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
       {errorPanelPlanId && (() => {
         const plan = floorPlans.find(p => p.id === errorPanelPlanId);
         if (!plan) return null;
