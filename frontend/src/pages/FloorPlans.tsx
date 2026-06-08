@@ -1012,12 +1012,10 @@ export default function FloorPlans() {
 
     try {
       setFinalizing(true);
-      const updatedPlans = await Promise.all(aligned.entries.map(async (entry, planIndex) => {
+      const updatedPlans = await Promise.all(aligned.entries.map(async (entry) => {
         const { dx, dy } = entry;
-        const floorColor = MERGE_COLORS[planIndex % MERGE_COLORS.length];
         const floorPrefix = `floor${entry.floorNumber}-final`;
-        // Per-floor finalized walls use that floor's merge color
-        const finalWalls = buildFinalizedWalls(boxes, floorPrefix, floorColor);
+        const finalWalls = buildFinalizedWalls(boxes, floorPrefix);
         // Keep all non-outdoor-wall objects, shifted to the aligned coordinate system
         const indoorObjects = (entry.plan.objects ?? [])
           .filter(obj => !(obj.type === 'wall' && (obj.id.includes('-ow-') || obj.id.includes('-final-ow-'))))
