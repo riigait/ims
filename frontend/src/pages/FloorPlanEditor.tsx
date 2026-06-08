@@ -55,6 +55,14 @@ function getServiceRoomKind(label?: string): 'stairs' | 'elevator' | 'bathroom' 
   return null;
 }
 
+function isFixedFloorObject(object?: FloorPlanObject | null): boolean {
+  if (!object) return false;
+  const id = object.id.toLowerCase();
+  return id.includes('reserved-stairs')
+    || id.includes('reserved-elevator')
+    || /reserved-(male-|female-)?restroom/.test(id);
+}
+
 export default function FloorPlanEditor() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -222,10 +230,12 @@ export default function FloorPlanEditor() {
         return;
       }
 
+      let didMove = false;
+
       // Update each selected object individually with the same delta
       selectedIds.forEach(id => {
         const obj = state.currentFloorPlan!.objects.find(o => o.id === id);
-        if (!obj) return;
+        if (!obj || isFixedFloorObject(obj)) return;
 
         let memberIds = [id];
         // If single object is part of a group, also move all group members
@@ -235,7 +245,7 @@ export default function FloorPlanEditor() {
 
         memberIds.forEach(memberId => {
           const member = state.currentFloorPlan!.objects.find(o => o.id === memberId);
-          if (!member) return;
+          if (!member || isFixedFloorObject(member)) return;
 
           const updates: any = {};
           if (member.type === 'wall') {
@@ -262,10 +272,13 @@ export default function FloorPlanEditor() {
 
           if (Object.keys(updates).length > 0) {
             updateObject(memberId, updates);
+            didMove = true;
           }
         });
       });
-      useFloorPlanStore.getState().pushHistory();
+      if (didMove) {
+        useFloorPlanStore.getState().pushHistory();
+      }
     };
 
     window.addEventListener('keydown', handleKeyDown);
@@ -742,33 +755,7 @@ export default function FloorPlanEditor() {
       ctx.restore();
     }
 
-    // Draw location name + product count inside the object
-    if (linkedId) {
-      const loc = locationsMap.get(linkedId);
-      const locName = loc?.name ?? 'Linked';
-      const prodCount = locProds.length;
-
-      ctx.save();
-      ctx.textAlign = 'center';
-
-      // Location name
-      const maxWidth = rect.width - 8;
-      const fontSize = Math.min(12, Math.max(8, rect.height / 4));
-      ctx.font = `bold ${fontSize}px Inter, Arial, sans-serif`;
-      ctx.fillStyle = isSelected ? '#1e40af' : '#1e293b';
-      const truncated = truncateText(ctx, locName, maxWidth);
-      ctx.fillText(truncated, rect.x + rect.width / 2, rect.y + rect.height / 2 - (rect.height > 40 ? fontSize / 2 : 0));
-
-      // Product count badge (only if there's enough space)
-      if (rect.height > 36 && rect.width > 40) {
-        ctx.font = `${Math.max(9, fontSize - 2)}px Inter, Arial, sans-serif`;
-        ctx.fillStyle = colors.badge;
-        const countText = prodCount === 0 ? 'No products' : `${prodCount} product${prodCount !== 1 ? 's' : ''}`;
-        ctx.fillText(countText, rect.x + rect.width / 2, rect.y + rect.height / 2 + fontSize + 1);
-      }
-
-      ctx.restore();
-    } else if (obj.label) {
+    if (!linkedId && obj.label) {
       // Just show label if no location linked
       ctx.save();
       ctx.textAlign = 'center';
@@ -798,7 +785,7 @@ export default function FloorPlanEditor() {
     }
 
     // Resize handles (only when selected)
-    if (isSelected && (obj.type === 'room' || obj.type === 'rack' || obj.type === 'shelf')) {
+    if (isSelected && !isFixedFloorObject(obj) && (obj.type === 'room' || obj.type === 'rack' || obj.type === 'shelf')) {
       ctx.save();
       ctx.fillStyle = '#2563eb';
       ctx.strokeStyle = '#ffffff';
@@ -828,13 +815,6 @@ export default function FloorPlanEditor() {
     ctx.textAlign = 'center';
     ctx.fillText(text, x, y);
     ctx.restore();
-  };
-
-  const truncateText = (ctx: CanvasRenderingContext2D, text: string, maxWidth: number): string => {
-    if (ctx.measureText(text).width <= maxWidth) return text;
-    let t = text;
-    while (t.length > 1 && ctx.measureText(t + '…').width > maxWidth) t = t.slice(0, -1);
-    return t + '…';
   };
 
   const drawDoor = (ctx: CanvasRenderingContext2D, door: DoorObject, isSelected: boolean) => {
@@ -1185,7 +1165,7 @@ export default function FloorPlanEditor() {
   };
 
   const getResizeHandleAtPoint = (x: number, y: number, obj: FloorPlanObject | null): string | null => {
-    if (!obj || (obj.type !== 'room' && obj.type !== 'rack' && obj.type !== 'shelf')) return null;
+    if (!obj || !(obj.type === 'room' || obj.type === 'rack' || obj.type === 'shelf')) return null;
     const rect = obj as RectangleObject;
     const handles: Record<string, [number, number]> = {
       'nw': [rect.x, rect.y],
@@ -1265,7 +1245,7 @@ export default function FloorPlanEditor() {
       const currentSelectedObj = editorState.selectedObjectId ? currentFloorPlan?.objects.find(o => o.id === editorState.selectedObjectId) : null;
 
       // Check for wall endpoint drag
-      const wallEndpoint = getWallEndpointAtPoint(pos.x, pos.y, currentSelectedObj ?? null);
+      const wallEndpoint = isFixedFloorObject(currentSelectedObj) ? null : getWallEndpointAtPoint(pos.x, pos.y, currentSelectedObj ?? null);
       if (wallEndpoint) {
         (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
         setWallEndpointDragging(wallEndpoint);
@@ -1273,7 +1253,7 @@ export default function FloorPlanEditor() {
         setDragSnapshot(currentSelectedObj ? { ...currentSelectedObj } : null);
       } else {
         // Check for rectangle resize handles
-        const handle = getResizeHandleAtPoint(pos.x, pos.y, currentSelectedObj ?? null);
+        const handle = isFixedFloorObject(currentSelectedObj) ? null : getResizeHandleAtPoint(pos.x, pos.y, currentSelectedObj ?? null);
         if (handle) {
           (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
           setIsResizing(true);
@@ -1286,7 +1266,7 @@ export default function FloorPlanEditor() {
             // Capture snapshots BEFORE changing selection (for group drag)
             const shouldGroupDrag = selectedObjectIds.length > 1 && selectedObjectIds.includes(objId);
             const groupSnapshots = shouldGroupDrag
-              ? currentFloorPlan?.objects.filter(o => selectedObjectIds.includes(o.id)).map(o => ({ ...o })) || []
+              ? currentFloorPlan?.objects.filter(o => selectedObjectIds.includes(o.id) && !isFixedFloorObject(o)).map(o => ({ ...o })) || []
               : [];
 
             if (e.ctrlKey) {
@@ -1307,7 +1287,7 @@ export default function FloorPlanEditor() {
               }
             }
             const obj = currentFloorPlan?.objects.find(o => o.id === objId);
-            if (obj) {
+            if (obj && !isFixedFloorObject(obj)) {
               (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
               setIsDragging(true);
               setDragStart(pos);
@@ -1316,7 +1296,7 @@ export default function FloorPlanEditor() {
               if (e.ctrlKey) {
                 const allSelected = currentFloorPlan?.objects.filter(o => {
                   const newSelection = selectedObjectIds.includes(objId) ? selectedObjectIds : [...selectedObjectIds, objId];
-                  return newSelection.includes(o.id);
+                  return newSelection.includes(o.id) && !isFixedFloorObject(o);
                 }) || [];
                 dragSnapshotsRef.current = allSelected.map(o => ({ ...o }));
                 setDragSnapshot(null);
@@ -1428,6 +1408,7 @@ export default function FloorPlanEditor() {
       const dx = pos.x - dragStart.x, dy = pos.y - dragStart.y;
 
       dragSnapshotsRef.current.forEach(snap => {
+        if (isFixedFloorObject(snap)) return;
         if (snap.type === 'wall') {
           const w = snap as WallObject;
           updateObject(snap.id, { startX: w.startX + dx, startY: w.startY + dy, endX: w.endX + dx, endY: w.endY + dy });
@@ -1450,11 +1431,13 @@ export default function FloorPlanEditor() {
     else if (isDragging && dragStart && dragSnapshot && editorState.selectedObjectId) {
       const dx = pos.x - dragStart.x, dy = pos.y - dragStart.y;
       const snap = dragSnapshot;
+      if (isFixedFloorObject(snap)) return;
 
       // If object is part of a group, move all objects in the group
       if (snap.groupId && currentFloorPlan) {
         const groupMembers = currentFloorPlan.objects.filter(o => o.groupId === snap.groupId);
         groupMembers.forEach(member => {
+          if (isFixedFloorObject(member)) return;
           const memberSnap = dragSnapshotsRef.current.find(s => s.id === member.id) || member;
           if (memberSnap.type === 'wall') {
             const w = memberSnap as WallObject;
@@ -1511,11 +1494,11 @@ export default function FloorPlanEditor() {
     // Check if hovering over wall endpoint or resize handle
     if (editorState.tool === 'select' && !isDragging && !isResizing && !wallEndpointDragging) {
       const currentSelectedObj = editorState.selectedObjectId ? currentFloorPlan?.objects.find(o => o.id === editorState.selectedObjectId) : null;
-      const wallEndpoint = getWallEndpointAtPoint(pos.x, pos.y, currentSelectedObj ?? null);
+      const wallEndpoint = isFixedFloorObject(currentSelectedObj) ? null : getWallEndpointAtPoint(pos.x, pos.y, currentSelectedObj ?? null);
       if (wallEndpoint) {
         setResizeHandle('e'); // Show resize cursor for wall endpoints
       } else {
-        const handle = getResizeHandleAtPoint(pos.x, pos.y, currentSelectedObj ?? null);
+        const handle = isFixedFloorObject(currentSelectedObj) ? null : getResizeHandleAtPoint(pos.x, pos.y, currentSelectedObj ?? null);
         setResizeHandle(handle);
       }
     }
@@ -1876,7 +1859,7 @@ export default function FloorPlanEditor() {
     const colors = STATUS_COLORS[status];
     const fillColor = rect.color ? `${rect.color}44` : colors.fill;
     const strokeColor = isSelected ? '#2563eb' : (rect.color ?? colors.stroke);
-    const label = linkedId ? (locationsMap.get(linkedId)?.name ?? 'Linked') : (obj.label || obj.type);
+    const label = obj.label || obj.type;
     const fontSize = Math.min(12, Math.max(8, rect.height / 4));
     const serviceRoomKind = getServiceRoomKind(obj.label);
 
@@ -1912,31 +1895,21 @@ export default function FloorPlanEditor() {
             <KonvaRect x={rect.x + rect.width * 0.34} y={rect.y + rect.height * 0.48} width={rect.width * 0.32} height={rect.height * 0.16} stroke="#0369a1" strokeWidth={2} />
           </>
         )}
-        <KonvaText
-          x={rect.x + 4}
-          y={rect.y + rect.height / 2 - fontSize}
-          width={Math.max(10, rect.width - 8)}
-          text={shortText(label)}
-          align="center"
-          fontSize={fontSize}
-          fontStyle={linkedId ? 'bold' : 'normal'}
-          fill={isSelected ? '#1e40af' : '#1e293b'}
-        />
-        {linkedId && rect.height > 36 && rect.width > 40 && (
+        {!linkedId && (
           <KonvaText
             x={rect.x + 4}
-            y={rect.y + rect.height / 2 + 4}
+            y={rect.y + rect.height / 2 - fontSize}
             width={Math.max(10, rect.width - 8)}
-            text={locProds.length === 0 ? 'No products' : `${locProds.length} product${locProds.length !== 1 ? 's' : ''}`}
+            text={shortText(label)}
             align="center"
-            fontSize={Math.max(9, fontSize - 2)}
-            fill={colors.badge}
+            fontSize={fontSize}
+            fill={isSelected ? '#1e40af' : '#1e293b'}
           />
         )}
         {linkedId && rect.width > 30 && rect.height > 20 && (
           <Circle x={rect.x + rect.width - 9} y={rect.y + 9} radius={5} fill={colors.badge} />
         )}
-        {isSelected && renderResizeHandles(rect)}
+        {isSelected && !isFixedFloorObject(obj) && renderResizeHandles(rect)}
       </Group>
     );
   };
@@ -2016,6 +1989,7 @@ export default function FloorPlanEditor() {
   function autoNudge(blockerId: string, doorId?: string) {
     const objects = currentFloorPlan?.objects || [];
     const blocker = objects.find(o => o.id === blockerId);
+    if (isFixedFloorObject(blocker)) return;
     if (!blocker || !('x' in blocker) || !('width' in blocker) || !('height' in blocker)) return;
     const b = blocker as { x: number; y: number; width: number; height: number };
 
@@ -2829,6 +2803,7 @@ export default function FloorPlanEditor() {
                   const { objects: fixed } = applyAutoFixes(currentFloorPlan!.objects);
                   fixed.forEach((obj, i) => {
                     const orig = currentFloorPlan!.objects[i];
+                    if (isFixedFloorObject(orig)) return;
                     if ('x' in obj && 'x' in orig && (obj.x !== (orig as any).x || (obj as any).y !== (orig as any).y)) {
                       updateObject(obj.id, { x: (obj as any).x, y: (obj as any).y });
                     }

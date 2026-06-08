@@ -177,15 +177,10 @@ function fixedObjectsFor(plan: FloorPlan): RectangleObject[] {
   return (plan.objects ?? []).filter((obj): obj is RectangleObject => {
     if (obj.type !== 'room') return false;
     const id = obj.id.toLowerCase();
-    const label = (obj.label ?? '').toLowerCase();
     return (
       id.includes('reserved-stairs') ||
       id.includes('reserved-elevator') ||
-      /reserved-(male-|female-)?restroom/.test(id) ||
-      label.startsWith('stairs') ||
-      label.startsWith('elevator') ||
-      label.includes('restroom') ||
-      label.includes('bathroom')
+      /reserved-(male-|female-)?restroom/.test(id)
     );
   });
 }
@@ -262,10 +257,9 @@ function alignmentAnchorsForPlan(plan: FloorPlan, bounds: OutdoorWallBox): Align
   if (buildingAnchor) anchors.push({ kind: 'building-origin', x: buildingAnchor.x, y: buildingAnchor.y });
 
   const objects = plan.objects ?? [];
-  // Prefer stairs (most stable across floors), then elevator, then any core label
+  // Prefer stairs (most stable across floors), then elevator — ID match only
   const core = objects.find(obj => /reserved-stairs/.test(obj.id))
-    ?? objects.find(obj => /reserved-elevator/.test(obj.id))
-    ?? objects.find(obj => /core|stair|elevator/i.test(`${obj.id} ${obj.label ?? ''}`));
+    ?? objects.find(obj => /reserved-elevator/.test(obj.id));
   const coreCenter = core ? anchorCenter(core) : null;
   if (coreCenter) anchors.push({ kind: 'vertical-core', ...coreCenter });
 
