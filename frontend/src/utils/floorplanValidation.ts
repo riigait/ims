@@ -67,7 +67,8 @@ function isOutdoorWall(wall: WallObject): boolean {
 function isFixedObject(obj: FloorPlanObject): boolean {
   return obj.id.includes('reserved-stairs') ||
     obj.id.includes('reserved-elevator') ||
-    /reserved-(male-|female-)?restroom/.test(obj.id);
+    /reserved-(male-|female-)?restroom/.test(obj.id) ||
+    obj.id.includes('reserved-column');
 }
 
 function rectsOverlap(a: RectangleObject, b: RectangleObject, gap = 0): boolean {
@@ -215,7 +216,9 @@ export function validateFloorplanObjects(objects: FloorPlanObject[]): FloorplanV
   });
 
   placedFurniture.forEach((obj) => {
-    const fixedBlocker = fixedStructuralRooms.find((fixed) => rectsOverlap(obj, fixed));
+    const fixedBlocker = fixedStructuralRooms.find(
+      (fixed) => !fixed.id.includes('reserved-column') && rectsOverlap(obj, fixed)
+    );
     if (fixedBlocker) {
       errors.push({
         code: 'object_overlap',
@@ -225,7 +228,7 @@ export function validateFloorplanObjects(objects: FloorPlanObject[]): FloorplanV
     }
   });
 
-  structuralRooms.forEach((room) => {
+  structuralRooms.filter(r => !r.id.includes('reserved-column')).forEach((room) => {
     const roomPoly = rectPolygon(room, CLEARANCE);
     const crossingWall = indoorWalls.find((wall) => wall.groupId !== room.groupId && booleanIntersects(wallPolygon(wall), roomPoly));
     if (crossingWall) {
@@ -244,7 +247,7 @@ export function validateFloorplanObjects(objects: FloorPlanObject[]): FloorplanV
     }
   });
 
-  structuralRooms.forEach((room) => {
+  structuralRooms.filter(r => !r.id.includes('reserved-column')).forEach((room) => {
     if (!doors.some((door) => pointNearRectEdge(door.x, door.y, room))) {
       errors.push({ code: 'door_missing', objectId: room.id, message: 'Door is missing in this enclosed area.' });
     }
@@ -269,7 +272,7 @@ export function validateFloorplanObjects(objects: FloorPlanObject[]): FloorplanV
     const loop = buildOutdoorLoop(outdoorWalls);
     if (loop) {
       const TOLERANCE = 6; // px — corners within this distance of the boundary are not flagged
-      objects.filter(isRectObject).forEach(obj => {
+      (objects.filter(isRectObject) as RectangleObject[]).filter(o => !o.id.includes('reserved-column')).forEach(obj => {
         const corners: [number, number][] = [
           [obj.x,             obj.y],
           [obj.x + obj.width, obj.y],
