@@ -1,6 +1,6 @@
 import { Router, Response, NextFunction } from 'express';
 import prisma from '../utils/prisma';
-import { AuthRequest, canAccessDepartment } from '../middleware/auth';
+import { authMiddleware, AuthRequest, canAccessDepartment } from '../middleware/auth';
 import { logAudit } from '../utils/audit';
 import { csvToJson, jsonToCsv } from '../utils/csv';
 import { generateStockId, generateMovementNo, generateSku, generateRequestNo } from '../utils/idGenerator';
@@ -30,6 +30,8 @@ async function allocateCsvRange(count: number): Promise<{ csvImportId: string; s
 }
 
 const router = Router();
+
+router.use(authMiddleware);
 
 interface HttpError extends Error { status: number; }
 

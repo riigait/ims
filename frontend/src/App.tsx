@@ -1,300 +1,141 @@
 import { lazy, Suspense } from 'react';
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, Outlet } from 'react-router-dom';
 import { ThemeProvider } from '@/contexts/ThemeContext';
 import { BellProvider } from '@/contexts/BellContext';
 import Layout from '@/components/layout/Layout';
 import DepartmentGuard from '@/components/DepartmentGuard';
-import Login from '@/pages/Login';
-import Register from '@/pages/Register';
-import InitialSetup from '@/pages/InitialSetup';
-import Landing from '@/pages/Landing';
-import Dashboard from '@/pages/Dashboard';
-import Products from '@/pages/Products';
-import BulkAddProducts from '@/pages/BulkAddProducts';
-import Categories from '@/pages/Categories';
-import Locations from '@/pages/Locations';
-import StockMovements from '@/pages/StockMovements';
-import InventoryItems from '@/pages/InventoryItems';
-import AdminUsers from '@/pages/AdminUsers';
-import AdminDepartments from '@/pages/AdminDepartments';
-import DeleteRequests from '@/pages/DeleteRequests';
-import Requests from '@/pages/Requests';
-import AdminAssignment from '@/pages/AdminAssignment';
-import ChangePassword from '@/pages/ChangePassword';
-import PasswordRequests from '@/pages/PasswordRequests';
-import SuperadminSettings from '@/pages/SuperadminSettings';
-import NotFound from '@/pages/NotFound';
 import ErrorBoundary from '@/components/ErrorBoundary';
 
+const Login = lazy(() => import('@/pages/Login'));
+const Register = lazy(() => import('@/pages/Register'));
+const InitialSetup = lazy(() => import('@/pages/InitialSetup'));
+const Landing = lazy(() => import('@/pages/Landing'));
+const Dashboard = lazy(() => import('@/pages/Dashboard'));
+const Products = lazy(() => import('@/pages/Products'));
+const BulkAddProducts = lazy(() => import('@/pages/BulkAddProducts'));
+const Categories = lazy(() => import('@/pages/Categories'));
+const Locations = lazy(() => import('@/pages/Locations'));
+const StockMovements = lazy(() => import('@/pages/StockMovements'));
+const InventoryItems = lazy(() => import('@/pages/InventoryItems'));
+const AdminUsers = lazy(() => import('@/pages/AdminUsers'));
+const AdminDepartments = lazy(() => import('@/pages/AdminDepartments'));
+const DeleteRequests = lazy(() => import('@/pages/DeleteRequests'));
+const Requests = lazy(() => import('@/pages/Requests'));
+const AdminAssignment = lazy(() => import('@/pages/AdminAssignment'));
+const ChangePassword = lazy(() => import('@/pages/ChangePassword'));
+const PasswordRequests = lazy(() => import('@/pages/PasswordRequests'));
+const SuperadminSettings = lazy(() => import('@/pages/SuperadminSettings'));
+const NotFound = lazy(() => import('@/pages/NotFound'));
 const FloorPlans = lazy(() => import('@/pages/FloorPlans'));
 const ImportPCLSF = lazy(() => import('@/pages/ImportPCLSF'));
 const FloorPlanEditor = lazy(() => import('@/pages/FloorPlanEditor'));
 const Scanner = lazy(() => import('@/pages/Scanner'));
 
-function PrivateRoute({ children }: { children: React.ReactNode }) {
-  const isLoggedIn = !!localStorage.getItem('user');
+function useAuth() {
   const user = localStorage.getItem('user');
   const userObj = user ? JSON.parse(user) : null;
-
-  if (!isLoggedIn) return <Navigate to="/login" />;
-  // Only superadmin can be redirected to initial setup
-  if (userObj?.role === 'superadmin' && userObj?.initialSetupComplete === false) {
-    return <Navigate to="/initial-setup" />;
-  }
-  return children;
+  return { isLoggedIn: !!user, role: userObj?.role, initialSetupComplete: userObj?.initialSetupComplete };
 }
 
-function AdminRoute({ children }: { children: React.ReactNode }) {
-  const isLoggedIn = !!localStorage.getItem('user');
-  const user = localStorage.getItem('user');
-  const userObj = user ? JSON.parse(user) : null;
-
-  if (!isLoggedIn) return <Navigate to="/login" />;
-  if (!['admin', 'superadmin'].includes(userObj?.role)) {
-    return <Navigate to="/dashboard" />;
-  }
-  return children;
+function PrivateGuard() {
+  const { isLoggedIn, role, initialSetupComplete } = useAuth();
+  if (!isLoggedIn) return <Navigate to="/login" replace />;
+  if (role === 'superadmin' && initialSetupComplete === false) return <Navigate to="/initial-setup" replace />;
+  return <Outlet />;
 }
 
-function SuperadminRoute({ children }: { children: React.ReactNode }) {
-  const isLoggedIn = !!localStorage.getItem('user');
-  const user = localStorage.getItem('user');
-  const userObj = user ? JSON.parse(user) : null;
+function AdminGuard() {
+  const { isLoggedIn, role } = useAuth();
+  if (!isLoggedIn) return <Navigate to="/login" replace />;
+  if (!['admin', 'superadmin'].includes(role)) return <Navigate to="/dashboard" replace />;
+  return <Outlet />;
+}
 
-  if (!isLoggedIn) return <Navigate to="/login" />;
-  if (userObj?.role !== 'superadmin') {
-    return <Navigate to="/dashboard" />;
-  }
-  return children;
+function SuperadminGuard() {
+  const { isLoggedIn, role } = useAuth();
+  if (!isLoggedIn) return <Navigate to="/login" replace />;
+  if (role !== 'superadmin') return <Navigate to="/dashboard" replace />;
+  return <Outlet />;
+}
+
+function PageSuspense({ children }: { children: React.ReactNode }) {
+  return (
+    <Suspense fallback={<div className="flex items-center justify-center h-full py-20 text-[var(--text-muted)]">Loading...</div>}>
+      {children}
+    </Suspense>
+  );
+}
+
+// Shared layout shell — mounts once, never remounts on navigation
+function AppShell() {
+  return (
+    <DepartmentGuard>
+      <Layout>
+        <PageSuspense>
+          <Outlet />
+        </PageSuspense>
+      </Layout>
+    </DepartmentGuard>
+  );
 }
 
 function App() {
   return (
     <ErrorBoundary>
       <BellProvider>
-      <ThemeProvider>
-        <BrowserRouter>
-          <Suspense fallback={<div className="flex items-center justify-center h-screen text-[var(--text-muted)]">Loading...</div>}>
-          <Routes>
-        <Route path="/login" element={<Login />} />
-        <Route path="/register" element={<Register />} />
-        <Route path="/initial-setup" element={<InitialSetup />} />
-        <Route path="/" element={<Landing />} />
-        <Route
-          path="/dashboard"
-          element={
-            <PrivateRoute>
-              <DepartmentGuard>
-                <Layout>
-                  <Dashboard />
-                </Layout>
-              </DepartmentGuard>
-            </PrivateRoute>
-          }
-        />
-        <Route
-          path="/products"
-          element={
-            <PrivateRoute>
-              <DepartmentGuard>
-                <Layout>
-                  <Products />
-                </Layout>
-              </DepartmentGuard>
-            </PrivateRoute>
-          }
-        />
-        <Route
-          path="/products/bulk-add"
-          element={
-            <PrivateRoute>
-              <DepartmentGuard>
-                <Layout>
-                  <BulkAddProducts />
-                </Layout>
-              </DepartmentGuard>
-            </PrivateRoute>
-          }
-        />
-        <Route
-          path="/categories"
-          element={
-            <PrivateRoute>
-              <DepartmentGuard>
-                <Layout>
-                  <Categories />
-                </Layout>
-              </DepartmentGuard>
-            </PrivateRoute>
-          }
-        />
-        <Route
-          path="/locations"
-          element={
-            <PrivateRoute>
-              <DepartmentGuard>
-                <Layout>
-                  <Locations />
-                </Layout>
-              </DepartmentGuard>
-            </PrivateRoute>
-          }
-        />
-        <Route
-          path="/inventory-items"
-          element={
-            <PrivateRoute>
-              <DepartmentGuard>
-                <Layout>
-                  <InventoryItems />
-                </Layout>
-              </DepartmentGuard>
-            </PrivateRoute>
-          }
-        />
-        <Route
-          path="/stock-movements"
-          element={
-            <PrivateRoute>
-              <DepartmentGuard>
-                <Layout>
-                  <StockMovements />
-                </Layout>
-              </DepartmentGuard>
-            </PrivateRoute>
-          }
-        />
-        <Route
-          path="/floor-plans"
-          element={
-            <PrivateRoute>
-              <DepartmentGuard>
-                <Layout>
-                  <FloorPlans />
-                </Layout>
-              </DepartmentGuard>
-            </PrivateRoute>
-          }
-        />
-        <Route
-          path="/import-pclsf"
-          element={
-            <PrivateRoute>
-              <DepartmentGuard>
-                <Layout>
-                  <ImportPCLSF />
-                </Layout>
-              </DepartmentGuard>
-            </PrivateRoute>
-          }
-        />
-        <Route
-          path="/floor-plans/:id/edit"
-          element={
-            <PrivateRoute>
-              <DepartmentGuard>
-                <FloorPlanEditor />
-              </DepartmentGuard>
-            </PrivateRoute>
-          }
-        />
-        <Route
-          path="/scanner"
-          element={
-            <PrivateRoute>
-              <DepartmentGuard>
-                <Layout>
-                  <Scanner />
-                </Layout>
-              </DepartmentGuard>
-            </PrivateRoute>
-          }
-        />
-        <Route
-          path="/admin/users"
-          element={
-            <AdminRoute>
-              <Layout>
-                <AdminUsers />
-              </Layout>
-            </AdminRoute>
-          }
-        />
-        <Route
-          path="/admin/departments"
-          element={
-            <AdminRoute>
-              <Layout>
-                <AdminDepartments />
-              </Layout>
-            </AdminRoute>
-          }
-        />
-        <Route
-          path="/delete-requests"
-          element={
-            <AdminRoute>
-              <Layout>
-                <DeleteRequests />
-              </Layout>
-            </AdminRoute>
-          }
-        />
-        <Route
-          path="/admin/requests"
-          element={
-            <PrivateRoute>
-              <Layout>
-                <Requests />
-              </Layout>
-            </PrivateRoute>
-          }
-        />
-        <Route
-          path="/admin/assignment"
-          element={
-            <AdminRoute>
-              <Layout>
-                <AdminAssignment />
-              </Layout>
-            </AdminRoute>
-          }
-        />
-        <Route
-          path="/admin/settings"
-          element={
-            <SuperadminRoute>
-              <Layout>
-                <SuperadminSettings />
-              </Layout>
-            </SuperadminRoute>
-          }
-        />
-        <Route
-          path="/change-password"
-          element={
-            <PrivateRoute>
-              <Layout>
-                <ChangePassword />
-              </Layout>
-            </PrivateRoute>
-          }
-        />
-        <Route
-          path="/password-requests"
-          element={
-            <AdminRoute>
-              <Layout>
-                <PasswordRequests />
-              </Layout>
-            </AdminRoute>
-          }
-        />
-        <Route path="*" element={<NotFound />} />
-          </Routes>
-          </Suspense>
-        </BrowserRouter>
-      </ThemeProvider>
+        <ThemeProvider>
+          <BrowserRouter>
+            <Routes>
+              {/* Public routes */}
+              <Route path="/login" element={<PageSuspense><Login /></PageSuspense>} />
+              <Route path="/register" element={<PageSuspense><Register /></PageSuspense>} />
+              <Route path="/initial-setup" element={<PageSuspense><InitialSetup /></PageSuspense>} />
+              <Route path="/" element={<PageSuspense><Landing /></PageSuspense>} />
+
+              {/* Floor plan editor — no sidebar */}
+              <Route element={<PrivateGuard />}>
+                <Route element={<DepartmentGuard><PageSuspense><Outlet /></PageSuspense></DepartmentGuard>}>
+                  <Route path="/floor-plans/:id/edit" element={<FloorPlanEditor />} />
+                </Route>
+              </Route>
+
+              {/* All routes with sidebar layout — Layout mounts once here */}
+              <Route element={<PrivateGuard />}>
+                <Route element={<AppShell />}>
+                  {/* Any logged-in user */}
+                  <Route path="/dashboard" element={<Dashboard />} />
+                  <Route path="/products" element={<Products />} />
+                  <Route path="/products/bulk-add" element={<BulkAddProducts />} />
+                  <Route path="/categories" element={<Categories />} />
+                  <Route path="/locations" element={<Locations />} />
+                  <Route path="/inventory-items" element={<InventoryItems />} />
+                  <Route path="/stock-movements" element={<StockMovements />} />
+                  <Route path="/floor-plans" element={<FloorPlans />} />
+                  <Route path="/import-pclsf" element={<ImportPCLSF />} />
+                  <Route path="/scanner" element={<Scanner />} />
+                  <Route path="/admin/requests" element={<Requests />} />
+                  <Route path="/change-password" element={<ChangePassword />} />
+
+                  {/* Admin + superadmin only */}
+                  <Route element={<AdminGuard />}>
+                    <Route path="/admin/users" element={<AdminUsers />} />
+                    <Route path="/admin/departments" element={<AdminDepartments />} />
+                    <Route path="/delete-requests" element={<DeleteRequests />} />
+                    <Route path="/admin/assignment" element={<AdminAssignment />} />
+                    <Route path="/password-requests" element={<PasswordRequests />} />
+                  </Route>
+
+                  {/* Superadmin only */}
+                  <Route element={<SuperadminGuard />}>
+                    <Route path="/admin/settings" element={<SuperadminSettings />} />
+                  </Route>
+                </Route>
+              </Route>
+
+              <Route path="*" element={<PageSuspense><NotFound /></PageSuspense>} />
+            </Routes>
+          </BrowserRouter>
+        </ThemeProvider>
       </BellProvider>
     </ErrorBoundary>
   );

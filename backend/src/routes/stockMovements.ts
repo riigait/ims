@@ -1,12 +1,14 @@
 import { Router, Response, NextFunction } from 'express';
 import type { MovementType, MovementStatus, ItemStatus } from '@prisma/client';
 import prisma from '../utils/prisma';
-import { AuthRequest, canAccessDepartment } from '../middleware/auth';
+import { authMiddleware, AuthRequest, canAccessDepartment } from '../middleware/auth';
 import { logAudit } from '../utils/audit';
 import { csvToJson, jsonToCsv } from '../utils/csv';
 import { generateStockId, generateMovementNo, generateSku } from '../utils/idGenerator';
 
 const router = Router();
+
+router.use(authMiddleware);
 
 const VALID_MOVEMENT_TYPES = ['stock_in', 'stock_out', 'adjustment', 'borrowed', 'returned', 'lost', 'found', 'transfer', 'moved_to_department', 'pre_deployment', 'post_deployment', 'repair_out', 'repair_return', 'damaged', 'defective', 'disposal', 'opening_stock'] as const;
 

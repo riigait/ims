@@ -1,3 +1,8 @@
+-- ROLLBACK NOTE: ALTER TYPE ... ADD VALUE cannot be rolled back in PostgreSQL without
+-- removing all rows that reference the new value and then dropping/recreating the enum.
+-- Safe rollback steps: (1) remove or recast all rows using the added values,
+-- (2) rerun the enum migration without the unwanted values.
+
 -- Add missing MovementType values discovered in application code
 ALTER TYPE "MovementType" ADD VALUE IF NOT EXISTS 'lost';
 ALTER TYPE "MovementType" ADD VALUE IF NOT EXISTS 'found';

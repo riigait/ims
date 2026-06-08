@@ -1,3 +1,9 @@
+-- ROLLBACK NOTE: Enum type conversions (ALTER COLUMN ... TYPE ... USING) are not automatically
+-- reversible. To roll back, run a compensating migration that casts the enum column back to TEXT:
+--   ALTER TABLE "User" ALTER COLUMN "role" TYPE TEXT USING "role"::text;
+-- then DROP TYPE for each enum, and restore the original DEFAULT string values.
+-- Ensure all column data matches enum values before applying; mismatches will cause migration failure.
+
 -- CreateEnum
 CREATE TYPE "UserRole" AS ENUM ('superadmin', 'admin', 'staff');
 CREATE TYPE "ProductStatus" AS ENUM ('active', 'discontinued', 'obsolete', 'on-backorder');
