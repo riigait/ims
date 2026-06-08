@@ -446,6 +446,7 @@ function mergeCollinear1D(
 function buildFinalizedWalls(
   boxes: OutdoorWallBox[],
   prefix: string,
+  color = '#1e293b',
   thickness = 14,
 ): WallObject[] {
   const walls: WallObject[] = [];
@@ -481,7 +482,7 @@ function buildFinalizedWalls(
       startX: s.a, startY: s.fixed,
       endX: s.b, endY: s.fixed,
       thickness,
-      color: '#1e293b',
+      color,
       layer: 1,
     });
   });
@@ -492,7 +493,7 @@ function buildFinalizedWalls(
       startX: s.fixed, startY: s.a,
       endX: s.fixed, endY: s.b,
       thickness,
-      color: '#1e293b',
+      color,
       layer: 1,
     });
   });
@@ -1006,15 +1007,17 @@ export default function FloorPlans() {
     const aligned = alignOutdoorWallsToSharedCoordinateSystem(mergePreviewPlans);
     if (aligned.entries.length === 0) return;
 
-    // Union of all aligned floor bounding boxes → single shared perimeter
+    // Union of all aligned floor bounding boxes → shared perimeter shape
     const boxes = aligned.entries.map(e => e.alignedBounds);
-    const buildingPrefix = getBuildingInfo(mergePreviewPlans[0].name)?.key.replace(/\s+/g, '-').toLowerCase() ?? 'building';
-    const finalWalls = buildFinalizedWalls(boxes, buildingPrefix);
 
     try {
       setFinalizing(true);
-      const updatedPlans = await Promise.all(aligned.entries.map(async (entry) => {
+      const updatedPlans = await Promise.all(aligned.entries.map(async (entry, planIndex) => {
         const { dx, dy } = entry;
+        const floorColor = MERGE_COLORS[planIndex % MERGE_COLORS.length];
+        const floorPrefix = `floor${entry.floorNumber}-final`;
+        // Per-floor finalized walls use that floor's merge color
+        const finalWalls = buildFinalizedWalls(boxes, floorPrefix, floorColor);
         // Keep all non-outdoor-wall objects, shifted to the aligned coordinate system
         const indoorObjects = (entry.plan.objects ?? [])
           .filter(obj => !(obj.type === 'wall' && (obj.id.includes('-ow-') || obj.id.includes('-final-ow-'))))
