@@ -104,7 +104,14 @@ function detectOutdoorWallAlignmentAnchor(objects: FloorPlanObject[], bounds: Ou
   const core = objects.find((object) => /reserved-stairs|reserved-elevator|core|stair|elevator/i.test(`${object.id} ${object.label ?? ''}`));
   if (core) return { kind: 'vertical-core', ...objectCenter(core) };
 
-  const mainEntrance = objects.find((object) => object.type === 'entrance' || /main.*(entrance|door)|entrance.*main/i.test(`${object.id} ${object.label ?? ''}`));
+  const mainEntrance = objects.find((object) => {
+    if (object.type === 'entrance') return true;
+
+    const description = `${object.id} ${object.label ?? ''}`.toLowerCase();
+    const mainIndex = description.indexOf('main');
+    return mainIndex !== -1
+      && (description.includes('entrance') || description.indexOf('door', mainIndex) !== -1);
+  });
   if (mainEntrance) return { kind: 'main-entrance', ...objectCenter(mainEntrance) };
 
   const door = objects.find((object) => object.type === 'door');

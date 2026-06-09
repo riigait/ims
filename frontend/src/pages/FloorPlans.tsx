@@ -273,7 +273,14 @@ function alignmentAnchorsForPlan(plan: FloorPlan, bounds: OutdoorWallBox): Align
   const coreCenter = core ? anchorCenter(core) : null;
   if (coreCenter) anchors.push({ kind: 'vertical-core', ...coreCenter });
 
-  const mainEntrance = objects.find(obj => obj.type === 'entrance' || /main.*(entrance|door)|entrance.*main/i.test(`${obj.id} ${obj.label ?? ''}`));
+  const mainEntrance = objects.find(obj => {
+    if (obj.type === 'entrance') return true;
+
+    const description = `${obj.id} ${obj.label ?? ''}`.toLowerCase();
+    const mainIndex = description.indexOf('main');
+    return mainIndex !== -1
+      && (description.includes('entrance') || description.indexOf('door', mainIndex) !== -1);
+  });
   const mainEntranceCenter = mainEntrance ? anchorCenter(mainEntrance) : null;
   if (mainEntranceCenter) anchors.push({ kind: 'main-entrance', ...mainEntranceCenter });
 
