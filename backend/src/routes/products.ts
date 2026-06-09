@@ -333,15 +333,35 @@ async function findExistingProduct(row: any) {
   return null;
 }
 
+async function resolveImportSku(row: any, existing: any): Promise<string> {
+  const requestedSku = row.sku?.trim();
+  if (!existing && requestedSku) {
+    const duplicateSku = await prisma.product.findUnique({ where: { sku: requestedSku }, select: { id: true } });
+    if (duplicateSku) return generateSku();
+  }
+  if (requestedSku) return requestedSku;
+  if (existing) return existing.sku;
+  return generateSku();
+}
+
+async function handleImportStockMovement(product: any, existing: any, data: any, req: AuthRequest): Promise<boolean> {
+  if (!existing) {
+    await createOpeningStockForProduct(product, data.currentStock, data.locationId, req);
+    return false;
+  }
+
+  const isTransfer = !!req.departmentId && existing.departmentId !== req.departmentId;
+  if (isTransfer) {
+    await createDepartmentTransferMovement(product, existing.departmentId, req.departmentId!, req.userId!);
+  }
+  return isTransfer;
+}
+
 async function processImportRow(row: any, req: AuthRequest, csvImportId: string, assignedId?: string): Promise<any> {
   const locationId = await resolveImportLocationId(row, req);
   const categoryId = await resolveImportCategoryId(row, req);
   const existing = await findExistingProduct(row);
-  const requestedSku = row.sku?.trim();
-  const duplicateSku = !existing && requestedSku
-    ? await prisma.product.findUnique({ where: { sku: requestedSku }, select: { id: true } })
-    : null;
-  const sku = duplicateSku ? await generateSku() : requestedSku || (existing ? existing.sku : await generateSku());
+  const sku = await resolveImportSku(row, existing);
   const data = {
     sku, name: row.name, description: row.description || null, categoryId, locationId,
     departmentId: req.departmentId, unit: row.unit || 'pcs',
@@ -355,12 +375,7 @@ async function processImportRow(row: any, req: AuthRequest, csvImportId: string,
   const product = existing
     ? await prisma.product.update({ where: { id: existing.id }, data })
     : await prisma.product.create({ data: { ...(assignedId ? { id: assignedId } : {}), ...data } });
-  const isTransfer = !!existing && !!req.departmentId && existing.departmentId !== req.departmentId;
-  if (!existing) {
-    await createOpeningStockForProduct(product, data.currentStock, data.locationId, req);
-  } else if (isTransfer) {
-    await createDepartmentTransferMovement(product, existing.departmentId, req.departmentId!, req.userId!);
-  }
+  const isTransfer = await handleImportStockMovement(product, existing, data, req);
   const existingAction = isTransfer ? 'MOVED_TO_DEPARTMENT' : 'UPDATE';
   const auditAction = existing ? existingAction : 'CREATE';
   const auditExtra = isTransfer ? { fromDepartmentId: existing!.departmentId, toDepartmentId: req.departmentId } : {};
