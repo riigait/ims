@@ -36,14 +36,15 @@ function Invoke-IMSCommand {
     param(
         [string]$Name,
         [string]$Path,
-        [string]$Command
+        [string]$FilePath,
+        [string[]]$ArgumentList
     )
 
     Write-Host "`nChecking $Name..." -ForegroundColor Cyan
 
     Push-Location $Path
     try {
-        Invoke-Expression $Command | Out-Host
+        & $FilePath @ArgumentList | Out-Host
         $exitCode = $LASTEXITCODE
         if ($exitCode -ne 0) {
             Write-Host "[FAIL] $Name check failed." -ForegroundColor Red
@@ -60,13 +61,13 @@ function Invoke-IMSCommand {
 function Test-IMSApp {
     Write-Host "`n=== IMS App Check ===" -ForegroundColor Cyan
 
-    $backendOk = Invoke-IMSCommand 'Backend' $backendPath 'npm run build'
+    $backendOk = Invoke-IMSCommand 'Backend' $backendPath 'npm' @('run', 'build')
     if (-not $backendOk) {
         Write-Host "`nStart cancelled. Fix backend errors first." -ForegroundColor Red
         return $false
     }
 
-    $frontendOk = Invoke-IMSCommand 'Frontend' $frontendPath 'npm run build'
+    $frontendOk = Invoke-IMSCommand 'Frontend' $frontendPath 'npm' @('run', 'build')
     if (-not $frontendOk) {
         Write-Host "`nStart cancelled. Fix frontend errors first." -ForegroundColor Red
         return $false
