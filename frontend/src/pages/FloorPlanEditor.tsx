@@ -1575,7 +1575,8 @@ export default function FloorPlanEditor() {
       } else if (RECT_DRAWING_TOOLS.includes(editorState.tool) && Math.abs(pos.x - startPos.x) > 10 && Math.abs(pos.y - startPos.y) > 10) {
         const presetLabel = ROOM_PRESET_LABELS[editorState.tool];
         addObject({ id: `${editorState.tool}_${Date.now()}`, type: presetLabel ? 'room' : editorState.tool as 'room' | 'rack' | 'shelf', x: Math.min(startPos.x, pos.x), y: Math.min(startPos.y, pos.y), width: Math.abs(pos.x - startPos.x), height: Math.abs(pos.y - startPos.y), rotation: 0, label: presetLabel, color: DEFAULT_RECT_FILL[editorState.tool] } as RectangleObject);
-      } else if (editorState.tool === 'door' && Math.abs(pos.x - startPos.x) + Math.abs(pos.y - startPos.y) > 10) {
+      } else if ((editorState.tool === 'door' || editorState.tool === 'window' || editorState.tool === 'entrance') && Math.abs(pos.x - startPos.x) + Math.abs(pos.y - startPos.y) > 10) {
+        const toolType = editorState.tool as 'door' | 'window' | 'entrance';
         const nearestWall = getWallAtPoint(startPos.x, startPos.y);
         if (nearestWall) {
           const proj1 = projectPointOntoWall(startPos.x, startPos.y, nearestWall);
@@ -1588,69 +1589,12 @@ export default function FloorPlanEditor() {
           const midX = nearestWall.startX + midT * dx;
           const midY = nearestWall.startY + midT * dy;
           const angle = getWallAngle(nearestWall);
-          addObject({
-            id: 'door_' + Date.now(),
-            type: 'door',
-            x: midX,
-            y: midY,
-            width: Math.max(10, width),
-            angle,
-            swingDirection: 'right',
-            color: '#8B4513'
-          } as DoorObject);
+          const base = { id: `${toolType}_${Date.now()}`, type: toolType, x: midX, y: midY, width: Math.max(10, width), angle };
+          if (toolType === 'door') addObject({ ...base, swingDirection: 'right', color: '#8B4513' } as DoorObject);
+          else if (toolType === 'window') addObject({ ...base, color: '#87CEEB' } as WindowObject);
+          else addObject({ ...base, style: 'single', color: '#10b981' } as EntranceObject);
         } else {
-          alert('⚠️ Door must be placed on or near a wall');
-        }
-      } else if (editorState.tool === 'window' && Math.abs(pos.x - startPos.x) + Math.abs(pos.y - startPos.y) > 10) {
-        const nearestWall = getWallAtPoint(startPos.x, startPos.y);
-        if (nearestWall) {
-          const proj1 = projectPointOntoWall(startPos.x, startPos.y, nearestWall);
-          const proj2 = projectPointOntoWall(pos.x, pos.y, nearestWall);
-          const wallLen = dist(nearestWall.startX, nearestWall.startY, nearestWall.endX, nearestWall.endY);
-          const width = Math.abs(proj2.t - proj1.t) * wallLen;
-          const midT = (proj1.t + proj2.t) / 2;
-          const dx = nearestWall.endX - nearestWall.startX;
-          const dy = nearestWall.endY - nearestWall.startY;
-          const midX = nearestWall.startX + midT * dx;
-          const midY = nearestWall.startY + midT * dy;
-          const angle = getWallAngle(nearestWall);
-          addObject({
-            id: 'window_' + Date.now(),
-            type: 'window',
-            x: midX,
-            y: midY,
-            width: Math.max(10, width),
-            angle,
-            color: '#87CEEB'
-          } as WindowObject);
-        } else {
-          alert('⚠️ Window must be placed on or near a wall');
-        }
-      } else if (editorState.tool === 'entrance' && Math.abs(pos.x - startPos.x) + Math.abs(pos.y - startPos.y) > 10) {
-        const nearestWall = getWallAtPoint(startPos.x, startPos.y);
-        if (nearestWall) {
-          const proj1 = projectPointOntoWall(startPos.x, startPos.y, nearestWall);
-          const proj2 = projectPointOntoWall(pos.x, pos.y, nearestWall);
-          const wallLen = dist(nearestWall.startX, nearestWall.startY, nearestWall.endX, nearestWall.endY);
-          const width = Math.abs(proj2.t - proj1.t) * wallLen;
-          const midT = (proj1.t + proj2.t) / 2;
-          const dx = nearestWall.endX - nearestWall.startX;
-          const dy = nearestWall.endY - nearestWall.startY;
-          const midX = nearestWall.startX + midT * dx;
-          const midY = nearestWall.startY + midT * dy;
-          const angle = getWallAngle(nearestWall);
-          addObject({
-            id: 'entrance_' + Date.now(),
-            type: 'entrance',
-            x: midX,
-            y: midY,
-            width: Math.max(10, width),
-            angle,
-            style: 'single',
-            color: '#10b981'
-          } as EntranceObject);
-        } else {
-          alert('⚠️ Entrance must be placed on or near a wall');
+          alert(`⚠️ ${toolType.charAt(0).toUpperCase() + toolType.slice(1)} must be placed on or near a wall`);
         }
       }
     }

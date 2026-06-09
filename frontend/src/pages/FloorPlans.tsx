@@ -461,13 +461,18 @@ function mergeCollinear1D(
 // Trace the boundary segments (from the same grid-scan logic) into one or more
 // closed SVG path strings so the preview renders with hard mitered corners instead
 // of disconnected line caps.
-function buildFinalizedPaths(boxes: OutdoorWallBox[]): string[] {
-  if (boxes.length === 0) return [];
-
+function buildBoxGrid(boxes: OutdoorWallBox[]) {
   const xs = [...new Set(boxes.flatMap(b => [b.minX, b.maxX]))].sort((a, b) => a - b);
   const ys = [...new Set(boxes.flatMap(b => [b.minY, b.maxY]))].sort((a, b) => a - b);
   const inside = (cx: number, cy: number) =>
     boxes.some(b => cx >= b.minX && cx < b.maxX && cy >= b.minY && cy < b.maxY);
+  return { xs, ys, inside };
+}
+
+function buildFinalizedPaths(boxes: OutdoorWallBox[]): string[] {
+  if (boxes.length === 0) return [];
+
+  const { xs, ys, inside } = buildBoxGrid(boxes);
 
   // Collect raw boundary half-segments (not merged — need every individual grid step)
   const edges: Array<[number, number, number, number]> = []; // [x1,y1,x2,y2]
@@ -545,10 +550,7 @@ function buildFinalizedWalls(
   const walls: WallObject[] = [];
   if (boxes.length === 0) return walls;
 
-  const xs = [...new Set(boxes.flatMap(b => [b.minX, b.maxX]))].sort((a, b) => a - b);
-  const ys = [...new Set(boxes.flatMap(b => [b.minY, b.maxY]))].sort((a, b) => a - b);
-  const inside = (cx: number, cy: number) =>
-    boxes.some(b => cx >= b.minX && cx < b.maxX && cy >= b.minY && cy < b.maxY);
+  const { xs, ys, inside } = buildBoxGrid(boxes);
 
   // Collect boundary segments
   const hSegs: Array<{ x1: number; x2: number; y: number }> = [];
@@ -622,6 +624,46 @@ type SpanArea = {
   status: SpanStatus;
 };
 
+function isFixedFloorObject(id: string) {
+  return id.includes('reserved-stairs') || id.includes('reserved-elevator') ||
+    /reserved-(male-|female-)?restroom/.test(id) || id.includes('reserved-column');
+}
+
+function isOutdoorWallObject(obj: FloorPlanObject) {
+  return obj.type === 'wall' && (
+    (obj as WallObject).wallType === 'floor_original_outdoor' ||
+    !!(obj as WallObject).isFinalizedPerimeter ||
+    obj.id.includes('-ow-')
+  );
+}
+
+function buildDenseGrid(entries: AlignedOutdoorWallResult['entries']) {
+  const denseX = new Set<number>();
+  const denseY = new Set<number>();
+  entries.forEach(e => {
+    denseX.add(e.alignedBounds.minX); denseX.add(e.alignedBounds.maxX);
+    denseY.add(e.alignedBounds.minY); denseY.add(e.alignedBounds.maxY);
+    e.walls.forEach(w => {
+      denseX.add(Math.round(w.startX)); denseX.add(Math.round(w.endX));
+      denseY.add(Math.round(w.startY)); denseY.add(Math.round(w.endY));
+    });
+  });
+  return {
+    dxArr: [...denseX].sort((a, b) => a - b),
+    dyArr: [...denseY].sort((a, b) => a - b),
+  };
+}
+
+function buildColumnPoints(entries: AlignedOutdoorWallResult['entries'], acceptedCols: SuggestedColumn[]) {
+  return [
+    ...acceptedCols.map(c => ({ x: c.x + COLUMN_SIZE / 2, y: c.y + COLUMN_SIZE / 2 })),
+    ...entries.flatMap(e => (e.plan.objects ?? [])
+      .filter(o => o.id.includes('reserved-column'))
+      .map(o => ({ x: (o as RectangleObject).x + COLUMN_SIZE / 2, y: (o as RectangleObject).y + COLUMN_SIZE / 2 }))
+    ),
+  ];
+}
+
 // detectOpenSpans scans the dense wall-endpoint grid and returns every open cell
 // whose width or height exceeds MAX_SPAN that has no accepted/applied column nearby.
 // The same function is used by the scorer AND the review UI so counts always match.
@@ -633,30 +675,11 @@ function detectOpenSpans(
   const MAX_SPAN = 160;
   const NEARBY = MAX_SPAN * 0.6;
 
-  const denseX = new Set<number>();
-  const denseY = new Set<number>();
-  entries.forEach(e => {
-    denseX.add(e.alignedBounds.minX); denseX.add(e.alignedBounds.maxX);
-    denseY.add(e.alignedBounds.minY); denseY.add(e.alignedBounds.maxY);
-    e.walls.forEach(w => {
-      denseX.add(Math.round(w.startX)); denseX.add(Math.round(w.endX));
-      denseY.add(Math.round(w.startY)); denseY.add(Math.round(w.endY));
-    });
-  });
-  const dxArr = [...denseX].sort((a, b) => a - b);
-  const dyArr = [...denseY].sort((a, b) => a - b);
-
+  const { dxArr, dyArr } = buildDenseGrid(entries);
   const insidePoly = (px: number, py: number) =>
     entries.some(e => px >= e.alignedBounds.minX && px <= e.alignedBounds.maxX &&
                       py >= e.alignedBounds.minY && py <= e.alignedBounds.maxY);
-
-  const allColPts = [
-    ...acceptedCols.map(c => ({ x: c.x + COLUMN_SIZE / 2, y: c.y + COLUMN_SIZE / 2 })),
-    ...entries.flatMap(e => (e.plan.objects ?? [])
-      .filter(o => o.id.includes('reserved-column'))
-      .map(o => ({ x: (o as RectangleObject).x + COLUMN_SIZE / 2, y: (o as RectangleObject).y + COLUMN_SIZE / 2 }))
-    ),
-  ];
+  const allColPts = buildColumnPoints(entries, acceptedCols);
 
   const spans: SpanArea[] = [];
   for (let yi = 0; yi < dyArr.length - 1; yi++) {
@@ -820,28 +843,8 @@ function scoreFloorplanLayout(
   const SCORE_MAX_SPAN = 160;
   const NEARBY_RADIUS = SCORE_MAX_SPAN * 0.6;
 
-  // Build a denser grid: union of all wall endpoint coordinates per floor + midpoints
-  const denseX = new Set<number>();
-  const denseY = new Set<number>();
-  entries.forEach(e => {
-    denseX.add(e.alignedBounds.minX); denseX.add(e.alignedBounds.maxX);
-    denseY.add(e.alignedBounds.minY); denseY.add(e.alignedBounds.maxY);
-    e.walls.forEach(w => {
-      denseX.add(Math.round(w.startX)); denseX.add(Math.round(w.endX));
-      denseY.add(Math.round(w.startY)); denseY.add(Math.round(w.endY));
-    });
-  });
-  const dxArr = [...denseX].sort((a, b) => a - b);
-  const dyArr = [...denseY].sort((a, b) => a - b);
-
-  // All columns to check against (accepted preview + applied)
-  const allColPoints = [
-    ...acceptedCols.map(c => ({ x: c.x + COLUMN_SIZE / 2, y: c.y + COLUMN_SIZE / 2 })),
-    ...entries.flatMap(e => (e.plan.objects ?? [])
-      .filter(o => o.id.includes('reserved-column'))
-      .map(o => ({ x: (o as RectangleObject).x + COLUMN_SIZE / 2, y: (o as RectangleObject).y + COLUMN_SIZE / 2 }))
-    ),
-  ];
+  const { dxArr, dyArr } = buildDenseGrid(entries);
+  const allColPoints = buildColumnPoints(entries, acceptedCols);
 
   let unsupported = 0;
   for (let yi = 0; yi < dyArr.length - 1; yi++) {
@@ -1234,6 +1237,31 @@ export default function FloorPlans() {
   // Tracks in-flight per-plan full fetches so we don't double-fetch
   const fetchingPlansRef = useRef<Set<string>>(new Set());
 
+  const handleOverflowError = (error: any, context: 'generate' | 'regenerate') => {
+    const suggestedTemplates = error.response.data.suggestedFloorTemplates as string[];
+    setAutoGenerateFloorCount(error.response.data.suggestedFloorCount);
+    setAutoGenerateFloorTemplates(suggestedTemplates);
+    setShowAutoGenerateConfirm(true);
+    setAutoGenerateStatus({
+      type: 'error',
+      message: error.response.data.error,
+      progress: 100,
+      logs: [
+        `${error.response.data.overflowCount} locations would overflow`,
+        `Suggested ${error.response.data.suggestedFloorCount} floors${context === 'regenerate' ? ' per building' : ''}`,
+        `${context === 'generate' ? 'Generation' : 'Regeneration'} paused until the floor recommendation is reviewed`,
+      ],
+    });
+  };
+
+  const applyUpdatedPlans = (updatedPlans: FloorPlan[]) => {
+    setFloorPlans(prev => prev.map(plan => {
+      const updated = updatedPlans.find(c => c.id === plan.id);
+      return updated ? { ...plan, objects: updated.objects } : plan;
+    }));
+    setMergePreviewPlans(updatedPlans);
+  };
+
   const fetchFloorPlans = async () => {
     try {
       // Summary mode: metadata only — no objects. Thumbnails lazy-fetch full data on visibility.
@@ -1350,17 +1378,8 @@ export default function FloorPlans() {
     const boxes = aligned.entries.map(e => e.alignedBounds);
     const refEntry = aligned.entries.find(e => e.floorNumber === 1) ?? aligned.entries[0];
     // All interior room/area objects on the reference floor, shifted to shared coords
-    const isFixed = (id: string) =>
-      id.includes('reserved-stairs') || id.includes('reserved-elevator') ||
-      /reserved-(male-|female-)?restroom/.test(id) || id.includes('reserved-column');
-    const isOutdoorWall = (obj: FloorPlanObject) =>
-      obj.type === 'wall' && (
-        (obj as WallObject).wallType === 'floor_original_outdoor' ||
-        !!(obj as WallObject).isFinalizedPerimeter ||
-        obj.id.includes('-ow-')
-      );
     const refRooms = (refEntry?.plan.objects ?? [])
-      .filter(obj => !isFixed(obj.id) && !isOutdoorWall(obj) &&
+      .filter(obj => !isFixedFloorObject(obj.id) && !isOutdoorWallObject(obj) &&
         (obj.type === 'room' || obj.type === 'rack' || obj.type === 'shelf'))
       .map(obj => {
         const r = obj as RectangleObject;
@@ -1424,11 +1443,7 @@ export default function FloorPlans() {
         });
         return { ...entry.plan, objects };
       }));
-      setFloorPlans(prev => prev.map(plan => {
-        const updated = updatedPlans.find(c => c.id === plan.id);
-        return updated ? { ...plan, objects: updated.objects } : plan;
-      }));
-      setMergePreviewPlans(updatedPlans);
+      applyUpdatedPlans(updatedPlans);
       setShowColumnSuggest(false);
       setSuggestedColumns(emptySummary);
       setMergeError(`${acceptedCols.length} accepted columns applied to all ${aligned.entries.length} floors.`);
@@ -1513,20 +1528,7 @@ export default function FloorPlans() {
       window.setTimeout(() => setAutoGenerateStatus(null), 5000);
     } catch (error: any) {
       if (error.response?.data?.requiresMoreFloors) {
-        const suggestedTemplates = error.response.data.suggestedFloorTemplates as string[];
-        setAutoGenerateFloorCount(error.response.data.suggestedFloorCount);
-        setAutoGenerateFloorTemplates(suggestedTemplates);
-        setShowAutoGenerateConfirm(true);
-        setAutoGenerateStatus({
-          type: 'error',
-          message: error.response.data.error,
-          progress: 100,
-          logs: [
-            `${error.response.data.overflowCount} locations would overflow`,
-            `Suggested ${error.response.data.suggestedFloorCount} floors`,
-            'Generation paused until the floor recommendation is reviewed',
-          ],
-        });
+        handleOverflowError(error, 'generate');
         return;
       }
       setAutoGenerateStatus({
@@ -1611,20 +1613,7 @@ export default function FloorPlans() {
       });
     } catch (error: any) {
       if (error.response?.data?.requiresMoreFloors) {
-        const suggestedTemplates = error.response.data.suggestedFloorTemplates as string[];
-        setAutoGenerateFloorCount(error.response.data.suggestedFloorCount);
-        setAutoGenerateFloorTemplates(suggestedTemplates);
-        setShowAutoGenerateConfirm(true);
-        setAutoGenerateStatus({
-          type: 'error',
-          message: error.response.data.error,
-          progress: 100,
-          logs: [
-            `${error.response.data.overflowCount} locations would overflow`,
-            `Suggested ${error.response.data.suggestedFloorCount} floors per building`,
-            'Regeneration paused until the floor recommendation is reviewed',
-          ],
-        });
+        handleOverflowError(error, 'regenerate');
         return;
       }
       setAutoGenerateStatus({
@@ -1791,11 +1780,7 @@ export default function FloorPlans() {
         return { ...entry.plan, objects };
       }));
 
-      setFloorPlans(prev => prev.map(plan => {
-        const updated = updatedPlans.find(candidate => candidate.id === plan.id);
-        return updated ? { ...plan, objects: updated.objects } : plan;
-      }));
-      setMergePreviewPlans(updatedPlans);
+      applyUpdatedPlans(updatedPlans);
       setMergeError('Outdoor wall alignment applied to selected floors.');
     } catch {
       setMergeError('Failed to apply outdoor wall alignment.');
@@ -1840,11 +1825,7 @@ export default function FloorPlans() {
         return { ...entry.plan, objects };
       }));
 
-      setFloorPlans(prev => prev.map(plan => {
-        const updated = updatedPlans.find(c => c.id === plan.id);
-        return updated ? { ...plan, objects: updated.objects } : plan;
-      }));
-      setMergePreviewPlans(updatedPlans);
+      applyUpdatedPlans(updatedPlans);
       setShowFinalizePreview(false);
       setMergeError('Finalized perimeter applied to all selected floors.');
     } catch {
@@ -3069,15 +3050,6 @@ export default function FloorPlans() {
                     {/* Interior objects overlay */}
                     {showInteriorObjects && aligned.entries.map((entry, planIndex) => {
                       const color = MERGE_COLORS[planIndex % MERGE_COLORS.length];
-                      const isCoreFixed = (id: string) =>
-                        id.includes('reserved-stairs') || id.includes('reserved-elevator') ||
-                        /reserved-(male-|female-)?restroom/.test(id) || id.includes('reserved-column');
-                      const isOutdoorWall = (obj: FloorPlanObject) =>
-                        obj.type === 'wall' && (
-                          (obj as WallObject).wallType === 'floor_original_outdoor' ||
-                          !!(obj as WallObject).isFinalizedPerimeter ||
-                          obj.id.includes('-ow-')
-                        );
                       const isCoreLabel = (obj: FloorPlanObject) =>
                         obj.type === 'label' && /stair|elevator|lift|restroom|toilet|bathroom|lobby|core|server|mechanical|electrical/i.test((obj as import('@/types/floorplan').LabelObject).text);
                       const dx = entry.dx;
@@ -3092,13 +3064,13 @@ export default function FloorPlans() {
                         return short.length > 14 ? short.slice(0, 13) + '…' : short;
                       };
                       // Filter based on viewMode
-                      const allObjs = (entry.plan.objects ?? []).filter(obj => !isOutdoorWall(obj));
+                      const allObjs = (entry.plan.objects ?? []).filter(obj => !isOutdoorWallObject(obj));
                       const coreKeyword = /stair|elevator|lift|restroom|toilet|bathroom|lobby|core|server|mechanical|electrical|utility|shaft/i;
                       const interiorObjs = previewMode === 'all'
-                        ? allObjs.filter(obj => !isCoreFixed(obj.id))
+                        ? allObjs.filter(obj => !isFixedFloorObject(obj.id))
                         : previewMode === 'structural'
                         ? allObjs.filter(obj => {
-                            if (isCoreFixed(obj.id)) return true; // always show fixed core
+                            if (isFixedFloorObject(obj.id)) return true;
                             if (obj.type === 'wall') return true;
                             if (obj.type === 'rack' || obj.type === 'shelf') return false;
                             if (obj.type === 'room') return coreKeyword.test(obj.label ?? '');
@@ -3106,8 +3078,8 @@ export default function FloorPlans() {
                             return true;
                           })
                         : /* final */ allObjs.filter(obj => {
-                            if (isCoreFixed(obj.id)) return true; // show fixed core in final
-                            if (obj.type === 'wall') return false; // indoor walls hidden — only perimeter shows
+                            if (isFixedFloorObject(obj.id)) return true;
+                            if (obj.type === 'wall') return false;
                             if (obj.type === 'rack' || obj.type === 'shelf') return false;
                             if (obj.type === 'room') return coreKeyword.test(obj.label ?? '');
                             if (obj.type === 'label') return isCoreLabel(obj);
