@@ -205,7 +205,7 @@ export function validateFloorplanObjects(objects: FloorPlanObject[]): FloorplanV
   }
 
   movableStructuralRooms.forEach((room) => {
-    const overlappingRoom = structuralRooms.find((other) => other.id !== room.id && rectsOverlap(room, other));
+    const overlappingRoom = structuralRooms.find((other) => other.id !== room.id && !other.id.includes('reserved-column') && rectsOverlap(room, other));
     if (overlappingRoom) {
       errors.push({
         code: 'object_overlap',

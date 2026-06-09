@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { Plus, Trash2, MapPin, LayoutGrid, List, Edit, Sparkles, CheckCircle, XCircle, RefreshCw, BookmarkCheck, ChevronDown, ChevronUp, Info, AlertTriangle, Layers, Columns } from 'lucide-react';
+import { Plus, Trash2, MapPin, LayoutGrid, List, Edit, Sparkles, XCircle, RefreshCw, BookmarkCheck, ChevronDown, ChevronUp, Info, AlertTriangle, Layers, Columns, Lock } from 'lucide-react';
 import { formatDate } from '@/utils/ids';
 import { floorPlansApi, departmentsApi } from '@/services/api';
 import { FloorPlan, FloorPlanObject, RectangleObject, WallObject } from '@/types/floorplan';
@@ -1419,6 +1419,7 @@ export default function FloorPlans() {
     try {
       setApplyingColumns(true);
       const updatedPlans = await Promise.all(aligned.entries.map(async (entry) => {
+        if (entry.plan.isApproved) return entry.plan; // skip finalized floors
         // Remove old reserved-column objects, then add only accepted columns
         const existing = (entry.plan.objects ?? []).filter(obj => !obj.id.includes('reserved-column'));
         const columnObjects: RectangleObject[] = acceptedCols.map(col => ({
@@ -1755,6 +1756,7 @@ export default function FloorPlans() {
     try {
       setMergeApplying(true);
       const updatedPlans = await Promise.all(aligned.entries.map(async (entry) => {
+        if (entry.plan.isApproved) return entry.plan; // skip finalized floors
         const { dx, dy } = entry;
         const objects = (entry.plan.objects ?? []).map(obj => {
           // Outdoor walls: use the already-aligned+snapped versions from entry.walls
@@ -1800,18 +1802,32 @@ export default function FloorPlans() {
     try {
       setFinalizing(true);
       const updatedPlans = await Promise.all(aligned.entries.map(async (entry) => {
+        if (entry.plan.isApproved) return entry.plan; // skip already-finalized floors
         const { dx, dy } = entry;
         const floorPrefix = `floor${entry.floorNumber}-final`;
         const finalWalls = buildFinalizedWalls(boxes, floorPrefix);
         // Keep each floor's own outdoor walls, then add the finalized perimeter as extra walls.
         // Clean up: remove any previously applied finalized perimeter walls (by flag or legacy ID pattern).
+        // Collect groupIds that belong to indoor wall groups so we can ungroup their members
+        const indoorWallGroupIds = new Set(
+          (entry.plan.objects ?? [])
+            .filter(obj => obj.type === 'wall' && (obj as WallObject).wallType === 'floor_indoor' && obj.groupId)
+            .map(obj => obj.groupId as string)
+        );
         const retainedObjects = (entry.plan.objects ?? [])
           .filter(obj => {
             if (obj.type !== 'wall') return true;
             const w = obj as WallObject;
-            return !w.isFinalizedPerimeter && !w.id.includes('-final-ow-');
+            return !w.isFinalizedPerimeter && !w.id.includes('-final-ow-') && w.wallType !== 'floor_indoor';
           })
-          .map(obj => moveObject(obj, dx, dy));
+          .map(obj => {
+            const moved = moveObject(obj, dx, dy);
+            // Strip groupId from objects that were part of an indoor wall group
+            if (moved.groupId && indoorWallGroupIds.has(moved.groupId)) {
+              return { ...moved, groupId: undefined };
+            }
+            return moved;
+          });
         const objects = [...retainedObjects, ...finalWalls];
 
         await floorPlansApi.update(entry.plan.id, {
@@ -1821,6 +1837,7 @@ export default function FloorPlans() {
           scale: entry.plan.scale,
           locationId: entry.plan.locationId,
           objects,
+          isApproved: true,
         });
         return { ...entry.plan, objects };
       }));
@@ -2400,7 +2417,7 @@ export default function FloorPlans() {
                 onClick={() => mergeMode ? selectBuildingForMerge(plan) : navigate(`/floor-plans/${plan.id}/edit`)}
                 className={`aspect-square bg-[var(--surface)] rounded-lg shadow hover:shadow-lg transition cursor-pointer group flex flex-col ${
                   hasLocation ? 'ring-2 ring-[var(--primary)]' : ''
-                } ${isApproved ? 'ring-2 ring-green-400' : ''} ${mergeSelected ? 'ring-2 ring-[var(--primary)]' : ''} ${mergeDisabled ? 'opacity-45' : ''}`}>
+                } ${isApproved ? 'ring-2 ring-blue-400' : ''} ${mergeSelected ? 'ring-2 ring-[var(--primary)]' : ''} ${mergeDisabled ? 'opacity-45' : ''}`}>
                 {/* Thumbnail */}
                 <div className="flex-1 overflow-hidden rounded-t-lg bg-slate-100 relative">
                   <FloorPlanThumbnail plan={plan} width={200} height={200}
@@ -2422,14 +2439,14 @@ export default function FloorPlans() {
                     </span>
                   )}
 
-                  {/* Approved badge */}
+                  {/* Finalized badge */}
                   {isApproved && (
-                    <span className={`absolute ${mergeMode ? 'top-7' : 'top-1'} left-1 text-[10px] font-bold px-1.5 py-0.5 rounded bg-green-600 text-white flex items-center gap-0.5`}>
-                      <CheckCircle size={10} /> OK
+                    <span className={`absolute ${mergeMode ? 'top-7' : 'top-1'} left-1 text-[10px] font-bold px-1.5 py-0.5 rounded bg-blue-600 text-white flex items-center gap-0.5`}>
+                      <Lock size={10} /> Finalized
                     </span>
                   )}
 
-                  {validation && !validation.valid && (
+                  {validation && !validation.valid && !isApproved && (
                     <button
                       className="absolute bottom-1 left-1 flex items-center gap-0.5 text-[10px] font-bold px-1.5 py-0.5 rounded bg-red-600 text-white z-10"
                       onClick={e => { e.stopPropagation(); setErrorPanelPlanId(errorPanelPlanId === plan.id ? null : plan.id); }}
@@ -2577,7 +2594,7 @@ export default function FloorPlans() {
                             />
                           )}
                           {plan.name}
-                          {isApproved && <CheckCircle size={13} className="text-green-500 flex-shrink-0" />}
+                          {isApproved && <Lock size={13} className="text-blue-600 flex-shrink-0" />}
                           {isTemplate && <BookmarkCheck size={13} className="text-purple-500 flex-shrink-0" />}
                         </div>
                       </td>
@@ -3631,6 +3648,7 @@ export default function FloorPlans() {
                   const info = getBuildingInfo(entry.plan.name);
                   const label = info ? `Floor ${info.floorNumber}` : `Floor ${idx + 1}`;
                   const active = entry.plan.id === (objectsPanelFloorId ?? aligned.entries[0]?.plan.id);
+                  const finalized = !!entry.plan.isApproved;
                   return (
                     <button
                       key={entry.plan.id}
@@ -3645,6 +3663,7 @@ export default function FloorPlans() {
                       <span className="h-2 w-2 rounded-full inline-block flex-shrink-0"
                         style={{ backgroundColor: MERGE_COLORS[idx % MERGE_COLORS.length] }} />
                       {label}
+                      {finalized && <Lock size={10} className={active ? 'text-blue-200' : 'text-blue-500'} />}
                       <span className="opacity-60">({(entry.plan.objects ?? []).length})</span>
                     </button>
                   );
@@ -3655,6 +3674,11 @@ export default function FloorPlans() {
                 <div className="px-4 py-2 border-b border-[var(--border)] flex-shrink-0">
                   <p className="text-xs text-[var(--text-muted)] truncate">{activePlan.name}</p>
                   <p className="text-[11px] text-[var(--text-muted)]">{allObjects.length} total object{allObjects.length === 1 ? '' : 's'}</p>
+                  {activePlan.isApproved && (
+                    <p className="text-[11px] text-blue-700 bg-blue-50 border border-blue-200 rounded px-2 py-1 mt-1 flex items-center gap-1">
+                      <Lock size={10} /> Finalized — view only, not affected by Apply actions
+                    </p>
+                  )}
                 </div>
               )}
               {/* Object groups */}
@@ -3698,7 +3722,7 @@ export default function FloorPlans() {
 
       {errorPanelPlanId && (() => {
         const plan = floorPlans.find(p => p.id === errorPanelPlanId);
-        if (!plan) return null;
+        if (!plan || plan.isApproved) return null;
         const errs = validationMap.get(errorPanelPlanId)?.errors ?? [];
         return (
           <div className="fixed bottom-6 right-6 z-50 bg-[var(--surface)] border border-red-300 rounded-xl shadow-2xl w-80 max-h-[60vh] flex flex-col">

@@ -69,7 +69,6 @@ export default function FloorPlanEditor() {
   const canvasRef = useRef<HTMLDivElement>(null);
   const canvasWrapperRef = useRef<HTMLDivElement>(null);
   const user = JSON.parse(localStorage.getItem('user') || '{}');
-  const isReadOnly = user.role === 'staff';
 
   const {
     currentFloorPlan, editorState, selectedObjectIds,
@@ -78,6 +77,9 @@ export default function FloorPlanEditor() {
     bringToFront, sendToBack, moveForward, moveBackward, getObjectLayer, groupObjects, ungroupObjects,
     copyObjects, pasteObjects, undo, redo,
   } = useFloorPlanStore();
+
+  const isFinalized = !!currentFloorPlan?.isApproved;
+  const isReadOnly = user.role === 'staff' || isFinalized;
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -371,8 +373,8 @@ export default function FloorPlanEditor() {
       } else {
         drawObject(ctx, obj, isSelected);
       }
-      // Red dashed outline for objects with validation errors
-      if (validationErrors.some(e => e.objectId === obj.id) && 'x' in obj && 'width' in obj && 'height' in obj) {
+      // Red dashed outline for objects with validation errors (suppressed when finalized)
+      if (!isFinalized && validationErrors.some(e => e.objectId === obj.id) && 'x' in obj && 'width' in obj && 'height' in obj) {
         const r = obj as { x: number; y: number; width: number; height: number };
         ctx.save();
         ctx.strokeStyle = '#ef4444';
@@ -578,7 +580,7 @@ export default function FloorPlanEditor() {
       ctx.stroke();
       ctx.setLineDash([]);
     }
-  }, [currentFloorPlan, editorState, selectedObjectIds, startPos, currentMousePos, isSelectingRect, selectRectStart, selectRectEnd, productsByLocation, locationsMap, validationErrors]);
+  }, [currentFloorPlan, editorState, selectedObjectIds, startPos, currentMousePos, isSelectingRect, selectRectStart, selectRectEnd, productsByLocation, locationsMap, validationErrors, isFinalized]);
 
   useEffect(() => {
     redrawCanvas();
@@ -2027,7 +2029,13 @@ export default function FloorPlanEditor() {
             <Save size={16} /> {saving ? 'Saving…' : 'Save'}
           </button>
         )}
-        {isReadOnly && (
+        {isFinalized && (
+          <span className="text-xs font-medium text-blue-800 bg-blue-100 border border-blue-300 px-3 py-2 rounded-lg flex items-center gap-1.5">
+            <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+            Finalized — view only
+          </span>
+        )}
+        {!isFinalized && isReadOnly && (
           <span className="text-xs font-medium text-[var(--text-muted)] bg-[var(--surface-2)] px-3 py-2 rounded-lg">
             Read-only view
           </span>
@@ -2734,7 +2742,7 @@ export default function FloorPlanEditor() {
       </div>
 
       {/* Validation error panel */}
-      {validationErrors.length > 0 && (
+      {validationErrors.length > 0 && !isFinalized && (
         <div className="absolute top-[72px] right-[328px] bg-[var(--surface)] border border-red-300 rounded-lg p-3 max-w-[280px] z-50 shadow-lg pointer-events-auto">
           <div className="flex items-center justify-between mb-2">
             <div className="flex items-center gap-1.5 text-red-600 font-semibold text-xs">
