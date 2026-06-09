@@ -1,16 +1,14 @@
-import { Router, Request, Response, NextFunction } from 'express';
+import { Router, Response, NextFunction } from 'express';
 import prisma from '../utils/prisma';
 import { authMiddleware, AuthRequest } from '../middleware/auth';
+import { requireSuperadmin } from '../utils/routeHelpers';
 
 const router = Router();
 
 // Get admin's assigned departments
 router.get('/admin/:adminId', authMiddleware, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    const user = await prisma.user.findUnique({ where: { id: req.userId } });
-    if (!user || user.role !== 'superadmin') {
-      return res.status(403).json({ error: 'Unauthorized' });
-    }
+    if (!await requireSuperadmin(req, res)) return;
 
     const adminDepts = await prisma.adminDepartment.findMany({
       where: { userId: req.params.adminId },
@@ -26,10 +24,7 @@ router.get('/admin/:adminId', authMiddleware, async (req: AuthRequest, res: Resp
 // Assign department to admin
 router.post('/', authMiddleware, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    const user = await prisma.user.findUnique({ where: { id: req.userId } });
-    if (!user || user.role !== 'superadmin') {
-      return res.status(403).json({ error: 'Only superadmins can assign departments' });
-    }
+    if (!await requireSuperadmin(req, res)) return;
 
     const { adminId, departmentId } = req.body;
     if (!adminId || !departmentId) {
@@ -66,10 +61,7 @@ router.post('/', authMiddleware, async (req: AuthRequest, res: Response, next: N
 // Remove department assignment
 router.delete('/:adminId/:departmentId', authMiddleware, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    const user = await prisma.user.findUnique({ where: { id: req.userId } });
-    if (!user || user.role !== 'superadmin') {
-      return res.status(403).json({ error: 'Only superadmins can remove assignments' });
-    }
+    if (!await requireSuperadmin(req, res)) return;
 
     const { adminId, departmentId } = req.params;
 

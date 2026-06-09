@@ -2,6 +2,7 @@ import { Router, Response, NextFunction } from 'express';
 import prisma from '../utils/prisma';
 import { AuthRequest } from '../middleware/auth';
 import { logAudit } from '../utils/audit';
+import { listRequests } from '../utils/routeHelpers';
 
 const router = Router();
 
@@ -31,41 +32,22 @@ async function autoApproveExpired() {
 router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     await autoApproveExpired();
-
-    let whereFilter: any = {};
-    if (req.userRole === 'admin') {
-      if (req.departmentIds && req.departmentIds.length > 0) {
-        whereFilter = { departmentId: { in: req.departmentIds } };
-      } else {
-        whereFilter = { departmentId: req.departmentId };
-      }
-    } else if (req.userRole === 'staff') {
-      whereFilter = { submittedBy: req.userId };
-    }
-    // superadmin sees all
-
-    const page = Math.max(1, parseInt(req.query.page as string) || 1);
-    const limit = Math.min(Math.max(1, parseInt(req.query.limit as string) || 50), 200);
-    const skip = (page - 1) * limit;
-
-    const [total, requests] = await Promise.all([
-      prisma.importRequest.count({ where: whereFilter }),
-      prisma.importRequest.findMany({
-        where: whereFilter,
-        include: {
-          submitter: { select: { id: true, name: true, email: true } },
-          department: { select: { id: true, name: true } },
-          reviewer: { select: { id: true, name: true } },
-        },
-        orderBy: { createdAt: 'desc' },
-        skip,
-        take: limit,
-      }),
-    ]);
-    res.json({ data: requests, total, page, limit });
   } catch (error) {
-    next(error);
+    return next(error);
   }
+  let where: any = {};
+  if (req.userRole === 'admin') {
+    where = req.departmentIds && req.departmentIds.length > 0
+      ? { departmentId: { in: req.departmentIds } }
+      : { departmentId: req.departmentId };
+  } else if (req.userRole === 'staff') {
+    where = { submittedBy: req.userId };
+  }
+  await listRequests(res, next, prisma.importRequest, where, {
+    submitter: { select: { id: true, name: true, email: true } },
+    department: { select: { id: true, name: true } },
+    reviewer: { select: { id: true, name: true } },
+  }, req.query);
 });
 
 // GET /:id — single request

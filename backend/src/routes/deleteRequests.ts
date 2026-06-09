@@ -1,6 +1,7 @@
-﻿import { Router, Request, Response, NextFunction } from 'express';
+﻿import { Router, Response, NextFunction } from 'express';
 import prisma from '../utils/prisma';
 import { authMiddleware, AuthRequest, adminMiddleware } from '../middleware/auth';
+import { listRequests } from '../utils/routeHelpers';
 
 const router = Router();
 
@@ -32,35 +33,13 @@ router.post('/', authMiddleware, async (req: AuthRequest, res: Response, next: N
 
 // List delete requests (admin sees all, staff sees own)
 router.get('/', authMiddleware, async (req: AuthRequest, res: Response, next: NextFunction) => {
-  try {
-    const status = req.query.status as string;
-    let where: any = status ? { status } : {};
-    if (req.userRole === 'staff') {
-      where = { ...where, requestedBy: req.userId };
-    }
-
-    const page = Math.max(1, parseInt(req.query.page as string) || 1);
-    const limit = Math.min(Math.max(1, parseInt(req.query.limit as string) || 50), 200);
-    const skip = (page - 1) * limit;
-
-    const [total, deleteRequests] = await Promise.all([
-      prisma.deleteRequest.count({ where }),
-      prisma.deleteRequest.findMany({
-        where,
-        include: {
-          requester: { select: { id: true, name: true, email: true } },
-          reviewer: { select: { id: true, name: true, email: true } },
-        },
-        orderBy: { createdAt: 'desc' },
-        skip,
-        take: limit,
-      }),
-    ]);
-
-    res.json({ data: deleteRequests, total, page, limit });
-  } catch (error) {
-    next(error);
-  }
+  const status = req.query.status as string;
+  let where: any = status ? { status } : {};
+  if (req.userRole === 'staff') where = { ...where, requestedBy: req.userId };
+  await listRequests(res, next, prisma.deleteRequest, where, {
+    requester: { select: { id: true, name: true, email: true } },
+    reviewer: { select: { id: true, name: true, email: true } },
+  }, req.query);
 });
 
 // Approve delete request (admin only)
