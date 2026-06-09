@@ -12,13 +12,13 @@
 # CONFIGURE:
 #   CTO_BASH_GUARD_DISABLE=1  — bypass all checks
 
-if [ "${CTO_BASH_GUARD_DISABLE:-0}" = "1" ]; then
+if [[ "${CTO_BASH_GUARD_DISABLE:-0}" = "1" ]]; then
   exit 0
 fi
 
 # Only intercept Bash tool calls
 TOOL_NAME="${CLAUDE_TOOL_NAME:-}"
-if [ "$TOOL_NAME" != "Bash" ]; then
+if [[ "$TOOL_NAME" != "Bash" ]]; then
   exit 0
 fi
 
@@ -31,7 +31,7 @@ except Exception:
     pass
 " 2>/dev/null)
 
-if [ -z "$CMD" ]; then
+if [[ -z "$CMD" ]]; then
   exit 0
 fi
 

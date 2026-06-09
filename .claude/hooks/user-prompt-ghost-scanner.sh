@@ -15,7 +15,7 @@
 #
 # Override: CTO_GHOST_SCAN_DISABLE=1
 
-if [ "${CTO_GHOST_SCAN_DISABLE:-0}" = "1" ]; then
+if [[ "${CTO_GHOST_SCAN_DISABLE:-0}" = "1" ]]; then
   exit 0
 fi
 
@@ -24,12 +24,12 @@ TOKEN_LOG=".claude/sessions/token-log.md"
 CLAUDE_MD="CLAUDE.md"
 
 # Run once per day
-if [ -f "$SESSION_MARKER" ]; then
+if [[ -f "$SESSION_MARKER" ]]; then
   exit 0
 fi
 
 # Require both files to exist
-if [ ! -f "$TOKEN_LOG" ] || [ ! -f "$CLAUDE_MD" ]; then
+if [[ ! -f "$TOKEN_LOG" ]] || [[ ! -f "$CLAUDE_MD" ]]; then
   exit 0
 fi
 

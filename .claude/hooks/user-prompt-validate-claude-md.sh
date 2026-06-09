@@ -19,7 +19,7 @@ CLAUDE_MD="${CTO_CLAUDE_MD_PATH:-CLAUDE.md}"
 TOKEN_THRESHOLD="${CTO_TOKEN_WARN_THRESHOLD:-600}"
 
 # Only run once per day
-if [ -f "$MARKER" ]; then
+if [[ -f "$MARKER" ]]; then
   exit 0
 fi
 
@@ -27,7 +27,7 @@ mkdir -p ".claude/sessions"
 touch "$MARKER"
 
 # CLAUDE.md missing — silent, not an error (project may not use cto)
-if [ ! -f "$CLAUDE_MD" ]; then
+if [[ ! -f "$CLAUDE_MD" ]]; then
   exit 0
 fi
 
@@ -87,7 +87,7 @@ if issues:
 PYEOF
 )
 
-if [ -n "$ISSUES" ]; then
+if [[ -n "$ISSUES" ]]; then
   # stdout → injected into Claude's context
   echo "Note: $ISSUES"
   # stderr → visible to user in terminal

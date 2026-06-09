@@ -13,7 +13,7 @@
 # CONFIGURE (optional):
 #   CTO_PATH_GUARD_DISABLE=1  — bypass all checks
 
-if [ "${CTO_PATH_GUARD_DISABLE:-0}" = "1" ]; then
+if [[ "${CTO_PATH_GUARD_DISABLE:-0}" = "1" ]]; then
   exit 0
 fi
 
@@ -28,7 +28,7 @@ except:
     pass
 " 2>/dev/null)
 
-if [ -z "$TRANSCRIPT" ] || [ ! -f "$TRANSCRIPT" ]; then
+if [[ -z "$TRANSCRIPT" ]] || [[ ! -f "$TRANSCRIPT" ]]; then
   exit 0
 fi
 

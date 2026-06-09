@@ -11,14 +11,14 @@ CACHE_FILE=".claude/sessions/.notification-token-cache"
 SESSION_MARKER=".claude/sessions/.notification-shown-$(date +%Y-%m-%d)"
 
 # Already shown today — stay silent
-if [ -f "$SESSION_MARKER" ]; then
+if [[ -f "$SESSION_MARKER" ]]; then
   exit 0
 fi
 
 mkdir -p ".claude/sessions"
 
 # Compute token estimate if cache missing or stale (older than today)
-if [ ! -f "$CACHE_FILE" ] || [ "$(find "$CACHE_FILE" -mtime +0 2>/dev/null)" ]; then
+if [[ ! -f "$CACHE_FILE" ]] || [[ "$(find "$CACHE_FILE" -mtime +0 2>/dev/null)" ]]; then
   WORD_COUNT=$(find . -maxdepth 3 \
     \( -name "*.md" -path "./.claude/*.md" -o -path "./CLAUDE.md" -o -path "./docs/INDEX.md" \) \
     -not -path "./.claude/completions/*" \

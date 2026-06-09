@@ -30,7 +30,7 @@ except:
     pass
 " 2>/dev/null)
 
-if [ -z "$PROMPT" ] || [ ! -d "$LEARNINGS_DIR" ]; then
+if [[ -z "$PROMPT" ]] || [[ ! -d "$LEARNINGS_DIR" ]]; then
   exit 0
 fi
 
@@ -107,7 +107,7 @@ for fname, path, content, wcount in injected:
 PYEOF
 )
 
-if [ -n "$INJECTED" ]; then
+if [[ -n "$INJECTED" ]]; then
   echo "$INJECTED"
 fi
 

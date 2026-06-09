@@ -16,7 +16,7 @@ SNAPSHOT=".claude/sessions/snapshot.md"
 MARKER=".claude/sessions/.snapshot-injected-$(date +%Y-%m-%d)"
 
 # Only inject once per session day
-if [ -f "$MARKER" ]; then
+if [[ -f "$MARKER" ]]; then
   exit 0
 fi
 
@@ -24,7 +24,7 @@ mkdir -p ".claude/sessions"
 touch "$MARKER"
 
 # No snapshot yet — silent exit (first-ever session or hooks just installed)
-if [ ! -f "$SNAPSHOT" ]; then
+if [[ ! -f "$SNAPSHOT" ]]; then
   exit 0
 fi
 
@@ -41,7 +41,7 @@ fi
 
 SNAPSHOT_CONTENT=$(cat "$SNAPSHOT")
 
-if [ "$SNAPSHOT_AGE_HOURS" -gt 24 ] 2>/dev/null; then
+if [[ "$SNAPSHOT_AGE_HOURS" -gt 24 ]] 2>/dev/null; then
   # Stale but still useful — inject with caveat
   echo "--- Previous Session Snapshot (${SNAPSHOT_AGE_HOURS}h ago — may be outdated) ---"
   echo "$SNAPSHOT_CONTENT"

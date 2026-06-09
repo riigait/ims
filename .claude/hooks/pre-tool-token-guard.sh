@@ -18,7 +18,7 @@ WARN_TOKENS="${CTO_WARN_TOKENS:-2000}"
 BLOCK_TOKENS="${CTO_BLOCK_TOKENS:-8000}"
 
 # Only run once per session to avoid per-call latency
-if [ -f "$MARKER" ]; then
+if [[ -f "$MARKER" ]]; then
   exit 0
 fi
 
@@ -37,12 +37,12 @@ touch "$MARKER"
 WORD_COUNT="${WORD_COUNT:-0}"
 APPROX_TOKENS=$(echo "$WORD_COUNT * 13 / 10" | bc 2>/dev/null || echo "0")
 
-if [ "$APPROX_TOKENS" -ge "$BLOCK_TOKENS" ] 2>/dev/null; then
+if [[ "$APPROX_TOKENS" -ge "$BLOCK_TOKENS" ]] 2>/dev/null; then
   echo "🚫 Token guard: ~${APPROX_TOKENS} tokens in auto-loaded files (limit: ${BLOCK_TOKENS})" >&2
   echo "   Run: cto measure  to identify what's loading" >&2
   echo "   Run: cto audit   to find structural issues" >&2
   exit 2
-elif [ "$APPROX_TOKENS" -ge "$WARN_TOKENS" ] 2>/dev/null; then
+elif [[ "$APPROX_TOKENS" -ge "$WARN_TOKENS" ]] 2>/dev/null; then
   echo "⚠️  Token warning: ~${APPROX_TOKENS} tokens in auto-loaded files (target: <${WARN_TOKENS})" >&2
   echo "   Run: cto measure  to see the breakdown" >&2
 fi

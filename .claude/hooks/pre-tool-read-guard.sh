@@ -15,13 +15,13 @@
 #   CTO_READ_GUARD_DISABLE  — set to 1 to bypass all guards
 
 # Bypass switch
-if [ "${CTO_READ_GUARD_DISABLE:-0}" = "1" ]; then
+if [[ "${CTO_READ_GUARD_DISABLE:-0}" = "1" ]]; then
   exit 0
 fi
 
 # Only fire on Read tool
 TOOL_NAME="${CLAUDE_TOOL_NAME:-}"
-if [ "$TOOL_NAME" != "Read" ]; then
+if [[ "$TOOL_NAME" != "Read" ]]; then
   exit 0
 fi
 
@@ -38,7 +38,7 @@ except:
     pass
 " 2>/dev/null)
 
-if [ -z "$FILE_PATH" ]; then
+if [[ -z "$FILE_PATH" ]]; then
   exit 0
 fi
 
@@ -53,6 +53,8 @@ case "$BASENAME" in
     echo "   Use: cat package.json | python3 -m json.tool  for dependency info" >&2
     echo "   Override: CTO_READ_GUARD_DISABLE=1" >&2
     exit 2
+    ;;
+  *)
     ;;
 esac
 
@@ -76,23 +78,25 @@ case "$EXT" in
     echo "🚫 Read blocked: '$FILE_PATH' is a compiled binary file." >&2
     exit 2
     ;;
+  *)
+    ;;
 esac
 
 # --- Size-based rules (requires file to exist) ---
-if [ ! -f "$FILE_PATH" ]; then
+if [[ ! -f "$FILE_PATH" ]]; then
   exit 0
 fi
 
 FILE_BYTES=$(wc -c < "$FILE_PATH" 2>/dev/null || echo "0")
 
-if [ "$FILE_BYTES" -ge "$READ_MAX_BYTES" ] 2>/dev/null; then
+if [[ "$FILE_BYTES" -ge "$READ_MAX_BYTES" ]] 2>/dev/null; then
   FILE_KB=$((FILE_BYTES / 1024))
   APPROX_TOKENS=$((FILE_BYTES / 4))
   echo "🚫 Read blocked: '$FILE_PATH' is ${FILE_KB}KB (~${APPROX_TOKENS} tokens, limit: $((READ_MAX_BYTES / 1024))KB)." >&2
   echo "   Use Read with offset/limit params, or: head -100 '$FILE_PATH'" >&2
   echo "   Override: CTO_READ_GUARD_DISABLE=1  or raise CTO_READ_MAX_BYTES" >&2
   exit 2
-elif [ "$FILE_BYTES" -ge "$READ_WARN_BYTES" ] 2>/dev/null; then
+elif [[ "$FILE_BYTES" -ge "$READ_WARN_BYTES" ]] 2>/dev/null; then
   FILE_KB=$((FILE_BYTES / 1024))
   APPROX_TOKENS=$((FILE_BYTES / 4))
   echo "⚠️  Large file: '$FILE_PATH' is ${FILE_KB}KB (~${APPROX_TOKENS} tokens). Reading..." >&2

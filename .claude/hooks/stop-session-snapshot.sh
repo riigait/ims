@@ -27,7 +27,7 @@ if git rev-parse --git-dir >/dev/null 2>&1; then
   ALL_CHANGED=$(printf '%s\n%s\n%s\n' "$UNSTAGED" "$STAGED" "$LAST_COMMIT" \
     | sort -u | grep -v '^$' | head -10)
 
-  if [ -n "$ALL_CHANGED" ]; then
+  if [[ -n "$ALL_CHANGED" ]]; then
     CHANGED_FILES=$(echo "$ALL_CHANGED" | awk '{print "- " $0}')
   fi
 fi
@@ -59,7 +59,7 @@ except:
     pass
 " 2>/dev/null)
 
-if [ -n "$TRANSCRIPT" ] && [ -f "$TRANSCRIPT" ]; then
+if [[ -n "$TRANSCRIPT" ]] && [[ -f "$TRANSCRIPT" ]]; then
   # Extract last assistant message text (last 120 chars of last assistant turn)
   LAST_TASK=$(python3 - "$TRANSCRIPT" <<'PYEOF'
 import sys, json
@@ -94,13 +94,13 @@ fi
   echo "# Session Snapshot — ${DATE}"
   echo ""
 
-  if [ -n "$CHANGED_FILES" ]; then
+  if [[ -n "$CHANGED_FILES" ]]; then
     echo "## Files Changed"
     echo "$CHANGED_FILES"
     echo ""
   fi
 
-  if [ -n "$GIT_LOG" ]; then
+  if [[ -n "$GIT_LOG" ]]; then
     echo "## Recent Commits"
     echo "$GIT_LOG" | awk '{print "- " $0}'
     echo ""
@@ -110,7 +110,7 @@ fi
   echo "~${APPROX_TOKENS} tokens in auto-loaded files"
   echo ""
 
-  if [ -n "$LAST_TASK" ]; then
+  if [[ -n "$LAST_TASK" ]]; then
     echo "## Last Turn"
     echo "$LAST_TASK"
     echo ""

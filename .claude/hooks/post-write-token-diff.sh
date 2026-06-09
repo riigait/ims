@@ -20,7 +20,7 @@ TIME=$(date +%H:%M)
 
 # Only fire on Write or Edit tool completions
 TOOL_NAME="${CLAUDE_TOOL_NAME:-}"
-if [ "$TOOL_NAME" != "Write" ] && [ "$TOOL_NAME" != "Edit" ]; then
+if [[ "$TOOL_NAME" != "Write" ]] && [[ "$TOOL_NAME" != "Edit" ]]; then
   exit 0
 fi
 
@@ -36,7 +36,7 @@ except:
     pass
 " 2>/dev/null)
 
-if [ -z "$FILE_PATH" ] || [ ! -f "$FILE_PATH" ]; then
+if [[ -z "$FILE_PATH" ]] || [[ ! -f "$FILE_PATH" ]]; then
   exit 0
 fi
 
@@ -46,7 +46,7 @@ FILE_TOKENS=$(echo "$WORD_COUNT * 13 / 10" | bc 2>/dev/null || echo "0")
 
 # Init log file if needed
 mkdir -p "$(dirname "$LOG_FILE")"
-if [ ! -f "$LOG_FILE" ]; then
+if [[ ! -f "$LOG_FILE" ]]; then
   printf '# Write Token Log\n\n| Date | Time | Tool | File | Est. Tokens |\n|------|------|------|------|-------------|\n' > "$LOG_FILE"
 fi
 
@@ -55,7 +55,7 @@ echo "| $DATE | $TIME | $TOOL_NAME | \`$FILE_PATH\` | ~${FILE_TOKENS} |" >> "$LO
 # Cumulative advisory: sum the last column of the log
 CUMULATIVE=$(awk -F'~' 'NR>2 && NF>1 {gsub(/ \|.*/,"",$NF); sum += $NF} END {print sum+0}' "$LOG_FILE" 2>/dev/null || echo "0")
 
-if [ "$CUMULATIVE" -ge "$ADVISORY_THRESHOLD" ] 2>/dev/null; then
+if [[ "$CUMULATIVE" -ge "$ADVISORY_THRESHOLD" ]] 2>/dev/null; then
   echo "📝 Write log: ~${CUMULATIVE} tokens written this session (across $(grep -c '|' "$LOG_FILE" 2>/dev/null || echo "?") files)" >&2
   echo "   View full log: cat ${LOG_FILE}" >&2
 fi

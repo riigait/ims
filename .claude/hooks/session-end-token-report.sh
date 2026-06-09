@@ -24,7 +24,7 @@ APPROX_TOKENS=$(echo "$WORD_COUNT * 1.3 / 1" | bc 2>/dev/null || echo "?")
 
 mkdir -p "$(dirname "$LOG_FILE")"
 
-if [ ! -f "$LOG_FILE" ]; then
+if [[ ! -f "$LOG_FILE" ]]; then
   echo "# Token Log" > "$LOG_FILE"
   echo "" >> "$LOG_FILE"
   echo "| Date | Time | Est. Session Tokens |" >> "$LOG_FILE"
