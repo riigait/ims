@@ -1,8 +1,9 @@
-import { Router, Request, Response, NextFunction } from 'express';
+import { Router, Response, NextFunction } from 'express';
 import bcrypt from 'bcryptjs';
 import prisma from '../utils/prisma';
 import { authMiddleware, AuthRequest } from '../middleware/auth';
 import { validatePassword } from '../utils/passwordPolicy';
+import { listRequests } from '../utils/routeHelpers';
 
 const router = Router();
 
@@ -50,37 +51,15 @@ router.post('/', authMiddleware, async (req: AuthRequest, res: Response, next: N
 
 // List password change requests — admin/superadmin only
 router.get('/', authMiddleware, async (req: AuthRequest, res: Response, next: NextFunction) => {
-  try {
-    const role = req.userRole;
-    let where: any = {};
-    if (role === 'staff') {
-      where = { requestedBy: req.userId };
-    } else if (!['admin', 'superadmin'].includes(role || '')) {
-      return res.status(403).json({ error: 'Access denied' });
-    }
-
-    const page = Math.max(1, parseInt(req.query.page as string) || 1);
-    const limit = Math.min(Math.max(1, parseInt(req.query.limit as string) || 50), 200);
-    const skip = (page - 1) * limit;
-
-    const [total, requests] = await Promise.all([
-      prisma.passwordChangeRequest.count({ where }),
-      prisma.passwordChangeRequest.findMany({
-        where,
-        include: {
-          requester: { select: { id: true, name: true, email: true, role: true } },
-          approver: { select: { id: true, name: true, email: true } },
-        },
-        orderBy: { createdAt: 'desc' },
-        skip,
-        take: limit,
-      }),
-    ]);
-
-    res.json({ data: requests, total, page, limit });
-  } catch (error) {
-    next(error);
+  const role = req.userRole;
+  if (!['admin', 'superadmin', 'staff'].includes(role || '')) {
+    return res.status(403).json({ error: 'Access denied' });
   }
+  const where: any = role === 'staff' ? { requestedBy: req.userId } : {};
+  await listRequests(res, next, prisma.passwordChangeRequest, where, {
+    requester: { select: { id: true, name: true, email: true, role: true } },
+    approver: { select: { id: true, name: true, email: true } },
+  }, req.query);
 });
 
 // Approve password change request — admin/superadmin

@@ -1,6 +1,7 @@
 import { Router, Response, NextFunction } from 'express';
 import prisma from '../utils/prisma';
 import { authMiddleware, AuthRequest, adminMiddleware } from '../middleware/auth';
+import { listRequests } from '../utils/routeHelpers';
 
 const router = Router();
 
@@ -62,36 +63,14 @@ router.post('/', authMiddleware, async (req: AuthRequest, res: Response, next: N
 
 // List edit requests (admin/superadmin sees all, staff sees own)
 router.get('/', authMiddleware, async (req: AuthRequest, res: Response, next: NextFunction) => {
-  try {
-    const status = req.query.status as string;
-    let where: any = status ? { status } : {};
-    if (req.userRole === 'staff') {
-      where = { ...where, requestedBy: req.userId };
-    }
-
-    const page = Math.max(1, Number.parseInt(req.query.page as string) || 1);
-    const limit = Math.min(Math.max(1, Number.parseInt(req.query.limit as string) || 50), 200);
-    const skip = (page - 1) * limit;
-
-    const [total, editRequests] = await Promise.all([
-      prisma.editRequest.count({ where }),
-      prisma.editRequest.findMany({
-        where,
-        include: {
-          product: { select: { id: true, name: true, sku: true } },
-          requester: { select: { id: true, name: true, email: true } },
-          reviewer: { select: { id: true, name: true, email: true } },
-        },
-        orderBy: { createdAt: 'desc' },
-        skip,
-        take: limit,
-      }),
-    ]);
-
-    res.json({ data: editRequests, total, page, limit });
-  } catch (error) {
-    next(error);
-  }
+  const status = req.query.status as string;
+  let where: any = status ? { status } : {};
+  if (req.userRole === 'staff') where = { ...where, requestedBy: req.userId };
+  await listRequests(res, next, prisma.editRequest, where, {
+    product: { select: { id: true, name: true, sku: true } },
+    requester: { select: { id: true, name: true, email: true } },
+    reviewer: { select: { id: true, name: true, email: true } },
+  }, req.query);
 });
 
 // Approve edit request — applies proposedChanges to the product

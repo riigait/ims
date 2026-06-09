@@ -37,8 +37,7 @@ export default function DepartmentGuard({ children }: DepartmentGuardProps) {
     let active = true;
     const refreshUser = async () => {
       try {
-        const token = localStorage.getItem('token');
-        if (!token) {
+        if (!localStorage.getItem('user')) {
           navigate('/login');
           return;
         }
@@ -50,7 +49,6 @@ export default function DepartmentGuard({ children }: DepartmentGuardProps) {
         if (active) setUser(userData);
       } catch (err: any) {
         if (err.response?.status === 401) {
-          localStorage.removeItem('token');
           localStorage.removeItem('user');
           localStorage.removeItem('currentDepartmentId');
           navigate('/login');
@@ -72,7 +70,7 @@ export default function DepartmentGuard({ children }: DepartmentGuardProps) {
     (user.role === 'admin' ? (!user.adminDepartments || user.adminDepartments.length === 0) : (!user.staffDepartments || user.staffDepartments.length === 0));
 
   const handleLogout = () => {
-    localStorage.removeItem('token');
+    authApi.logout().catch(() => {});
     localStorage.removeItem('user');
     localStorage.removeItem('currentDepartmentId');
     navigate('/login');

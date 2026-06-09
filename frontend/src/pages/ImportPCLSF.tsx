@@ -136,11 +136,6 @@ export default function ImportPCLSF() {
     window.URL.revokeObjectURL(url);
   };
 
-  const randomCode = (length = 5) => {
-    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-    return Array.from({ length }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
-  };
-
   const timestampForFilename = () => {
     const now = new Date();
     const pad = (value: number) => String(value).padStart(2, '0');
@@ -223,7 +218,7 @@ export default function ImportPCLSF() {
     return rows.slice(1).map(values => {
       const item: CsvRow = {};
       headers.forEach((header, index) => {
-        item[header] = (values[index] || '').trim();
+        if (header && values[index] !== undefined) item[header] = values[index].trim();
       });
       return item;
     });
@@ -247,19 +242,10 @@ export default function ImportPCLSF() {
 
   const isInventoryListCsv = (csvContent: string) => {
     const headers = new Set(csvContent.split(/\r?\n/)[0]?.split(',').map(normalizeCsvHeader) || []);
-    const hasDescription = headers.has('description') || headers.has('item name') || headers.has('product name') || headers.has('name');
-    const perUnitSignals = [
-      'model number', 'serial number', 'mac id', 'mac address', 'asset tag', 'asset id',
-      'barcode', 'inventory id', 'count', 'device type', 'condition', 'quantity',
-      'account number', 'account name', 'telephone number', 'telephone', 'phone number',
-      'phone', 'plan', 'address', 'place', 'speed', 'remarks', 'supplier', 'vendor',
-      'location', 'category', 'department', 'status', 'unit', 'brand',
-    ];
-    const matched = perUnitSignals.filter(s => headers.has(s));
-    return hasDescription && matched.length >= 2;
+    return headers.has('description') || headers.has('item name') || headers.has('product name') || headers.has('name');
   };
 
-  const convertInventoryListToUnifiedCsv = (csvContent: string, sourceFileName?: string, startIndex = 1) => {
+  const convertInventoryListToUnifiedCsv = (csvContent: string, sourceFileName?: string) => {
     const rows = parseCsvRows(csvContent);
     const now = new Date().toISOString();
     const locations = new Map<string, CsvRow>();
@@ -342,11 +328,8 @@ export default function ImportPCLSF() {
       ];
       const notes = notesFields.filter(([, v]) => v).map(([k, v]) => `${k}: ${v}`).join('; ');
 
-      const rowNo = String(startIndex + products.length).padStart(4, '0');
-
       products.push({
-        id: `csv-${rowNo}`,
-        sku: getCsvValue(row, 'SKU', 'Product Code') || `CSV-${rowNo}`,
+        sku: getCsvValue(row, 'SKU', 'Product Code'),
         name: description.slice(0, 80),
         description,
         categoryId,
@@ -404,23 +387,14 @@ export default function ImportPCLSF() {
       setCorrectorLoading(true);
       const csvContent = await parseCSV(correctorFile);
       if (!isInventoryListCsv(csvContent)) {
-        setError('CSV Corrector could not detect an inventory list. File must have a Description (or Name/Item Name) column plus at least 2 of: Model Number, Serial Number, MAC ID, Asset Tag, Barcode, Count, Condition, Device Type.');
+        setError('CSV Corrector could not detect an inventory list. File must have a Description, Product Name, Name, or Item Name column.');
         return;
       }
 
-      let startIndex = 1;
-      try {
-        const existing = (await productsApi.getAll()).data as Array<{ id: string }>;
-        const csvIds = existing
-          .map(p => p.id?.match(/^csv-(\d+)$/))
-          .filter(Boolean)
-          .map(m => Number.parseInt(m![1], 10));
-        if (csvIds.length > 0) startIndex = Math.max(...csvIds) + 1;
-      } catch { /* proceed with default if fetch fails */ }
-
-      const corrected = convertInventoryListToUnifiedCsv(csvContent, correctorFile.name, startIndex);
-      downloadTextFile(corrected, `corrected-${randomCode()}-${timestampForFilename()}.csv`);
-      setCorrectorMessage(`Corrected CSV downloaded. IDs start at csv-${String(startIndex).padStart(4, '0')}. Review it, then import it from the Import tab.`);
+      const corrected = convertInventoryListToUnifiedCsv(csvContent, correctorFile.name);
+      const baseName = correctorFile.name.replace(/\.[^/.]+$/, '');
+      downloadTextFile(corrected, `${baseName}-corrected-${timestampForFilename()}.csv`);
+      setCorrectorMessage('Corrected CSV downloaded. Review it, then import it from the Import tab.');
     } catch {
       setError('Failed to correct CSV file.');
     } finally {
@@ -719,35 +693,7 @@ export default function ImportPCLSF() {
                 <li>Product Name</li>
               </ul>
             </div>
-            <div className="space-y-2">
-              <p className="text-[var(--text)]">Plus at least 2 of these:</p>
-              <ul className="list-disc list-inside space-y-0.5 ml-1 columns-2">
-                <li>Model Number</li>
-                <li>Serial Number</li>
-                <li>MAC ID / MAC Address</li>
-                <li>Asset Tag / Asset ID</li>
-                <li>Barcode</li>
-                <li>Inventory ID</li>
-                <li>Count / Quantity</li>
-                <li>Device Type</li>
-                <li>Condition</li>
-                <li>Account Number</li>
-                <li>Account Name</li>
-                <li>Telephone Number</li>
-                <li>Plan</li>
-                <li>Address</li>
-                <li>Speed</li>
-                <li>Location</li>
-                <li>Category</li>
-                <li>Department</li>
-                <li>Status</li>
-                <li>Unit</li>
-                <li>Brand</li>
-                <li>Supplier / Vendor</li>
-                <li>Remarks</li>
-              </ul>
-            </div>
-            <p>Extra columns (Supplier, Unit Cost, Warranty, Location, Category, etc.) are extracted automatically. Rows without a main item column are skipped. Count defaults to 1 when blank.</p>
+            <p>Extra columns (Supplier, Unit Cost, Warranty, Location, Category, etc.) are extracted automatically. A row continues only when its main item column has a value. Count defaults to 1 when blank.</p>
           </div>
 
           <div className="border-2 border-dashed border-[var(--border)] rounded-lg p-8 text-center">

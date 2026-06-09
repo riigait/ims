@@ -27,7 +27,7 @@ services:
     container_name: ims_backend
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-ims_user}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-ims_db}
-      JWT_SECRET: ${JWT_SECRET:-change-this-before-deploying}
+      JWT_SECRET: ${JWT_SECRET}
       NODE_ENV: production
       PORT: 3001
     depends_on:

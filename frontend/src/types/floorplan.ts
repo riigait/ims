@@ -4,11 +4,14 @@ export type FloorPlanObjectType = 'wall' | 'room' | 'rack' | 'shelf' | 'label' |
 export interface BaseFloorPlanObject {
   id: string;
   type: FloorPlanObjectType;
+  layer?: number;
   label?: string;
   notes?: string;
   linkedLocationId?: string;
   groupId?: string;
 }
+
+export type WallType = 'floor_original_outdoor' | 'floor_indoor' | 'finalized_building_perimeter';
 
 export interface WallObject extends BaseFloorPlanObject {
   type: 'wall';
@@ -18,6 +21,8 @@ export interface WallObject extends BaseFloorPlanObject {
   endY: number;
   thickness: number;
   color?: string;
+  wallType?: WallType;
+  isFinalizedPerimeter?: boolean;
 }
 
 export interface RectangleObject extends BaseFloorPlanObject {
@@ -54,6 +59,7 @@ export interface WindowObject extends BaseFloorPlanObject {
   x: number;
   y: number;
   width: number;
+  height?: number;
   angle: number;
   color?: string;
 }
@@ -87,7 +93,7 @@ export interface FloorPlan {
   scale: {
     pixelsPerMeter: number;
   };
-  objects: FloorPlanObject[];
+  objects?: FloorPlanObject[];
   isApproved?: boolean;
   isTemplate?: boolean;
   generationScore?: number;
@@ -95,10 +101,13 @@ export interface FloorPlan {
   updatedAt: string;
 }
 
+// Floor plan with objects guaranteed present — used by the editor store (GET /:id always returns full data)
+export type LoadedFloorPlan = FloorPlan & { objects: FloorPlanObject[] };
+
 // Editor state
 export interface FloorPlanEditorState {
   selectedObjectId: string | null;
-  tool: 'select' | 'wall' | 'room' | 'rack' | 'shelf' | 'label' | 'door' | 'window' | 'entrance' | 'marker' | 'delete';
+  tool: 'select' | 'wall' | 'room' | 'rack' | 'shelf' | 'stairs' | 'elevator' | 'bathroom' | 'label' | 'door' | 'window' | 'entrance' | 'marker' | 'delete';
   zoomLevel: number;
   panX: number;
   panY: number;

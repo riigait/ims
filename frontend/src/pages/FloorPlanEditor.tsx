@@ -9,7 +9,7 @@ import {
 import { floorPlansApi, locationsApi, productsApi } from '@/services/api';
 import { useFloorPlanStore } from '@/services/floorPlanStore';
 import { FloorPlanObject, WallObject, RectangleObject, LabelObject, DoorObject, WindowObject, EntranceObject, InventoryMarkerObject } from '@/types/floorplan';
-import { validateFloorplanObjects, FloorplanValidationResult } from '@/utils/floorplanValidation';
+import { getDoorClearanceZone, validateFloorplanObjects, FloorplanValidationResult } from '@/utils/floorplanValidation';
 import { applyAutoFixes } from '@/utils/floorplanFixer';
 import { Location, Product } from '@/types/inventory';
 
@@ -35,7 +35,33 @@ const DEFAULT_RECT_FILL: Record<string, string> = {
   room:  'rgba(224,224,224,0.5)',
   rack:  'rgba(255,235,59,0.5)',
   shelf: 'rgba(144,202,249,0.5)',
+  stairs: '#fef3c7',
+  elevator: '#e9d5ff',
+  bathroom: '#dbeafe',
 };
+
+const RECT_DRAWING_TOOLS = ['room', 'rack', 'shelf', 'stairs', 'elevator', 'bathroom'];
+const ROOM_PRESET_LABELS: Record<string, string> = {
+  stairs: 'Stairs',
+  elevator: 'Elevator',
+  bathroom: 'Restroom',
+};
+
+function getServiceRoomKind(label?: string): 'stairs' | 'elevator' | 'bathroom' | null {
+  const normalized = label?.toLowerCase() ?? '';
+  if (normalized.startsWith('stairs')) return 'stairs';
+  if (normalized.startsWith('elevator')) return 'elevator';
+  if (normalized.includes('bathroom') || normalized.includes('restroom')) return 'bathroom';
+  return null;
+}
+
+function isFixedFloorObject(object?: FloorPlanObject | null): boolean {
+  if (!object) return false;
+  const id = object.id.toLowerCase();
+  return id.includes('reserved-stairs')
+    || id.includes('reserved-elevator')
+    || /reserved-(male-|female-)?restroom/.test(id);
+}
 
 export default function FloorPlanEditor() {
   const { id } = useParams<{ id: string }>();
@@ -204,10 +230,12 @@ export default function FloorPlanEditor() {
         return;
       }
 
+      let didMove = false;
+
       // Update each selected object individually with the same delta
       selectedIds.forEach(id => {
         const obj = state.currentFloorPlan!.objects.find(o => o.id === id);
-        if (!obj) return;
+        if (!obj || isFixedFloorObject(obj)) return;
 
         let memberIds = [id];
         // If single object is part of a group, also move all group members
@@ -217,7 +245,7 @@ export default function FloorPlanEditor() {
 
         memberIds.forEach(memberId => {
           const member = state.currentFloorPlan!.objects.find(o => o.id === memberId);
-          if (!member) return;
+          if (!member || isFixedFloorObject(member)) return;
 
           const updates: any = {};
           if (member.type === 'wall') {
@@ -244,10 +272,13 @@ export default function FloorPlanEditor() {
 
           if (Object.keys(updates).length > 0) {
             updateObject(memberId, updates);
+            didMove = true;
           }
         });
       });
-      useFloorPlanStore.getState().pushHistory();
+      if (didMove) {
+        useFloorPlanStore.getState().pushHistory();
+      }
     };
 
     window.addEventListener('keydown', handleKeyDown);
@@ -379,7 +410,7 @@ export default function FloorPlanEditor() {
 
 
     // Live drawing preview
-    const drawingTools = ['wall', 'room', 'rack', 'shelf', 'door', 'window', 'entrance'];
+    const drawingTools = ['wall', ...RECT_DRAWING_TOOLS, 'door', 'window', 'entrance'];
     if (startPos && currentMousePos && drawingTools.includes(editorState.tool)) {
       ctx.save();
       ctx.setLineDash([6, 4]);
@@ -391,7 +422,7 @@ export default function FloorPlanEditor() {
         ctx.moveTo(startPos.x, startPos.y);
         ctx.lineTo(currentMousePos.x, currentMousePos.y);
         ctx.stroke();
-      } else if (['room', 'rack', 'shelf'].includes(editorState.tool)) {
+      } else if (RECT_DRAWING_TOOLS.includes(editorState.tool)) {
         ctx.fillStyle = DEFAULT_RECT_FILL[editorState.tool] ?? 'rgba(200,200,200,0.4)';
         ctx.strokeStyle = '#475569';
         ctx.lineWidth = 1.5;
@@ -692,33 +723,39 @@ export default function FloorPlanEditor() {
     ctx.lineWidth = isSelected ? 2.5 : 1.5;
     ctx.strokeRect(rect.x, rect.y, rect.width, rect.height);
 
-    // Draw location name + product count inside the object
-    if (linkedId) {
-      const loc = locationsMap.get(linkedId);
-      const locName = loc?.name ?? 'Linked';
-      const prodCount = locProds.length;
-
+    const serviceRoomKind = getServiceRoomKind(obj.label);
+    if (serviceRoomKind) {
       ctx.save();
-      ctx.textAlign = 'center';
-
-      // Location name
-      const maxWidth = rect.width - 8;
-      const fontSize = Math.min(12, Math.max(8, rect.height / 4));
-      ctx.font = `bold ${fontSize}px Inter, Arial, sans-serif`;
-      ctx.fillStyle = isSelected ? '#1e40af' : '#1e293b';
-      const truncated = truncateText(ctx, locName, maxWidth);
-      ctx.fillText(truncated, rect.x + rect.width / 2, rect.y + rect.height / 2 - (rect.height > 40 ? fontSize / 2 : 0));
-
-      // Product count badge (only if there's enough space)
-      if (rect.height > 36 && rect.width > 40) {
-        ctx.font = `${Math.max(9, fontSize - 2)}px Inter, Arial, sans-serif`;
-        ctx.fillStyle = colors.badge;
-        const countText = prodCount === 0 ? 'No products' : `${prodCount} product${prodCount !== 1 ? 's' : ''}`;
-        ctx.fillText(countText, rect.x + rect.width / 2, rect.y + rect.height / 2 + fontSize + 1);
+      ctx.strokeStyle = serviceRoomKind === 'stairs' ? '#b45309' : serviceRoomKind === 'elevator' ? '#7e22ce' : '#0369a1';
+      ctx.lineWidth = 2;
+      if (serviceRoomKind === 'stairs') {
+        for (let step = 1; step <= 5; step++) {
+          const y = rect.y + (rect.height * step) / 7;
+          ctx.beginPath();
+          ctx.moveTo(rect.x + rect.width * 0.2, y);
+          ctx.lineTo(rect.x + rect.width * 0.8, y);
+          ctx.stroke();
+        }
+      } else if (serviceRoomKind === 'elevator') {
+        ctx.strokeRect(rect.x + rect.width * 0.25, rect.y + rect.height * 0.18, rect.width * 0.5, rect.height * 0.5);
+        ctx.beginPath();
+        ctx.moveTo(rect.x + rect.width * 0.4, rect.y + rect.height * 0.48);
+        ctx.lineTo(rect.x + rect.width * 0.4, rect.y + rect.height * 0.3);
+        ctx.lineTo(rect.x + rect.width * 0.34, rect.y + rect.height * 0.37);
+        ctx.moveTo(rect.x + rect.width * 0.6, rect.y + rect.height * 0.3);
+        ctx.lineTo(rect.x + rect.width * 0.6, rect.y + rect.height * 0.48);
+        ctx.lineTo(rect.x + rect.width * 0.54, rect.y + rect.height * 0.41);
+        ctx.stroke();
+      } else {
+        ctx.beginPath();
+        ctx.arc(rect.x + rect.width / 2, rect.y + rect.height * 0.34, Math.min(rect.width, rect.height) * 0.12, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.strokeRect(rect.x + rect.width * 0.34, rect.y + rect.height * 0.48, rect.width * 0.32, rect.height * 0.16);
       }
-
       ctx.restore();
-    } else if (obj.label) {
+    }
+
+    if (!linkedId && obj.label) {
       // Just show label if no location linked
       ctx.save();
       ctx.textAlign = 'center';
@@ -748,7 +785,7 @@ export default function FloorPlanEditor() {
     }
 
     // Resize handles (only when selected)
-    if (isSelected && (obj.type === 'room' || obj.type === 'rack' || obj.type === 'shelf')) {
+    if (isSelected && !isFixedFloorObject(obj) && (obj.type === 'room' || obj.type === 'rack' || obj.type === 'shelf')) {
       ctx.save();
       ctx.fillStyle = '#2563eb';
       ctx.strokeStyle = '#ffffff';
@@ -778,13 +815,6 @@ export default function FloorPlanEditor() {
     ctx.textAlign = 'center';
     ctx.fillText(text, x, y);
     ctx.restore();
-  };
-
-  const truncateText = (ctx: CanvasRenderingContext2D, text: string, maxWidth: number): string => {
-    if (ctx.measureText(text).width <= maxWidth) return text;
-    let t = text;
-    while (t.length > 1 && ctx.measureText(t + '…').width > maxWidth) t = t.slice(0, -1);
-    return t + '…';
   };
 
   const drawDoor = (ctx: CanvasRenderingContext2D, door: DoorObject, isSelected: boolean) => {
@@ -1135,7 +1165,7 @@ export default function FloorPlanEditor() {
   };
 
   const getResizeHandleAtPoint = (x: number, y: number, obj: FloorPlanObject | null): string | null => {
-    if (!obj || (obj.type !== 'room' && obj.type !== 'rack' && obj.type !== 'shelf')) return null;
+    if (!obj || !(obj.type === 'room' || obj.type === 'rack' || obj.type === 'shelf')) return null;
     const rect = obj as RectangleObject;
     const handles: Record<string, [number, number]> = {
       'nw': [rect.x, rect.y],
@@ -1215,7 +1245,7 @@ export default function FloorPlanEditor() {
       const currentSelectedObj = editorState.selectedObjectId ? currentFloorPlan?.objects.find(o => o.id === editorState.selectedObjectId) : null;
 
       // Check for wall endpoint drag
-      const wallEndpoint = getWallEndpointAtPoint(pos.x, pos.y, currentSelectedObj ?? null);
+      const wallEndpoint = isFixedFloorObject(currentSelectedObj) ? null : getWallEndpointAtPoint(pos.x, pos.y, currentSelectedObj ?? null);
       if (wallEndpoint) {
         (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
         setWallEndpointDragging(wallEndpoint);
@@ -1223,7 +1253,7 @@ export default function FloorPlanEditor() {
         setDragSnapshot(currentSelectedObj ? { ...currentSelectedObj } : null);
       } else {
         // Check for rectangle resize handles
-        const handle = getResizeHandleAtPoint(pos.x, pos.y, currentSelectedObj ?? null);
+        const handle = isFixedFloorObject(currentSelectedObj) ? null : getResizeHandleAtPoint(pos.x, pos.y, currentSelectedObj ?? null);
         if (handle) {
           (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
           setIsResizing(true);
@@ -1236,7 +1266,7 @@ export default function FloorPlanEditor() {
             // Capture snapshots BEFORE changing selection (for group drag)
             const shouldGroupDrag = selectedObjectIds.length > 1 && selectedObjectIds.includes(objId);
             const groupSnapshots = shouldGroupDrag
-              ? currentFloorPlan?.objects.filter(o => selectedObjectIds.includes(o.id)).map(o => ({ ...o })) || []
+              ? currentFloorPlan?.objects.filter(o => selectedObjectIds.includes(o.id) && !isFixedFloorObject(o)).map(o => ({ ...o })) || []
               : [];
 
             if (e.ctrlKey) {
@@ -1257,7 +1287,7 @@ export default function FloorPlanEditor() {
               }
             }
             const obj = currentFloorPlan?.objects.find(o => o.id === objId);
-            if (obj) {
+            if (obj && !isFixedFloorObject(obj)) {
               (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
               setIsDragging(true);
               setDragStart(pos);
@@ -1266,7 +1296,7 @@ export default function FloorPlanEditor() {
               if (e.ctrlKey) {
                 const allSelected = currentFloorPlan?.objects.filter(o => {
                   const newSelection = selectedObjectIds.includes(objId) ? selectedObjectIds : [...selectedObjectIds, objId];
-                  return newSelection.includes(o.id);
+                  return newSelection.includes(o.id) && !isFixedFloorObject(o);
                 }) || [];
                 dragSnapshotsRef.current = allSelected.map(o => ({ ...o }));
                 setDragSnapshot(null);
@@ -1293,7 +1323,7 @@ export default function FloorPlanEditor() {
     } else if (editorState.tool === 'delete') {
       const objId = getObjectAtPoint(pos.x, pos.y);
       if (objId) { deleteObject(objId); setSelectedObject(null); useFloorPlanStore.getState().pushHistory(); }
-    } else if (['wall', 'room', 'rack', 'shelf', 'door', 'window', 'entrance'].includes(editorState.tool)) {
+    } else if (['wall', ...RECT_DRAWING_TOOLS, 'door', 'window', 'entrance'].includes(editorState.tool)) {
       (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
       setStartPos(pos); setCurrentMousePos(pos);
     } else if (editorState.tool === 'label') {
@@ -1378,6 +1408,7 @@ export default function FloorPlanEditor() {
       const dx = pos.x - dragStart.x, dy = pos.y - dragStart.y;
 
       dragSnapshotsRef.current.forEach(snap => {
+        if (isFixedFloorObject(snap)) return;
         if (snap.type === 'wall') {
           const w = snap as WallObject;
           updateObject(snap.id, { startX: w.startX + dx, startY: w.startY + dy, endX: w.endX + dx, endY: w.endY + dy });
@@ -1400,11 +1431,13 @@ export default function FloorPlanEditor() {
     else if (isDragging && dragStart && dragSnapshot && editorState.selectedObjectId) {
       const dx = pos.x - dragStart.x, dy = pos.y - dragStart.y;
       const snap = dragSnapshot;
+      if (isFixedFloorObject(snap)) return;
 
       // If object is part of a group, move all objects in the group
       if (snap.groupId && currentFloorPlan) {
         const groupMembers = currentFloorPlan.objects.filter(o => o.groupId === snap.groupId);
         groupMembers.forEach(member => {
+          if (isFixedFloorObject(member)) return;
           const memberSnap = dragSnapshotsRef.current.find(s => s.id === member.id) || member;
           if (memberSnap.type === 'wall') {
             const w = memberSnap as WallObject;
@@ -1461,11 +1494,11 @@ export default function FloorPlanEditor() {
     // Check if hovering over wall endpoint or resize handle
     if (editorState.tool === 'select' && !isDragging && !isResizing && !wallEndpointDragging) {
       const currentSelectedObj = editorState.selectedObjectId ? currentFloorPlan?.objects.find(o => o.id === editorState.selectedObjectId) : null;
-      const wallEndpoint = getWallEndpointAtPoint(pos.x, pos.y, currentSelectedObj ?? null);
+      const wallEndpoint = isFixedFloorObject(currentSelectedObj) ? null : getWallEndpointAtPoint(pos.x, pos.y, currentSelectedObj ?? null);
       if (wallEndpoint) {
         setResizeHandle('e'); // Show resize cursor for wall endpoints
       } else {
-        const handle = getResizeHandleAtPoint(pos.x, pos.y, currentSelectedObj ?? null);
+        const handle = isFixedFloorObject(currentSelectedObj) ? null : getResizeHandleAtPoint(pos.x, pos.y, currentSelectedObj ?? null);
         setResizeHandle(handle);
       }
     }
@@ -1535,14 +1568,15 @@ export default function FloorPlanEditor() {
     } else if (isDragging) {
       setIsDragging(false); setDragStart(null); setDragSnapshot(null); dragSnapshotsRef.current = [];
     } else if (startPos) {
-      const colorMap: Record<string, string> = { room: '#e0e0e0', rack: '#ffeb3b', shelf: '#90caf9' };
       const snappedPos = pos;
 
       if (editorState.tool === 'wall' && Math.abs(pos.x - startPos.x) + Math.abs(pos.y - startPos.y) > 10) {
         addObject({ id: 'wall_' + Date.now(), type: 'wall', startX: startPos.x, startY: startPos.y, endX: snappedPos.x, endY: snappedPos.y, thickness: 8, color: '#1e293b' } as WallObject);
-      } else if (['room', 'rack', 'shelf'].includes(editorState.tool) && Math.abs(pos.x - startPos.x) > 10 && Math.abs(pos.y - startPos.y) > 10) {
-        addObject({ id: `${editorState.tool}_${Date.now()}`, type: editorState.tool as 'room' | 'rack' | 'shelf', x: Math.min(startPos.x, pos.x), y: Math.min(startPos.y, pos.y), width: Math.abs(pos.x - startPos.x), height: Math.abs(pos.y - startPos.y), rotation: 0, color: colorMap[editorState.tool] } as RectangleObject);
-      } else if (editorState.tool === 'door' && Math.abs(pos.x - startPos.x) + Math.abs(pos.y - startPos.y) > 10) {
+      } else if (RECT_DRAWING_TOOLS.includes(editorState.tool) && Math.abs(pos.x - startPos.x) > 10 && Math.abs(pos.y - startPos.y) > 10) {
+        const presetLabel = ROOM_PRESET_LABELS[editorState.tool];
+        addObject({ id: `${editorState.tool}_${Date.now()}`, type: presetLabel ? 'room' : editorState.tool as 'room' | 'rack' | 'shelf', x: Math.min(startPos.x, pos.x), y: Math.min(startPos.y, pos.y), width: Math.abs(pos.x - startPos.x), height: Math.abs(pos.y - startPos.y), rotation: 0, label: presetLabel, color: DEFAULT_RECT_FILL[editorState.tool] } as RectangleObject);
+      } else if ((editorState.tool === 'door' || editorState.tool === 'window' || editorState.tool === 'entrance') && Math.abs(pos.x - startPos.x) + Math.abs(pos.y - startPos.y) > 10) {
+        const toolType = editorState.tool as 'door' | 'window' | 'entrance';
         const nearestWall = getWallAtPoint(startPos.x, startPos.y);
         if (nearestWall) {
           const proj1 = projectPointOntoWall(startPos.x, startPos.y, nearestWall);
@@ -1555,69 +1589,12 @@ export default function FloorPlanEditor() {
           const midX = nearestWall.startX + midT * dx;
           const midY = nearestWall.startY + midT * dy;
           const angle = getWallAngle(nearestWall);
-          addObject({
-            id: 'door_' + Date.now(),
-            type: 'door',
-            x: midX,
-            y: midY,
-            width: Math.max(10, width),
-            angle,
-            swingDirection: 'right',
-            color: '#8B4513'
-          } as DoorObject);
+          const base = { id: `${toolType}_${Date.now()}`, type: toolType, x: midX, y: midY, width: Math.max(10, width), angle };
+          if (toolType === 'door') addObject({ ...base, swingDirection: 'right', color: '#8B4513' } as DoorObject);
+          else if (toolType === 'window') addObject({ ...base, color: '#87CEEB' } as WindowObject);
+          else addObject({ ...base, style: 'single', color: '#10b981' } as EntranceObject);
         } else {
-          alert('⚠️ Door must be placed on or near a wall');
-        }
-      } else if (editorState.tool === 'window' && Math.abs(pos.x - startPos.x) + Math.abs(pos.y - startPos.y) > 10) {
-        const nearestWall = getWallAtPoint(startPos.x, startPos.y);
-        if (nearestWall) {
-          const proj1 = projectPointOntoWall(startPos.x, startPos.y, nearestWall);
-          const proj2 = projectPointOntoWall(pos.x, pos.y, nearestWall);
-          const wallLen = dist(nearestWall.startX, nearestWall.startY, nearestWall.endX, nearestWall.endY);
-          const width = Math.abs(proj2.t - proj1.t) * wallLen;
-          const midT = (proj1.t + proj2.t) / 2;
-          const dx = nearestWall.endX - nearestWall.startX;
-          const dy = nearestWall.endY - nearestWall.startY;
-          const midX = nearestWall.startX + midT * dx;
-          const midY = nearestWall.startY + midT * dy;
-          const angle = getWallAngle(nearestWall);
-          addObject({
-            id: 'window_' + Date.now(),
-            type: 'window',
-            x: midX,
-            y: midY,
-            width: Math.max(10, width),
-            angle,
-            color: '#87CEEB'
-          } as WindowObject);
-        } else {
-          alert('⚠️ Window must be placed on or near a wall');
-        }
-      } else if (editorState.tool === 'entrance' && Math.abs(pos.x - startPos.x) + Math.abs(pos.y - startPos.y) > 10) {
-        const nearestWall = getWallAtPoint(startPos.x, startPos.y);
-        if (nearestWall) {
-          const proj1 = projectPointOntoWall(startPos.x, startPos.y, nearestWall);
-          const proj2 = projectPointOntoWall(pos.x, pos.y, nearestWall);
-          const wallLen = dist(nearestWall.startX, nearestWall.startY, nearestWall.endX, nearestWall.endY);
-          const width = Math.abs(proj2.t - proj1.t) * wallLen;
-          const midT = (proj1.t + proj2.t) / 2;
-          const dx = nearestWall.endX - nearestWall.startX;
-          const dy = nearestWall.endY - nearestWall.startY;
-          const midX = nearestWall.startX + midT * dx;
-          const midY = nearestWall.startY + midT * dy;
-          const angle = getWallAngle(nearestWall);
-          addObject({
-            id: 'entrance_' + Date.now(),
-            type: 'entrance',
-            x: midX,
-            y: midY,
-            width: Math.max(10, width),
-            angle,
-            style: 'single',
-            color: '#10b981'
-          } as EntranceObject);
-        } else {
-          alert('⚠️ Entrance must be placed on or near a wall');
+          alert(`⚠️ ${toolType.charAt(0).toUpperCase() + toolType.slice(1)} must be placed on or near a wall`);
         }
       }
     }
@@ -1826,8 +1803,9 @@ export default function FloorPlanEditor() {
     const colors = STATUS_COLORS[status];
     const fillColor = rect.color ? `${rect.color}44` : colors.fill;
     const strokeColor = isSelected ? '#2563eb' : (rect.color ?? colors.stroke);
-    const label = linkedId ? (locationsMap.get(linkedId)?.name ?? 'Linked') : (obj.label || obj.type);
+    const label = obj.label || obj.type;
     const fontSize = Math.min(12, Math.max(8, rect.height / 4));
+    const serviceRoomKind = getServiceRoomKind(obj.label);
 
     return (
       <Group key={obj.id}>
@@ -1840,31 +1818,42 @@ export default function FloorPlanEditor() {
           stroke={strokeColor}
           strokeWidth={isSelected ? 2.5 : 1.5}
         />
-        <KonvaText
-          x={rect.x + 4}
-          y={rect.y + rect.height / 2 - fontSize}
-          width={Math.max(10, rect.width - 8)}
-          text={shortText(label)}
-          align="center"
-          fontSize={fontSize}
-          fontStyle={linkedId ? 'bold' : 'normal'}
-          fill={isSelected ? '#1e40af' : '#1e293b'}
-        />
-        {linkedId && rect.height > 36 && rect.width > 40 && (
+        {serviceRoomKind === 'stairs' && Array.from({ length: 5 }, (_, index) => (
+          <Line
+            key={`stair-${index}`}
+            points={[rect.x + rect.width * 0.2, rect.y + rect.height * (index + 1) / 7, rect.x + rect.width * 0.8, rect.y + rect.height * (index + 1) / 7]}
+            stroke="#b45309"
+            strokeWidth={2}
+          />
+        ))}
+        {serviceRoomKind === 'elevator' && (
+          <>
+            <KonvaRect x={rect.x + rect.width * 0.25} y={rect.y + rect.height * 0.18} width={rect.width * 0.5} height={rect.height * 0.5} stroke="#7e22ce" strokeWidth={2} />
+            <Line points={[rect.x + rect.width * 0.4, rect.y + rect.height * 0.48, rect.x + rect.width * 0.4, rect.y + rect.height * 0.3, rect.x + rect.width * 0.34, rect.y + rect.height * 0.37]} stroke="#7e22ce" strokeWidth={2} />
+            <Line points={[rect.x + rect.width * 0.6, rect.y + rect.height * 0.3, rect.x + rect.width * 0.6, rect.y + rect.height * 0.48, rect.x + rect.width * 0.54, rect.y + rect.height * 0.41]} stroke="#7e22ce" strokeWidth={2} />
+          </>
+        )}
+        {serviceRoomKind === 'bathroom' && (
+          <>
+            <Circle x={rect.x + rect.width / 2} y={rect.y + rect.height * 0.34} radius={Math.min(rect.width, rect.height) * 0.12} stroke="#0369a1" strokeWidth={2} />
+            <KonvaRect x={rect.x + rect.width * 0.34} y={rect.y + rect.height * 0.48} width={rect.width * 0.32} height={rect.height * 0.16} stroke="#0369a1" strokeWidth={2} />
+          </>
+        )}
+        {!linkedId && (
           <KonvaText
             x={rect.x + 4}
-            y={rect.y + rect.height / 2 + 4}
+            y={rect.y + rect.height / 2 - fontSize}
             width={Math.max(10, rect.width - 8)}
-            text={locProds.length === 0 ? 'No products' : `${locProds.length} product${locProds.length !== 1 ? 's' : ''}`}
+            text={shortText(label)}
             align="center"
-            fontSize={Math.max(9, fontSize - 2)}
-            fill={colors.badge}
+            fontSize={fontSize}
+            fill={isSelected ? '#1e40af' : '#1e293b'}
           />
         )}
         {linkedId && rect.width > 30 && rect.height > 20 && (
           <Circle x={rect.x + rect.width - 9} y={rect.y + 9} radius={5} fill={colors.badge} />
         )}
-        {isSelected && renderResizeHandles(rect)}
+        {isSelected && !isFixedFloorObject(obj) && renderResizeHandles(rect)}
       </Group>
     );
   };
@@ -1903,7 +1892,7 @@ export default function FloorPlanEditor() {
       return <Line points={[startPos.x, startPos.y, currentMousePos.x, currentMousePos.y]} stroke="#334155" strokeWidth={8} dash={[6, 4]} opacity={0.55} lineCap="round" />;
     }
 
-    if (editorState.tool === 'room' || editorState.tool === 'rack' || editorState.tool === 'shelf') {
+    if (RECT_DRAWING_TOOLS.includes(editorState.tool)) {
       const x = Math.min(startPos.x, currentMousePos.x);
       const y = Math.min(startPos.y, currentMousePos.y);
       const width = Math.abs(currentMousePos.x - startPos.x);
@@ -1944,19 +1933,16 @@ export default function FloorPlanEditor() {
   function autoNudge(blockerId: string, doorId?: string) {
     const objects = currentFloorPlan?.objects || [];
     const blocker = objects.find(o => o.id === blockerId);
+    if (isFixedFloorObject(blocker)) return;
     if (!blocker || !('x' in blocker) || !('width' in blocker) || !('height' in blocker)) return;
     const b = blocker as { x: number; y: number; width: number; height: number };
 
     const door = objects.find(o => o.id === doorId);
-    if (!door || !('x' in door) || !('width' in door)) return;
-    const d = door as { x: number; y: number; width: number };
+    if (!door || (door.type !== 'door' && door.type !== 'entrance')) return;
 
     const MARGIN = 12;
     // Door clearance zone bounds (matches floorplanValidation.ts)
-    const zLeft   = d.x - d.width / 2;
-    const zRight  = d.x + d.width / 2;
-    const zTop    = d.y - d.width / 2;
-    const zBottom = d.y + d.width / 2;
+    const { left: zLeft, right: zRight, top: zTop, bottom: zBottom } = getDoorClearanceZone(door);
 
     // Overlap on each side (positive = overlapping, Infinity = no contact on that side)
     const overlapL = (b.x + b.width) - zLeft;   // push blocker left
@@ -2066,6 +2052,9 @@ export default function FloorPlanEditor() {
               { tool: 'room',  icon: <Square size={18} />,  title: 'Room/Area' },
               { tool: 'rack',  icon: <Box size={18} />,     title: 'Rack' },
               { tool: 'shelf', icon: <Package size={18} />, title: 'Shelf' },
+              { tool: 'stairs', icon: <Square size={18} />, title: 'Stairs' },
+              { tool: 'elevator', icon: <Square size={18} />, title: 'Elevator' },
+              { tool: 'bathroom', icon: <Square size={18} />, title: 'Restroom' },
               { tool: 'label', icon: <Type size={18} />,    title: 'Label' },
               { tool: 'door',  icon: <DoorOpen size={18} />, title: 'Door' },
               { tool: 'window', icon: <Grid2x2 size={18} />, title: 'Window' },
@@ -2758,6 +2747,7 @@ export default function FloorPlanEditor() {
                   const { objects: fixed } = applyAutoFixes(currentFloorPlan!.objects);
                   fixed.forEach((obj, i) => {
                     const orig = currentFloorPlan!.objects[i];
+                    if (isFixedFloorObject(orig)) return;
                     if ('x' in obj && 'x' in orig && (obj.x !== (orig as any).x || (obj as any).y !== (orig as any).y)) {
                       updateObject(obj.id, { x: (obj as any).x, y: (obj as any).y });
                     }

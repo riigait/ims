@@ -1,5 +1,5 @@
-import { FloorPlanObject, RectangleObject } from '@/types/floorplan';
-import { validateFloorplanObjects, FloorplanValidationResult } from './floorplanValidation';
+import { FloorPlanObject, RectangleObject, WindowObject } from '@/types/floorplan';
+import { getDoorClearanceZone, validateFloorplanObjects, FloorplanValidationResult } from './floorplanValidation';
 import { generateId } from '@/utils/ids';
 
 const MARGIN = 12;
@@ -33,16 +33,12 @@ function fixDoorBlocked(
   if (!err.doorId) return false;
   const idx = fixed.findIndex(o => o.id === err.objectId);
   const door = fixed.find(o => o.id === err.doorId);
-  if (idx === -1 || !door || !('x' in door) || !('width' in door)) return false;
+  if (idx === -1 || !door || (door.type !== 'door' && door.type !== 'entrance')) return false;
   const blocker = fixed[idx];
   if (!('x' in blocker) || !('width' in blocker) || !('height' in blocker)) return false;
 
   const b = blocker as unknown as { x: number; y: number; width: number; height: number };
-  const d = door as unknown as { x: number; y: number; width: number };
-  const pos = nudgeOutOfZone(b.x, b.y, b.width, b.height, {
-    left: d.x - d.width / 2, right: d.x + d.width / 2,
-    top: d.y - d.width / 2, bottom: d.y + d.width / 2,
-  });
+  const pos = nudgeOutOfZone(b.x, b.y, b.width, b.height, getDoorClearanceZone(door));
   if (!pos) return false;
   fixed[idx] = { ...blocker, ...pos } as FloorPlanObject;
   return true;
@@ -53,7 +49,7 @@ function fixDoorBlocked(
 // A window belongs to a room when its horizontal centre falls within the room's
 // x-range. We intentionally ignore y so that outer-wall windows (which sit
 // above the room rectangle) are still counted.
-function roomHasWindow(room: RectangleObject, windows: FloorPlanObject[]): boolean {
+function roomHasWindow(room: RectangleObject, windows: WindowObject[]): boolean {
   return windows.some(w => {
     if (!('x' in w) || !('width' in w)) return false;
     const cx = (w as any).x + ((w as any).width ?? 0) / 2;
@@ -82,7 +78,7 @@ function findOuterWallY(room: RectangleObject, objects: FloorPlanObject[]): numb
 }
 
 // Returns null if no outer wall is found — caller skips those rooms.
-function makeWindowForRoom(room: RectangleObject, allObjects: FloorPlanObject[]): FloorPlanObject | null {
+function makeWindowForRoom(room: RectangleObject, allObjects: FloorPlanObject[]): WindowObject | null {
   const outerY = findOuterWallY(room, allObjects);
   if (outerY === null) return null; // not an outer-wall room — no window needed
 
@@ -92,12 +88,12 @@ function makeWindowForRoom(room: RectangleObject, allObjects: FloorPlanObject[])
     x: Math.round(room.x + room.width / 2 - winWidth / 2),
     y: outerY,
     width: winWidth, height: WINDOW_H, angle: 0, color: '#38bdf8',
-  } as unknown as FloorPlanObject;
+  };
 }
 
 function addMissingRoomWindows(fixed: FloorPlanObject[]): number {
   const rooms = fixed.filter((o): o is RectangleObject => o.type === 'room');
-  const windows = fixed.filter(o => o.type === 'window');
+  const windows = fixed.filter((o): o is WindowObject => o.type === 'window');
   let added = 0;
   for (const room of rooms) {
     if (roomHasWindow(room, windows)) continue;

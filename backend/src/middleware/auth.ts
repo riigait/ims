@@ -40,7 +40,9 @@ export function canAccessDepartment(req: AuthRequest, departmentId?: string | nu
 
 export const authMiddleware = async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    const token = req.headers.authorization?.split(' ')[1];
+    const bearerToken = req.headers.authorization?.split(' ')[1];
+    const cookieToken = req.cookies?.token as string | undefined;
+    const token = bearerToken || cookieToken;
     if (!token) return res.status(401).json({ error: 'No token provided' });
 
     const decoded = jwt.verify(token, getJwtSecret()) as { userId: string };

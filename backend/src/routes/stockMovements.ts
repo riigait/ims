@@ -1,4 +1,5 @@
 import { Router, Response, NextFunction } from 'express';
+import type { MovementType, MovementStatus, ItemStatus } from '@prisma/client';
 import prisma from '../utils/prisma';
 import { AuthRequest, canAccessDepartment } from '../middleware/auth';
 import { logAudit } from '../utils/audit';
@@ -8,13 +9,12 @@ import { generateStockId, generateMovementNo, generateSku } from '../utils/idGen
 const router = Router();
 
 const VALID_MOVEMENT_TYPES = ['stock_in', 'stock_out', 'adjustment', 'borrowed', 'returned', 'lost', 'found', 'transfer', 'moved_to_department', 'pre_deployment', 'post_deployment', 'repair_out', 'repair_return', 'damaged', 'defective', 'disposal', 'opening_stock'] as const;
-type MovementType = typeof VALID_MOVEMENT_TYPES[number];
 
 const DEDUCTING_TYPES: MovementType[] = ['stock_out', 'damaged', 'defective', 'disposal', 'borrowed', 'lost', 'pre_deployment', 'repair_out'];
 const ADDING_TYPES: MovementType[] = ['stock_in', 'returned', 'found', 'adjustment', 'opening_stock', 'post_deployment', 'repair_return'];
 const NEUTRAL_TYPES: MovementType[] = ['transfer', 'moved_to_department'];
 const STATUS_ONLY_TYPES: MovementType[] = [];
-const RESTORING_TYPES: Partial<Record<MovementType, string>> = { returned: 'borrowed', found: 'lost', post_deployment: 'deployed', repair_return: 'repair' };
+const RESTORING_TYPES: Partial<Record<MovementType, ItemStatus>> = { returned: 'borrowed', found: 'lost', post_deployment: 'deployed', repair_return: 'repair' };
 
 function canViewMovement(req: AuthRequest, movement: { departmentId: string | null; toDepartmentId?: string | null }) {
   return canAccessDepartment(req, movement.departmentId, true)
@@ -29,6 +29,50 @@ function stockDelta(type: MovementType, quantity: number): number {
   if (DEDUCTING_TYPES.includes(type)) return -quantity;
   if (NEUTRAL_TYPES.includes(type)) return 0;
   return quantity; // ADDING_TYPES
+}
+
+function reversalStatus(type: MovementType, stockDetail: any): ItemStatus | null {
+  if (DEDUCTING_TYPES.includes(type)) return 'active';
+  if (RESTORING_TYPES[type]) return RESTORING_TYPES[type]!;
+  if (ADDING_TYPES.includes(type) && (stockDetail._count?.movementItems ?? 0) <= 1) return 'disposed';
+  return null;
+}
+
+async function reverseMovementItem(tx: any, reversalId: string, item: any, movementType: MovementType, reason: string): Promise<void> {
+  const stockDetail = item.stockDetail;
+  if (!stockDetail) return;
+
+  const delta = stockDelta(movementType, item.quantity);
+  if (delta !== 0 && item.productId) {
+    await tx.product.update({
+      where: { id: item.productId },
+      data: { currentStock: { increment: -delta } },
+    });
+  }
+
+  const newStatus = reversalStatus(movementType, stockDetail);
+  const restoreLocation = NEUTRAL_TYPES.includes(movementType) && item.fromLocationId;
+  if (newStatus !== null || restoreLocation) {
+    await tx.stockDetail.update({
+      where: { id: item.stockDetailId },
+      data: {
+        ...(newStatus !== null ? { currentStatus: newStatus } : {}),
+        ...(restoreLocation ? { currentLocationId: item.fromLocationId } : {}),
+      },
+    });
+  }
+
+  await tx.stockMovementItem.create({
+    data: {
+      movementId: reversalId,
+      stockDetailId: item.stockDetailId,
+      productId: item.productId,
+      quantity: item.quantity,
+      fromLocationId: item.toLocationId,
+      toLocationId: item.fromLocationId,
+      reason: reason || 'Reversal',
+    },
+  });
 }
 
 function incrementStockId(stockId: string): string {
@@ -303,7 +347,7 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
         });
       };
 
-      const statusMap: Record<string, string> = {
+      const statusMap: Record<string, ItemStatus> = {
         stock_out: 'sold', damaged: 'damaged', disposal: 'disposed',
         borrowed: 'borrowed', lost: 'lost', pre_deployment: 'deployed', repair_out: 'repair', defective: 'defective',
       };
@@ -479,7 +523,7 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
               const existing = await tx.stockDetail.findFirst({
                 where: {
                   productId: item.productId,
-                  currentStatus: expectedStatus,
+                  currentStatus: expectedStatus!,
                   id: { notIn: [...usedIds] },
                 },
                 orderBy: { createdAt: 'desc' },
@@ -734,10 +778,10 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
   }
 });
 
-// Update stock movement header (status, remarks only)
+// Update stock movement header — pending only; remarks + status transition only
 router.put('/:id', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    const { status, remarks, movementType } = req.body;
+    const { status, remarks } = req.body;
     const movementId = req.params.id;
 
     const oldMovement = await prisma.stockMovement.findUnique({
@@ -746,17 +790,23 @@ router.put('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
     });
 
     if (!oldMovement) return res.status(404).json({ error: 'Stock movement not found' });
+    if (!canModifyMovement(req, oldMovement)) return res.status(403).json({ error: 'Access denied' });
 
-    if (!canModifyMovement(req, oldMovement)) {
-      return res.status(403).json({ error: 'Access denied' });
+    if (oldMovement.status !== 'pending') {
+      return res.status(409).json({ error: 'Only pending movements can be edited. Create a reversal to undo a committed movement.' });
+    }
+
+    // Only allow pending → committed or pending → cancelled status transitions
+    const allowedTransitions: MovementStatus[] = ['committed', 'cancelled'];
+    if (status !== undefined && status !== 'pending' && !allowedTransitions.includes(status as MovementStatus)) {
+      return res.status(400).json({ error: 'Invalid status transition. Allowed: committed, cancelled.' });
     }
 
     const updated = await prisma.stockMovement.update({
       where: { id: movementId },
       data: {
-        status: status || oldMovement.status,
-        remarks: remarks !== undefined ? remarks : oldMovement.remarks,
-        movementType: movementType || oldMovement.movementType,
+        ...(status !== undefined && { status: status as MovementStatus }),
+        ...(remarks !== undefined && { remarks }),
       },
       include: { items: { include: { product: true, stockDetail: true } }, user: true, department: true },
     });
@@ -766,10 +816,68 @@ router.put('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
       action: 'UPDATE',
       entityType: 'stock_movement',
       entityId: movementId,
-      changes: { status, remarks, movementType },
+      changes: { status, remarks },
     });
 
     res.json(updated);
+  } catch (error: any) {
+    next(error);
+  }
+});
+
+// Reverse a committed movement — creates a new committed movement that undoes all effects
+router.post('/:id/reverse', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const movement = await prisma.stockMovement.findUnique({
+      where: { id: req.params.id },
+      include: {
+        items: {
+          include: {
+            stockDetail: { include: { _count: { select: { movementItems: true } } } },
+          },
+        },
+        department: true,
+      },
+    });
+
+    if (!movement) return res.status(404).json({ error: 'Stock movement not found' });
+    if (!canModifyMovement(req, movement)) return res.status(403).json({ error: 'Access denied' });
+    if (movement.status !== 'committed') {
+      return res.status(409).json({ error: 'Only committed movements can be reversed.' });
+    }
+
+    const reason: string = req.body.reason || '';
+    const movementType = movement.movementType;
+    const reversalNo = await generateMovementNo();
+
+    const reversal = await prisma.$transaction(async (tx) => {
+      const rev = await tx.stockMovement.create({
+        data: {
+          movementNo: reversalNo,
+          movementType: 'adjustment',
+          status: 'committed',
+          remarks: `Reversal of ${movement.movementNo ?? movement.id}${reason ? ': ' + reason : ''}`,
+          departmentId: movement.departmentId,
+          userId: req.userId!,
+        },
+      });
+
+      for (const item of movement.items) {
+        await reverseMovementItem(tx, rev.id, item, movementType, reason);
+      }
+
+      return rev;
+    });
+
+    await logAudit({
+      userId: req.userId!,
+      action: 'REVERSAL',
+      entityType: 'stock_movement',
+      entityId: movement.id,
+      changes: { originalMovementNo: movement.movementNo, reversalMovementNo: reversalNo, reason },
+    });
+
+    res.status(201).json({ message: 'Movement reversed successfully', reversalMovementNo: reversalNo, reversalId: reversal.id });
   } catch (error: any) {
     next(error);
   }
@@ -793,12 +901,13 @@ router.delete('/:id', async (req: AuthRequest, res: Response, next: NextFunction
     });
 
     if (!movement) return res.status(404).json({ error: 'Stock movement not found' });
-
-    if (!canModifyMovement(req, movement)) {
-      return res.status(403).json({ error: 'Access denied' });
+    if (!canModifyMovement(req, movement)) return res.status(403).json({ error: 'Access denied' });
+    if (movement.status !== 'pending') {
+      return res.status(409).json({ error: 'Only pending movements can be cancelled. Use POST /:id/reverse for committed movements.' });
     }
 
-    const movementType = movement.movementType as MovementType;
+    const movementType = movement.movementType;
+    const reason = (req.body?.reason as string) || '';
 
     // Sum quantities per product across all items
     const productTotals = new Map<string, number>();
@@ -808,9 +917,8 @@ router.delete('/:id', async (req: AuthRequest, res: Response, next: NextFunction
       }
     }
 
-    // StockDetails that only exist for this movement (count = 1) should be removed.
-    // Those with other movement links existed before — keep them.
-    const stockDetailIdsToDelete = movement.items
+    // StockDetails that only exist for this movement (count = 1) should be disposed.
+    const orphanedDetailIds = movement.items
       .filter(item => item.stockDetail?._count?.movementItems === 1)
       .map(item => item.stockDetailId);
 
@@ -824,26 +932,33 @@ router.delete('/:id', async (req: AuthRequest, res: Response, next: NextFunction
         });
       }
 
-      // Delete orphaned StockDetails (cascade removes their StockMovementItems too)
-      if (stockDetailIdsToDelete.length > 0) {
-        await tx.stockDetail.deleteMany({
-          where: { id: { in: stockDetailIdsToDelete } },
+      // Soft-dispose orphaned StockDetails instead of hard-deleting
+      if (orphanedDetailIds.length > 0) {
+        await tx.stockDetail.updateMany({
+          where: { id: { in: orphanedDetailIds } },
+          data: { currentStatus: 'disposed' },
         });
       }
 
-      // Delete the movement (cascade removes any remaining StockMovementItems)
-      await tx.stockMovement.delete({ where: { id: req.params.id } });
+      // Cancel the movement (keep for audit trail)
+      await tx.stockMovement.update({
+        where: { id: req.params.id },
+        data: {
+          status: 'cancelled',
+          remarks: [movement.remarks, reason ? `Cancelled: ${reason}` : 'Cancelled'].filter(Boolean).join(' | '),
+        },
+      });
     });
 
     await logAudit({
       userId: req.userId!,
-      action: 'DELETE',
+      action: 'CANCEL',
       entityType: 'stock_movement',
       entityId: req.params.id,
-      changes: { reason: 'Stock movement deleted', movementType, affectedProducts: productTotals.size, removedStockDetails: stockDetailIdsToDelete.length },
+      changes: { reason, movementType, affectedProducts: productTotals.size, disposedStockDetails: orphanedDetailIds.length },
     });
 
-    res.json({ message: 'Stock movement deleted successfully' });
+    res.json({ message: 'Stock movement cancelled' });
   } catch (error: any) {
     next(error);
   }
@@ -894,8 +1009,8 @@ router.post('/import/csv', async (req: AuthRequest, res: Response, next: NextFun
         const movement = await prisma.stockMovement.create({
           data: {
             movementNo,
-            movementType: row.movementType || 'stock_in',
-            status: row.status || 'pending',
+            movementType: (row.movementType || 'stock_in') as MovementType,
+            status: (row.status || 'pending') as MovementStatus,
             remarks: row.remarks || null,
             departmentId: req.departmentId,
             userId: req.userId!,

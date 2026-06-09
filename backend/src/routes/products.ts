@@ -3,7 +3,31 @@ import prisma from '../utils/prisma';
 import { AuthRequest, canAccessDepartment } from '../middleware/auth';
 import { logAudit } from '../utils/audit';
 import { csvToJson, jsonToCsv } from '../utils/csv';
-import { generateStockId, generateMovementNo, generateSku, generateRequestNo, generateImportBatchId } from '../utils/idGenerator';
+import { generateStockId, generateMovementNo, generateSku, generateRequestNo } from '../utils/idGenerator';
+
+function padCsvNumber(n: number): string {
+  return String(n).padStart(6, '0');
+}
+
+function formatCsvRangeId(start: number, end: number): string {
+  return `csv-${padCsvNumber(start)}-${padCsvNumber(end)}`;
+}
+
+async function allocateCsvRange(count: number): Promise<{ csvImportId: string; startNumber: number }> {
+  return prisma.$transaction(async (tx) => {
+    const counter = await tx.importCounter.upsert({
+      where: { name: 'product_csv_import' },
+      create: { name: 'product_csv_import', nextNumber: 1 },
+      update: {},
+    });
+    const startNumber = counter.nextNumber;
+    await tx.importCounter.update({
+      where: { name: 'product_csv_import' },
+      data: { nextNumber: startNumber + count },
+    });
+    return { csvImportId: formatCsvRangeId(startNumber, startNumber + count - 1), startNumber };
+  });
+}
 
 const router = Router();
 
@@ -204,21 +228,27 @@ async function resolveImportCategoryId(row: any, req: AuthRequest) {
   return category.id;
 }
 
-function buildProductBaseFilter(req: AuthRequest): Record<string, any> {
+function buildProductBaseFilter(req: AuthRequest, includeArchived = false): Record<string, any> {
+  const archiveFilter = includeArchived ? {} : { archivedAt: null };
   if (req.departmentIds && req.departmentIds.length > 0) {
-    return { pendingApproval: false, OR: [{ departmentId: { in: req.departmentIds } }, { departmentId: null }] };
+    return { pendingApproval: false, ...archiveFilter, OR: [{ departmentId: { in: req.departmentIds } }, { departmentId: null }] };
   }
   if (req.departmentId) {
-    return { pendingApproval: false, departmentId: req.departmentId };
+    return { pendingApproval: false, ...archiveFilter, departmentId: req.departmentId };
   }
-  return { pendingApproval: false };
+  return { pendingApproval: false, ...archiveFilter };
 }
 
 function applyDataQualityFilter(where: any, dataQuality: string): void {
   const now = new Date();
   const in30 = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
   if (dataQuality === 'missing-location' || dataQuality === 'incomplete') {
-    where.locationId = null;
+    where.AND = [...(where.AND || []), {
+      OR: [
+        { locationId: null },
+        { location: { name: { contains: 'unassigned', mode: 'insensitive' } } },
+      ],
+    }];
   } else if (dataQuality === 'no-threshold') {
     where.lowStockThreshold = 0;
   } else if (dataQuality === 'expiry-expired') {
@@ -258,9 +288,16 @@ function applyProductQueryFilters(base: Record<string, any>, query: Record<strin
   const where: any = { ...base };
   const { search, categoryId, locationId, status, unit, source, csvImportId, stockStatus, departmentId, dataQuality, priceStatus, dateAdded } = query;
   if (departmentId && !base.departmentId) where.departmentId = departmentId;
-  if (search) where.AND = [{ OR: [{ name: { contains: search, mode: 'insensitive' } }, { sku: { contains: search, mode: 'insensitive' } }] }];
+  if (search) where.AND = [...(where.AND || []), { OR: [{ name: { contains: search, mode: 'insensitive' } }, { sku: { contains: search, mode: 'insensitive' } }] }];
   if (categoryId) where.categoryId = categoryId;
-  if (locationId === '__UNASSIGNED__') where.locationId = null;
+  if (locationId === '__UNASSIGNED__') {
+    where.AND = [...(where.AND || []), {
+      OR: [
+        { locationId: null },
+        { location: { name: { contains: 'unassigned', mode: 'insensitive' } } },
+      ],
+    }];
+  }
   else if (locationId) where.locationId = locationId;
   if (status) where.status = status;
   if (unit) where.unit = unit;
@@ -293,16 +330,40 @@ async function verifyLocationAccess(locationId: string | undefined | null, req: 
 
 async function findExistingProduct(row: any) {
   if (row.id) return prisma.product.findUnique({ where: { id: row.id } });
-  if (row.sku) return prisma.product.findFirst({ where: { sku: row.sku } });
-  if (row.name) return prisma.product.findFirst({ where: { name: { equals: row.name, mode: 'insensitive' } } });
   return null;
 }
 
-async function processImportRow(row: any, req: AuthRequest, csvImportId: string): Promise<any> {
+async function resolveImportSku(row: any, existing: any): Promise<string> {
+  const requestedSku = row.sku?.trim();
+  if (!existing && requestedSku) {
+    const duplicateSku = await prisma.product.findUnique({ where: { sku: requestedSku }, select: { id: true } });
+    if (duplicateSku) return generateSku();
+  }
+  if (requestedSku) return requestedSku;
+  if (existing) return existing.sku;
+  return generateSku();
+}
+
+async function handleImportStockMovement(product: any, existing: any, data: any, req: AuthRequest): Promise<boolean> {
+  if (!existing) {
+    await createOpeningStockForProduct(product, data.currentStock, data.locationId, req);
+    return false;
+  }
+
+  const isTransfer = !!req.departmentId && existing.departmentId !== req.departmentId;
+  if (isTransfer) {
+    await createDepartmentTransferMovement(product, existing.departmentId, req.departmentId!, req.userId!);
+  }
+  return isTransfer;
+}
+
+async function processImportRow(row: any, req: AuthRequest, csvImportId: string, assignedId?: string): Promise<any> {
   const locationId = await resolveImportLocationId(row, req);
   const categoryId = await resolveImportCategoryId(row, req);
+  const existing = await findExistingProduct(row);
+  const sku = await resolveImportSku(row, existing);
   const data = {
-    sku: row.sku, name: row.name, description: row.description || null, categoryId, locationId,
+    sku, name: row.name, description: row.description || null, categoryId, locationId,
     departmentId: req.departmentId, unit: row.unit || 'pcs',
     currentStock: Number.parseInt(row.currentStock) || 0,
     lowStockThreshold: Number.parseInt(row.lowStockThreshold) || 10,
@@ -311,16 +372,10 @@ async function processImportRow(row: any, req: AuthRequest, csvImportId: string)
     leadTimeDays: row.leadTimeDays ? Number.parseInt(row.leadTimeDays) : null,
     notes: row.notes || null, source: 'csv_import', csvImportId, pendingApproval: true,
   } as any;
-  const existing = await findExistingProduct(row);
   const product = existing
     ? await prisma.product.update({ where: { id: existing.id }, data })
-    : await prisma.product.create({ data: { ...(row.id ? { id: row.id } : {}), ...data } });
-  const isTransfer = !!existing && !!req.departmentId && existing.departmentId !== req.departmentId;
-  if (!existing) {
-    await createOpeningStockForProduct(product, data.currentStock, data.locationId, req);
-  } else if (isTransfer) {
-    await createDepartmentTransferMovement(product, existing.departmentId, req.departmentId!, req.userId!);
-  }
+    : await prisma.product.create({ data: { ...(assignedId ? { id: assignedId } : {}), ...data } });
+  const isTransfer = await handleImportStockMovement(product, existing, data, req);
   const existingAction = isTransfer ? 'MOVED_TO_DEPARTMENT' : 'UPDATE';
   const auditAction = existing ? existingAction : 'CREATE';
   const auditExtra = isTransfer ? { fromDepartmentId: existing!.departmentId, toDepartmentId: req.departmentId } : {};
@@ -340,7 +395,8 @@ router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
     const orderByField = req.query.orderBy as string || 'createdAt';
     const orderDir: 'asc' | 'desc' = (req.query.orderDir as string) === 'asc' ? 'asc' : 'desc';
 
-    const baseFilter = buildProductBaseFilter(req);
+    const includeArchived = req.query.includeArchived === 'true';
+    const baseFilter = buildProductBaseFilter(req, includeArchived);
     const whereFilter = applyProductQueryFilters(baseFilter, {
       search: (req.query.search as string)?.trim(),
       categoryId: req.query.categoryId as string,
@@ -384,7 +440,7 @@ router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
       prisma.product.count({ where: { ...baseFilter, status: 'active' } }),
       prisma.product.count({ where: { ...baseFilter, status: 'discontinued' } }),
       prisma.product.count({ where: { ...baseFilter, status: 'obsolete' } }),
-      prisma.product.count({ where: { ...baseFilter, status: 'on-backorder' } }),
+      prisma.product.count({ where: { ...baseFilter, status: 'on_backorder' } }),
       prisma.product.count({ where: { ...baseFilter, currentStock: 0 } }),
       prisma.product.count({ where: { ...baseFilter, currentStock: { lt: 0 } } }),
     ]);
@@ -648,7 +704,7 @@ router.put('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
 // Delete product (admin only)
 router.delete('/:id', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    if (req.userRole !== 'admin') {
+    if (req.userRole !== 'admin' && req.userRole !== 'superadmin') {
       return res.status(403).json({ error: 'Staff must submit a delete request instead' });
     }
 
@@ -657,10 +713,43 @@ router.delete('/:id', async (req: AuthRequest, res: Response, next: NextFunction
     if (!canAccessDepartment(req, existing.departmentId)) {
       return res.status(403).json({ error: 'Access denied' });
     }
+    if (existing.archivedAt) {
+      return res.status(409).json({ error: 'Product is already archived' });
+    }
 
-    await prisma.product.delete({ where: { id: req.params.id } });
-    await logAudit({ userId: req.userId, action: 'DELETE', entityType: 'product', entityId: req.params.id });
-    res.json({ message: 'Product deleted' });
+    await prisma.product.update({
+      where: { id: req.params.id },
+      data: { archivedAt: new Date(), archivedBy: req.userId ?? null },
+    });
+    await logAudit({ userId: req.userId, action: 'ARCHIVE', entityType: 'product', entityId: req.params.id, changes: { name: existing.name } });
+    res.json({ message: 'Product archived' });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Unarchive a product
+router.post('/:id/unarchive', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    if (req.userRole !== 'admin' && req.userRole !== 'superadmin') {
+      return res.status(403).json({ error: 'Only admins can unarchive products' });
+    }
+
+    const existing = await prisma.product.findUnique({ where: { id: req.params.id } });
+    if (!existing) return res.status(404).json({ error: 'Product not found' });
+    if (!canAccessDepartment(req, existing.departmentId)) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+    if (!existing.archivedAt) {
+      return res.status(409).json({ error: 'Product is not archived' });
+    }
+
+    await prisma.product.update({
+      where: { id: req.params.id },
+      data: { archivedAt: null, archivedBy: null },
+    });
+    await logAudit({ userId: req.userId, action: 'UNARCHIVE', entityType: 'product', entityId: req.params.id, changes: { name: existing.name } });
+    res.json({ message: 'Product restored' });
   } catch (error) {
     next(error);
   }
@@ -711,11 +800,12 @@ router.post('/import/csv', async (req: AuthRequest, res: Response, next: NextFun
     const errors = [];
 
     const now = new Date();
-    const csvImportId = await generateImportBatchId();
+    const { csvImportId, startNumber } = await allocateCsvRange(rows.length);
 
     for (let i = 0; i < rows.length; i++) {
+      const assignedId = `csv-${padCsvNumber(startNumber + i)}`;
       try {
-        created.push(await processImportRow(rows[i], req, csvImportId));
+        created.push(await processImportRow(rows[i], req, csvImportId, assignedId));
       } catch (err: any) {
         errors.push({ row: i + 1, error: err.message });
       }

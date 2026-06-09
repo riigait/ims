@@ -18,6 +18,237 @@ import {
 
 const router = Router();
 
+// Margin between the outdoor wall polygon and the usable indoor area.
+// Must stay in sync with `margin` in fitIndoorObjectsInsideOutdoorWalls
+// and `WALL_MARGIN` in resolveIndoorObjectOverlaps (both are 28).
+const OUTDOOR_WALL_MARGIN = 28;
+const GENERATED_FLOOR_WIDTH = 1800;
+const GENERATED_FLOOR_HEIGHT = 1200;
+const OUTDOOR_WALL_GRID_SIZE = 20;
+
+// Matches all restroom objects (single, male, or female variant).
+// Used to share restroom positions across sibling floors the same way stairs are shared.
+const isRestroomObject = (o: FloorPlanObject) => /reserved-(male-|female-)?restroom/.test(o.id);
+const isFixedFloorObject = (o: FloorPlanObject) =>
+  o.id.includes('reserved-stairs') || o.id.includes('reserved-elevator') || isRestroomObject(o);
+const isOutdoorWallObject = (object: FloorPlanObject) => object.type === 'wall' && object.id.includes('-ow-');
+
+type OutdoorWallBounds = {
+  minX: number;
+  minY: number;
+  maxX: number;
+  maxY: number;
+  width: number;
+  height: number;
+};
+
+type OutdoorWallAlignmentAnchor = {
+  kind: 'vertical-core' | 'main-entrance' | 'door' | 'grid-column' | 'bbox-top-left';
+  x: number;
+  y: number;
+};
+
+function outdoorWallOrder(wall: FloorPlanObject): number {
+  return Number(wall.id.match(/-ow-(\d+)$/)?.[1] ?? 0);
+}
+
+function snapOutdoorWallCoordinate(value: number | undefined, fallback: number): number {
+  return Math.round((value ?? fallback) / OUTDOOR_WALL_GRID_SIZE) * OUTDOOR_WALL_GRID_SIZE;
+}
+
+function snapOutdoorWallObject(wall: FloorPlanObject): FloorPlanObject {
+  const startX = snapOutdoorWallCoordinate(wall.startX, wall.x);
+  const startY = snapOutdoorWallCoordinate(wall.startY, wall.y);
+  const endX = snapOutdoorWallCoordinate(wall.endX, wall.x + wall.width);
+  const endY = snapOutdoorWallCoordinate(wall.endY, wall.y + wall.height);
+
+  return {
+    ...wall,
+    x: Math.min(startX, endX),
+    y: Math.min(startY, endY),
+    width: Math.abs(endX - startX) || wall.width,
+    height: Math.abs(endY - startY) || wall.height,
+    startX,
+    startY,
+    endX,
+    endY,
+  };
+}
+
+function getOutdoorWallObjects(objects: FloorPlanObject[]): FloorPlanObject[] {
+  return objects
+    .filter(isOutdoorWallObject)
+    .sort((a, b) => outdoorWallOrder(a) - outdoorWallOrder(b))
+    .map(snapOutdoorWallObject);
+}
+
+function outdoorWallBounds(walls: FloorPlanObject[]): OutdoorWallBounds | null {
+  if (walls.length === 0) return null;
+  const xs = walls.flatMap((wall) => [wall.startX ?? wall.x, wall.endX ?? wall.x + wall.width]);
+  const ys = walls.flatMap((wall) => [wall.startY ?? wall.y, wall.endY ?? wall.y + wall.height]);
+  const minX = Math.min(...xs);
+  const minY = Math.min(...ys);
+  const maxX = Math.max(...xs);
+  const maxY = Math.max(...ys);
+  return { minX, minY, maxX, maxY, width: maxX - minX, height: maxY - minY };
+}
+
+function objectCenter(object: FloorPlanObject) {
+  return {
+    x: object.x + object.width / 2,
+    y: object.y + object.height / 2,
+  };
+}
+
+function detectOutdoorWallAlignmentAnchor(objects: FloorPlanObject[], bounds: OutdoorWallBounds): OutdoorWallAlignmentAnchor {
+  const core = objects.find((object) => /reserved-stairs|reserved-elevator|core|stair|elevator/i.test(`${object.id} ${object.label ?? ''}`));
+  if (core) return { kind: 'vertical-core', ...objectCenter(core) };
+
+  const mainEntrance = objects.find((object) => {
+    if (object.type === 'entrance') return true;
+
+    const description = `${object.id} ${object.label ?? ''}`.toLowerCase();
+    const mainIndex = description.indexOf('main');
+    return mainIndex !== -1
+      && (description.includes('entrance') || description.indexOf('door', mainIndex) !== -1);
+  });
+  if (mainEntrance) return { kind: 'main-entrance', ...objectCenter(mainEntrance) };
+
+  const door = objects.find((object) => object.type === 'door');
+  if (door) return { kind: 'door', ...objectCenter(door) };
+
+  const column = objects.find((object) => /grid|column/i.test(`${object.id} ${object.label ?? ''} ${object.groupId ?? ''}`));
+  if (column) return { kind: 'grid-column', ...objectCenter(column) };
+
+  return { kind: 'bbox-top-left', x: bounds.minX, y: bounds.minY };
+}
+
+function translateOutdoorWallsToSharedAnchor(
+  objects: FloorPlanObject[],
+  sharedAnchor: OutdoorWallAlignmentAnchor,
+) {
+  const originalWalls = getOutdoorWallObjects(objects);
+  const originalBounds = outdoorWallBounds(originalWalls);
+  if (!originalBounds) {
+    return { objects, selectedAnchor: sharedAnchor, dx: 0, dy: 0, originalBounds, alignedBounds: originalBounds, wallCountBefore: 0, wallCountAfter: 0 };
+  }
+
+  const selectedAnchor = detectOutdoorWallAlignmentAnchor(objects, originalBounds);
+  const dx = snapOutdoorWallCoordinate(sharedAnchor.x - selectedAnchor.x, 0);
+  const dy = snapOutdoorWallCoordinate(sharedAnchor.y - selectedAnchor.y, 0);
+  const alignedWalls = originalWalls.map((wall) => snapOutdoorWallObject({
+    ...wall,
+    startX: (wall.startX ?? wall.x) + dx,
+    startY: (wall.startY ?? wall.y) + dy,
+    endX: (wall.endX ?? wall.x + wall.width) + dx,
+    endY: (wall.endY ?? wall.y + wall.height) + dy,
+  }));
+
+  const alignedBounds = outdoorWallBounds(alignedWalls);
+
+  return {
+    objects: [
+      ...objects.filter((object) => !isOutdoorWallObject(object)),
+      ...alignedWalls,
+    ],
+    selectedAnchor,
+    dx,
+    dy,
+    originalBounds,
+    alignedBounds,
+    wallCountBefore: originalWalls.length,
+    wallCountAfter: alignedWalls.length,
+  };
+}
+
+function centerFloorPlanObjects(objects: FloorPlanObject[], width: number, height: number): FloorPlanObject[] {
+  const outdoorWalls = objects.filter((object) => object.type === 'wall' && object.id.includes('-ow-'));
+  if (outdoorWalls.length === 0) return objects;
+
+  const xs = outdoorWalls.flatMap((wall) => [wall.startX ?? wall.x, wall.endX ?? wall.x + wall.width]);
+  const ys = outdoorWalls.flatMap((wall) => [wall.startY ?? wall.y, wall.endY ?? wall.y + wall.height]);
+  const dx = width / 2 - (Math.min(...xs) + Math.max(...xs)) / 2;
+  const dy = height / 2 - (Math.min(...ys) + Math.max(...ys)) / 2;
+  if (dx === 0 && dy === 0) return objects;
+
+  return objects.map((object) => ({
+    ...object,
+    x: object.x + dx,
+    y: object.y + dy,
+    ...(object.startX !== undefined ? { startX: object.startX + dx } : {}),
+    ...(object.endX !== undefined ? { endX: object.endX + dx } : {}),
+    ...(object.startY !== undefined ? { startY: object.startY + dy } : {}),
+    ...(object.endY !== undefined ? { endY: object.endY + dy } : {}),
+  }));
+}
+
+function objectBounds(object: FloorPlanObject) {
+  if (object.type === 'wall') {
+    const x1 = object.startX ?? object.x;
+    const y1 = object.startY ?? object.y;
+    const x2 = object.endX ?? object.x + object.width;
+    const y2 = object.endY ?? object.y + object.height;
+    return {
+      minX: Math.min(x1, x2),
+      minY: Math.min(y1, y2),
+      maxX: Math.max(x1, x2),
+      maxY: Math.max(y1, y2),
+    };
+  }
+  return {
+    minX: object.x,
+    minY: object.y,
+    maxX: object.x + object.width,
+    maxY: object.y + object.height,
+  };
+}
+
+function expandOutdoorWallsToContainFixedObjects(objects: FloorPlanObject[], fixedObjects: FloorPlanObject[]): FloorPlanObject[] {
+  const outdoorWalls = objects.filter((object) => object.type === 'wall' && object.id.includes('-ow-'));
+  if (outdoorWalls.length === 0 || fixedObjects.length === 0) return objects;
+
+  const wallBounds = outdoorWalls.map(objectBounds);
+  const fixedBounds = fixedObjects.map(objectBounds);
+  const oldMinX = Math.min(...wallBounds.map((bounds) => bounds.minX));
+  const oldMinY = Math.min(...wallBounds.map((bounds) => bounds.minY));
+  const oldMaxX = Math.max(...wallBounds.map((bounds) => bounds.maxX));
+  const oldMaxY = Math.max(...wallBounds.map((bounds) => bounds.maxY));
+  const newMinX = Math.min(oldMinX, Math.min(...fixedBounds.map((bounds) => bounds.minX)) - OUTDOOR_WALL_MARGIN);
+  const newMinY = Math.min(oldMinY, Math.min(...fixedBounds.map((bounds) => bounds.minY)) - OUTDOOR_WALL_MARGIN);
+  const newMaxX = Math.max(oldMaxX, Math.max(...fixedBounds.map((bounds) => bounds.maxX)) + OUTDOOR_WALL_MARGIN);
+  const newMaxY = Math.max(oldMaxY, Math.max(...fixedBounds.map((bounds) => bounds.maxY)) + OUTDOOR_WALL_MARGIN);
+
+  if (newMinX === oldMinX && newMinY === oldMinY && newMaxX === oldMaxX && newMaxY === oldMaxY) return objects;
+
+  const near = (a: number, b: number) => Math.abs(a - b) <= 1;
+  const mapX = (x: number) => near(x, oldMinX) ? newMinX : near(x, oldMaxX) ? newMaxX : x;
+  const mapY = (y: number) => near(y, oldMinY) ? newMinY : near(y, oldMaxY) ? newMaxY : y;
+
+  return objects.map((object) => {
+    if (object.type === 'wall' && object.id.includes('-ow-')) {
+      const startX = mapX(object.startX ?? object.x);
+      const startY = mapY(object.startY ?? object.y);
+      const endX = mapX(object.endX ?? object.x + object.width);
+      const endY = mapY(object.endY ?? object.y + object.height);
+      return {
+        ...object,
+        x: Math.min(startX, endX),
+        y: Math.min(startY, endY),
+        width: Math.abs(endX - startX) || object.width,
+        height: Math.abs(endY - startY) || object.height,
+        startX,
+        startY,
+        endX,
+        endY,
+      };
+    }
+    if (object.type === 'entrance' && near(object.y, oldMaxY)) {
+      return { ...object, x: Math.max(newMinX, Math.min(newMaxX, object.x)), y: newMaxY };
+    }
+    return object;
+  });
+}
+
 // â”€â”€â”€ Helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 function getDepartmentFilter(req: AuthRequest) {
@@ -42,12 +273,545 @@ function canManageFloorPlan(req: AuthRequest, departmentId: string | null) {
   return req.userRole === 'admin' && Boolean(req.departmentId) && departmentId === req.departmentId;
 }
 
+type LocationKind = 'rack' | 'shelf' | 'room';
+
+// Per-floor location-assignment caps aligned with ZONE_RACK_SHELF_DEFAULTS.
+// Values represent location DB records (not physical units); one shelf/rack can
+// hold many records. Caps prevent a single floor from becoming visually unreadable.
+const FLOOR_CAPACITY: Record<string, Record<LocationKind, number>> = {
+  warehouse: { rack: 24,  shelf: 50,  room: 10 },
+  storage:   { rack: 4,   shelf: 6,   room: 10 },
+  dormitory: { rack: 2,   shelf: 4,   room: 40 },
+  office:    { rack: 2,   shelf: 4,   room: 60 },
+  technical: { rack: 4,   shelf: 2,   room: 10 },
+  reception: { rack: 1,   shelf: 1,   room: 20 },
+};
+
+function getLocationKind(name: string): LocationKind {
+  const normalized = name.toLowerCase();
+  if (normalized.includes('rack') || normalized.includes('server') || normalized.includes('radio')) return 'rack';
+  if (['shelf', 'cabinet', 'box', 'drawer', 'bin', 'orocan', 'pedestal'].some((keyword) => normalized.includes(keyword))) return 'shelf';
+  return 'room';
+}
+
+function getTemplateCapacity(templateName: string): Record<LocationKind, number> {
+  const normalized = templateName.toLowerCase();
+  if (normalized.includes('warehouse')) return FLOOR_CAPACITY.warehouse;
+  if (normalized.includes('storage')) return FLOOR_CAPACITY.storage;
+  if (normalized.includes('dormitory')) return FLOOR_CAPACITY.dormitory;
+  if (normalized.includes('server') || normalized.includes('scada')) return FLOOR_CAPACITY.technical;
+  if (normalized.includes('reception')) return FLOOR_CAPACITY.reception;
+  return FLOOR_CAPACITY.office;
+}
+
+function assignLocationsToFloors(locations: Array<{ id: string; name: string }>, templates: string[]) {
+  const remaining = [...locations];
+  const assignments = templates.map(() => [] as typeof locations);
+  const capacities = templates.map(getTemplateCapacity);
+
+  templates.forEach((templateName, floorIndex) => {
+    const capacity = capacities[floorIndex];
+    (['rack', 'shelf', 'room'] as LocationKind[]).forEach((kind) => {
+      let available = capacity[kind];
+      for (let index = 0; index < remaining.length && available > 0;) {
+        if (getLocationKind(remaining[index].name) === kind) {
+          assignments[floorIndex].push(remaining.splice(index, 1)[0]);
+          available--;
+        } else {
+          index++;
+        }
+      }
+    });
+  });
+
+  while (remaining.length > 0) {
+    const floorIndex = assignments
+      .map((assignment, index) => {
+        const totalCapacity = Object.values(capacities[index]).reduce((sum, value) => sum + value, 0);
+        return { index, available: totalCapacity - assignment.length, utilization: assignment.length / totalCapacity };
+      })
+      .filter((floor) => floor.available > 0)
+      .sort((a, b) => a.utilization - b.utilization)[0]?.index;
+    if (floorIndex === undefined) break;
+    assignments[floorIndex].push(remaining.shift()!);
+  }
+
+  return { assignments, remaining };
+}
+
+function suggestFloorTemplates(locations: Array<{ id: string; name: string }>, existingTemplates: string[]) {
+  const suggestions = [...existingTemplates];
+  let remaining = [...locations];
+
+  while (remaining.length > 0 && suggestions.length < 12) {
+    const counts = remaining.reduce((result, location) => {
+      result[getLocationKind(location.name)]++;
+      return result;
+    }, { rack: 0, shelf: 0, room: 0 } as Record<LocationKind, number>);
+    const template = counts.rack >= counts.shelf && counts.rack >= counts.room
+      ? 'Warehouse'
+      : counts.shelf >= counts.room
+        ? 'Storage room'
+        : 'Office layout';
+    suggestions.push(template);
+    remaining = assignLocationsToFloors(remaining, [template]).remaining;
+  }
+
+  return { suggestions, remaining };
+}
+
+function fitIndoorObjectsInsideOutdoorWalls(objects: FloorPlanObject[]): FloorPlanObject[] {
+  const isOutdoorWall = (object: FloorPlanObject) => object.type === 'wall' && object.id.includes('-ow-');
+  const isFixedVerticalAccess = (object: FloorPlanObject) => (
+    object.id.includes('reserved-stairs') ||
+    object.id.includes('reserved-elevator') ||
+    /reserved-(male-|female-)?restroom/.test(object.id)
+  );
+  // Sort by the numeric suffix in "-ow-N" so the polygon vertices are in
+  // traversal order even if the objects array was shuffled (e.g. by layer sort).
+  const owIndex = (wall: FloorPlanObject) => {
+    const m = wall.id.match(/-ow-(\d+)$/);
+    return m ? Number(m[1]) : 0;
+  };
+  const outdoorWalls = objects.filter(isOutdoorWall).sort((a, b) => owIndex(a) - owIndex(b));
+  const indoorObjects = objects.filter((object) => !isOutdoorWall(object));
+  if (outdoorWalls.length === 0 || indoorObjects.length === 0) return objects;
+
+  const polygon = outdoorWalls.map((wall) => [wall.startX ?? wall.x, wall.startY ?? wall.y] as [number, number]);
+  const pointInsidePolygon = (x: number, y: number) => {
+    let inside = false;
+    for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+      const [xi, yi] = polygon[i];
+      const [xj, yj] = polygon[j];
+      if (((yi > y) !== (yj > y)) && x < ((xj - xi) * (y - yi)) / ((yj - yi) || 1) + xi) inside = !inside;
+    }
+    return inside;
+  };
+  const outdoorXs = outdoorWalls.flatMap((wall) => [wall.startX ?? wall.x, wall.endX ?? wall.x + wall.width]);
+  const outdoorYs = outdoorWalls.flatMap((wall) => [wall.startY ?? wall.y, wall.endY ?? wall.y + wall.height]);
+  const margin = 28;
+  const targetLeft = Math.min(...outdoorXs) + margin;
+  const targetTop = Math.min(...outdoorYs) + margin;
+  const targetRight = Math.max(...outdoorXs) - margin;
+  const targetBottom = Math.max(...outdoorYs) - margin;
+
+  // Exclude stairs/elevators from source bounds and polygon test — they are replaced after fitting.
+  const spatial = indoorObjects.filter((object) => object.type !== 'label' && !isFixedVerticalAccess(object));
+  const xs = spatial.flatMap((object) => object.type === 'wall'
+    ? [object.startX ?? object.x, object.endX ?? object.x + object.width]
+    : [object.x, object.x + object.width]);
+  const ys = spatial.flatMap((object) => object.type === 'wall'
+    ? [object.startY ?? object.y, object.endY ?? object.y + object.height]
+    : [object.y, object.y + object.height]);
+  if (xs.length === 0 || ys.length === 0) return objects;
+
+  const sourceLeft = Math.min(...xs);
+  const sourceTop = Math.min(...ys);
+  const sourceWidth = Math.max(1, Math.max(...xs) - sourceLeft);
+  const sourceHeight = Math.max(1, Math.max(...ys) - sourceTop);
+  const targetWidth = Math.max(1, targetRight - targetLeft);
+  const targetHeight = Math.max(1, targetBottom - targetTop);
+
+  // Scale down uniformly if the source content is larger than the target area.
+  // Never scale up (cap at 1) — only shrink to fit when needed.
+  const scale = Math.min(1, targetWidth / sourceWidth, targetHeight / sourceHeight);
+  const scaledW = sourceWidth  * scale;
+  const scaledH = sourceHeight * scale;
+
+  const rectangles = indoorObjects.filter((object) =>
+    (object.type === 'room' || object.type === 'rack' || object.type === 'shelf')
+    && !isFixedVerticalAccess(object));
+  // offsetX/Y is the target-space coordinate of the scaled content's top-left corner.
+  const transformFits = (ox: number, oy: number) => rectangles.every((object) => {
+    const left   = ox + (object.x - sourceLeft) * scale;
+    const top    = oy + (object.y - sourceTop)  * scale;
+    const right  = left + object.width  * scale;
+    const bottom = top  + object.height * scale;
+    return [
+      [left, top], [(left + right) / 2, top], [right, top],
+      [left, (top + bottom) / 2], [right, (top + bottom) / 2],
+      [left, bottom], [(left + right) / 2, bottom], [right, bottom],
+    ].every(([x, y]) => pointInsidePolygon(x, y));
+  });
+
+  const availableX = Math.max(0, targetWidth  - scaledW);
+  const availableY = Math.max(0, targetHeight - scaledH);
+  // Fast path: if scale=1 and the current position already fits, keep it in place.
+  let offsetX = sourceLeft;
+  let offsetY = sourceTop;
+  let foundPlacement = scale === 1 && transformFits(sourceLeft, sourceTop);
+  for (let yStep = 0; yStep <= 12 && !foundPlacement; yStep++) {
+    for (let xStep = 0; xStep <= 12; xStep++) {
+      const cx = targetLeft + availableX * (xStep / 12);
+      const cy = targetTop  + availableY * (yStep / 12);
+      if (transformFits(cx, cy)) {
+        offsetX = cx;
+        offsetY = cy;
+        foundPlacement = true;
+        break;
+      }
+    }
+  }
+  if (!foundPlacement) {
+    offsetX = targetLeft + availableX / 2;
+    offsetY = targetTop  + availableY / 2;
+  }
+
+  const mapX = (value: number) => offsetX + (value - sourceLeft) * scale;
+  const mapY = (value: number) => offsetY + (value - sourceTop)  * scale;
+  // Stairs/elevators are replaced with shared floor-1 objects after fitting,
+  // so their exact transformation here doesn't matter — mapX/Y is sufficient.
+  const mapFixedX = (_object: FloorPlanObject, value: number) => mapX(value);
+  const mapFixedY = (_object: FloorPlanObject, value: number) => mapY(value);
+
+  return objects.map((object) => {
+    if (isOutdoorWall(object)) return object;
+    if (isFixedVerticalAccess(object)) {
+      if (object.type === 'wall') {
+        const startX = mapFixedX(object, object.startX ?? object.x);
+        const startY = mapFixedY(object, object.startY ?? object.y);
+        const endX = mapFixedX(object, object.endX ?? object.x + object.width);
+        const endY = mapFixedY(object, object.endY ?? object.y + object.height);
+        return {
+          ...object,
+          x: Math.min(startX, endX),
+          y: Math.min(startY, endY),
+          width: Math.abs(endX - startX) || object.width,
+          height: Math.abs(endY - startY) || object.height,
+          startX,
+          startY,
+          endX,
+          endY,
+        };
+      }
+      return { ...object, x: mapFixedX(object, object.x), y: mapFixedY(object, object.y) };
+    }
+    if (object.type === 'label') return { ...object, x: mapX(object.x), y: mapY(object.y) };
+    if (object.type === 'wall') {
+      const startX = mapX(object.startX ?? object.x);
+      const startY = mapY(object.startY ?? object.y);
+      const endX = mapX(object.endX ?? object.x + object.width);
+      const endY = mapY(object.endY ?? object.y + object.height);
+      return {
+        ...object,
+        x: Math.min(startX, endX),
+        y: Math.min(startY, endY),
+        width: Math.abs(endX - startX) || object.width,
+        height: Math.abs(endY - startY) || object.height,
+        startX,
+        startY,
+        endX,
+        endY,
+      };
+    }
+    return {
+      ...object,
+      x:      mapX(object.x),
+      y:      mapY(object.y),
+      width:  object.width  * scale,
+      height: object.height * scale,
+    };
+  });
+}
+
+// Push overlapping indoor rect objects apart so every pair has at least minGap px
+// of clearance, then clamp each object back inside the outdoor wall boundary so
+// no object can escape the enclosure. Fixed objects (outdoor walls, stairs,
+// elevators) are never moved. Runs up to MAX_ITER passes and stops early when stable.
+// minGap = 16: racks sit 15 px inside each zone edge, so a 16 px zone gap gives
+// ~46 px clearance between racks in adjacent zones — well above the 6 px minimum.
+function resolveIndoorObjectOverlaps(objects: FloorPlanObject[], minGap = 16): FloorPlanObject[] {
+  const isOW = (o: FloorPlanObject) => o.type === 'wall' && o.id.includes('-ow-');
+  const isFixed = (o: FloorPlanObject) =>
+    isOW(o) || o.id.includes('reserved-stairs') || o.id.includes('reserved-elevator') || isRestroomObject(o);
+
+  // Only push zone rects — racks/shelves follow their zone via groupId so grid alignment is preserved.
+  // linkedLocationId marks individual inventory items — they are never zone containers
+  // and must not be pushed by the overlap resolver even if type === 'room'.
+  const isMovableZone = (o: FloorPlanObject) => o.type === 'room' && !isFixed(o) && !o.linkedLocationId;
+
+  const movable: FloorPlanObject[] = objects.filter(isMovableZone).map(o => ({ ...o }));
+  if (movable.length < 2) return objects;
+
+  // Derive interior bounds from outdoor walls so pushed zones are clamped inside.
+  const outdoorWalls = objects.filter(isOW);
+  const WALL_MARGIN = 28; // matches fitIndoorObjectsInsideOutdoorWalls
+  let bMinX = -Infinity, bMinY = -Infinity, bMaxX = Infinity, bMaxY = Infinity;
+  if (outdoorWalls.length > 0) {
+    const xs = outdoorWalls.flatMap(w => [w.startX ?? w.x, w.endX ?? w.x + w.width]);
+    const ys = outdoorWalls.flatMap(w => [w.startY ?? w.y, w.endY ?? w.y + w.height]);
+    bMinX = Math.min(...xs) + WALL_MARGIN;
+    bMinY = Math.min(...ys) + WALL_MARGIN;
+    bMaxX = Math.max(...xs) - WALL_MARGIN;
+    bMaxY = Math.max(...ys) - WALL_MARGIN;
+  }
+  const hasBounds = Number.isFinite(bMinX);
+  const clamp = (o: FloorPlanObject) => {
+    if (!hasBounds) return;
+    o.x = Math.max(bMinX, Math.min(bMaxX - o.width,  o.x));
+    o.y = Math.max(bMinY, Math.min(bMaxY - o.height, o.y));
+  };
+
+  const MAX_ITER = 80;
+  for (let iter = 0; iter < MAX_ITER; iter++) {
+    let moved = false;
+    for (let i = 0; i < movable.length; i++) {
+      for (let j = i + 1; j < movable.length; j++) {
+        const a = movable[i], b = movable[j];
+        // Positive overlap = rooms intersect on that axis; skip pairs that don't actually overlap.
+        const overlapX = Math.min(a.x + a.width,  b.x + b.width)  - Math.max(a.x, b.x);
+        const overlapY = Math.min(a.y + a.height, b.y + b.height) - Math.max(a.y, b.y);
+        if (overlapX <= 0 || overlapY <= 0) continue;
+
+        // Push along the axis of minimum penetration.
+        // Distribute the required push proportionally to each room's available space
+        // so a room pressed against a boundary hands its unused share to its partner
+        // instead of both clamping to the same spot and leaving the overlap unresolved.
+        const pushAlongX = overlapX <= overlapY;
+        const needed = (pushAlongX ? overlapX : overlapY) + minGap;
+
+        if (pushAlongX) {
+          const dir = (a.x + a.width / 2) <= (b.x + b.width / 2) ? 1 : -1;
+          const aRoom = dir > 0 ? Math.max(0, a.x - bMinX)           : Math.max(0, bMaxX - a.width  - a.x);
+          const bRoom = dir > 0 ? Math.max(0, bMaxX - b.width - b.x) : Math.max(0, b.x - bMinX);
+          const total  = aRoom + bRoom || 1;
+          const aPush  = hasBounds ? Math.min(aRoom, needed * aRoom / total) : needed / 2;
+          const bPush  = hasBounds ? Math.min(bRoom, needed - aPush)         : needed / 2;
+          a.x -= dir * aPush;
+          b.x += dir * bPush;
+        } else {
+          const dir = (a.y + a.height / 2) <= (b.y + b.height / 2) ? 1 : -1;
+          const aRoom = dir > 0 ? Math.max(0, a.y - bMinY)              : Math.max(0, bMaxY - a.height - a.y);
+          const bRoom = dir > 0 ? Math.max(0, bMaxY - b.height - b.y)   : Math.max(0, b.y - bMinY);
+          const total  = aRoom + bRoom || 1;
+          const aPush  = hasBounds ? Math.min(aRoom, needed * aRoom / total) : needed / 2;
+          const bPush  = hasBounds ? Math.min(bRoom, needed - aPush)         : needed / 2;
+          a.y -= dir * aPush;
+          b.y += dir * bPush;
+        }
+        clamp(a);
+        clamp(b);
+        moved = true;
+      }
+    }
+    if (!moved) break;
+  }
+
+  // Compute per-groupId deltas so every child (walls, door, window, racks, shelves) follows its zone rect.
+  const deltas = new Map<string, { dx: number; dy: number }>();
+  for (const mz of movable) {
+    if (!mz.groupId) continue;
+    const orig = objects.find(o => o.id === mz.id);
+    if (!orig) continue;
+    const dx = mz.x - orig.x, dy = mz.y - orig.y;
+    if (dx !== 0 || dy !== 0) deltas.set(mz.groupId, { dx, dy });
+  }
+
+  return objects.map(o => {
+    // Zone rect itself
+    const movedZone = movable.find(m => m.id === o.id);
+    if (movedZone) return movedZone;
+    // Children: shift by same delta as their zone so racks/shelves stay grid-aligned
+    if (o.groupId) {
+      const d = deltas.get(o.groupId);
+      if (d) {
+        if (o.type === 'wall') {
+          return { ...o, startX: (o as any).startX + d.dx, startY: (o as any).startY + d.dy, endX: (o as any).endX + d.dx, endY: (o as any).endY + d.dy };
+        }
+        return { ...o, x: (o as any).x + d.dx, y: (o as any).y + d.dy };
+      }
+    }
+    return o;
+  });
+}
+
 // â”€â”€â”€ Routes â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
+function resolveMovableObjectOverlapsWithFixed(objects: FloorPlanObject[], fixedObjects: FloorPlanObject[], minGap = 16): FloorPlanObject[] {
+  const isOW = (o: FloorPlanObject) => o.type === 'wall' && o.id.includes('-ow-');
+  const isMovableZone = (o: FloorPlanObject) =>
+    o.type === 'room' && !isOW(o) && !isFixedFloorObject(o) && !o.linkedLocationId;
+  const blockerObjects = fixedObjects.filter((object) =>
+    object.type === 'room' || object.type === 'rack' || object.type === 'shelf');
+  const movable = objects.filter(isMovableZone).map((object) => ({ ...object }));
+  if (movable.length === 0 || blockerObjects.length === 0) return objects;
+
+  const outdoorWalls = objects.filter(isOW);
+  let bMinX = -Infinity, bMinY = -Infinity, bMaxX = Infinity, bMaxY = Infinity;
+  if (outdoorWalls.length > 0) {
+    const xs = outdoorWalls.flatMap((wall) => [wall.startX ?? wall.x, wall.endX ?? wall.x + wall.width]);
+    const ys = outdoorWalls.flatMap((wall) => [wall.startY ?? wall.y, wall.endY ?? wall.y + wall.height]);
+    bMinX = Math.min(...xs) + OUTDOOR_WALL_MARGIN;
+    bMinY = Math.min(...ys) + OUTDOOR_WALL_MARGIN;
+    bMaxX = Math.max(...xs) - OUTDOOR_WALL_MARGIN;
+    bMaxY = Math.max(...ys) - OUTDOOR_WALL_MARGIN;
+  }
+  const hasBounds = Number.isFinite(bMinX);
+  const clampRect = (rect: FloorPlanObject) => {
+    if (!hasBounds) return rect;
+    return {
+      ...rect,
+      x: Math.max(bMinX, Math.min(bMaxX - rect.width, rect.x)),
+      y: Math.max(bMinY, Math.min(bMaxY - rect.height, rect.y)),
+    };
+  };
+  const overlapArea = (rect: FloorPlanObject, blocker: ReturnType<typeof objectBounds>) => {
+    const overlapX = Math.min(rect.x + rect.width, blocker.maxX) - Math.max(rect.x, blocker.minX);
+    const overlapY = Math.min(rect.y + rect.height, blocker.maxY) - Math.max(rect.y, blocker.minY);
+    return overlapX > 0 && overlapY > 0 ? overlapX * overlapY : 0;
+  };
+  const blockers = blockerObjects.map((object) => {
+    const bounds = objectBounds(object);
+    return {
+      minX: bounds.minX - minGap,
+      minY: bounds.minY - minGap,
+      maxX: bounds.maxX + minGap,
+      maxY: bounds.maxY + minGap,
+    };
+  });
+
+  const MAX_ITER = 60;
+  for (let iter = 0; iter < MAX_ITER; iter++) {
+    let moved = false;
+    for (const zone of movable) {
+      for (const blocker of blockers) {
+        if (overlapArea(zone, blocker) === 0) continue;
+        const candidates = [
+          { ...zone, x: blocker.minX - zone.width },
+          { ...zone, x: blocker.maxX },
+          { ...zone, y: blocker.minY - zone.height },
+          { ...zone, y: blocker.maxY },
+        ].map(clampRect).map((candidate) => ({
+          candidate,
+          overlap: overlapArea(candidate, blocker),
+          move: Math.abs(candidate.x - zone.x) + Math.abs(candidate.y - zone.y),
+        })).sort((a, b) => a.overlap - b.overlap || a.move - b.move);
+
+        const best = candidates[0];
+        if (best && (best.candidate.x !== zone.x || best.candidate.y !== zone.y)) {
+          zone.x = best.candidate.x;
+          zone.y = best.candidate.y;
+          moved = true;
+        }
+      }
+    }
+    if (!moved) break;
+  }
+
+  const deltas = new Map<string, { dx: number; dy: number }>();
+  for (const movedZone of movable) {
+    if (!movedZone.groupId) continue;
+    const original = objects.find((object) => object.id === movedZone.id);
+    if (!original) continue;
+    const dx = movedZone.x - original.x;
+    const dy = movedZone.y - original.y;
+    if (dx !== 0 || dy !== 0) deltas.set(movedZone.groupId, { dx, dy });
+  }
+
+  return objects.map((object) => {
+    const movedZone = movable.find((zone) => zone.id === object.id);
+    if (movedZone) return movedZone;
+    if (!object.groupId) return object;
+    const delta = deltas.get(object.groupId);
+    if (!delta) return object;
+    if (object.type === 'wall') {
+      return {
+        ...object,
+        x: object.x + delta.dx,
+        y: object.y + delta.dy,
+        startX: (object.startX ?? object.x) + delta.dx,
+        startY: (object.startY ?? object.y) + delta.dy,
+        endX: (object.endX ?? object.x + object.width) + delta.dx,
+        endY: (object.endY ?? object.y + object.height) + delta.dy,
+      };
+    }
+    return { ...object, x: object.x + delta.dx, y: object.y + delta.dy };
+  });
+}
+
+function rectsOverlap(a: ReturnType<typeof objectBounds>, b: ReturnType<typeof objectBounds>, gap = 0): boolean {
+  return a.minX < b.maxX + gap && a.maxX + gap > b.minX && a.minY < b.maxY + gap && a.maxY + gap > b.minY;
+}
+
+function hasMovableRoomOverlap(objects: FloorPlanObject[]): boolean {
+  const isOW = (o: FloorPlanObject) => o.type === 'wall' && o.id.includes('-ow-');
+  const rooms = objects.filter((object) =>
+    object.type === 'room' && !isOW(object) && !isFixedFloorObject(object) && !object.linkedLocationId);
+  for (let i = 0; i < rooms.length; i++) {
+    for (let j = i + 1; j < rooms.length; j++) {
+      if (rectsOverlap(objectBounds(rooms[i]), objectBounds(rooms[j]))) return true;
+    }
+  }
+  return false;
+}
+
+function hasMovableFixedOverlap(objects: FloorPlanObject[], fixedObjects: FloorPlanObject[]): boolean {
+  const isOW = (o: FloorPlanObject) => o.type === 'wall' && o.id.includes('-ow-');
+  const rooms = objects.filter((object) =>
+    object.type === 'room' && !isOW(object) && !isFixedFloorObject(object) && !object.linkedLocationId);
+  const blockers = fixedObjects.filter((object) =>
+    object.type === 'room' || object.type === 'rack' || object.type === 'shelf');
+  return rooms.some((room) => blockers.some((blocker) => rectsOverlap(objectBounds(room), objectBounds(blocker))));
+}
+
+function correctRegeneratedLayoutIssues(
+  objects: FloorPlanObject[],
+  fixedObjects: FloorPlanObject[],
+  regenerateOutdoorWalls: boolean,
+): FloorPlanObject[] {
+  let corrected = objects;
+
+  if (hasMovableRoomOverlap(corrected)) {
+    corrected = resolveIndoorObjectOverlaps(corrected);
+  }
+
+  if (fixedObjects.length > 0) {
+    if (regenerateOutdoorWalls) {
+      corrected = expandOutdoorWallsToContainFixedObjects(corrected, fixedObjects);
+    }
+    if (hasMovableFixedOverlap(corrected, fixedObjects)) {
+      corrected = resolveMovableObjectOverlapsWithFixed(corrected, fixedObjects);
+    }
+  }
+
+  if (hasMovableRoomOverlap(corrected)) {
+    corrected = resolveIndoorObjectOverlaps(corrected);
+  }
+  if (fixedObjects.length > 0 && hasMovableFixedOverlap(corrected, fixedObjects)) {
+    corrected = resolveMovableObjectOverlapsWithFixed(corrected, fixedObjects, 0);
+  }
+
+  return corrected;
+}
+
 // Get all floor plans
+// ?summary=true — returns metadata only (no objects); use GET /:id for full data
 router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const departmentFilter = getDepartmentFilter(req);
+    const summary = req.query.summary === 'true';
+
+    if (summary) {
+      const plans = await prisma.floorPlan.findMany({
+        where: departmentFilter,
+        select: {
+          id: true,
+          name: true,
+          locationId: true,
+          departmentId: true,
+          width: true,
+          height: true,
+          isApproved: true,
+          isTemplate: true,
+          generationScore: true,
+          createdAt: true,
+          updatedAt: true,
+          location: { select: { id: true, name: true } },
+        },
+      });
+      return res.json(plans);
+    }
+
     const floorPlans = await prisma.floorPlan.findMany({
       where: departmentFilter,
       include: { location: true },
@@ -228,6 +992,222 @@ router.post('/auto-generate', async (req: AuthRequest, res: Response, next: Next
       return res.status(400).json({ error: 'No locations found for this department' });
     }
 
+    const requestedFloorTemplates: unknown[] = Array.isArray(req.body.floorTemplates) ? req.body.floorTemplates : [];
+    if (requestedFloorTemplates.length > 0) {
+      const requestedVerticalAccess = req.body.verticalAccess;
+      if (requestedVerticalAccess !== 'stairs' && requestedVerticalAccess !== 'elevator' && requestedVerticalAccess !== 'both') {
+        return res.status(400).json({ error: 'Choose stairs, elevator, or both before generating floor plans' });
+      }
+      const verticalAccess: 'stairs' | 'elevator' | 'both' = requestedVerticalAccess;
+      const requestedFloorCount = Number.parseInt(req.body.floorCount, 10);
+      const floorCount = Number.isFinite(requestedFloorCount)
+        ? Math.max(1, Math.min(12, requestedFloorCount))
+        : requestedFloorTemplates.length;
+      const floorTemplates = Array.from({ length: floorCount }, (_, index) => {
+        const requestedTemplate = requestedFloorTemplates[index];
+        if (typeof requestedTemplate === 'string' && allowedTemplates.has(requestedTemplate)) {
+          return requestedTemplate;
+        }
+        return DEFAULT_AUTO_GENERATE_TEMPLATES[index % DEFAULT_AUTO_GENERATE_TEMPLATES.length];
+      });
+      const slotTemplates = Array.from({ length: planCount }, () => floorTemplates).flat();
+      const locationPlan = assignLocationsToFloors(locations, slotTemplates);
+      if (locationPlan.remaining.length > 0) {
+        let suggestedFloorTemplates = [...floorTemplates];
+        let suggestedPlan = locationPlan;
+        while (suggestedPlan.remaining.length > 0 && suggestedFloorTemplates.length < 12) {
+          const recommendation = suggestFloorTemplates(suggestedPlan.remaining, []);
+          const nextTemplate = recommendation.suggestions[0] ?? 'Office layout';
+          suggestedFloorTemplates.push(nextTemplate);
+          suggestedPlan = assignLocationsToFloors(
+            locations,
+            Array.from({ length: planCount }, () => suggestedFloorTemplates).flat(),
+          );
+        }
+
+        const overflowCounts = locationPlan.remaining.reduce((result, location) => {
+          result[getLocationKind(location.name)]++;
+          return result;
+        }, { rack: 0, shelf: 0, room: 0 } as Record<LocationKind, number>);
+
+        return res.status(409).json({
+          error: `The selected ${floorCount} floor${floorCount === 1 ? '' : 's'} per building cannot safely contain all ${locations.length} locations.`,
+          requiresMoreFloors: true,
+          suggestedFloorCount: suggestedFloorTemplates.length,
+          suggestedFloorTemplates,
+          overflowCount: locationPlan.remaining.length,
+          overflowCounts,
+        });
+      }
+      const regenerateOutdoorWalls = req.body.regenerateOutdoorWalls !== false;
+      const addRooftopFloor = req.body.addRooftopFloor !== false;
+      const preservedOutdoorWalls = new Map<number, FloorPlanObject[]>();
+      const preservedFixedObjects = new Map<number, FloorPlanObject[]>();
+      if (!regenerateOutdoorWalls) {
+        const existingBuildingFloors = await prisma.floorPlan.findMany({
+          where: {
+            departmentId,
+            name: { startsWith: `${GENERATED_FLOORPLAN_PREFIX}${department.name} - Building ` },
+          },
+        });
+        existingBuildingFloors.forEach((plan) => {
+          const match = plan.name.match(/ - Building (\d+) - Floor 1 - /);
+          if (!match) return;
+          try {
+            const objects = centerFloorPlanObjects(JSON.parse(plan.planJson || '[]'), plan.width, plan.height);
+            preservedOutdoorWalls.set(Number(match[1]), objects.filter((object) => object.type === 'wall' && object.id.includes('-ow-')));
+            preservedFixedObjects.set(Number(match[1]), objects.filter((object) => (
+              object.id.includes('reserved-stairs')
+              || object.id.includes('reserved-elevator')
+              || isRestroomObject(object)
+            )));
+          } catch {
+            // Existing invalid JSON cannot provide a reusable outdoor shell.
+          }
+        });
+      }
+
+      await prisma.floorPlan.deleteMany({
+        where: {
+          departmentId,
+          name: { startsWith: `${GENERATED_FLOORPLAN_PREFIX}${department.name} - ` },
+        },
+      });
+
+      const created = [];
+      for (let buildingIndex = 0; buildingIndex < planCount; buildingIndex++) {
+        const preservedFloorOneOutdoorWalls = (preservedOutdoorWalls.get(buildingIndex + 1) ?? []).map((wall) => ({ ...wall }));
+        const preservedFixed = preservedFixedObjects.get(buildingIndex + 1) ?? [];
+        let buildingAlignmentAnchor: OutdoorWallAlignmentAnchor | null = null;
+        const sharedStairs = new Map<number, FloorPlanObject[]>();
+        if (preservedFixed.some((object) => object.id.includes('reserved-stairs'))) {
+          sharedStairs.set(0, preservedFixed.filter((object) => object.id.includes('reserved-stairs')).map((object) => ({ ...object })));
+        }
+        let sharedElevator = preservedFixed.filter((object) => object.id.includes('reserved-elevator')).map((object) => ({ ...object }));
+        let sharedRestrooms = preservedFixed.filter(isRestroomObject).map((object) => ({ ...object }));
+
+        const generatedFloorCount = floorCount + (addRooftopFloor ? 1 : 0);
+        for (let floorIndex = 0; floorIndex < generatedFloorCount; floorIndex++) {
+          const isRooftop = addRooftopFloor && floorIndex === floorCount;
+          const templateName = isRooftop ? 'Rooftop' : floorTemplates[floorIndex];
+          const assignedLocations = isRooftop ? [] : locationPlan.assignments[buildingIndex * floorCount + floorIndex];
+          const name = `${GENERATED_FLOORPLAN_PREFIX}${department.name} - Building ${buildingIndex + 1} - Floor ${floorIndex + 1} - ${templateName}`;
+          let objects = buildKnowledgeTemplateFloorPlan(templateName, department.name, assignedLocations, {
+            verticalAccess,
+            totalFloors: generatedFloorCount,
+          });
+          objects = objects.filter((object) => (
+            (verticalAccess !== 'stairs' || !object.id.includes('reserved-elevator'))
+            && (verticalAccess !== 'elevator' || !object.id.includes('reserved-stairs'))
+          ));
+
+          if (floorIndex === 0 && preservedFloorOneOutdoorWalls.length > 0) {
+            objects = [
+              ...objects.filter((object) => !isOutdoorWallObject(object)),
+              ...preservedFloorOneOutdoorWalls.map(snapOutdoorWallObject),
+            ];
+            objects = fitIndoorObjectsInsideOutdoorWalls(objects);
+          }
+          objects = centerFloorPlanObjects(objects, GENERATED_FLOOR_WIDTH, GENERATED_FLOOR_HEIGHT);
+          const centeredOutdoorWalls = getOutdoorWallObjects(objects);
+          const centeredOutdoorBounds = outdoorWallBounds(centeredOutdoorWalls);
+          if (floorIndex === 0 && centeredOutdoorBounds) {
+            buildingAlignmentAnchor = detectOutdoorWallAlignmentAnchor(objects, centeredOutdoorBounds);
+            console.debug('[OutdoorWallGenerateAlign]', {
+              buildingNumber: buildingIndex + 1,
+              floorNumber: floorIndex + 1,
+              originalBounds: centeredOutdoorBounds,
+              selectedAnchor: buildingAlignmentAnchor,
+              sharedAnchor: buildingAlignmentAnchor,
+              dx: 0,
+              dy: 0,
+              alignedBounds: centeredOutdoorBounds,
+              wallCountBefore: centeredOutdoorWalls.length,
+              wallCountAfter: centeredOutdoorWalls.length,
+            });
+          } else if (buildingAlignmentAnchor) {
+            const alignment = translateOutdoorWallsToSharedAnchor(objects, buildingAlignmentAnchor);
+            objects = alignment.objects;
+            console.debug('[OutdoorWallGenerateAlign]', {
+              buildingNumber: buildingIndex + 1,
+              floorNumber: floorIndex + 1,
+              originalBounds: alignment.originalBounds,
+              selectedAnchor: alignment.selectedAnchor,
+              sharedAnchor: buildingAlignmentAnchor,
+              dx: alignment.dx,
+              dy: alignment.dy,
+              alignedBounds: alignment.alignedBounds,
+              wallCountBefore: alignment.wallCountBefore,
+              wallCountAfter: alignment.wallCountAfter,
+            });
+          }
+          if (verticalAccess === 'stairs' || verticalAccess === 'both') {
+            const stairObjects = sharedStairs.get(0);
+            if (stairObjects) {
+              objects = [
+                ...objects.filter((object) => !object.id.includes('reserved-stairs')),
+                ...stairObjects.map((object) => ({ ...object })),
+              ];
+            } else {
+              sharedStairs.set(0, objects.filter((object) => object.id.includes('reserved-stairs')).map((object) => ({ ...object })));
+            }
+          }
+          if (verticalAccess === 'elevator' || verticalAccess === 'both') {
+            if (sharedElevator.length > 0) {
+              objects = [
+                ...objects.filter((object) => !object.id.includes('reserved-elevator')),
+                ...sharedElevator.map((object) => ({ ...object })),
+              ];
+            } else {
+              sharedElevator = objects.filter((object) => object.id.includes('reserved-elevator')).map((object) => ({ ...object }));
+            }
+          }
+          // Restrooms are stacked vertically like stairs — every floor shares floor-1 positions.
+          if (sharedRestrooms.length > 0) {
+            objects = [
+              ...objects.filter((object) => !isRestroomObject(object)),
+              ...sharedRestrooms.map((object) => ({ ...object })),
+            ];
+          } else {
+            sharedRestrooms = objects.filter(isRestroomObject).map((object) => ({ ...object }));
+          }
+
+          objects = resolveIndoorObjectOverlaps(objects);
+          const templateType = determineTemplateType(templateName);
+          const validation = validateGeneratedFloorPlan(objects, templateType);
+          const floorPlan = await prisma.floorPlan.create({
+            data: {
+              name,
+              width: GENERATED_FLOOR_WIDTH,
+              height: GENERATED_FLOOR_HEIGHT,
+              departmentId,
+              generationScore: validation.score,
+              planJson: JSON.stringify(objects),
+            },
+          });
+          await prisma.floorPlanGenerationLog.create({
+            data: {
+              floorPlanId: floorPlan.id,
+              templateUsed: templateName,
+              score: validation.score,
+              validationResult: JSON.stringify(validation),
+            },
+          });
+          created.push({ ...floorPlan, validation });
+        }
+      }
+
+      const avgScore = created.length > 0
+        ? Math.round(created.reduce((sum, plan) => sum + (plan.validation?.score ?? 0), 0) / created.length)
+        : 0;
+
+      return res.status(201).json({
+        created,
+        avgScore,
+        message: `Generated ${planCount} building${planCount === 1 ? '' : 's'} with ${floorCount} occupied floor${floorCount === 1 ? '' : 's'}${addRooftopFloor ? ' plus a rooftop' : ''} each and assigned all ${locations.length} locations exactly once${regenerateOutdoorWalls ? '' : ' while preserving existing outdoor walls'} with Floor 1 fixed access positions shared across all floors.`,
+      });
+    }
+
     const locationGroups = new Map<string, typeof locations>();
     locations.forEach((location) => {
       const groupName = getLocationPlanGroup(location.name);
@@ -257,13 +1237,15 @@ router.post('/auto-generate', async (req: AuthRequest, res: Response, next: Next
     const groupSlots = Math.max(0, planCount - templatesToGenerate.length);
     for (const [groupName, groupLocations] of Array.from(locationGroups.entries()).slice(0, groupSlots)) {
       const name = `${GENERATED_FLOORPLAN_PREFIX}${department.name} - ${groupName}`;
-      const objects = buildGeneratedFloorPlan(name, groupLocations);
+      let objects = buildGeneratedFloorPlan(name, groupLocations);
+      objects = centerFloorPlanObjects(objects, GENERATED_FLOOR_WIDTH, GENERATED_FLOOR_HEIGHT);
+      objects = resolveIndoorObjectOverlaps(objects);
       const validation = validateGeneratedFloorPlan(objects, 'office');
       const floorPlan = await prisma.floorPlan.create({
         data: {
           name,
-          width: 1800,
-          height: 1200,
+          width: GENERATED_FLOOR_WIDTH,
+          height: GENERATED_FLOOR_HEIGHT,
           departmentId,
           generationScore: validation.score,
           planJson: JSON.stringify(objects),
@@ -282,14 +1264,16 @@ router.post('/auto-generate', async (req: AuthRequest, res: Response, next: Next
 
     for (const templateName of templatesToGenerate) {
       const name = `${GENERATED_FLOORPLAN_PREFIX}${department.name} - ${templateName}`;
-      const objects = buildKnowledgeTemplateFloorPlan(templateName, department.name, locations);
+      let objects = buildKnowledgeTemplateFloorPlan(templateName, department.name, locations);
+      objects = centerFloorPlanObjects(objects, GENERATED_FLOOR_WIDTH, GENERATED_FLOOR_HEIGHT);
+      objects = resolveIndoorObjectOverlaps(objects);
       const templateType = determineTemplateType(templateName);
       const validation = validateGeneratedFloorPlan(objects, templateType);
       const floorPlan = await prisma.floorPlan.create({
         data: {
           name,
-          width: 1800,
-          height: 1200,
+          width: GENERATED_FLOOR_WIDTH,
+          height: GENERATED_FLOOR_HEIGHT,
           departmentId,
           generationScore: validation.score,
           planJson: JSON.stringify(objects),
@@ -444,6 +1428,103 @@ router.post('/:id/regenerate', async (req: AuthRequest, res: Response, next: Nex
 
     const departmentId = floorPlan.departmentId;
     if (!departmentId) return res.status(400).json({ error: 'Floor plan has no department' });
+    const regenerateOutdoorWalls = req.body.regenerateOutdoorWalls !== false;
+
+    const buildingMatch = floorPlan.name.match(/^(Auto - .+ - Building \d+) - Floor \d+ - /);
+    if (buildingMatch) {
+      const floorNum = Number(floorPlan.name.match(/ - Floor (\d+) - /)?.[1] ?? 1);
+      let existingObjects: FloorPlanObject[] = [];
+      try { existingObjects = JSON.parse(floorPlan.planJson || '[]'); } catch { existingObjects = []; }
+      existingObjects = centerFloorPlanObjects(existingObjects, floorPlan.width, floorPlan.height);
+
+      const isOW = (o: FloorPlanObject) => o.type === 'wall' && o.id.includes('-ow-');
+      const existingOutdoorWalls = existingObjects.filter(isOW);
+      const existingAccessObjects = existingObjects.filter(isFixedFloorObject);
+      const assignedIds = existingObjects
+        .filter(o => o.linkedLocationId)
+        .map(o => o.linkedLocationId as string);
+
+      const dept = await prisma.department.findUnique({ where: { id: departmentId } });
+      if (!dept) return res.status(404).json({ error: 'Department not found' });
+
+      const floorLocations = assignedIds.length > 0
+        ? await prisma.location.findMany({
+            where: { id: { in: assignedIds } },
+            orderBy: { name: 'asc' },
+            select: { id: true, name: true },
+          })
+        : [];
+
+      const floorTemplate =
+        FLOORPLAN_KNOWLEDGE.imsUseful.find(t => floorPlan.name.endsWith(` - ${t}`)) ||
+        floorPlan.name.split(' - ').pop() ||
+        floorPlan.name;
+
+      const hasStairs = existingObjects.some(o => o.id.includes('reserved-stairs'));
+      const hasElevator = existingObjects.some(o => o.id.includes('reserved-elevator'));
+      const floorVerticalAccess: 'stairs' | 'elevator' | 'both' =
+        hasStairs && hasElevator ? 'both' : hasElevator ? 'elevator' : 'stairs';
+
+      let maxLayoutWidth: number | undefined;
+      let maxLayoutHeight: number | undefined;
+      if (!regenerateOutdoorWalls && existingOutdoorWalls.length > 0) {
+        const wallXs = existingOutdoorWalls.flatMap(w => [w.startX ?? w.x, w.endX ?? w.x + w.width]);
+        const wallYs = existingOutdoorWalls.flatMap(w => [w.startY ?? w.y, w.endY ?? w.y + w.height]);
+        const xSpan = Math.max(...wallXs) - Math.min(...wallXs);
+        const ySpan = Math.max(...wallYs) - Math.min(...wallYs);
+        if (xSpan > 0) maxLayoutWidth  = Math.max(0, xSpan - 2 * OUTDOOR_WALL_MARGIN);
+        if (ySpan > 0) maxLayoutHeight = Math.max(0, ySpan - 2 * OUTDOOR_WALL_MARGIN);
+      }
+
+      let newFloorObjects = buildKnowledgeTemplateFloorPlan(floorTemplate, dept.name, floorLocations, {
+        verticalAccess: floorVerticalAccess,
+        totalFloors: 1,
+        ...(maxLayoutWidth  ? { maxLayoutWidth  } : {}),
+        ...(maxLayoutHeight ? { maxLayoutHeight } : {}),
+      });
+
+      if (!regenerateOutdoorWalls) {
+        newFloorObjects = [
+          ...newFloorObjects.filter(o => !isOW(o)),
+          ...existingOutdoorWalls,
+        ];
+        newFloorObjects = fitIndoorObjectsInsideOutdoorWalls(newFloorObjects);
+      }
+
+      newFloorObjects = centerFloorPlanObjects(newFloorObjects, floorPlan.width, floorPlan.height);
+      newFloorObjects = resolveIndoorObjectOverlaps(newFloorObjects);
+      if (existingAccessObjects.length > 0) {
+        newFloorObjects = [
+          ...newFloorObjects.filter(o => !isFixedFloorObject(o)),
+          ...existingAccessObjects,
+        ];
+        newFloorObjects = correctRegeneratedLayoutIssues(newFloorObjects, existingAccessObjects, regenerateOutdoorWalls);
+      }
+
+      const floorValidation = validateGeneratedFloorPlan(newFloorObjects, determineTemplateType(floorTemplate));
+      const updatedFloor = await prisma.floorPlan.update({
+        where: { id: floorPlan.id },
+        data: {
+          planJson: JSON.stringify(newFloorObjects),
+          generationScore: floorValidation.score,
+          isApproved: false,
+        },
+      });
+      await prisma.floorPlanGenerationLog.create({
+        data: {
+          floorPlanId: updatedFloor.id,
+          templateUsed: floorTemplate,
+          score: floorValidation.score,
+          validationResult: JSON.stringify(floorValidation),
+        },
+      });
+      return res.json({
+        ...updatedFloor,
+        objects: newFloorObjects,
+        generationScore: floorValidation.score,
+        message: `Regenerated Floor ${floorNum}${regenerateOutdoorWalls ? '' : ' with outdoor walls fixed'}`,
+      });
+    }
 
     // Extract template from plan name: "Auto - DeptName - TemplateName"
     const prefix = GENERATED_FLOORPLAN_PREFIX;
@@ -470,9 +1551,37 @@ router.post('/:id/regenerate', async (req: AuthRequest, res: Response, next: Nex
     if (locations.length === 0) return res.status(400).json({ error: 'No locations found for department' });
 
     const isKnownTemplate = FLOORPLAN_KNOWLEDGE.imsUseful.includes(templateName);
-    const objects = isKnownTemplate
-      ? buildKnowledgeTemplateFloorPlan(templateName, department.name, locations)
-      : buildGeneratedFloorPlan(floorPlan.name, locations);
+    let existingObjects: FloorPlanObject[] = [];
+    try {
+      existingObjects = JSON.parse(floorPlan.planJson || '[]');
+    } catch {
+      existingObjects = [];
+    }
+    existingObjects = centerFloorPlanObjects(existingObjects, floorPlan.width, floorPlan.height);
+    const hasStairs = existingObjects.some((object) => object.id.includes('reserved-stairs'));
+    const hasElevator = existingObjects.some((object) => object.id.includes('reserved-elevator'));
+    const verticalAccess = hasStairs && hasElevator ? 'both' : hasElevator ? 'elevator' : 'stairs';
+    const existingFixedObjects = existingObjects.filter(isFixedFloorObject);
+    let objects = isKnownTemplate
+      ? buildKnowledgeTemplateFloorPlan(templateName, department.name, locations, { verticalAccess })
+      : buildGeneratedFloorPlan(floorPlan.name, locations, { verticalAccess });
+    if (!regenerateOutdoorWalls) {
+      const isOutdoorWall = (object: FloorPlanObject) => object.type === 'wall' && object.id.includes('-ow-');
+      objects = [
+        ...objects.filter((object) => !isOutdoorWall(object)),
+        ...existingObjects.filter(isOutdoorWall),
+      ];
+      objects = fitIndoorObjectsInsideOutdoorWalls(objects);
+    }
+    objects = centerFloorPlanObjects(objects, floorPlan.width, floorPlan.height);
+    objects = resolveIndoorObjectOverlaps(objects);
+    if (existingFixedObjects.length > 0) {
+      objects = [
+        ...objects.filter((object) => !isFixedFloorObject(object)),
+        ...existingFixedObjects,
+      ];
+      objects = correctRegeneratedLayoutIssues(objects, existingFixedObjects, regenerateOutdoorWalls);
+    }
 
     const templateType = determineTemplateType(templateName);
     const validation = validateGeneratedFloorPlan(objects, templateType);
@@ -499,7 +1608,7 @@ router.post('/:id/regenerate', async (req: AuthRequest, res: Response, next: Nex
       ...updated,
       objects,
       validation,
-      message: `Regenerated â€” layout score: ${validation.score}%`,
+      message: `Regenerated${regenerateOutdoorWalls ? '' : ' with outdoor walls fixed'} â€” layout score: ${validation.score}%`,
     });
   } catch (error) {
     next(error);

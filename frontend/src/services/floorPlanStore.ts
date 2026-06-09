@@ -1,15 +1,15 @@
 import { create } from 'zustand';
-import { FloorPlan, FloorPlanEditorState, FloorPlanObject } from '@/types/floorplan';
+import { FloorPlanEditorState, FloorPlanObject, LoadedFloorPlan } from '@/types/floorplan';
 
 interface FloorPlanStore {
-  currentFloorPlan: FloorPlan | null;
+  currentFloorPlan: LoadedFloorPlan | null;
   editorState: FloorPlanEditorState;
   selectedObjectIds: string[];
   clipboard: FloorPlanObject[] | null;
-  history: FloorPlan[];
+  history: LoadedFloorPlan[];
   historyIndex: number;
 
-  setCurrentFloorPlan: (plan: FloorPlan | null) => void;
+  setCurrentFloorPlan: (plan: LoadedFloorPlan | null) => void;
   setTool: (tool: FloorPlanEditorState['tool']) => void;
   setSelectedObject: (id: string | null) => void;
   setSelectedObjects: (ids: string[]) => void;

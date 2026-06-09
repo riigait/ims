@@ -2,7 +2,10 @@ import { Router, Request, Response, NextFunction } from 'express';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
+import type { UserRole } from '@prisma/client';
 import prisma from '../utils/prisma';
+import { logAudit, getRequestMeta } from '../utils/audit';
+import { authLimiter, passwordLimiter } from '../middleware/rateLimiter';
 import { authMiddleware, AuthRequest, getJwtSecret } from '../middleware/auth';
 import { validatePassword } from '../utils/passwordPolicy';
 
@@ -36,8 +39,30 @@ function isLocalSetupRequest(req: Request): boolean {
   return ['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(address);
 }
 
+const COOKIE_NAME = 'token';
+const COOKIE_MAX_AGE = 7 * 24 * 60 * 60 * 1000; // 7 days — matches JWT expiry
+
+function setAuthCookie(res: Response, token: string): void {
+  res.cookie(COOKIE_NAME, token, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'strict',
+    maxAge: COOKIE_MAX_AGE,
+    path: '/',
+  });
+}
+
+function clearAuthCookie(res: Response): void {
+  res.clearCookie(COOKIE_NAME, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'strict',
+    path: '/',
+  });
+}
+
 // Check if superadmin exists; create default if not
-router.post('/ensure-superadmin', async (req: Request, res: Response, next: NextFunction) => {
+router.post('/ensure-superadmin', authLimiter, async (req: Request, res: Response, next: NextFunction) => {
   try {
     const bootstrapAllowed = process.env.NODE_ENV !== 'production' || process.env.ALLOW_SUPERADMIN_BOOTSTRAP === 'true';
     const remoteBootstrapAllowed = process.env.ALLOW_REMOTE_SUPERADMIN_BOOTSTRAP === 'true';
@@ -79,7 +104,7 @@ router.post('/ensure-superadmin', async (req: Request, res: Response, next: Next
 });
 
 // Register — use invite code to get role; defaults to staff if no invite
-router.post('/register', async (req: Request, res: Response, next: NextFunction) => {
+router.post('/register', authLimiter, async (req: Request, res: Response, next: NextFunction) => {
   try {
     const validationError = validateRegister(req.body);
     if (validationError) return res.status(400).json({ error: validationError });
@@ -93,7 +118,7 @@ router.post('/register', async (req: Request, res: Response, next: NextFunction)
     if (existing) return res.status(400).json({ error: 'User already exists' });
 
     // Validate invite code if provided
-    let role = 'staff';
+    let role: UserRole = 'staff';
     if (inviteCode) {
       const invite = await prisma.inviteCode.findUnique({ where: { code: inviteCode } });
       if (!invite) return res.status(400).json({ error: 'Invalid invite code' });
@@ -126,6 +151,7 @@ router.post('/register', async (req: Request, res: Response, next: NextFunction)
     }
 
     const token = signToken(user.id, user.role, user.departmentId ?? undefined);
+    setAuthCookie(res, token);
     res.json({
       token,
       user: { id: user.id, name: user.name, email: user.email, role: user.role, departmentId: user.departmentId, initialSetupComplete: user.initialSetupComplete }
@@ -136,7 +162,7 @@ router.post('/register', async (req: Request, res: Response, next: NextFunction)
 });
 
 // Login
-router.post('/login', async (req: Request, res: Response, next: NextFunction) => {
+router.post('/login', authLimiter, async (req: Request, res: Response, next: NextFunction) => {
   try {
     const validationError = validateLogin(req.body);
     if (validationError) return res.status(400).json({ error: validationError });
@@ -144,10 +170,36 @@ router.post('/login', async (req: Request, res: Response, next: NextFunction) =>
     const { email, password } = req.body;
 
     const user = await prisma.user.findUnique({ where: { email } });
-    if (!user) return res.status(401).json({ error: 'Invalid credentials' });
+    if (!user) {
+      logAudit({ action: 'LOGIN_FAILURE', entityType: 'user', entityId: 'unknown', changes: { email, reason: 'user_not_found' }, ...getRequestMeta(req) });
+      return res.status(401).json({ error: 'Invalid credentials' });
+    }
+
+    if (user.lockedUntil && user.lockedUntil > new Date()) {
+      const minutesLeft = Math.ceil((user.lockedUntil.getTime() - Date.now()) / 60000);
+      return res.status(429).json({ error: `Account locked. Try again in ${minutesLeft} minute(s).` });
+    }
 
     const passwordMatch = await bcrypt.compare(password, user.passwordHash);
-    if (!passwordMatch) return res.status(401).json({ error: 'Invalid credentials' });
+    if (!passwordMatch) {
+      const attempts = user.failedLoginAttempts + 1;
+      const lockout = attempts >= 5 ? new Date(Date.now() + 15 * 60 * 1000) : null;
+      await prisma.user.update({
+        where: { id: user.id },
+        data: { failedLoginAttempts: attempts, ...(lockout ? { lockedUntil: lockout } : {}) },
+      });
+      logAudit({ userId: user.id, action: 'LOGIN_FAILURE', entityType: 'user', entityId: user.id, changes: { email: user.email, name: user.name, attempts, locked: !!lockout }, ...getRequestMeta(req) });
+      const msg = lockout
+        ? 'Too many failed attempts. Account locked for 15 minutes.'
+        : `Invalid credentials. ${5 - attempts} attempt(s) remaining.`;
+      return res.status(401).json({ error: msg });
+    }
+
+    await prisma.user.update({
+      where: { id: user.id },
+      data: { failedLoginAttempts: 0, lockedUntil: null },
+    });
+    logAudit({ userId: user.id, action: 'LOGIN_SUCCESS', entityType: 'user', entityId: user.id, changes: { email: user.email, name: user.name, role: user.role }, ...getRequestMeta(req) });
 
     const adminDepartments = user.role === 'admin' ? await prisma.adminDepartment.findMany({
       where: { userId: user.id },
@@ -160,6 +212,7 @@ router.post('/login', async (req: Request, res: Response, next: NextFunction) =>
     }) : [];
 
     const token = signToken(user.id, user.role, user.departmentId ?? undefined);
+    setAuthCookie(res, token);
     res.json({
       token,
       user: {
@@ -234,6 +287,7 @@ router.post('/change-password', authMiddleware, async (req: AuthRequest, res: Re
       where: { id: req.userId },
       data: { passwordHash },
     });
+    logAudit({ userId: req.userId, action: 'PASSWORD_CHANGE', entityType: 'user', entityId: req.userId!, ...getRequestMeta(req) });
 
     res.json({ message: 'Password changed successfully' });
   } catch (error) {
@@ -242,7 +296,7 @@ router.post('/change-password', authMiddleware, async (req: AuthRequest, res: Re
 });
 
 // Reset user password — superadmin only (set temporary password)
-router.post('/reset-password/:userId', authMiddleware, async (req: AuthRequest, res: Response, next: NextFunction) => {
+router.post('/reset-password/:userId', passwordLimiter, authMiddleware, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const requester = await prisma.user.findUnique({ where: { id: req.userId } });
     if (!requester || requester.role !== 'superadmin') {
@@ -261,6 +315,7 @@ router.post('/reset-password/:userId', authMiddleware, async (req: AuthRequest, 
       where: { id: req.params.userId },
       data: { passwordHash },
     });
+    logAudit({ userId: req.userId, action: 'PASSWORD_RESET', entityType: 'user', entityId: req.params.userId, changes: { targetEmail: targetUser.email }, ...getRequestMeta(req) });
 
     res.json({ message: `Password reset for ${targetUser.email}` });
   } catch (error) {
@@ -309,6 +364,7 @@ router.post('/complete-initial-setup', authMiddleware, async (req: AuthRequest, 
     });
 
     const token = signToken(updatedUser.id, updatedUser.role, updatedUser.departmentId ?? undefined);
+    setAuthCookie(res, token);
     res.json({
       token,
       user: {
@@ -323,6 +379,11 @@ router.post('/complete-initial-setup', authMiddleware, async (req: AuthRequest, 
   } catch (error) {
     next(error);
   }
+});
+
+router.post('/logout', (req: Request, res: Response) => {
+  clearAuthCookie(res);
+  res.json({ message: 'Logged out' });
 });
 
 export default router;

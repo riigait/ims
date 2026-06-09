@@ -1,7 +1,8 @@
-import express, { Router, Request, Response, NextFunction } from 'express';
+import { Router, Response, NextFunction } from 'express';
 import prisma from '../utils/prisma';
 import { AuthRequest, canAccessDepartment } from '../middleware/auth';
-import { csvToJson, jsonToCsv } from '../utils/csv';
+import { csvToJson } from '../utils/csv';
+import { buildDepartmentWhereFilter, parsePagination, sendCsv, csvImportRows } from '../utils/routeHelpers';
 
 const router = Router();
 
@@ -28,20 +29,10 @@ function validateLocationWrite(body: LocationWriteBody, isCreate: boolean): stri
 // Get all locations
 router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    const page = Math.max(1, parseInt(req.query.page as string) || 1);
-    const limit = Math.min(Math.max(1, parseInt(req.query.limit as string) || 200), 500);
-    const skip = (page - 1) * limit;
+    const { page, limit, skip } = parsePagination(req.query);
     const search = (req.query.search as string)?.trim();
     const typeFilter = req.query.type as string;
-    const qDepartmentId = req.query.departmentId as string;
-
-    let whereFilter: any = {};
-    if (req.departmentIds && req.departmentIds.length > 0) {
-      whereFilter = { OR: [{ departmentId: { in: req.departmentIds } }, { departmentId: null }] };
-    } else if ((req.userRole === 'staff' || req.userRole === 'admin') && req.departmentId) {
-      whereFilter = { departmentId: req.departmentId };
-    }
-    if (qDepartmentId && !req.departmentId) whereFilter.departmentId = qDepartmentId;
+    const whereFilter = buildDepartmentWhereFilter(req, req.query.departmentId as string);
     if (search) whereFilter.name = { contains: search, mode: 'insensitive' };
     if (typeFilter) whereFilter.type = typeFilter;
 
@@ -95,7 +86,7 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
     const location = await prisma.location.create({
       data: {
         name: name!,
-        type: type!,
+        type: type! as LocationType,
         parentId: parentId || null,
         departmentId: req.departmentId,
         notes,
@@ -127,7 +118,7 @@ router.put('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
       where: { id: req.params.id },
       data: {
         ...(name !== undefined && { name }),
-        ...(type !== undefined && { type }),
+        ...(type !== undefined && { type: type as LocationType }),
         parentId: parentId || null,
         notes,
       },
@@ -165,20 +156,9 @@ router.delete('/:id', async (req: AuthRequest, res: Response, next: NextFunction
 router.get('/export/csv', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const locations = await prisma.location.findMany({
-      select: {
-        id: true,
-        name: true,
-        type: true,
-        parentId: true,
-        notes: true,
-        departmentId: true,
-      },
+      select: { id: true, name: true, type: true, parentId: true, notes: true, departmentId: true },
     });
-
-    const csv = jsonToCsv(locations);
-    res.setHeader('Content-Type', 'text/csv');
-    res.setHeader('Content-Disposition', 'attachment; filename="locations.csv"');
-    res.send(csv);
+    sendCsv(res, locations, 'locations.csv');
   } catch (error) {
     next(error);
   }
@@ -186,46 +166,15 @@ router.get('/export/csv', async (req: AuthRequest, res: Response, next: NextFunc
 
 // Import locations from CSV
 router.post('/import/csv', async (req: AuthRequest, res: Response, next: NextFunction) => {
-  try {
-    if (!req.body.csv) {
-      return res.status(400).json({ error: 'CSV data required' });
-    }
-
-    const rows = csvToJson<any>(req.body.csv);
-    const created = [];
-    const errors = [];
-
-    for (let i = 0; i < rows.length; i++) {
-      try {
-        const row = rows[i];
-        const data = {
-            name: row.name,
-            type: row.type || 'room',
-            parentId: row.parentId || null,
-            notes: row.notes || null,
-            departmentId: req.departmentId,
-          };
-        const location = row.id
-          ? await prisma.location.upsert({
-              where: { id: row.id },
-              update: data,
-              create: { id: row.id, ...data },
-            })
-          : await prisma.location.create({ data });
-        created.push(location);
-      } catch (err: any) {
-        errors.push({ row: i + 1, error: err.message });
-      }
-    }
-
-    res.json({
-      created: created.length,
-      errors: errors,
-      message: `Imported ${created.length} locations${errors.length > 0 ? ` with ${errors.length} errors` : ''}`,
-    });
-  } catch (error) {
-    next(error);
-  }
+  if (!req.body.csv) return res.status(400).json({ error: 'CSV data required' });
+  const rows = csvToJson<any>(req.body.csv);
+  await csvImportRows({
+    req, res, next, rows,
+    buildData: row => ({ name: row.name, type: row.type || 'room', parentId: row.parentId || null, notes: row.notes || null, departmentId: req.departmentId }),
+    upsertFn: (id, data) => prisma.location.upsert({ where: { id }, update: data, create: { id, ...data } }),
+    createFn: data => prisma.location.create({ data }),
+    entityName: 'locations',
+  });
 });
 
 export default router;

@@ -1,7 +1,8 @@
-import express, { Router, Request, Response, NextFunction } from 'express';
+import { Router, Response, NextFunction } from 'express';
 import prisma from '../utils/prisma';
 import { AuthRequest, canAccessDepartment } from '../middleware/auth';
-import { csvToJson, jsonToCsv } from '../utils/csv';
+import { csvToJson } from '../utils/csv';
+import { buildDepartmentWhereFilter, parsePagination, sendCsv, csvImportRows } from '../utils/routeHelpers';
 
 const router = Router();
 
@@ -21,19 +22,9 @@ function validateCategoryWrite(body: CategoryWriteBody, isCreate: boolean): stri
 // Get all categories
 router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    const page = Math.max(1, parseInt(req.query.page as string) || 1);
-    const limit = Math.min(Math.max(1, parseInt(req.query.limit as string) || 200), 500);
-    const skip = (page - 1) * limit;
+    const { page, limit, skip } = parsePagination(req.query);
     const search = (req.query.search as string)?.trim();
-    const qDepartmentId = req.query.departmentId as string;
-
-    let whereFilter: any = {};
-    if (req.departmentIds && req.departmentIds.length > 0) {
-      whereFilter = { OR: [{ departmentId: { in: req.departmentIds } }, { departmentId: null }] };
-    } else if ((req.userRole === 'staff' || req.userRole === 'admin') && req.departmentId) {
-      whereFilter = { departmentId: req.departmentId };
-    }
-    if (qDepartmentId && !req.departmentId) whereFilter.departmentId = qDepartmentId;
+    const whereFilter = buildDepartmentWhereFilter(req, req.query.departmentId as string);
     if (search) whereFilter.name = { contains: search, mode: 'insensitive' };
 
     const [total, categories] = await Promise.all([
@@ -157,18 +148,9 @@ router.delete('/:id', async (req: AuthRequest, res: Response, next: NextFunction
 router.get('/export/csv', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const categories = await prisma.category.findMany({
-      select: {
-        id: true,
-        name: true,
-        description: true,
-        departmentId: true,
-      },
+      select: { id: true, name: true, description: true, departmentId: true },
     });
-
-    const csv = jsonToCsv(categories);
-    res.setHeader('Content-Type', 'text/csv');
-    res.setHeader('Content-Disposition', 'attachment; filename="categories.csv"');
-    res.send(csv);
+    sendCsv(res, categories, 'categories.csv');
   } catch (error) {
     next(error);
   }
@@ -176,44 +158,15 @@ router.get('/export/csv', async (req: AuthRequest, res: Response, next: NextFunc
 
 // Import categories from CSV
 router.post('/import/csv', async (req: AuthRequest, res: Response, next: NextFunction) => {
-  try {
-    if (!req.body.csv) {
-      return res.status(400).json({ error: 'CSV data required' });
-    }
-
-    const rows = csvToJson<any>(req.body.csv);
-    const created = [];
-    const errors = [];
-
-    for (let i = 0; i < rows.length; i++) {
-      try {
-        const row = rows[i];
-        const data = {
-            name: row.name,
-            description: row.description || null,
-            departmentId: req.departmentId,
-          };
-        const category = row.id
-          ? await prisma.category.upsert({
-              where: { id: row.id },
-              update: data,
-              create: { id: row.id, ...data },
-            })
-          : await prisma.category.create({ data });
-        created.push(category);
-      } catch (err: any) {
-        errors.push({ row: i + 1, error: err.message });
-      }
-    }
-
-    res.json({
-      created: created.length,
-      errors: errors,
-      message: `Imported ${created.length} categories${errors.length > 0 ? ` with ${errors.length} errors` : ''}`,
-    });
-  } catch (error) {
-    next(error);
-  }
+  if (!req.body.csv) return res.status(400).json({ error: 'CSV data required' });
+  const rows = csvToJson<any>(req.body.csv);
+  await csvImportRows({
+    req, res, next, rows,
+    buildData: row => ({ name: row.name, description: row.description || null, departmentId: req.departmentId }),
+    upsertFn: (id, data) => prisma.category.upsert({ where: { id }, update: data, create: { id, ...data } }),
+    createFn: data => prisma.category.create({ data }),
+    entityName: 'categories',
+  });
 });
 
 export default router;

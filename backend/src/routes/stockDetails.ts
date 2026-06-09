@@ -1,4 +1,5 @@
 import { Router, Response, NextFunction } from 'express';
+import type { ItemStatus } from '@prisma/client';
 import prisma from '../utils/prisma';
 import { AuthRequest, canAccessDepartment } from '../middleware/auth';
 import { logAudit } from '../utils/audit';
@@ -6,7 +7,7 @@ import { generateStockId } from '../utils/idGenerator';
 
 const router = Router();
 
-const FINAL_STATUSES = ['sold', 'disposed', 'lost'];
+const FINAL_STATUSES: ItemStatus[] = ['sold', 'disposed', 'lost'];
 
 function pf<T>(incoming: T | undefined, fallback: T): T {
   return incoming ?? fallback;
@@ -344,18 +345,25 @@ router.delete('/:id', async (req: AuthRequest, res: Response, next: NextFunction
       return res.status(403).json({ error: 'Access denied' });
     }
 
-    await prisma.stockDetail.delete({ where: { id: req.params.id } });
+    if (stockDetail.currentStatus === 'disposed') {
+      return res.status(409).json({ error: 'Stock detail is already disposed' });
+    }
+
+    await prisma.stockDetail.update({
+      where: { id: req.params.id },
+      data: { currentStatus: 'disposed' },
+    });
     await recalculateProductStock(stockDetail.productId);
 
     await logAudit({
       userId: req.userId,
-      action: 'DELETE',
+      action: 'DISPOSE',
       entityType: 'stock_detail',
       entityId: req.params.id,
-      changes: { productId: stockDetail.productId },
+      changes: { productId: stockDetail.productId, previousStatus: stockDetail.currentStatus },
     });
 
-    res.json({ message: 'Stock detail deleted' });
+    res.json({ message: 'Stock detail disposed' });
   } catch (error) {
     next(error);
   }

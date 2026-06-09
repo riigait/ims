@@ -1,6 +1,6 @@
 import request from 'supertest';
-import jwt from 'jsonwebtoken';
 import app from '../app';
+import { superadmin, adminUser, DEPT, sign } from './testHelpers';
 
 jest.mock('../utils/prisma', () => ({
   __esModule: true,
@@ -23,23 +23,6 @@ jest.mock('../utils/prisma', () => ({
 }));
 
 import prisma from '../utils/prisma';
-
-const JWT_SECRET = process.env.JWT_SECRET!;
-
-const superadmin = {
-  id: 'user-sa-1', role: 'superadmin', initialSetupComplete: true,
-  adminDepartments: [], staffDepartments: [],
-};
-const adminUser = {
-  id: 'user-admin-1', role: 'admin', initialSetupComplete: true,
-  adminDepartments: [{ departmentId: 'dept-1' }], staffDepartments: [],
-};
-
-const DEPT = 'dept-1';
-
-function sign(userId: string, role: string) {
-  return jwt.sign({ userId, role }, JWT_SECRET, { expiresIn: '1h' });
-}
 
 const mockUserFQ  = () => prisma.user.findUnique as jest.Mock;
 const mockLocFQ   = () => prisma.location.findUnique as jest.Mock;

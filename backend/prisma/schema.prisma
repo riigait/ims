@@ -12,6 +12,80 @@ datasource db {
 
 // Unit values: pcs, dozen, box, pack, g, kg, mg, oz, lb, ton, ml, liter, gallon, cup, mm, cm, m, km, inch, ft, yard, cm2, m2, roll, sheet, can, bottle, bag, carton
 
+enum UserRole {
+  superadmin
+  admin
+  staff
+}
+
+enum ProductStatus {
+  active
+  discontinued
+  obsolete
+  on_backorder @map("on-backorder")
+}
+
+enum LocationType {
+  branch
+  building
+  floor
+  room
+  rack
+  shelf
+}
+
+enum MovementType {
+  stock_in
+  stock_out
+  adjustment
+  transfer
+  damaged
+  returned
+  opening_stock
+  moved_to_department
+  borrowed
+  lost
+  found
+  pre_deployment
+  post_deployment
+  repair_out
+  repair_return
+  defective
+  disposal
+}
+
+enum MovementStatus {
+  pending
+  committed
+  cancelled
+}
+
+enum ItemCondition {
+  new
+  good
+  fair
+  poor
+}
+
+enum ItemStatus {
+  active
+  damaged
+  sold
+  lost
+  returned
+  deployed
+  borrowed
+  disposed
+  repair
+  defective
+}
+
+enum RequestStatus {
+  pending
+  approved
+  rejected
+}
+
 model Department {
   id          String     @id @default(cuid())
   name        String     @unique
@@ -36,7 +110,7 @@ model User {
   name                  String
   email                 String     @unique
   passwordHash          String
-  role                  String     @default("staff") // superadmin, admin, staff
+  role                  UserRole   @default(staff)
   departmentId          String?
   department            Department? @relation(fields: [departmentId], references: [id], onDelete: SetNull)
   initialSetupComplete  Boolean    @default(false)
@@ -58,6 +132,8 @@ model User {
   reviewedExportRequests     ExportRequest[]         @relation("exportReviewedBy")
   verifyRequests             VerifyRequest[]         @relation("verifyRequestedBy")
   reviewedVerifyRequests     VerifyRequest[]         @relation("verifyReviewedBy")
+  failedLoginAttempts        Int                     @default(0)
+  lockedUntil                DateTime?
 
   @@index([role])
   @@index([departmentId])
@@ -79,13 +155,15 @@ model Product {
   location            Location?  @relation(fields: [locationId], references: [id], onDelete: SetNull)
   supplier            String?    // Vendor/supplier name
   unitPrice           Float?     // Cost or selling price per unit
-  status              String     @default("active") // active, discontinued, obsolete, on-backorder
+  status              ProductStatus @default(active)
   expiryDate          DateTime?  // For perishable/time-sensitive items
   leadTimeDays        Int?       // Days until new stock arrives
   notes               String?    // Product-specific notes
   source              String?    // manual, csv_import, unknown
   csvImportId         String?    // batch ID assigned per CSV import session
   pendingApproval     Boolean    @default(false)
+  archivedAt          DateTime?
+  archivedBy          String?
   createdAt           DateTime   @default(now())
   updatedAt           DateTime   @updatedAt
   movementItems       StockMovementItem[] @relation("ProductMovementItems")
@@ -117,7 +195,7 @@ model Category {
 model Location {
   id          String     @id @default(cuid())
   name        String
-  type        String     // branch, building, floor, room, rack, shelf
+  type        LocationType
   parentId    String?
   parent      Location?  @relation("LocationParent", fields: [parentId], references: [id], onDelete: Cascade)
   children    Location[] @relation("LocationParent")
@@ -139,8 +217,8 @@ model Location {
 model StockMovement {
   id              String     @id @default(cuid())
   movementNo      String?    @unique  // e.g., MVT-2026-000001 (auto-generated)
-  movementType    String     // stock_in, stock_out, adjustment, transfer, damaged, returned, opening_stock, moved_to_department
-  status          String     @default("pending") // pending, committed, cancelled
+  movementType    MovementType
+  status          MovementStatus @default(pending)
   remarks         String?
   departmentId    String?
   department      Department? @relation("MovementFromDepartment", fields: [departmentId], references: [id], onDelete: SetNull)
@@ -188,10 +266,10 @@ model StockDetail {
   dateStock         DateTime?
   brand             String?
   itemType          String?
-  condition         String?    @default("new") // new, good, fair, poor
+  condition         ItemCondition? @default(new)
   warrantyExpiry    DateTime?
   warrantyNotes     String?
-  currentStatus     String     @default("active") // active, damaged, sold, lost, returned, deployed, borrowed, disposed, repair
+  currentStatus     ItemStatus @default(active)
   currentLocationId String?
   currentLocation   Location?  @relation(fields: [currentLocationId], references: [id], onDelete: SetNull)
   custodian         String?
@@ -240,7 +318,11 @@ model AuditLog {
   entityType String   // product, category, location, stock_movement, floor_plan, user
   entityId   String
   changes    String?  // JSON snapshot of what changed
+  oldValues  String?  // JSON snapshot before change
+  newValues  String?  // JSON snapshot after change
   ipAddress  String?
+  userAgent  String?
+  requestId  String?
   createdAt  DateTime @default(now())
 }
 
@@ -319,7 +401,7 @@ model DeleteRequest {
   entityId    String
   entityName  String
   reason      String?
-  status      String     @default("pending") // pending, approved, rejected
+  status      RequestStatus @default(pending)
   reviewedBy  String?
   reviewer    User?      @relation("reviewedBy", fields: [reviewedBy], references: [id], onDelete: SetNull)
   reviewedAt  DateTime?
@@ -332,7 +414,7 @@ model DeleteRequest {
 model InviteCode {
   id          String     @id @default(cuid())
   code        String     @unique
-  role        String     @default("staff") // admin, staff
+  role        UserRole   @default(staff) // valid values: admin, staff only
   createdBy   String
   creator     User       @relation(fields: [createdBy], references: [id], onDelete: Cascade)
   usedBy      String?
@@ -368,7 +450,7 @@ model PasswordChangeRequest {
   requestedBy   String
   requester     User       @relation("passwordRequestedBy", fields: [requestedBy], references: [id], onDelete: Cascade)
   reason        String?
-  status        String     @default("pending") // pending, approved, rejected
+  status        RequestStatus @default(pending)
   approvedBy    String?
   approver      User?      @relation("passwordApprovedBy", fields: [approvedBy], references: [id], onDelete: SetNull)
   approvedAt    DateTime?
@@ -386,7 +468,7 @@ model EditRequest {
   requester        User      @relation("editRequestedBy", fields: [requestedBy], references: [id], onDelete: Cascade)
   proposedChanges  Json
   reason           String?
-  status           String    @default("pending") // pending, approved, rejected
+  status           RequestStatus @default(pending)
   rejectionReason  String?
   reviewedBy       String?
   reviewer         User?     @relation("editReviewedBy", fields: [reviewedBy], references: [id], onDelete: SetNull)
@@ -402,7 +484,7 @@ model ImportRequest {
   id           String      @id @default(cuid())
   requestNo    String?     @unique  // e.g., REQ-2026-000001 (auto-generated)
   type         String      // 'csv_import' | 'product_add'
-  status       String      @default("pending") // 'pending' | 'approved' | 'rejected'
+  status       RequestStatus @default(pending)
   productIds   String[]
   csvImportId  String?
   label        String?
@@ -423,6 +505,11 @@ model ImportRequest {
   @@index([departmentId])
 }
 
+model ImportCounter {
+  name       String @id
+  nextNumber Int    @default(1)
+}
+
 model ExportRequest {
   id              String      @id @default(cuid())
   type            String      // products, categories, locations, unified
@@ -432,7 +519,7 @@ model ExportRequest {
   requester       User        @relation("exportRequestedBy", fields: [requestedBy], references: [id], onDelete: Cascade)
   departmentId    String?
   department      Department? @relation(fields: [departmentId], references: [id], onDelete: SetNull)
-  status          String      @default("pending") // pending, approved, rejected
+  status          RequestStatus @default(pending)
   rejectionReason String?
   reviewedBy      String?
   reviewer        User?       @relation("exportReviewedBy", fields: [reviewedBy], references: [id], onDelete: SetNull)
@@ -449,7 +536,7 @@ model VerifyRequest {
   requestedBy     String
   requester       User      @relation("verifyRequestedBy", fields: [requestedBy], references: [id], onDelete: Cascade)
   reason          String?
-  status          String    @default("pending") // pending, approved, rejected
+  status          RequestStatus @default(pending)
   rejectionReason String?
   reviewedBy      String?
   reviewer        User?     @relation("verifyReviewedBy", fields: [reviewedBy], references: [id], onDelete: SetNull)

@@ -1,4 +1,5 @@
 import { Router, Response, NextFunction } from 'express';
+import type { ItemStatus } from '@prisma/client';
 import prisma from '../utils/prisma';
 import { authMiddleware, AuthRequest } from '../middleware/auth';
 
@@ -53,7 +54,7 @@ async function computeNotifications(req: AuthRequest): Promise<Notification[]> {
   const deptFilter    = getDeptFilter(req);
   const productFilter = { ...deptFilter, pendingApproval: false };
   const itemFilter    = { product: { ...deptFilter, pendingApproval: false } };
-  const finalStatuses = ['sold', 'disposed', 'lost'];
+  const finalStatuses: ItemStatus[] = ['sold', 'disposed', 'lost'];
 
   // ── PRODUCTS ─────────────────────────────────────────────────────────────
   const products = await prisma.product.findMany({
@@ -75,7 +76,7 @@ async function computeNotifications(req: AuthRequest): Promise<Notification[]> {
   const noLocCount            = products.filter(p => !p.locationId || (unassignedLoc && p.locationId === unassignedLoc.id)).length;
   const expiredCount          = products.filter(p => p.expiryDate && new Date(p.expiryDate) < now && p.status === 'active').length;
   const expiringSoonCount     = products.filter(p => p.expiryDate && new Date(p.expiryDate) >= now && new Date(p.expiryDate) <= in30).length;
-  const backorderCount        = products.filter(p => p.status === 'on-backorder').length;
+  const backorderCount        = products.filter(p => p.status === 'on_backorder').length;
   const discontinuedWithStock = products.filter(p => ['discontinued', 'obsolete'].includes(p.status) && p.currentStock > 0).length;
   const noThresholdCount      = products.filter(p => p.lowStockThreshold === 0).length;
 

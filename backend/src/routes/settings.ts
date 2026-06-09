@@ -1,6 +1,8 @@
 import { Router, Response, NextFunction } from 'express';
+import type { ItemStatus } from '@prisma/client';
 import prisma from '../utils/prisma';
 import { AuthRequest } from '../middleware/auth';
+import { logAudit, getRequestMeta } from '../utils/audit';
 
 const router = Router();
 
@@ -44,6 +46,7 @@ router.post('/danger/delete-data', async (req: AuthRequest, res: Response, next:
       return counts;
     });
 
+    logAudit({ userId: req.userId, action: 'DANGER_DELETE_ALL_DATA', entityType: 'system', entityId: 'global', changes: result, ...getRequestMeta(req) });
     res.json({
       message: 'Operational data deleted. Users, departments, and department assignments were preserved.',
       deleted: result,
@@ -118,6 +121,7 @@ router.post('/danger/delete-department-data', async (req: AuthRequest, res: Resp
       return counts;
     });
 
+    logAudit({ userId: req.userId, action: 'DANGER_DELETE_DEPARTMENT_DATA', entityType: 'department', entityId: departmentId, changes: { departmentName: department.name, ...result }, ...getRequestMeta(req) });
     res.json({
       message: `Data for department "${department.name}" has been deleted.`,
       deleted: result,
@@ -133,7 +137,7 @@ router.post('/sync-stock-counts', async (req: AuthRequest, res: Response, next: 
       return res.status(403).json({ error: 'Superadmin only' });
     }
 
-    const finalStatuses = ['sold', 'disposed', 'lost'];
+    const finalStatuses: ItemStatus[] = ['sold', 'disposed', 'lost'];
 
     const products = await prisma.product.findMany({
       where: { stockDetails: { some: {} } },
@@ -149,7 +153,7 @@ router.post('/sync-stock-counts', async (req: AuthRequest, res: Response, next: 
       }
     }
 
-    res.json({ message: `Synced stock counts for ${synced} product${synced !== 1 ? 's' : ''}.`, synced, total: products.length });
+    res.json({ message: `Synced stock counts for ${synced} product${synced === 1 ? '' : 's'}.`, synced, total: products.length });
   } catch (error) {
     next(error);
   }

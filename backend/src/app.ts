@@ -1,6 +1,10 @@
 import express, { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
+import helmet from 'helmet';
+import cookieParser from 'cookie-parser';
 import { authMiddleware, requireDepartmentScopedWriteAccess, requireSpecificDepartmentForWrite } from './middleware/auth';
+import { authLimiter, dangerLimiter } from './middleware/rateLimiter';
+import { requestLogger } from './middleware/requestLogger';
 import authRoutes from './routes/auth';
 import productsRoutes from './routes/products';
 import categoriesRoutes from './routes/categories';
@@ -32,12 +36,26 @@ const allowedOrigins = process.env.ALLOWED_ORIGINS
   ? process.env.ALLOWED_ORIGINS.split(',')
   : ['http://localhost:5173', 'http://localhost:3000'];
 
+app.use(requestLogger);
+app.use(helmet({
+  crossOriginResourcePolicy: { policy: 'cross-origin' },
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      scriptSrc:  ["'self'"],
+      styleSrc:   ["'self'", "'unsafe-inline'"],
+      imgSrc:     ["'self'", 'data:', 'https:'],
+      connectSrc: ["'self'", ...allowedOrigins],
+    },
+  },
+}));
 app.use(cors({ origin: allowedOrigins, credentials: true }));
+app.use(cookieParser());
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
 app.use('/api/auth', authRoutes);
-app.use('/api/invites', invitesRoutes);
+app.use('/api/invites', authLimiter, invitesRoutes);
 
 app.use('/api/products', authMiddleware, requireDepartmentScopedWriteAccess, productsRoutes);
 app.use('/api/categories', authMiddleware, requireDepartmentScopedWriteAccess, categoriesRoutes);
@@ -56,7 +74,7 @@ app.use('/api/notifications', authMiddleware, notificationsRoutes);
 app.use('/api/admin-departments', authMiddleware, adminDepartmentsRoutes);
 app.use('/api/staff-departments', authMiddleware, staffDepartmentsRoutes);
 app.use('/api/password-requests', authMiddleware, passwordRequestsRoutes);
-app.use('/api/settings', authMiddleware, settingsRoutes);
+app.use('/api/settings', authMiddleware, dangerLimiter, settingsRoutes);
 app.use('/api/import-requests', authMiddleware, importRequestsRoutes);
 app.use('/api/verify-requests', authMiddleware, verifyRequestsRoutes);
 app.use('/api/map', authMiddleware, mapRoutes);

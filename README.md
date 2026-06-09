@@ -92,7 +92,7 @@ On first run, database migrations run automatically. Open the app, complete the 
 
 ## Environment Variables
 
-Copy `backend/.env.example` to `backend/.env` and fill in:
+See `.env.example` at the repo root for all variables. Each section shows which file to copy it into (`root .env`, `backend/.env`, or `frontend/.env`). Key backend variables:
 
 | Variable | Description |
 | --- | --- |
@@ -128,9 +128,10 @@ It highlights:
 ims/
 ├── backend/          # Express + Prisma API
 ├── frontend/         # React + Vite app
-├── csv-corrector/    # CSV utility scripts
+├── scripts/          # Dev utility scripts
 ├── .github/          # CI workflows and issue templates
-└── docker-compose.yml
+├── docker-compose.yml
+└── docker-compose.prod.yml
 ```
 
 ## Repository Policy
