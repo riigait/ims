@@ -118,14 +118,7 @@ describe('Department scope', () => {
   });
 
   it('passes auth when staff accesses their own department', async () => {
-    mockFindUnique.mockResolvedValue({
-      ...staffUser,
-      // products route also calls prisma — let the second call return something safe
-    });
-    // Second findUnique call comes from the products route handler; return empty list
-    mockFindUnique
-      .mockResolvedValueOnce(staffUser)           // authMiddleware
-      .mockResolvedValueOnce({ count: 0, data: [] }); // products route (if it queries)
+    mockFindUnique.mockResolvedValueOnce(staffUser); // authMiddleware
 
     const token = signToken(staffUser.id);
 
