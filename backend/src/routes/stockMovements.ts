@@ -31,6 +31,50 @@ function stockDelta(type: MovementType, quantity: number): number {
   return quantity; // ADDING_TYPES
 }
 
+function reversalStatus(type: MovementType, stockDetail: any): ItemStatus | null {
+  if (DEDUCTING_TYPES.includes(type)) return 'active';
+  if (RESTORING_TYPES[type]) return RESTORING_TYPES[type]!;
+  if (ADDING_TYPES.includes(type) && (stockDetail._count?.movementItems ?? 0) <= 1) return 'disposed';
+  return null;
+}
+
+async function reverseMovementItem(tx: any, reversalId: string, item: any, movementType: MovementType, reason: string): Promise<void> {
+  const stockDetail = item.stockDetail;
+  if (!stockDetail) return;
+
+  const delta = stockDelta(movementType, item.quantity);
+  if (delta !== 0 && item.productId) {
+    await tx.product.update({
+      where: { id: item.productId },
+      data: { currentStock: { increment: -delta } },
+    });
+  }
+
+  const newStatus = reversalStatus(movementType, stockDetail);
+  const restoreLocation = NEUTRAL_TYPES.includes(movementType) && item.fromLocationId;
+  if (newStatus !== null || restoreLocation) {
+    await tx.stockDetail.update({
+      where: { id: item.stockDetailId },
+      data: {
+        ...(newStatus !== null ? { currentStatus: newStatus } : {}),
+        ...(restoreLocation ? { currentLocationId: item.fromLocationId } : {}),
+      },
+    });
+  }
+
+  await tx.stockMovementItem.create({
+    data: {
+      movementId: reversalId,
+      stockDetailId: item.stockDetailId,
+      productId: item.productId,
+      quantity: item.quantity,
+      fromLocationId: item.toLocationId,
+      toLocationId: item.fromLocationId,
+      reason: reason || 'Reversal',
+    },
+  });
+}
+
 function incrementStockId(stockId: string): string {
   const match = stockId.match(/STK-(\d+)/);
   if (!match) return 'STK-000001';
@@ -819,65 +863,7 @@ router.post('/:id/reverse', async (req: AuthRequest, res: Response, next: NextFu
       });
 
       for (const item of movement.items) {
-        const stockDetail = item.stockDetail;
-        if (!stockDetail) continue;
-
-        // Determine status to restore
-        let newStatus: ItemStatus | null = null;
-        if (DEDUCTING_TYPES.includes(movementType)) {
-          // Items were deducted and their status was changed → restore to active
-          newStatus = 'active';
-        } else if (RESTORING_TYPES[movementType]) {
-          // Items were restored to active from a stored status → revert back
-          newStatus = RESTORING_TYPES[movementType]!;
-        } else if (ADDING_TYPES.includes(movementType)) {
-          // Items were added; if this is their only movement record, deactivate them
-          if ((stockDetail._count?.movementItems ?? 0) <= 1) {
-            newStatus = 'disposed';
-          }
-        }
-        // NEUTRAL_TYPES: no status change; location will be restored below
-
-        // Reverse the stock count delta
-        const delta = stockDelta(movementType, item.quantity);
-        if (delta !== 0 && item.productId) {
-          await tx.product.update({
-            where: { id: item.productId },
-            data: { currentStock: { increment: -delta } },
-          });
-        }
-
-        // Restore StockDetail status if needed
-        if (newStatus !== null) {
-          await tx.stockDetail.update({
-            where: { id: item.stockDetailId },
-            data: {
-              currentStatus: newStatus,
-              // Restore location for neutral movements (transfer/moved_to_department)
-              ...(NEUTRAL_TYPES.includes(movementType) && item.fromLocationId
-                ? { currentLocationId: item.fromLocationId }
-                : {}),
-            },
-          });
-        } else if (NEUTRAL_TYPES.includes(movementType) && item.fromLocationId) {
-          await tx.stockDetail.update({
-            where: { id: item.stockDetailId },
-            data: { currentLocationId: item.fromLocationId },
-          });
-        }
-
-        // Create reversal StockMovementItem (reversed from/to locations)
-        await tx.stockMovementItem.create({
-          data: {
-            movementId: rev.id,
-            stockDetailId: item.stockDetailId,
-            productId: item.productId,
-            quantity: item.quantity,
-            fromLocationId: item.toLocationId,
-            toLocationId: item.fromLocationId,
-            reason: reason || 'Reversal',
-          },
-        });
+        await reverseMovementItem(tx, rev.id, item, movementType, reason);
       }
 
       return rev;
