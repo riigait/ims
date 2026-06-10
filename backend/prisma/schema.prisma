@@ -339,6 +339,8 @@ model FloorPlan {
   isApproved      Boolean    @default(false)
   isTemplate      Boolean    @default(false)
   generationScore Int?
+  buildingKey     String?
+  floorNumber     Int?
   createdAt       DateTime   @default(now())
   updatedAt       DateTime   @updatedAt
   examples        FloorPlanExample[]

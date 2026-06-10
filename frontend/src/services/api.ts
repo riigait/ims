@@ -141,6 +141,7 @@ export const floorPlansApi = {
     api.post(`/floor-plans/${id}/feedback`, data),
   regenerate: (id: string, data?: object) => api.post(`/floor-plans/${id}/regenerate`, data || {}),
   getRules: () => api.get('/floor-plans/rules'),
+  getByBuilding: (buildingKey: string) => api.get(`/floor-plans/building/${encodeURIComponent(buildingKey)}`),
 };
 
 // Map Search

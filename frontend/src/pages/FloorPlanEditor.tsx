@@ -2446,18 +2446,40 @@ export default function FloorPlanEditor() {
                 {/* Rect: width + height */}
                 {(selectedObject.type === 'room' || selectedObject.type === 'rack' || selectedObject.type === 'shelf') && (() => {
                   const rect = selectedObject as RectangleObject;
-                  return <div className="grid grid-cols-2 gap-2">
-                    <div>
-                      <label className="block text-xs font-medium text-[var(--text-muted)] mb-1">Width</label>
-                      <input type="number" value={Math.round(rect.width)} min={10} disabled={isReadOnly}
-                        onChange={e => updateObject(selectedObject.id, { width: parseInt(e.target.value) || 10 })}
-                        className={`w-full px-2.5 py-1.5 border rounded text-sm text-[var(--text)] ${isReadOnly ? 'bg-[var(--surface-2)] border-[var(--border)]' : 'bg-[var(--surface)] border-[var(--border)]'}`} />
+                  const ppm = currentFloorPlan?.scale?.pixelsPerMeter ?? 50;
+                  const planW = currentFloorPlan?.width || 800;
+                  const planH = currentFloorPlan?.height || 600;
+                  const wm = (rect.width / ppm).toFixed(1);
+                  const hm = (rect.height / ppm).toFixed(1);
+                  // Visibility score: fraction of plan occupied (iso needs ~10% to be clearly visible)
+                  const wFrac = rect.width / planW;
+                  const hFrac = rect.height / planH;
+                  const minFrac = Math.min(wFrac, hFrac);
+                  let visLabel: string;
+                  let visColor: string;
+                  if (minFrac >= 0.15) { visLabel = 'Great in iso'; visColor = 'text-green-600'; }
+                  else if (minFrac >= 0.08) { visLabel = 'OK in iso'; visColor = 'text-yellow-600'; }
+                  else { visLabel = 'Too small for iso'; visColor = 'text-red-500'; }
+                  return <div className="space-y-2">
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="block text-xs font-medium text-[var(--text-muted)] mb-1">Width</label>
+                        <input type="number" value={Math.round(rect.width)} min={10} disabled={isReadOnly}
+                          onChange={e => updateObject(selectedObject.id, { width: parseInt(e.target.value) || 10 })}
+                          className={`w-full px-2.5 py-1.5 border rounded text-sm text-[var(--text)] ${isReadOnly ? 'bg-[var(--surface-2)] border-[var(--border)]' : 'bg-[var(--surface)] border-[var(--border)]'}`} />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-[var(--text-muted)] mb-1">Height</label>
+                        <input type="number" value={Math.round(rect.height)} min={10} disabled={isReadOnly}
+                          onChange={e => updateObject(selectedObject.id, { height: parseInt(e.target.value) || 10 })}
+                          className={`w-full px-2.5 py-1.5 border rounded text-sm text-[var(--text)] ${isReadOnly ? 'bg-[var(--surface-2)] border-[var(--border)]' : 'bg-[var(--surface)] border-[var(--border)]'}`} />
+                      </div>
                     </div>
-                    <div>
-                      <label className="block text-xs font-medium text-[var(--text-muted)] mb-1">Height</label>
-                      <input type="number" value={Math.round(rect.height)} min={10} disabled={isReadOnly}
-                        onChange={e => updateObject(selectedObject.id, { height: parseInt(e.target.value) || 10 })}
-                        className={`w-full px-2.5 py-1.5 border rounded text-sm text-[var(--text)] ${isReadOnly ? 'bg-[var(--surface-2)] border-[var(--border)]' : 'bg-[var(--surface)] border-[var(--border)]'}`} />
+                    <div className="px-2.5 py-2 rounded bg-[var(--surface-2)] border border-[var(--border)] text-xs space-y-0.5">
+                      <div className="text-[var(--text-muted)]">
+                        Real size: <span className="font-semibold text-[var(--text)]">{wm} m × {hm} m</span>
+                      </div>
+                      <div className={`font-medium ${visColor}`}>{visLabel}</div>
                     </div>
                   </div>;
                 })()}

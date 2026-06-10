@@ -97,6 +97,8 @@ export interface FloorPlan {
   isApproved?: boolean;
   isTemplate?: boolean;
   generationScore?: number;
+  buildingKey?: string | null;
+  floorNumber?: number | null;
   createdAt: string;
   updatedAt: string;
 }

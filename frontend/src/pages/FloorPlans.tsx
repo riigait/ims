@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { Plus, Trash2, MapPin, LayoutGrid, List, Edit, Sparkles, XCircle, RefreshCw, BookmarkCheck, ChevronDown, ChevronUp, Info, AlertTriangle, Layers, Columns, Lock } from 'lucide-react';
+import { Plus, Trash2, MapPin, LayoutGrid, List, Edit, Sparkles, XCircle, RefreshCw, BookmarkCheck, ChevronDown, ChevronUp, Info, AlertTriangle, Layers, Lock } from 'lucide-react';
 import { formatDate } from '@/utils/ids';
 import { floorPlansApi, departmentsApi } from '@/services/api';
 import { FloorPlan, FloorPlanObject, RectangleObject, WallObject } from '@/types/floorplan';
@@ -108,6 +108,20 @@ type AutoGenerateStatus = {
 type FeedbackState = 'approved' | 'bad_layout' | null;
 
 const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+const MAX_REGENERATION_ATTEMPTS = 50;
+const TARGET_REGENERATION_ISSUES = 1;
+
+function countRegenerationIssues(data: any): number {
+  if (Array.isArray(data.regenerated)) {
+    if (data.regenerated.length === 0) return Number.POSITIVE_INFINITY;
+    return data.regenerated.reduce((total: number, plan: FloorPlan) =>
+      total + (plan.objects ? validateFloorplanObjects(plan.objects).errors.length : Number.POSITIVE_INFINITY), 0);
+  }
+
+  if (!Array.isArray(data.objects)) return Number.POSITIVE_INFINITY;
+  const { objects } = applyAutoFixes(data.objects);
+  return validateFloorplanObjects(objects).errors.length;
+}
 
 const SCORE_COLOR = (score: number) =>
   score >= 80 ? 'text-green-600 bg-green-50 border-green-200' :
@@ -314,6 +328,78 @@ function moveObject(obj: FloorPlanObject, dx: number, dy: number): FloorPlanObje
   }
   if ('x' in obj && 'y' in obj) return { ...obj, x: (obj as { x: number }).x + dx, y: (obj as { y: number }).y + dy };
   return obj;
+}
+
+function boundsForObjects(objects: FloorPlanObject[]): OutdoorWallBox | null {
+  if (objects.length === 0) return null;
+  const points = objects.flatMap(obj => {
+    if (obj.type === 'wall') {
+      return [{ x: obj.startX, y: obj.startY }, { x: obj.endX, y: obj.endY }];
+    }
+    if (!('x' in obj) || !('y' in obj)) return [];
+    const sized = obj as FloorPlanObject & { x: number; y: number; width?: number; height?: number };
+    return [
+      { x: sized.x, y: sized.y },
+      { x: sized.x + (sized.width ?? 0), y: sized.y + (sized.height ?? 0) },
+    ];
+  });
+  if (points.length === 0) return null;
+  const minX = Math.min(...points.map(point => point.x));
+  const minY = Math.min(...points.map(point => point.y));
+  const maxX = Math.max(...points.map(point => point.x));
+  const maxY = Math.max(...points.map(point => point.y));
+  return { minX, minY, maxX, maxY, width: maxX - minX, height: maxY - minY };
+}
+
+function adjustmentFromOpening(groupObjects: FloorPlanObject[]): { dx: number; dy: number } | null {
+  const bounds = boundsForObjects(groupObjects.filter(obj => obj.type === 'wall' || obj.type === 'room'));
+  const openings = groupObjects.filter(obj => obj.type === 'door' || obj.type === 'entrance');
+  if (!bounds || openings.length === 0) return null;
+
+  const candidates = openings.flatMap(opening => [
+    { distance: Math.abs(opening.x - bounds.minX), dx: -1, dy: 0 },
+    { distance: Math.abs(opening.x - bounds.maxX), dx: 1, dy: 0 },
+    { distance: Math.abs(opening.y - bounds.minY), dx: 0, dy: -1 },
+    { distance: Math.abs(opening.y - bounds.maxY), dx: 0, dy: 1 },
+  ]);
+  return candidates.reduce((best, candidate) => candidate.distance < best.distance ? candidate : best);
+}
+
+function adjustProblemIndoorWallGroups(objects: FloorPlanObject[]) {
+  const validation = validateFloorplanObjects(objects);
+  const objectsById = new Map(objects.map(obj => [obj.id, obj]));
+  const issueGroupIds = new Set(
+    validation.errors
+      .map(error => error.objectId ? objectsById.get(error.objectId)?.groupId : undefined)
+      .filter((groupId): groupId is string => Boolean(groupId)),
+  );
+  const adjustments = new Map<string, { dx: number; dy: number }>();
+
+  issueGroupIds.forEach(groupId => {
+    const groupObjects = objects.filter(obj => obj.groupId === groupId);
+    const hasIndoorWall = groupObjects.some(obj =>
+      obj.type === 'wall'
+      && obj.wallType !== 'floor_original_outdoor'
+      && !obj.isFinalizedPerimeter
+      && !obj.id.includes('-ow-')
+    );
+    if (!hasIndoorWall) return;
+    const adjustment = adjustmentFromOpening(groupObjects);
+    if (adjustment) adjustments.set(groupId, adjustment);
+  });
+
+  const adjustedObjects = adjustments.size === 0
+    ? objects
+    : objects.map(obj => {
+      const adjustment = obj.groupId ? adjustments.get(obj.groupId) : undefined;
+      return adjustment ? moveObject(obj, adjustment.dx, adjustment.dy) : obj;
+    });
+  return {
+    objects: adjustedObjects,
+    adjustedGroups: adjustments.size,
+    issuesBefore: validation.errors.length,
+    issuesAfter: validateFloorplanObjects(adjustedObjects).errors.length,
+  };
 }
 
 function alignOutdoorWallsToSharedCoordinateSystem(plans: FloorPlan[], debug = false): AlignedOutdoorWallResult {
@@ -599,34 +685,9 @@ function buildFinalizedWalls(
   return walls;
 }
 
-const COLUMN_SIZE = 40;
-type ColumnSource = 'perimeter' | 'core' | 'span' | 'room_core' | 'room_large' | 'room_span';
-type ColumnConfidence = 'accepted' | 'optional' | 'merged';
-type SuggestedColumn = {
-  x: number; y: number; id: string;
-  source?: ColumnSource;
-  confidence?: ColumnConfidence;
-};
-type ColumnSummary = {
-  columns: SuggestedColumn[];
-  totalCandidates: number;
-  acceptedCount: number;
-  optionalCount: number;
-  mergedCount: number;
-};
-
-type SpanStatus = 'unresolved' | 'resolved' | 'ignored';
-type SpanArea = {
-  id: string;
-  x: number; y: number;        // top-left of the open cell
-  width: number; height: number;
-  midX: number; midY: number;  // centre — used for column snapping
-  status: SpanStatus;
-};
-
 function isFixedFloorObject(id: string) {
   return id.includes('reserved-stairs') || id.includes('reserved-elevator') ||
-    /reserved-(male-|female-)?restroom/.test(id) || id.includes('reserved-column');
+    /reserved-(male-|female-)?restroom/.test(id);
 }
 
 function isOutdoorWallObject(obj: FloorPlanObject) {
@@ -637,528 +698,6 @@ function isOutdoorWallObject(obj: FloorPlanObject) {
   );
 }
 
-function buildDenseGrid(entries: AlignedOutdoorWallResult['entries']) {
-  const denseX = new Set<number>();
-  const denseY = new Set<number>();
-  entries.forEach(e => {
-    denseX.add(e.alignedBounds.minX); denseX.add(e.alignedBounds.maxX);
-    denseY.add(e.alignedBounds.minY); denseY.add(e.alignedBounds.maxY);
-    e.walls.forEach(w => {
-      denseX.add(Math.round(w.startX)); denseX.add(Math.round(w.endX));
-      denseY.add(Math.round(w.startY)); denseY.add(Math.round(w.endY));
-    });
-  });
-  return {
-    dxArr: [...denseX].sort((a, b) => a - b),
-    dyArr: [...denseY].sort((a, b) => a - b),
-  };
-}
-
-function buildColumnPoints(entries: AlignedOutdoorWallResult['entries'], acceptedCols: SuggestedColumn[]) {
-  return [
-    ...acceptedCols.map(c => ({ x: c.x + COLUMN_SIZE / 2, y: c.y + COLUMN_SIZE / 2 })),
-    ...entries.flatMap(e => (e.plan.objects ?? [])
-      .filter(o => o.id.includes('reserved-column'))
-      .map(o => ({ x: (o as RectangleObject).x + COLUMN_SIZE / 2, y: (o as RectangleObject).y + COLUMN_SIZE / 2 }))
-    ),
-  ];
-}
-
-// detectOpenSpans scans the dense wall-endpoint grid and returns every open cell
-// whose width or height exceeds MAX_SPAN that has no accepted/applied column nearby.
-// The same function is used by the scorer AND the review UI so counts always match.
-function detectOpenSpans(
-  entries: AlignedOutdoorWallResult['entries'],
-  acceptedCols: SuggestedColumn[],
-  ignoredIds: Set<string>,
-): SpanArea[] {
-  const MAX_SPAN = 160;
-  const NEARBY = MAX_SPAN * 0.6;
-
-  const { dxArr, dyArr } = buildDenseGrid(entries);
-  const insidePoly = (px: number, py: number) =>
-    entries.some(e => px >= e.alignedBounds.minX && px <= e.alignedBounds.maxX &&
-                      py >= e.alignedBounds.minY && py <= e.alignedBounds.maxY);
-  const allColPts = buildColumnPoints(entries, acceptedCols);
-
-  const spans: SpanArea[] = [];
-  for (let yi = 0; yi < dyArr.length - 1; yi++) {
-    const y1 = dyArr[yi], y2 = dyArr[yi + 1];
-    const midY = (y1 + y2) / 2;
-    for (let xi = 0; xi < dxArr.length - 1; xi++) {
-      const x1 = dxArr[xi], x2 = dxArr[xi + 1];
-      const midX = (x1 + x2) / 2;
-      if ((x2 - x1 <= MAX_SPAN && y2 - y1 <= MAX_SPAN) || !insidePoly(midX, midY)) continue;
-      const hasSupport = allColPts.some(c => Math.abs(c.x - midX) < NEARBY && Math.abs(c.y - midY) < NEARBY);
-      if (hasSupport) continue;
-      const id = `span-${Math.round(x1)}-${Math.round(y1)}`;
-      spans.push({
-        id,
-        x: x1, y: y1,
-        width: x2 - x1, height: y2 - y1,
-        midX, midY,
-        status: ignoredIds.has(id) ? 'ignored' : 'unresolved',
-      });
-    }
-  }
-  return spans;
-}
-
-// ─── Floorplan Layout Quality Score ──────────────────────────────────────────
-//
-// Deterministic 100-point score derived purely from the aligned result.
-// Same input always produces the same score.
-//
-// Categories (revised weights):
-//   15 pts — Floor alignment quality
-//   15 pts — Finalized perimeter quality
-//   15 pts — Fixed core alignment
-//   20 pts — Column placement quality
-//   15 pts — Large open span coverage   ← was 10, promoted: biggest gap driver
-//   10 pts — Duplicate/overlap cleanup
-//   10 pts — Visual/readability quality
-//
-// Grade thresholds: 95–100 Excellent · 90–94 Very Good · 80–89 Good ·
-//                   70–79 Needs Improvement · <70 Regenerate Recommended
-//
-// NOTE: This is a layout quality check only — not a certified structural assessment.
-
-export interface LayoutScoreResult {
-  total: number;
-  grade: 'Excellent' | 'Very Good' | 'Good' | 'Needs Improvement' | 'Regenerate Recommended';
-  breakdown: { category: string; score: number; max: number }[];
-  issues: string[];
-  unsupportedSpans: number;  // exposed so the UI can show the exact count
-}
-
-function scoreFloorplanLayout(
-  aligned: AlignedOutdoorWallResult,
-  suggestedCols: SuggestedColumn[],  // accepted+optional candidates shown in preview
-): LayoutScoreResult {
-  const { entries } = aligned;
-  const issues: string[] = [];
-  const breakdown: LayoutScoreResult['breakdown'] = [];
-
-  if (entries.length === 0) {
-    return {
-      total: 0,
-      grade: 'Regenerate Recommended',
-      breakdown: [],
-      issues: ['No aligned floor data found — cannot score.'],
-      unsupportedSpans: 0,
-    };
-  }
-
-  const unionMinX = Math.min(...entries.map(e => e.alignedBounds.minX));
-  const unionMinY = Math.min(...entries.map(e => e.alignedBounds.minY));
-  const unionMaxX = Math.max(...entries.map(e => e.alignedBounds.maxX));
-  const unionMaxY = Math.max(...entries.map(e => e.alignedBounds.maxY));
-
-  // ── 1. Floor alignment quality (15 pts) ──────────────────────────────────
-  const anchorScores: Record<string, number> = {
-    'building-origin': 15, 'vertical-core': 13, 'main-entrance': 12,
-    'door': 10, 'grid-column': 8, 'bbox-top-left': 5,
-  };
-  const anchorKind = entries[0]?.selectedAnchor?.kind ?? 'bbox-top-left';
-  let alignScore = anchorScores[anchorKind] ?? 5;
-  const noOverlap = entries.filter(e =>
-    e.alignedBounds.maxX < unionMinX + 10 || e.alignedBounds.maxY < unionMinY + 10 ||
-    e.alignedBounds.minX > unionMaxX - 10 || e.alignedBounds.minY > unionMaxY - 10
-  ).length;
-  alignScore = Math.max(0, alignScore - noOverlap * 2);
-  if (noOverlap > 0) issues.push(`${noOverlap} floor(s) appear misaligned with the building footprint.`);
-  if (anchorKind === 'bbox-top-left') issues.push('Alignment using bounding-box fallback — no structural anchor detected.');
-  breakdown.push({ category: 'Floor alignment quality', score: alignScore, max: 15 });
-
-  // ── 2. Finalized perimeter quality (15 pts) ──────────────────────────────
-  // Full 15 if all floors contribute walls. -3 per empty-wall floor.
-  // Also check for duplicate finalized perimeter walls across floors.
-  const emptyWallFloors = entries.filter(e => e.walls.length === 0).length;
-  let perimScore = Math.max(0, 15 - emptyWallFloors * 3);
-  // Check for duplicate finalized perimeter wall IDs across the plans
-  const finalWallIds = entries.flatMap(e =>
-    (e.plan.objects ?? []).filter(o => o.type === 'wall' && (o as WallObject).isFinalizedPerimeter).map(o => o.id)
-  );
-  const dupPerimIds = finalWallIds.length - new Set(finalWallIds).size;
-  if (dupPerimIds > 0) { perimScore = Math.max(0, perimScore - 3); issues.push(`${dupPerimIds} duplicate finalized perimeter wall(s) detected.`); }
-  if (emptyWallFloors > 0) issues.push(`${emptyWallFloors} floor(s) have no outdoor walls — perimeter may be incomplete.`);
-  breakdown.push({ category: 'Finalized perimeter quality', score: perimScore, max: 15 });
-
-  // ── 3. Fixed core alignment (15 pts) ─────────────────────────────────────
-  // Full 15 if all floors have fixed objects that share consistent X/Y positions.
-  // Bonus: check that the fixed objects are inside the building footprint.
-  const floorsWithFixed = entries.filter(e => e.fixedObjects.length > 0).length;
-  let fixedScore: number;
-  const insidePoly = (px: number, py: number) =>
-    entries.some(e => px >= e.alignedBounds.minX && px <= e.alignedBounds.maxX &&
-                      py >= e.alignedBounds.minY && py <= e.alignedBounds.maxY);
-  if (floorsWithFixed === 0) {
-    fixedScore = 8;
-    issues.push('No shared fixed objects (stairs/elevator/restroom) detected.');
-  } else {
-    const missingFixed = entries.length - floorsWithFixed;
-    fixedScore = Math.max(0, 15 - missingFixed * 2);
-    // Penalise fixed objects that landed outside the building footprint
-    const outsideFixed = entries.flatMap(e => e.fixedObjects).filter(
-      o => !insidePoly(o.x + o.width / 2, o.y + (o.height ?? 0) / 2)
-    ).length;
-    if (outsideFixed > 0) {
-      fixedScore = Math.max(0, fixedScore - outsideFixed * 2);
-      issues.push(`${outsideFixed} fixed object(s) appear outside the building footprint.`);
-    }
-    if (missingFixed > 0) issues.push(`${missingFixed} floor(s) are missing shared fixed objects.`);
-  }
-  breakdown.push({ category: 'Fixed core alignment', score: fixedScore, max: 15 });
-
-  // ── 4. Column placement quality (20 pts) ─────────────────────────────────
-  // Score on accepted-only columns (confidence === 'accepted' or no confidence tag).
-  // Expect ≥4 accepted columns; penalise if none or excessively many vs grid.
-  const allX = [...new Set(entries.flatMap(e => [e.alignedBounds.minX, e.alignedBounds.maxX]))].sort((a, b) => a - b);
-  const allY = [...new Set(entries.flatMap(e => [e.alignedBounds.minY, e.alignedBounds.maxY]))].sort((a, b) => a - b);
-  const acceptedCols = suggestedCols.filter(c => c.confidence !== 'optional');
-  // Also count columns already applied to floors (may differ from preview)
-  const appliedColCount = entries.reduce((sum, e) =>
-    sum + (e.plan.objects ?? []).filter(o => o.id.includes('reserved-column')).length, 0
-  ) / Math.max(1, entries.length); // average per floor
-  const effectiveCols = Math.max(acceptedCols.length, appliedColCount);
-  const gridIntersections = allX.length * allY.length;
-  let colScore = 20;
-  if (effectiveCols === 0) {
-    colScore = 4;
-    issues.push('No structural columns found — run Columns to generate suggestions.');
-  } else if (effectiveCols < 4) {
-    colScore = 10;
-    issues.push('Very few columns detected — large spans may be unsupported.');
-  } else if (effectiveCols > gridIntersections * 2.5) {
-    colScore = 14;
-    issues.push(`Column count (${Math.round(effectiveCols)}) may be excessive for this building size.`);
-  }
-  breakdown.push({ category: 'Column placement quality', score: colScore, max: 20 });
-
-  // ── 5. Large open span coverage (15 pts) ─────────────────────────────────
-  // Scan every grid cell (not just boundary rows) to find occupied cells whose
-  // width OR height exceeds MAX_SPAN with no accepted column or applied column nearby.
-  // Uses a dense scan grid derived from each floor's walls — catches interior open
-  // areas that have no boundary X/Y grid lines.
-  const SCORE_MAX_SPAN = 160;
-  const NEARBY_RADIUS = SCORE_MAX_SPAN * 0.6;
-
-  const { dxArr, dyArr } = buildDenseGrid(entries);
-  const allColPoints = buildColumnPoints(entries, acceptedCols);
-
-  let unsupported = 0;
-  for (let yi = 0; yi < dyArr.length - 1; yi++) {
-    const y1 = dyArr[yi], y2 = dyArr[yi + 1];
-    const midY = (y1 + y2) / 2;
-    for (let xi = 0; xi < dxArr.length - 1; xi++) {
-      const x1 = dxArr[xi], x2 = dxArr[xi + 1];
-      const midX = (x1 + x2) / 2;
-      const spanW = x2 - x1, spanH = y2 - y1;
-      if ((spanW > SCORE_MAX_SPAN || spanH > SCORE_MAX_SPAN) && insidePoly(midX, midY)) {
-        const hasSupport = allColPoints.some(c =>
-          Math.abs(c.x - midX) < NEARBY_RADIUS && Math.abs(c.y - midY) < NEARBY_RADIUS
-        );
-        if (!hasSupport) unsupported++;
-      }
-    }
-  }
-  // Each unsupported span costs 1 pt; 0 = full 15
-  const spanScore = unsupported === 0 ? 15 : Math.max(0, 15 - unsupported);
-  if (unsupported > 0) issues.push(`${unsupported} large open span(s) may need additional structural support.`);
-  breakdown.push({ category: 'Large open span coverage', score: spanScore, max: 15 });
-
-  // ── 6. Duplicate/overlap cleanup (10 pts) ────────────────────────────────
-  let dupCount = 0;
-  for (const entry of entries) {
-    const seen = new Set<string>();
-    for (const w of entry.walls) {
-      const key = `${Math.round(w.startX)},${Math.round(w.startY)},${Math.round(w.endX)},${Math.round(w.endY)}`;
-      if (seen.has(key)) dupCount++;
-      else seen.add(key);
-    }
-  }
-  const overlapScore = dupCount === 0 ? 10 : Math.max(0, 10 - dupCount * 2);
-  if (dupCount > 0) issues.push(`${dupCount} duplicate wall segment(s) detected — run alignment to clean up.`);
-  breakdown.push({ category: 'Duplicate/overlap cleanup', score: overlapScore, max: 10 });
-
-  // ── 7. Visual/readability quality (10 pts) ───────────────────────────────
-  const floorCountScore = entries.length >= 2 && entries.length <= 6 ? 10
-    : entries.length === 1 ? 6 : 7;
-  const unionW = unionMaxX - unionMinX;
-  const unionH = unionMaxY - unionMinY;
-  const aspect = unionW > 0 && unionH > 0 ? Math.max(unionW / unionH, unionH / unionW) : 1;
-  const readScore = Math.max(0, floorCountScore - (aspect > 4 ? 3 : aspect > 3 ? 1 : 0));
-  if (entries.length === 1) issues.push('Only 1 floor — merge preview is most useful with 2+ sibling floors.');
-  if (aspect > 4) issues.push('Building footprint is very elongated — consider reviewing floor proportions.');
-  breakdown.push({ category: 'Visual/readability quality', score: readScore, max: 10 });
-
-  const rawTotal = Math.min(100, breakdown.reduce((s, b) => s + b.score, 0));
-  // Hard cap: layout cannot reach 95+ (Excellent) if there are any unresolved open spans.
-  // Span review must resolve all spans first.
-  const total = unsupported > 0 ? Math.min(rawTotal, 94) : rawTotal;
-  const grade: LayoutScoreResult['grade'] =
-    total >= 95 ? 'Excellent' :
-    total >= 90 ? 'Very Good' :
-    total >= 80 ? 'Good' :
-    total >= 70 ? 'Needs Improvement' : 'Regenerate Recommended';
-
-  return { total, grade, breakdown, issues, unsupportedSpans: unsupported };
-}
-
-// suggestColumns builds ONE shared structural column grid for the whole building.
-//
-// Strategy: derive the grid solely from the UNION geometry — unique X/Y coordinates
-// of the merged footprint — so the result is identical regardless of how many floors
-// contributed. Columns are placed only at structural reasons:
-//   • every convex/concave corner of the union perimeter        (mandatory)
-//   • every corner of a fixed-core object (ref floor only)      (mandatory core)
-//   • midpoint of any span longer than MAX_SPAN                 (long-span support)
-//
-// This guarantees one column per structural point, never per floor.
-function suggestColumns(
-  boxes: OutdoorWallBox[],
-  refFixedObjects: RectangleObject[],  // from reference floor only, already in shared coords
-): ColumnSummary {
-  if (boxes.length === 0) return { columns: [], totalCandidates: 0, acceptedCount: 0, optionalCount: 0, mergedCount: 0 };
-
-  const MAX_SPAN = 160; // px — add mid-span column if a span exceeds this
-  const CLUSTER_RADIUS = COLUMN_SIZE * 2; // merge clustered candidates to centroid
-  const snap = (v: number) => Math.round(v / MERGE_GRID_SIZE) * MERGE_GRID_SIZE;
-  const inside = (px: number, py: number) =>
-    boxes.some(b => px >= b.minX && px <= b.maxX && py >= b.minY && py <= b.maxY);
-
-  // 1. Union grid: unique sorted X/Y from all boxes — the shared building coordinate set
-  const allX = [...new Set(boxes.flatMap(b => [b.minX, b.maxX]))].sort((a, b) => a - b);
-  const allY = [...new Set(boxes.flatMap(b => [b.minY, b.maxY]))].sort((a, b) => a - b);
-
-  // 2. Perimeter corners of the union shape (convex, concave, junction)
-  const perimeterCorners: Array<{ x: number; y: number }> = [];
-  const eps = 1;
-  for (const px of allX) {
-    for (const py of allY) {
-      const q = [
-        inside(px - eps, py - eps),
-        inside(px + eps, py - eps),
-        inside(px - eps, py + eps),
-        inside(px + eps, py + eps),
-      ];
-      const inCount = q.filter(Boolean).length;
-      // convex corner=1, notch corner=3, checkerboard junction=2 (diagonally opposite)
-      if (inCount === 1 || inCount === 3 ||
-          (inCount === 2 && q[0] === q[3] && q[1] === q[2] && q[0] !== q[1])) {
-        perimeterCorners.push({ x: snap(px), y: snap(py) });
-      }
-    }
-  }
-
-  // 3. Fixed-core support: cluster bbox 4 corners (shared anchor zone) +
-  //    individual object corners (per-object finer support).
-  //    Both are mandatory — the bbox gives the zone boundary, object corners
-  //    anchor the actual stairs/elevator/restroom footprints.
-  const coreCorners: Array<{ x: number; y: number }> = [];
-  if (refFixedObjects.length > 0) {
-    // Zone boundary: bounding box over ALL fixed objects
-    const coreMinX = snap(Math.min(...refFixedObjects.map(o => o.x)));
-    const coreMinY = snap(Math.min(...refFixedObjects.map(o => o.y)));
-    const coreMaxX = snap(Math.max(...refFixedObjects.map(o => o.x + o.width)));
-    const coreMaxY = snap(Math.max(...refFixedObjects.map(o => o.y + (o.height ?? 0))));
-    [[coreMinX, coreMinY], [coreMaxX, coreMinY],
-     [coreMinX, coreMaxY], [coreMaxX, coreMaxY]].forEach(([cx, cy]) => {
-      if (inside(cx, cy)) coreCorners.push({ x: cx, y: cy });
-    });
-    // Per-object corners (stairs, elevator, restroom, column)
-    refFixedObjects.forEach(obj => {
-      const ox = snap(obj.x), oy = snap(obj.y);
-      const ow = snap(obj.x + obj.width), oh = snap(obj.y + (obj.height ?? 0));
-      [[ox, oy], [ow, oy], [ox, oh], [ow, oh]].forEach(([cx, cy]) => {
-        if (inside(cx, cy)) coreCorners.push({ x: cx, y: cy });
-      });
-    });
-    // Service-core centroid: one structural anchor at the geometric centre of all
-    // fixed objects together — unifies restroom + elevator + stairs into a single
-    // shared core zone rather than treating them as separate isolated objects.
-    const centX = snap(refFixedObjects.reduce((s, o) => s + o.x + o.width / 2, 0) / refFixedObjects.length);
-    const centY = snap(refFixedObjects.reduce((s, o) => s + o.y + (o.height ?? 0) / 2, 0) / refFixedObjects.length);
-    if (inside(centX, centY)) coreCorners.push({ x: centX, y: centY });
-  }
-
-  // 4. Long-span mid-supports: scan every occupied interior cell at each grid division.
-  //    For each adjacent pair of X/Y lines that bound a FILLED cell, add a mid-span
-  //    column if the span exceeds MAX_SPAN.  This catches open-floor spans inside
-  //    wings that have no X/Y grid boundary of their own.
-  const spanSupports: Array<{ x: number; y: number }> = [];
-
-  // Horizontal spans: for each horizontal strip (row between y[i] and y[i+1]),
-  // walk column pairs and add mid-span support when the strip is occupied.
-  for (let yi = 0; yi < allY.length - 1; yi++) {
-    const midY = (allY[yi] + allY[yi + 1]) / 2;
-    for (let xi = 0; xi < allX.length - 1; xi++) {
-      const x1 = allX[xi], x2 = allX[xi + 1];
-      if (x2 - x1 > MAX_SPAN && inside((x1 + x2) / 2, midY)) {
-        spanSupports.push({ x: snap((x1 + x2) / 2 - COLUMN_SIZE / 2), y: snap(midY - COLUMN_SIZE / 2) });
-      }
-    }
-  }
-  // Vertical spans: for each vertical strip (column between x[i] and x[i+1]),
-  // walk row pairs and add mid-span support when the strip is occupied.
-  for (let xi = 0; xi < allX.length - 1; xi++) {
-    const midX = (allX[xi] + allX[xi + 1]) / 2;
-    for (let yi = 0; yi < allY.length - 1; yi++) {
-      const y1 = allY[yi], y2 = allY[yi + 1];
-      if (y2 - y1 > MAX_SPAN && inside(midX, (y1 + y2) / 2)) {
-        spanSupports.push({ x: snap(midX - COLUMN_SIZE / 2), y: snap((y1 + y2) / 2 - COLUMN_SIZE / 2) });
-      }
-    }
-  }
-
-  // 5. Offset all structural points to column top-left (centre the column on the point)
-  const half = COLUMN_SIZE / 2;
-  const raw: Array<{ x: number; y: number; source: ColumnSource }> = [
-    ...perimeterCorners.map(p => ({ x: snap(p.x - half), y: snap(p.y - half), source: 'perimeter' as ColumnSource })),
-    ...coreCorners.map(p => ({ x: snap(p.x - half), y: snap(p.y - half), source: 'core' as ColumnSource })),
-    ...spanSupports.map(p => ({ ...p, source: 'span' as ColumnSource })),
-  ];
-
-  // 6. Cluster-merge: group candidates within CLUSTER_RADIUS and keep centroid.
-  //    Priority order for source: core > perimeter > span (first source in group wins).
-  const SOURCE_PRIORITY: ColumnSource[] = ['core', 'perimeter', 'span', 'room_core', 'room_large', 'room_span'];
-  const groups: Array<Array<{ x: number; y: number; source: ColumnSource }>> = [];
-  for (const c of raw) {
-    const group = groups.find(g =>
-      g.some(m => Math.abs(m.x - c.x) < CLUSTER_RADIUS && Math.abs(m.y - c.y) < CLUSTER_RADIUS)
-    );
-    if (group) group.push(c);
-    else groups.push([c]);
-  }
-  const kept = groups.map(g => {
-    const bestSource = SOURCE_PRIORITY.find(s => g.some(m => m.source === s)) ?? g[0].source;
-    return {
-      x: snap(g.reduce((s, m) => s + m.x, 0) / g.length),
-      y: snap(g.reduce((s, m) => s + m.y, 0) / g.length),
-      source: bestSource,
-    };
-  });
-
-  // 7. Assign confidence: core/perimeter → accepted; span → accepted; room_* → optional
-  const withConfidence = kept.map(col => ({
-    ...col,
-    confidence: (col.source === 'room_large' || col.source === 'room_span')
-      ? 'optional' as ColumnConfidence
-      : 'accepted' as ColumnConfidence,
-  }));
-
-  // 8. Sort top-left → bottom-right for stable IDs
-  withConfidence.sort((a, b) => a.y !== b.y ? a.y - b.y : a.x - b.x);
-  const columns = withConfidence.map((col, i) => ({ ...col, id: `reserved-column-${i + 1}` }));
-  const mergedCount = raw.length - groups.length;
-  const acceptedCount = columns.filter(c => c.confidence === 'accepted').length;
-  const optionalCount = columns.filter(c => c.confidence === 'optional').length;
-  return { columns, totalCandidates: raw.length, acceptedCount, optionalCount, mergedCount };
-}
-
-// suggestColumnsFromRooms adds column candidates derived from the INTERIOR room/area
-// objects on the reference floor, following a 3-tier priority:
-//
-//   1. room_core   — core service rooms (restroom, stair, elevator, server, SCADA,
-//                    utility): 4 corner columns, mandatory
-//   2. room_large  — large rooms (area ≥ LARGE_ROOM threshold): 4 corner columns,
-//                    filtered — only accepted if inside building footprint
-//   3. room_span   — long wall mid-supports for any room whose width or height
-//                    exceeds ROOM_SPAN threshold
-//
-// Rack/shelf objects are skipped — they are furniture, not structural.
-// Results are merged with an existing column set and re-clustered to keep one
-// shared grid, so running this twice is idempotent.
-function suggestColumnsFromRooms(
-  boxes: OutdoorWallBox[],
-  refRoomObjects: RectangleObject[],
-  existing: ColumnSummary,
-): ColumnSummary {
-  if (boxes.length === 0 || refRoomObjects.length === 0) return existing;
-
-  const LARGE_ROOM = 120 * 120;   // px² — rooms larger than this get corner columns
-  const ROOM_SPAN  = 160;         // px  — walls longer than this get mid-span support
-  const CLUSTER_RADIUS = COLUMN_SIZE * 2;
-  const half = COLUMN_SIZE / 2;
-  const snap = (v: number) => Math.round(v / MERGE_GRID_SIZE) * MERGE_GRID_SIZE;
-  const inside = (px: number, py: number) =>
-    boxes.some(b => px >= b.minX && px <= b.maxX && py >= b.minY && py <= b.maxY);
-
-  const CORE_KEYWORDS = /restroom|toilet|bathroom|stair|elevator|lift|server|scada|control|utility|mechanical|electrical|shaft/i;
-  const SKIP_TYPES = new Set(['rack', 'shelf']);
-
-  const candidates: Array<{ x: number; y: number; source: ColumnSource }> = [];
-
-  for (const obj of refRoomObjects) {
-    if (SKIP_TYPES.has(obj.type)) continue;
-
-    const label = obj.label ?? '';
-    const isCore = CORE_KEYWORDS.test(label) || CORE_KEYWORDS.test(obj.id);
-    const area = obj.width * (obj.height ?? obj.width);
-    const isLarge = area >= LARGE_ROOM;
-
-    if (!isCore && !isLarge) continue;
-
-    const source: ColumnSource = isCore ? 'room_core' : 'room_large';
-    const ox = snap(obj.x), oy = snap(obj.y);
-    const ow = snap(obj.x + obj.width), oh = snap(obj.y + (obj.height ?? obj.width));
-
-    // 4 corners
-    [[ox, oy], [ow, oy], [ox, oh], [ow, oh]].forEach(([cx, cy]) => {
-      if (inside(cx, cy)) {
-        candidates.push({ x: snap(cx - half), y: snap(cy - half), source });
-      }
-    });
-
-    // Mid-span supports on long walls
-    if (ow - ox > ROOM_SPAN) {
-      const midX = snap((ox + ow) / 2);
-      if (inside(midX, oy)) candidates.push({ x: snap(midX - half), y: snap(oy - half), source: 'room_span' });
-      if (inside(midX, oh)) candidates.push({ x: snap(midX - half), y: snap(oh - half), source: 'room_span' });
-    }
-    if (oh - oy > ROOM_SPAN) {
-      const midY = snap((oy + oh) / 2);
-      if (inside(ox, midY)) candidates.push({ x: snap(ox - half), y: snap(midY - half), source: 'room_span' });
-      if (inside(ow, midY)) candidates.push({ x: snap(ow - half), y: snap(midY - half), source: 'room_span' });
-    }
-  }
-
-  if (candidates.length === 0) return existing;
-
-  // Merge with existing columns and re-cluster
-  const SOURCE_PRIORITY: ColumnSource[] = ['core', 'perimeter', 'span', 'room_core', 'room_large', 'room_span'];
-  const prevCols = existing.columns;
-  const totalCandidates = prevCols.length + candidates.length;
-  const all: Array<{ x: number; y: number; source: ColumnSource }> = [
-    ...prevCols.map(c => ({ x: c.x, y: c.y, source: (c.source ?? 'perimeter') as ColumnSource })),
-    ...candidates,
-  ];
-  const groups: Array<Array<{ x: number; y: number; source: ColumnSource }>> = [];
-  for (const c of all) {
-    const group = groups.find(g =>
-      g.some(m => Math.abs(m.x - c.x) < CLUSTER_RADIUS && Math.abs(m.y - c.y) < CLUSTER_RADIUS)
-    );
-    if (group) group.push(c);
-    else groups.push([c]);
-  }
-  const withConfidence = groups.map(g => {
-    const bestSource = SOURCE_PRIORITY.find(s => g.some(m => m.source === s)) ?? g[0].source;
-    const confidence: ColumnConfidence =
-      (bestSource === 'room_large' || bestSource === 'room_span') ? 'optional' : 'accepted';
-    return {
-      x: snap(g.reduce((s, m) => s + m.x, 0) / g.length),
-      y: snap(g.reduce((s, m) => s + m.y, 0) / g.length),
-      source: bestSource,
-      confidence,
-    };
-  });
-  withConfidence.sort((a, b) => a.y !== b.y ? a.y - b.y : a.x - b.x);
-  const columns = withConfidence.map((col, i) => ({ ...col, id: `reserved-column-${i + 1}` }));
-  const mergedCount = totalCandidates - groups.length;
-  const acceptedCount = columns.filter(c => c.confidence === 'accepted').length;
-  const optionalCount = columns.filter(c => c.confidence === 'optional').length;
-  return { columns, totalCandidates, acceptedCount, optionalCount, mergedCount };
-}
 
 export default function FloorPlans() {
   const navigate = useNavigate();
@@ -1176,6 +715,7 @@ export default function FloorPlans() {
   const [searchTerm, setSearchTerm] = useState('');
   const [departmentFilter, setDepartmentFilter] = useState('');
   const [sortBy, setSortBy] = useState('recently-added');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'new' | 'unaligned' | 'aligned' | 'finalized'>('all');
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
   const [confirmingDeleteId, setConfirmingDeleteId] = useState<string | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
@@ -1191,21 +731,20 @@ export default function FloorPlans() {
   const [pairStairsByFloors, setPairStairsByFloors] = useState(true);
   const [addRooftopFloor, setAddRooftopFloor] = useState(true);
   const [regenerateOutdoorWalls, setRegenerateOutdoorWalls] = useState(true);
+  const [withoutLocations, setWithoutLocations] = useState(false);
   const [showRulesPreview, setShowRulesPreview] = useState(false);
   const [mergeMode, setMergeMode] = useState(false);
   const [mergeBuildingKey, setMergeBuildingKey] = useState<string | null>(null);
   const [mergeSelectedIds, setMergeSelectedIds] = useState<string[]>([]);
+  const [alignedPlanIds, setAlignedPlanIds] = useState<string[]>([]);
+  const [adjustingAlignedErrors, setAdjustingAlignedErrors] = useState(false);
+  const [alignedAdjustmentMessage, setAlignedAdjustmentMessage] = useState<string | null>(null);
   const [mergePreviewPlans, setMergePreviewPlans] = useState<FloorPlan[]>([]);
   const [mergeLoading, setMergeLoading] = useState(false);
   const [mergeApplying, setMergeApplying] = useState(false);
   const [mergeError, setMergeError] = useState<string | null>(null);
   const [showFinalizePreview, setShowFinalizePreview] = useState(false);
   const [finalizing, setFinalizing] = useState(false);
-  const emptySummary: ColumnSummary = { columns: [], totalCandidates: 0, acceptedCount: 0, optionalCount: 0, mergedCount: 0 };
-  const [suggestedColumns, setSuggestedColumns] = useState<ColumnSummary>(emptySummary);
-  const [showColumnSuggest, setShowColumnSuggest] = useState(false);
-  const [applyingColumns, setApplyingColumns] = useState(false);
-  const [ignoreColumnCheck, setIgnoreColumnCheck] = useState(false);
   const [showObjectsPanel, setShowObjectsPanel] = useState(false);
   const [objectsPanelFloorId, setObjectsPanelFloorId] = useState<string | null>(null);
   const [previewMode, setPreviewMode] = useState<'none' | 'all' | 'structural' | 'final'>('none');
@@ -1213,10 +752,6 @@ export default function FloorPlans() {
   const [showObjectLabels, setShowObjectLabels] = useState(true);
   const [labelMode, setLabelMode] = useState<'full' | 'short'>('full');
   const [interiorOpacity, setInteriorOpacity] = useState(72);
-  const [showSpanReview, setShowSpanReview] = useState(false);
-  const [ignoredSpanIds, setIgnoredSpanIds] = useState<Set<string>>(new Set());
-  const [highlightedSpanId, setHighlightedSpanId] = useState<string | null>(null);
-  const [finalizeWithWarnings, setFinalizeWithWarnings] = useState(false);
   const [manualFormData, setManualFormData] = useState({
     buildingLabel: '',
     buildingNumber: 1,
@@ -1363,98 +898,6 @@ export default function FloorPlans() {
     }
   };
 
-  const runColumnSuggest = () => {
-    const aligned = alignOutdoorWallsToSharedCoordinateSystem(mergePreviewPlans);
-    const boxes = aligned.entries.map(e => e.alignedBounds);
-    const refEntry = aligned.entries.find(e => e.floorNumber === 1) ?? aligned.entries[0];
-    const refFixed = refEntry?.fixedObjects ?? [];
-    const summary = suggestColumns(boxes, refFixed);
-    setSuggestedColumns(summary);
-    setShowColumnSuggest(true);
-  };
-
-  const runColumnSuggestFromRooms = () => {
-    const aligned = alignOutdoorWallsToSharedCoordinateSystem(mergePreviewPlans);
-    const boxes = aligned.entries.map(e => e.alignedBounds);
-    const refEntry = aligned.entries.find(e => e.floorNumber === 1) ?? aligned.entries[0];
-    // All interior room/area objects on the reference floor, shifted to shared coords
-    const refRooms = (refEntry?.plan.objects ?? [])
-      .filter(obj => !isFixedFloorObject(obj.id) && !isOutdoorWallObject(obj) &&
-        (obj.type === 'room' || obj.type === 'rack' || obj.type === 'shelf'))
-      .map(obj => {
-        const r = obj as RectangleObject;
-        return { ...r, x: r.x + (refEntry?.dx ?? 0), y: r.y + (refEntry?.dy ?? 0) };
-      });
-    const merged = suggestColumnsFromRooms(boxes, refRooms, suggestedColumns);
-    setSuggestedColumns(merged);
-    setShowColumnSuggest(true);
-  };
-
-  // Add a manual column at the given SVG canvas coordinate.
-  // Snaps to the nearest MERGE_GRID_SIZE boundary, tags as source='manual'/confidence='accepted'.
-  const addManualColumn = (svgX: number, svgY: number) => {
-    const snap = (v: number) => Math.round(v / MERGE_GRID_SIZE) * MERGE_GRID_SIZE;
-    const x = snap(svgX - COLUMN_SIZE / 2);
-    const y = snap(svgY - COLUMN_SIZE / 2);
-    const newCol: SuggestedColumn = {
-      id: `reserved-column-manual-${Date.now()}`,
-      x, y,
-      source: 'perimeter' as ColumnSource,  // treated as accepted
-      confidence: 'accepted' as ColumnConfidence,
-    };
-    setSuggestedColumns(prev => {
-      const cols = [...prev.columns, newCol];
-      cols.sort((a, b) => a.y !== b.y ? a.y - b.y : a.x - b.x);
-      const accepted = cols.filter(c => c.confidence === 'accepted').length;
-      const optional = cols.filter(c => c.confidence === 'optional').length;
-      return { ...prev, columns: cols, acceptedCount: accepted, optionalCount: optional, totalCandidates: prev.totalCandidates + 1 };
-    });
-    setShowColumnSuggest(true);
-  };
-
-  const applyColumnSuggestions = async () => {
-    const acceptedCols = suggestedColumns.columns.filter(c => c.confidence === 'accepted');
-    if (acceptedCols.length === 0 || mergePreviewPlans.length === 0) return;
-    const aligned = alignOutdoorWallsToSharedCoordinateSystem(mergePreviewPlans);
-    try {
-      setApplyingColumns(true);
-      const updatedPlans = await Promise.all(aligned.entries.map(async (entry) => {
-        if (entry.plan.isApproved) return entry.plan; // skip finalized floors
-        // Remove old reserved-column objects, then add only accepted columns
-        const existing = (entry.plan.objects ?? []).filter(obj => !obj.id.includes('reserved-column'));
-        const columnObjects: RectangleObject[] = acceptedCols.map(col => ({
-          id: col.id,
-          type: 'room' as const,
-          x: col.x,
-          y: col.y,
-          width: COLUMN_SIZE,
-          height: COLUMN_SIZE,
-          color: '#94a3b8',
-          label: 'Column',
-          layer: 2,
-        }));
-        const objects = [...existing, ...columnObjects];
-        await floorPlansApi.update(entry.plan.id, {
-          name: entry.plan.name,
-          width: entry.plan.width,
-          height: entry.plan.height,
-          scale: entry.plan.scale,
-          locationId: entry.plan.locationId,
-          objects,
-        });
-        return { ...entry.plan, objects };
-      }));
-      applyUpdatedPlans(updatedPlans);
-      setShowColumnSuggest(false);
-      setSuggestedColumns(emptySummary);
-      setMergeError(`${acceptedCols.length} accepted columns applied to all ${aligned.entries.length} floors.`);
-    } catch {
-      setMergeError('Failed to apply columns.');
-    } finally {
-      setApplyingColumns(false);
-    }
-  };
-
   const doDelete = async (id: string) => {
     try {
       await floorPlansApi.delete(id);
@@ -1465,6 +908,7 @@ export default function FloorPlans() {
         return next;
       });
       setErrorPanelPlanId(prev => prev === id ? null : prev);
+      setAlignedPlanIds(prev => prev.filter(planId => planId !== id));
       setConfirmingDeleteId(null);
     } catch {
       setConfirmingDeleteId(null);
@@ -1504,6 +948,7 @@ export default function FloorPlans() {
         pairStairsByFloors,
         addRooftopFloor,
         regenerateOutdoorWalls,
+        withoutLocations,
         ...(user.role === 'superadmin' ? { departmentId: selectedDepartmentId } : {}),
       });
       setAutoGenerateStatus({
@@ -1532,6 +977,32 @@ export default function FloorPlans() {
         handleOverflowError(error, 'generate');
         return;
       }
+      if (error.response?.data?.insufficientLocations) {
+        setAutoGenerateStatus({
+          type: 'error',
+          message: error.response.data.error,
+          progress: 100,
+          logs: [
+            'No locations are assigned to this department',
+            'Go to Locations and add at least one location',
+            'Then return here to generate floor plans',
+          ],
+        });
+        return;
+      }
+      if (error.response?.data?.allLocationsInUse) {
+        setAutoGenerateStatus({
+          type: 'error',
+          message: error.response.data.error,
+          progress: 100,
+          logs: [
+            `${error.response.data.usedCount} location${error.response.data.usedCount === 1 ? ' is' : 's are'} already placed in finalized floor plans`,
+            'Enable "Generate without locations" below and try again',
+          ],
+        });
+        setWithoutLocations(true);
+        return;
+      }
       setAutoGenerateStatus({
         type: 'error',
         message: error.response?.data?.error || 'Failed to auto-generate floor plans.',
@@ -1552,7 +1023,23 @@ export default function FloorPlans() {
         progress: 25,
         logs: ['Started regeneration', regenerateOutdoorWalls ? 'Rebuilding outdoor walls' : 'Preserving outdoor walls'],
       });
-      const response = await floorPlansApi.regenerate(planId, { regenerateOutdoorWalls, pairStairsByFloors });
+      let response;
+      let remainingIssues = Number.POSITIVE_INFINITY;
+      let attempt = 0;
+
+      while (attempt < MAX_REGENERATION_ATTEMPTS && remainingIssues > TARGET_REGENERATION_ISSUES) {
+        attempt += 1;
+        setAutoGenerateStatus({
+          type: 'info',
+          message: `Regenerating layout attempt ${attempt} of ${MAX_REGENERATION_ATTEMPTS}...`,
+          progress: Math.min(95, 20 + attempt),
+          logs: [`Attempt ${attempt}: generating layout`, 'Validating issue checks after regeneration'],
+        });
+        response = await floorPlansApi.regenerate(planId, { regenerateOutdoorWalls, pairStairsByFloors });
+        remainingIssues = countRegenerationIssues(response.data);
+      }
+
+      if (!response) return;
       setAutoGenerateStatus({
         type: 'info',
         message: 'Checking fit and resolving layout issues...',
@@ -1569,11 +1056,14 @@ export default function FloorPlans() {
         setFloorPlans(prev => prev.map(p =>
           regeneratedMap.has(p.id) ? { ...p, ...regeneratedMap.get(p.id)! } : p
         ));
+        setAlignedPlanIds(prev => prev.filter(id => !regeneratedMap.has(id)));
         setAutoGenerateStatus({
-          type: 'success',
-          message: response.data.message,
+          type: remainingIssues <= TARGET_REGENERATION_ISSUES ? 'success' : 'error',
+          message: remainingIssues <= TARGET_REGENERATION_ISSUES
+            ? `${response.data.message || 'Floor plans regenerated.'} ${remainingIssues} issue check${remainingIssues === 1 ? '' : 's'} remaining.`
+            : `Paused after ${MAX_REGENERATION_ATTEMPTS} attempts with ${remainingIssues} issue checks remaining.`,
           progress: 100,
-          logs: ['Regenerated returned floor plans', 'Fit checks completed', 'No unresolved regeneration issues'],
+          logs: [`Completed ${attempt} regeneration attempt${attempt === 1 ? '' : 's'}`, 'Fit checks completed', `${remainingIssues} issue checks remaining`],
         });
         setPlanFeedback(prev => {
           const next = { ...prev };
@@ -1605,12 +1095,15 @@ export default function FloorPlans() {
         ? { ...p, objects: finalObjects, generationScore: response.data.generationScore, isApproved: false }
         : p
       ));
+      setAlignedPlanIds(prev => prev.filter(id => id !== planId));
       setPlanFeedback(prev => ({ ...prev, [planId]: null }));
       setAutoGenerateStatus({
-        type: 'success',
-        message: response.data.message || 'Floor plan regenerated.',
+        type: remainingIssues <= TARGET_REGENERATION_ISSUES ? 'success' : 'error',
+        message: remainingIssues <= TARGET_REGENERATION_ISSUES
+          ? `${response.data.message || 'Floor plan regenerated.'} ${remainingIssues} issue check${remainingIssues === 1 ? '' : 's'} remaining.`
+          : `Paused after ${MAX_REGENERATION_ATTEMPTS} attempts with ${remainingIssues} issue checks remaining.`,
         progress: 100,
-        logs: ['Regenerated floor plan', 'Fit checks completed', 'No unresolved regeneration issues'],
+        logs: [`Completed ${attempt} regeneration attempt${attempt === 1 ? '' : 's'}`, 'Fit checks completed', `${remainingIssues} issue checks remaining`],
       });
     } catch (error: any) {
       if (error.response?.data?.requiresMoreFloors) {
@@ -1634,7 +1127,15 @@ export default function FloorPlans() {
       .filter(plan => {
         const matchesSearch = plan.name.toLowerCase().includes(searchTerm.toLowerCase());
         const matchesDept = !departmentFilter || plan.departmentId === departmentFilter;
-        return matchesSearch && matchesDept;
+        if (!matchesSearch || !matchesDept) return false;
+        const isFinalized = !!plan.isApproved;
+        const isAutoGen = plan.name.startsWith('Auto - ');
+        const isAligned = alignedPlanIds.includes(plan.id);
+        if (statusFilter === 'finalized') return isFinalized;
+        if (statusFilter === 'aligned') return isAligned && !isFinalized;
+        if (statusFilter === 'unaligned') return isAutoGen && !isAligned && !isFinalized;
+        if (statusFilter === 'new') return !isAutoGen && !isFinalized;
+        return true; // 'all'
       })
       .sort((a, b) => {
         if (sortBy === 'name') return a.name.localeCompare(b.name);
@@ -1643,7 +1144,7 @@ export default function FloorPlans() {
         if (sortBy === 'score') return (b.generationScore || 0) - (a.generationScore || 0);
         return 0;
       }),
-    [floorPlans, searchTerm, departmentFilter, sortBy],
+    [floorPlans, searchTerm, departmentFilter, sortBy, statusFilter, alignedPlanIds],
   );
 
   // Pre-computed validation per auto-generated plan; recomputed only when objects change
@@ -1669,6 +1170,7 @@ export default function FloorPlans() {
     setSearchTerm('');
     setDepartmentFilter('');
     setSortBy('recently-added');
+    setStatusFilter('all');
     setCurrentPage(1);
   };
 
@@ -1699,8 +1201,14 @@ export default function FloorPlans() {
     }
 
     const siblings = floorPlans
-      .filter(candidate => getBuildingInfo(candidate.name)?.key === info.key)
+      .filter(candidate => getBuildingInfo(candidate.name)?.key === info.key && !candidate.isApproved)
       .sort((a, b) => (getBuildingInfo(a.name)?.floorNumber ?? 0) - (getBuildingInfo(b.name)?.floorNumber ?? 0));
+
+    if (siblings.length === 0) {
+      setMergeError('All floors in this building are finalized and cannot be merged.');
+      return;
+    }
+
     const siblingIds = siblings.map(sibling => sibling.id);
     const alreadySelected = mergeBuildingKey === info.key && mergeSelectedIds.length === siblingIds.length;
 
@@ -1783,11 +1291,75 @@ export default function FloorPlans() {
       }));
 
       applyUpdatedPlans(updatedPlans);
+      const newlyAlignedIds = updatedPlans.filter(plan => !plan.isApproved).map(plan => plan.id);
+      setAlignedPlanIds(prev => [...new Set([...prev, ...newlyAlignedIds])]);
+      setAlignedAdjustmentMessage(`${newlyAlignedIds.length} aligned floor plan${newlyAlignedIds.length === 1 ? '' : 's'} marked for error adjustment.`);
       setMergeError('Outdoor wall alignment applied to selected floors.');
     } catch {
       setMergeError('Failed to apply outdoor wall alignment.');
     } finally {
       setMergeApplying(false);
+    }
+  };
+
+  const adjustMarkedAlignedErrors = async () => {
+    const markedPlans = floorPlans.filter(plan => alignedPlanIds.includes(plan.id) && !plan.isApproved);
+    if (markedPlans.length === 0) {
+      setAlignedAdjustmentMessage('No marked aligned floor plans are available to adjust.');
+      return;
+    }
+
+    try {
+      setAdjustingAlignedErrors(true);
+      setAlignedAdjustmentMessage('Loading marked aligned floor plans and checking indoor wall groups...');
+      const fullPlans = await Promise.all(markedPlans.map(async plan => {
+        if (plan.objects) return plan;
+        const response = await floorPlansApi.getById(plan.id);
+        return { ...plan, ...response.data } as FloorPlan;
+      }));
+      const results = fullPlans.map(plan => ({
+        plan,
+        adjustment: adjustProblemIndoorWallGroups(plan.objects ?? []),
+      }));
+      const candidates = results.filter(result => result.adjustment.adjustedGroups > 0);
+      const changed = candidates.filter(result => result.adjustment.issuesAfter <= result.adjustment.issuesBefore);
+
+      if (changed.length === 0) {
+        setAlignedAdjustmentMessage(
+          candidates.length === 0
+            ? 'No adjustable indoor wall groups with issue checks were found in the marked aligned floor plans.'
+            : 'The available 1px adjustments were skipped because they would increase issue checks.'
+        );
+        return;
+      }
+
+      const updatedPlans = await Promise.all(changed.map(async ({ plan, adjustment }) => {
+        await floorPlansApi.update(plan.id, {
+          name: plan.name,
+          width: plan.width,
+          height: plan.height,
+          scale: plan.scale,
+          locationId: plan.locationId,
+          objects: adjustment.objects,
+        });
+        return { ...plan, objects: adjustment.objects };
+      }));
+      const updatedMap = new Map(updatedPlans.map(plan => [plan.id, plan]));
+      setFloorPlans(prev => prev.map(plan => updatedMap.has(plan.id) ? { ...plan, ...updatedMap.get(plan.id)! } : plan));
+      setMergePreviewPlans(prev => prev.map(plan => updatedMap.has(plan.id) ? { ...plan, ...updatedMap.get(plan.id)! } : plan));
+
+      const adjustedGroups = changed.reduce((total, result) => total + result.adjustment.adjustedGroups, 0);
+      const issuesBefore = results.reduce((total, result) => total + result.adjustment.issuesBefore, 0);
+      const changedPlanIds = new Set(changed.map(result => result.plan.id));
+      const issuesAfter = results.reduce((total, result) =>
+        total + (changedPlanIds.has(result.plan.id) ? result.adjustment.issuesAfter : result.adjustment.issuesBefore), 0);
+      setAlignedAdjustmentMessage(
+        `Adjusted ${adjustedGroups} indoor wall group${adjustedGroups === 1 ? '' : 's'} by 1px across ${changed.length} marked floor plan${changed.length === 1 ? '' : 's'}. Issue checks: ${issuesBefore} before, ${issuesAfter} after.${candidates.length > changed.length ? ` Skipped ${candidates.length - changed.length} plan adjustment${candidates.length - changed.length === 1 ? '' : 's'} that would increase issues.` : ''}`
+      );
+    } catch {
+      setAlignedAdjustmentMessage('Failed to adjust marked aligned floor plans.');
+    } finally {
+      setAdjustingAlignedErrors(false);
     }
   };
 
@@ -2075,6 +1647,21 @@ export default function FloorPlans() {
               </span>
             </label>
 
+            <label className={`flex items-start gap-3 text-sm border rounded px-3 py-3 ${withoutLocations ? 'bg-amber-50 border-amber-300 text-amber-900' : 'bg-[var(--surface-2)] border-[var(--border)] text-[var(--text)]'}`}>
+              <input
+                type="checkbox"
+                checked={withoutLocations}
+                onChange={e => setWithoutLocations(e.target.checked)}
+                className="mt-0.5"
+              />
+              <span>
+                <span className="block font-medium">Generate without locations</span>
+                <span className="block mt-1 text-xs opacity-75">
+                  Generate a blank structural layout. No inventory locations will be placed inside rooms. Use this when all locations are already mapped in finalized floor plans.
+                </span>
+              </span>
+            </label>
+
             <div>
               <p className="text-xs font-medium text-[var(--text-muted)] mb-2">Template for each floor</p>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
@@ -2357,6 +1944,53 @@ export default function FloorPlans() {
           </div>
         </div>
 
+        {/* Status filter chips */}
+        <div className="flex flex-wrap gap-1.5">
+          {(
+            [
+              { key: 'all',       label: 'All Plans' },
+              { key: 'new',       label: 'Manual Plans' },
+              { key: 'unaligned', label: 'Unaligned' },
+              { key: 'aligned',   label: 'Aligned' },
+              { key: 'finalized', label: 'Finalized' },
+            ] as const
+          ).map(({ key, label }) => (
+            <button
+              key={key}
+              type="button"
+              onClick={() => { setStatusFilter(key); setCurrentPage(1); }}
+              className={`px-3 py-1 rounded-full text-xs font-medium border transition-colors ${
+                statusFilter === key
+                  ? key === 'finalized'
+                    ? 'bg-blue-600 text-white border-blue-600'
+                    : 'bg-[var(--primary)] text-white border-[var(--primary)]'
+                  : 'bg-[var(--surface-2)] text-[var(--text-muted)] border-[var(--border)] hover:border-[var(--primary)] hover:text-[var(--primary)]'
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={adjustMarkedAlignedErrors}
+            disabled={adjustingAlignedErrors || alignedPlanIds.length === 0}
+            className="inline-flex items-center gap-1.5 rounded bg-emerald-600 px-3 py-2 text-xs font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
+            title="Nudge issue groups by 1px in marked aligned floor plans"
+          >
+            <AlertTriangle size={14} />
+            {adjustingAlignedErrors ? 'Adjusting Errors...' : 'Adjust Error Checks'}
+          </button>
+          <span className="text-xs text-[var(--text-muted)]">
+            {alignedPlanIds.length} aligned floor plan{alignedPlanIds.length === 1 ? '' : 's'} marked
+          </span>
+          {alignedAdjustmentMessage && (
+            <span className="text-xs text-[var(--text)]">{alignedAdjustmentMessage}</span>
+          )}
+        </div>
+
         {user.role === 'superadmin' && (
           <div className="flex gap-2 flex-wrap">
             <select
@@ -2399,7 +2033,7 @@ export default function FloorPlans() {
             const isApproved = feedback === 'approved' || plan.isApproved;
             const isTemplate = plan.isTemplate;
             const isRegenerating = regeneratingId === plan.id;
-            const canRegeneratePlan = isAutoGenerated;
+            const canRegeneratePlan = isAutoGenerated && !isApproved;
             const isBuildingFloor1 = / - Building \d+ - Floor 1 - /.test(plan.name);
             const isBuildingFloorOther = / - Building \d+ - Floor [2-9]\d* - /.test(plan.name);
             const regenerateTitle = isBuildingFloorOther
@@ -2410,11 +2044,12 @@ export default function FloorPlans() {
             const validation = isAutoGenerated ? (validationMap.get(plan.id) ?? null) : null;
             const buildingInfo = getBuildingInfo(plan.name);
             const mergeSelected = mergeSelectedIds.includes(plan.id);
-            const mergeDisabled = mergeMode && (!buildingInfo || (mergeBuildingKey !== null && mergeBuildingKey !== buildingInfo.key));
+            const isAligned = alignedPlanIds.includes(plan.id);
+            const mergeDisabled = mergeMode && (isApproved || !buildingInfo || (mergeBuildingKey !== null && mergeBuildingKey !== buildingInfo.key));
 
             return (
               <div key={plan.id}
-                onClick={() => mergeMode ? selectBuildingForMerge(plan) : navigate(`/floor-plans/${plan.id}/edit`)}
+                onClick={() => mergeMode ? (isApproved ? undefined : selectBuildingForMerge(plan)) : navigate(`/floor-plans/${plan.id}/edit`)}
                 className={`aspect-square bg-[var(--surface)] rounded-lg shadow hover:shadow-lg transition cursor-pointer group flex flex-col ${
                   hasLocation ? 'ring-2 ring-[var(--primary)]' : ''
                 } ${isApproved ? 'ring-2 ring-blue-400' : ''} ${mergeSelected ? 'ring-2 ring-[var(--primary)]' : ''} ${mergeDisabled ? 'opacity-45' : ''}`}>
@@ -2424,11 +2059,17 @@ export default function FloorPlans() {
                     highlightLocationId={locationId ?? undefined}
                     onVisible={() => handlePlanVisible(plan.id)} />
 
-                  {mergeMode && (
+                  {mergeMode && !isApproved && (
                     <span className={`absolute top-1 left-1 text-[10px] font-bold px-1.5 py-0.5 rounded border ${
                       mergeSelected ? 'bg-[var(--primary)] text-white border-[var(--primary)]' : 'bg-white/90 text-slate-700 border-slate-300'
                     }`}>
                       {mergeSelected ? 'Selected' : buildingInfo ? `Floor ${buildingInfo.floorNumber}${buildingInfo.source === 'manual' ? ' (M)' : ''}` : 'Not mergeable'}
+                    </span>
+                  )}
+
+                  {isAligned && (
+                    <span className="absolute bottom-1 right-1 text-[10px] font-bold px-1.5 py-0.5 rounded bg-emerald-600 text-white">
+                      Aligned
                     </span>
                   )}
 
@@ -2495,7 +2136,7 @@ export default function FloorPlans() {
                           {canRegeneratePlan && (
                             <button
                               onClick={() => handleRegenerate(plan.id)}
-                              disabled={isRegenerating}
+                              disabled={regeneratingId !== null}
                               className="px-1 py-0.5 bg-[var(--surface-2)] text-[var(--text)] text-xs rounded hover:bg-[var(--border)] disabled:opacity-50"
                               title={regenerateTitle}>
                               <RefreshCw size={10} className={isRegenerating ? 'animate-spin' : ''} />
@@ -2567,7 +2208,7 @@ export default function FloorPlans() {
                   const isApproved = feedback === 'approved' || plan.isApproved;
                   const isTemplate = plan.isTemplate;
                   const isRegenerating = regeneratingId === plan.id;
-                  const canRegeneratePlan = isAutoGenerated;
+                  const canRegeneratePlan = isAutoGenerated && !isApproved;
                   const isBuildingFloor1List = / - Building \d+ - Floor 1 - /.test(plan.name);
                   const isBuildingFloorOtherList = / - Building \d+ - Floor [2-9]\d* - /.test(plan.name);
                   const regenerateTitleList = isBuildingFloorOtherList
@@ -2577,12 +2218,13 @@ export default function FloorPlans() {
                       : 'Regenerate floor plan';
                   const buildingInfo = getBuildingInfo(plan.name);
                   const mergeSelected = mergeSelectedIds.includes(plan.id);
-                  const mergeDisabled = mergeMode && (!buildingInfo || (mergeBuildingKey !== null && mergeBuildingKey !== buildingInfo.key));
+                  const isAligned = alignedPlanIds.includes(plan.id);
+                  const mergeDisabled = mergeMode && (isApproved || !buildingInfo || (mergeBuildingKey !== null && mergeBuildingKey !== buildingInfo.key));
 
                   return (
                     <tr key={plan.id} className={`hover:bg-[var(--surface-2)] transition-colors ${mergeSelected ? 'bg-[var(--surface-2)]' : ''} ${mergeDisabled ? 'opacity-45' : ''}`}>
                       <td className="px-4 py-2 text-[var(--text)] font-medium cursor-pointer hover:text-[var(--primary)]"
-                        onClick={() => mergeMode ? selectBuildingForMerge(plan) : navigate(`/floor-plans/${plan.id}/edit`)}>
+                        onClick={() => mergeMode ? (isApproved ? undefined : selectBuildingForMerge(plan)) : navigate(`/floor-plans/${plan.id}/edit`)}>
                         <div className="flex items-center gap-1.5">
                           {mergeMode && (
                             <input
@@ -2594,6 +2236,7 @@ export default function FloorPlans() {
                             />
                           )}
                           {plan.name}
+                          {isAligned && <span className="rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700">Aligned</span>}
                           {isApproved && <Lock size={13} className="text-blue-600 flex-shrink-0" />}
                           {isTemplate && <BookmarkCheck size={13} className="text-purple-500 flex-shrink-0" />}
                         </div>
@@ -2635,7 +2278,7 @@ export default function FloorPlans() {
                               {canRegeneratePlan && (
                                 <button
                                   onClick={() => handleRegenerate(plan.id)}
-                                  disabled={isRegenerating}
+                                  disabled={regeneratingId !== null}
                                   className="text-[var(--text-muted)] hover:text-[var(--text)] disabled:opacity-50"
                                   title={regenerateTitleList}>
                                   <RefreshCw size={16} className={isRegenerating ? 'animate-spin' : ''} />
@@ -2682,13 +2325,6 @@ export default function FloorPlans() {
         const pad = 80;
         const viewBox = `${bounds.minX - pad} ${bounds.minY - pad} ${Math.max(1, bounds.maxX - bounds.minX + pad * 2)} ${Math.max(1, bounds.maxY - bounds.minY + pad * 2)}`;
         const totalWalls = aligned.totalWalls;
-        const layoutScore = scoreFloorplanLayout(aligned, suggestedColumns.columns);
-        const scoreColor =
-          layoutScore.total >= 95 ? 'text-emerald-600' :
-          layoutScore.total >= 90 ? 'text-green-600' :
-          layoutScore.total >= 80 ? 'text-lime-600' :
-          layoutScore.total >= 70 ? 'text-yellow-600' :
-          layoutScore.total >= 60 ? 'text-orange-500' : 'text-red-600';
         return (
           <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
             <div className="w-full max-w-6xl h-[88vh] bg-[var(--surface)] border border-[var(--border)] rounded-lg shadow-2xl flex flex-col overflow-hidden">
@@ -2696,62 +2332,9 @@ export default function FloorPlans() {
                 <div>
                   <div className="flex items-center gap-3 flex-wrap">
                     <h2 className="text-base font-semibold text-[var(--text)]">Merge Floors Preview</h2>
-                    {/* Score + grade chip */}
-                    <div className="flex items-center gap-1.5">
-                      <span className={`text-sm font-bold ${scoreColor}`}>
-                        {layoutScore.total}/100
-                      </span>
-                      <span className={`text-xs px-1.5 py-0.5 rounded font-medium ${
-                        layoutScore.total >= 95 ? 'bg-emerald-100 text-emerald-700' :
-                        layoutScore.total >= 90 ? 'bg-green-100 text-green-700' :
-                        layoutScore.total >= 80 ? 'bg-lime-100 text-lime-700' :
-                        layoutScore.total >= 70 ? 'bg-yellow-100 text-yellow-700' :
-                        layoutScore.total >= 60 ? 'bg-orange-100 text-orange-700' :
-                        'bg-red-100 text-red-700'
-                      }`}>{layoutScore.grade}</span>
-                    </div>
-                    {/* Standard status */}
-                    <span className={`text-[10px] px-1.5 py-0.5 rounded border font-medium ${
-                      layoutScore.total >= 90 ? 'border-green-300 text-green-700 bg-green-50' :
-                      layoutScore.total >= 85 ? 'border-lime-300 text-lime-700 bg-lime-50' :
-                      layoutScore.total >= 80 ? 'border-yellow-300 text-yellow-700 bg-yellow-50' :
-                      'border-orange-300 text-orange-700 bg-orange-50'
-                    }`}
-                      title="Automated layout-quality standard. Not a certified structural or architectural assessment."
-                    >
-                      {layoutScore.total >= 90 ? 'Recommended for finalize' :
-                       layoutScore.total >= 85 ? 'Passed layout standard' :
-                       layoutScore.total >= 80 ? 'Usable — minor warnings' :
-                       'Below recommended standard'}
-                    </span>
                   </div>
                   <p className="text-xs text-[var(--text-muted)] mt-0.5">
-                    Layout Quality Score · {mergePreviewPlans.length} floor{mergePreviewPlans.length === 1 ? '' : 's'} · {totalWalls} outdoor wall segment{totalWalls === 1 ? '' : 's'}
-                    <span className="ml-1 text-[10px] text-[var(--text-muted)] italic">(automated check — visual quality may vary)</span>
-                  </p>
-                  {layoutScore.issues.length > 0 && (
-                    <ul className="mt-1 space-y-0.5">
-                      {layoutScore.issues.map((iss, i) => {
-                        const isSpanIssue = iss.includes('open span');
-                        return (
-                          <li key={i} className="text-xs text-amber-600 flex items-start gap-1.5">
-                            <span className="mt-px shrink-0">⚠</span>
-                            <span className="flex-1">{iss}</span>
-                            {isSpanIssue && (
-                              <button
-                                type="button"
-                                onClick={() => { setShowSpanReview(true); setShowColumnSuggest(false); setShowFinalizePreview(false); }}
-                                className="shrink-0 text-[10px] font-semibold px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 hover:bg-amber-200 border border-amber-300"
-                              >Review</button>
-                            )}
-                          </li>
-                        );
-                      })}
-                    </ul>
-                  )}
-                  {/* Disclaimer — always visible, non-intrusive */}
-                  <p className="text-[10px] text-[var(--text-muted)] mt-1 italic">
-                    This score is an automated layout-quality check only — not a certified structural or architectural safety assessment.
+                    {mergePreviewPlans.length} floor{mergePreviewPlans.length === 1 ? '' : 's'} · {totalWalls} outdoor wall segment{totalWalls === 1 ? '' : 's'}
                   </p>
                   {mergeError && (
                     <p className="text-xs text-[var(--primary)] mt-1">{mergeError}</p>
@@ -2766,51 +2349,9 @@ export default function FloorPlans() {
                   >
                     {mergeApplying ? 'Applying...' : 'Apply Alignment'}
                   </button>
-                  <div className="flex rounded border border-slate-300 overflow-hidden">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (showColumnSuggest) { setShowColumnSuggest(false); setSuggestedColumns(emptySummary); }
-                        else runColumnSuggest();
-                      }}
-                      disabled={mergeApplying || finalizing || applyingColumns || aligned.entries.length === 0}
-                      className={`flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium transition-colors disabled:opacity-60 disabled:cursor-not-allowed ${
-                        showColumnSuggest
-                          ? 'bg-amber-600 text-white'
-                          : 'bg-white text-slate-700 hover:bg-slate-50'
-                      }`}
-                      title="Suggest structural columns from building perimeter and fixed objects"
-                    >
-                      <Columns size={15} />
-                      Columns
-                    </button>
-                    <button
-                      type="button"
-                      onClick={runColumnSuggestFromRooms}
-                      disabled={mergeApplying || finalizing || applyingColumns || aligned.entries.length === 0}
-                      className="flex items-center gap-1 px-2.5 py-1.5 text-sm font-medium border-l border-slate-300 bg-white text-slate-700 hover:bg-green-50 hover:text-green-700 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
-                      title="Add columns derived from room/area shapes on the reference floor"
-                    >
-                      + Rooms
-                    </button>
-                  </div>
                   <button
                     type="button"
-                    onClick={() => {
-                      if (!showFinalizePreview) {
-                        const aligned2 = alignOutdoorWallsToSharedCoordinateSystem(mergePreviewPlans);
-                        const acceptedCols2 = suggestedColumns.columns.filter(c => c.confidence === 'accepted');
-                        const spans = detectOpenSpans(aligned2.entries, acceptedCols2, ignoredSpanIds);
-                        const unresolvedCount = spans.filter(s => s.status === 'unresolved').length;
-                        if (unresolvedCount > 0 && !finalizeWithWarnings) {
-                          setShowSpanReview(true);
-                          setShowColumnSuggest(false);
-                          return;
-                        }
-                      }
-                      setShowFinalizePreview(v => !v);
-                      setFinalizeWithWarnings(false);
-                    }}
+                    onClick={() => setShowFinalizePreview(v => !v)}
                     disabled={mergeApplying || finalizing || aligned.entries.length === 0}
                     className={`flex items-center gap-1.5 px-3 py-1.5 rounded text-sm font-medium border transition-colors disabled:opacity-60 disabled:cursor-not-allowed ${
                       showFinalizePreview
@@ -2827,13 +2368,6 @@ export default function FloorPlans() {
                     onClick={() => {
                       setMergePreviewPlans([]);
                       setShowFinalizePreview(false);
-                      setShowColumnSuggest(false);
-                      setSuggestedColumns(emptySummary);
-                      setIgnoreColumnCheck(false);
-                      setShowSpanReview(false);
-                      setIgnoredSpanIds(new Set());
-                      setHighlightedSpanId(null);
-                      setFinalizeWithWarnings(false);
                       setMergeError(null);
                     }}
                     className="p-1.5 rounded hover:bg-[var(--surface-2)] text-[var(--text-muted)] hover:text-[var(--text)]"
@@ -2920,16 +2454,9 @@ export default function FloorPlans() {
                 <div className="min-h-0 bg-slate-50 overflow-hidden relative">
                   <svg
                     viewBox={viewBox}
-                    className={`w-full h-full ${showColumnSuggest ? 'cursor-crosshair' : ''}`}
+                    className="w-full h-full"
                     role="img"
                     aria-label="Merge floors preview"
-                    onClick={showColumnSuggest ? (e => {
-                      const svg = e.currentTarget as SVGSVGElement;
-                      const pt = svg.createSVGPoint();
-                      pt.x = e.clientX; pt.y = e.clientY;
-                      const svgPt = pt.matrixTransform(svg.getScreenCTM()!.inverse());
-                      addManualColumn(svgPt.x, svgPt.y);
-                    }) : undefined}
                   >
                     <defs>
                       <pattern id="merge-grid" width="40" height="40" patternUnits="userSpaceOnUse">
@@ -2943,10 +2470,7 @@ export default function FloorPlans() {
                         const color = MERGE_COLORS[planIndex % MERGE_COLORS.length];
                         return (
                           <g key={entry.plan.id}>
-                            {entry.fixedObjects.filter(obj =>
-                              // In Final Preview hide column markers — keep only stairs/elevator/restroom
-                              previewMode === 'final' ? !obj.id.includes('reserved-column') : true
-                            ).map((obj) => {
+                            {entry.fixedObjects.filter(obj => !obj.id.includes('reserved-column')).map((obj) => {
                               const fontSize = Math.max(10, Math.min(obj.width, obj.height) * 0.18);
                               const cx = obj.x + obj.width / 2;
                               const cy = obj.y + (obj.height ?? 0) / 2;
@@ -3042,27 +2566,6 @@ export default function FloorPlans() {
                       );
                     })()}
 
-                    {/* Suggested columns overlay — colour-coded by source, dimmed if optional */}
-                    {showColumnSuggest && previewMode !== 'final' && suggestedColumns.columns.map(col => {
-                      const isOptional = col.confidence === 'optional';
-                      const fill = col.source === 'core' ? '#3b82f6'
-                        : (col.source === 'room_core') ? '#22c55e'
-                        : (col.source === 'room_large' || col.source === 'room_span') ? '#86efac'
-                        : '#f59e0b';
-                      const cross = col.source === 'core' ? '#1d4ed8'
-                        : (col.source === 'room_core') ? '#15803d'
-                        : (col.source === 'room_large' || col.source === 'room_span') ? '#16a34a'
-                        : '#b45309';
-                      return (
-                        <g key={col.id} opacity={isOptional ? 0.45 : 1}>
-                          <rect x={col.x} y={col.y} width={COLUMN_SIZE} height={COLUMN_SIZE}
-                            fill={fill} fillOpacity={0.35} stroke={fill} strokeWidth={isOptional ? 1.5 : 2}
-                            strokeDasharray={isOptional ? '4 3' : undefined} />
-                          <line x1={col.x} y1={col.y} x2={col.x + COLUMN_SIZE} y2={col.y + COLUMN_SIZE} stroke={cross} strokeWidth={1.5} />
-                          <line x1={col.x + COLUMN_SIZE} y1={col.y} x2={col.x} y2={col.y + COLUMN_SIZE} stroke={cross} strokeWidth={1.5} />
-                        </g>
-                      );
-                    })}
 
                     {/* Interior objects overlay */}
                     {showInteriorObjects && aligned.entries.map((entry, planIndex) => {
@@ -3174,233 +2677,11 @@ export default function FloorPlans() {
                       );
                     })}
 
-                    {/* Open span overlay — red = unresolved, yellow = ignored, teal = highlighted */}
-                    {(() => {
-                      const acceptedCols = suggestedColumns.columns.filter(c => c.confidence === 'accepted');
-                      const spans = detectOpenSpans(aligned.entries, acceptedCols, ignoredSpanIds);
-                      return spans.map(span => {
-                        const isHighlighted = span.id === highlightedSpanId;
-                        const fill = span.status === 'ignored' ? '#fbbf24'
-                          : isHighlighted ? '#0ea5e9' : '#ef4444';
-                        return (
-                          <rect
-                            key={span.id}
-                            x={span.x} y={span.y}
-                            width={span.width} height={span.height}
-                            fill={fill}
-                            fillOpacity={isHighlighted ? 0.25 : 0.1}
-                            stroke={fill}
-                            strokeWidth={isHighlighted ? 3 : 1.5}
-                            strokeDasharray={span.status === 'ignored' ? '6 4' : '4 3'}
-                            style={{ pointerEvents: 'none' }}
-                          />
-                        );
-                      });
-                    })()}
-
-                    {/* Click hint overlay when column mode active */}
-                    {showColumnSuggest && (
-                      <text
-                        x={bounds.minX + 8} y={bounds.minY + 18}
-                        fontSize={11} fill="#64748b"
-                        style={{ pointerEvents: 'none', userSelect: 'none' }}
-                      >Click canvas to add a manual column</text>
-                    )}
                   </svg>
                 </div>
 
                 <div className="border-t lg:border-t-0 lg:border-l border-[var(--border)] p-4 overflow-y-auto">
-                  {showSpanReview ? (() => {
-                    const acceptedCols = suggestedColumns.columns.filter(c => c.confidence === 'accepted');
-                    const spans = detectOpenSpans(aligned.entries, acceptedCols, ignoredSpanIds);
-                    const unresolved = spans.filter(s => s.status === 'unresolved');
-                    const ignored = spans.filter(s => s.status === 'ignored');
-                    return (
-                      <div className="flex flex-col gap-3">
-                        <div className="flex items-center justify-between">
-                          <p className="text-xs font-semibold uppercase tracking-wide text-[var(--text)] flex items-center gap-1.5">
-                            <AlertTriangle size={13} className="text-amber-500" /> Open Span Review
-                          </p>
-                          <button type="button" onClick={() => { setShowSpanReview(false); setHighlightedSpanId(null); }}
-                            className="text-[11px] text-[var(--text-muted)] hover:text-[var(--text)] underline">Back</button>
-                        </div>
-                        {/* Summary */}
-                        <div className="rounded border border-[var(--border)] bg-[var(--surface-2)] divide-y divide-[var(--border)] text-[11px]">
-                          <div className="flex justify-between px-2.5 py-1.5">
-                            <span className="text-[var(--text-muted)]">Total span cells</span>
-                            <span className="font-semibold text-[var(--text)]">{spans.length}</span>
-                          </div>
-                          <div className="flex justify-between px-2.5 py-1.5 text-red-600">
-                            <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-sm bg-red-400 inline-block" />Unresolved</span>
-                            <span className="font-bold">{unresolved.length}</span>
-                          </div>
-                          <div className="flex justify-between px-2.5 py-1.5 text-amber-600">
-                            <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-sm bg-amber-400 inline-block" />Ignored / reviewed</span>
-                            <span className="font-bold">{ignored.length}</span>
-                          </div>
-                        </div>
-                        {/* Instructions */}
-                        <p className="text-[11px] text-[var(--text-muted)] leading-relaxed">
-                          Click a span row to highlight it on the canvas. Use <strong>Add Column</strong> to snap a column to its centre, or <strong>Ignore</strong> to mark it as intentionally open.
-                        </p>
-                        {/* Auto-fix button */}
-                        {unresolved.length > 0 && (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              // Add accepted span-support columns at the centre of every unresolved span
-                              const snap = (v: number) => Math.round(v / MERGE_GRID_SIZE) * MERGE_GRID_SIZE;
-                              const newCols: SuggestedColumn[] = unresolved.map((s, i) => ({
-                                id: `reserved-column-autofix-${Date.now()}-${i}`,
-                                x: snap(s.midX - COLUMN_SIZE / 2),
-                                y: snap(s.midY - COLUMN_SIZE / 2),
-                                source: 'span' as ColumnSource,
-                                confidence: 'accepted' as ColumnConfidence,
-                              }));
-                              setSuggestedColumns(prev => {
-                                const cols = [...prev.columns, ...newCols];
-                                cols.sort((a, b) => a.y !== b.y ? a.y - b.y : a.x - b.x);
-                                const accepted = cols.filter(c => c.confidence === 'accepted').length;
-                                const optional = cols.filter(c => c.confidence === 'optional').length;
-                                return { ...prev, columns: cols, acceptedCount: accepted, optionalCount: optional, totalCandidates: prev.totalCandidates + newCols.length };
-                              });
-                              setShowColumnSuggest(true);
-                            }}
-                            className="w-full flex items-center justify-center gap-1.5 px-3 py-2 rounded bg-amber-600 text-white text-sm font-medium hover:bg-amber-700"
-                          >
-                            <Sparkles size={13} />
-                            Auto-Fix {unresolved.length} Open Span{unresolved.length === 1 ? '' : 's'}
-                          </button>
-                        )}
-                        {/* Per-span rows */}
-                        <div className="space-y-1.5 max-h-[40vh] overflow-y-auto pr-1">
-                          {spans.length === 0 && (
-                            <p className="text-xs text-green-600 font-medium text-center py-4">All open spans are resolved.</p>
-                          )}
-                          {spans.map((span, idx) => (
-                            <div
-                              key={span.id}
-                              className={`rounded border px-2 py-1.5 cursor-pointer transition-colors ${
-                                span.id === highlightedSpanId
-                                  ? 'border-sky-400 bg-sky-50'
-                                  : span.status === 'ignored'
-                                    ? 'border-amber-200 bg-amber-50'
-                                    : 'border-red-200 bg-red-50 hover:border-red-400'
-                              }`}
-                              onClick={() => setHighlightedSpanId(span.id === highlightedSpanId ? null : span.id)}
-                            >
-                              <div className="flex items-center justify-between gap-1">
-                                <span className="text-[11px] font-medium text-[var(--text)]">
-                                  Span #{idx + 1}
-                                  <span className="text-[10px] text-[var(--text-muted)] ml-1">
-                                    {Math.round(span.width)}×{Math.round(span.height)}px
-                                  </span>
-                                </span>
-                                <span className={`text-[9px] px-1 py-0.5 rounded font-bold ${span.status === 'ignored' ? 'bg-amber-100 text-amber-700' : 'bg-red-100 text-red-700'}`}>
-                                  {span.status === 'ignored' ? 'Ignored' : 'Open'}
-                                </span>
-                              </div>
-                              <div className="flex gap-1 mt-1">
-                                <button
-                                  type="button"
-                                  onClick={e => {
-                                    e.stopPropagation();
-                                    const snap = (v: number) => Math.round(v / MERGE_GRID_SIZE) * MERGE_GRID_SIZE;
-                                    addManualColumn(snap(span.midX), snap(span.midY));
-                                    setHighlightedSpanId(null);
-                                  }}
-                                  className="flex-1 text-[10px] px-1.5 py-0.5 rounded bg-[var(--primary)] text-white hover:opacity-90"
-                                >+ Column</button>
-                                {span.status === 'unresolved' ? (
-                                  <button
-                                    type="button"
-                                    onClick={e => {
-                                      e.stopPropagation();
-                                      setIgnoredSpanIds(prev => new Set([...prev, span.id]));
-                                      setHighlightedSpanId(null);
-                                    }}
-                                    className="flex-1 text-[10px] px-1.5 py-0.5 rounded border border-amber-400 text-amber-700 hover:bg-amber-50"
-                                  >Ignore</button>
-                                ) : (
-                                  <button
-                                    type="button"
-                                    onClick={e => {
-                                      e.stopPropagation();
-                                      setIgnoredSpanIds(prev => { const n = new Set(prev); n.delete(span.id); return n; });
-                                    }}
-                                    className="flex-1 text-[10px] px-1.5 py-0.5 rounded border border-slate-300 text-[var(--text-muted)] hover:bg-[var(--surface-2)]"
-                                  >Un-ignore</button>
-                                )}
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                        <p className="text-[9px] text-[var(--text-muted)] italic leading-tight">
-                          Marking a span as ignored does not certify structural safety.
-                        </p>
-                      </div>
-                    );
-                  })() : showColumnSuggest ? (
-                    <div className="flex flex-col gap-3">
-                      <div>
-                        <p className="text-xs font-semibold uppercase tracking-wide text-[var(--text)] mb-1 flex items-center gap-1.5">
-                          <Columns size={13} /> Structural Columns
-                        </p>
-                        {/* Candidate breakdown */}
-                        <div className="mt-2 rounded border border-[var(--border)] bg-[var(--surface-2)] divide-y divide-[var(--border)] text-[11px]">
-                          <div className="flex justify-between px-2.5 py-1.5">
-                            <span className="text-[var(--text-muted)]">Candidates found</span>
-                            <span className="font-semibold text-[var(--text)]">{suggestedColumns.totalCandidates}</span>
-                          </div>
-                          <div className="flex justify-between px-2.5 py-1.5 text-green-700">
-                            <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-sm bg-green-500 inline-block" />Accepted (will apply)</span>
-                            <span className="font-bold">{suggestedColumns.acceptedCount}</span>
-                          </div>
-                          <div className="flex justify-between px-2.5 py-1.5 text-slate-500">
-                            <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-sm bg-slate-300 inline-block" />Optional (not applied)</span>
-                            <span className="font-semibold">{suggestedColumns.optionalCount}</span>
-                          </div>
-                          <div className="flex justify-between px-2.5 py-1.5 text-slate-400">
-                            <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-sm bg-slate-200 inline-block" />Merged / duplicates</span>
-                            <span className="font-semibold">{suggestedColumns.mergedCount}</span>
-                          </div>
-                        </div>
-                        {/* Colour legend */}
-                        <div className="mt-1.5 space-y-1">
-                          {[
-                            { color: 'bg-amber-400', label: 'Perimeter / span — accepted' },
-                            { color: 'bg-blue-500',  label: 'Fixed core — accepted' },
-                            { color: 'bg-green-500', label: 'Room-core — accepted' },
-                            { color: 'bg-green-300', label: 'Room-large / span — optional' },
-                          ].map(({ color, label }) => (
-                            <div key={label} className="flex items-center gap-1.5 text-[10px] text-[var(--text-muted)]">
-                              <span className={`h-2.5 w-2.5 rounded-sm flex-shrink-0 ${color}`} />
-                              {label}
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                      <div className="rounded border border-amber-200 bg-amber-50 px-2.5 py-2 text-[11px] text-amber-800">
-                        Only <strong>accepted</strong> columns are applied. Optional columns are shown in the preview but not saved.
-                      </div>
-                      <button
-                        type="button"
-                        onClick={applyColumnSuggestions}
-                        disabled={applyingColumns || suggestedColumns.acceptedCount === 0}
-                        className="w-full flex items-center justify-center gap-1.5 px-3 py-2 rounded bg-amber-600 text-white text-sm font-medium hover:bg-amber-700 disabled:opacity-60 disabled:cursor-not-allowed"
-                      >
-                        <Columns size={14} />
-                        {applyingColumns ? 'Applying…' : `Apply ${suggestedColumns.acceptedCount} Accepted Column${suggestedColumns.acceptedCount === 1 ? '' : 's'} to All Floors`}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => { setShowColumnSuggest(false); setSuggestedColumns(emptySummary); }}
-                        className="w-full px-3 py-1.5 rounded border border-[var(--border)] text-sm text-[var(--text-muted)] hover:bg-[var(--surface-2)]"
-                      >
-                        Cancel
-                      </button>
-                    </div>
-                  ) : showFinalizePreview ? (
+                  {showFinalizePreview ? (
                     <div className="flex flex-col gap-3">
                       <div>
                         <p className="text-xs font-semibold uppercase tracking-wide text-[var(--text)] mb-1 flex items-center gap-1.5">
@@ -3416,47 +2697,18 @@ export default function FloorPlans() {
                       <div className="rounded border border-amber-200 bg-amber-50 px-2.5 py-2 text-[11px] text-amber-800">
                         This action removes old finalized perimeter walls before adding the new perimeter, but keeps each floor's own outdoor walls.
                       </div>
-                      <div className="hidden">
-                        This action overwrites all outdoor walls on every selected floor. It cannot be undone from this screen — open the editor to make further adjustments.
-                      </div>
-                      {(() => {
-                        const alignedFin = alignOutdoorWallsToSharedCoordinateSystem(mergePreviewPlans);
-                        const acceptedColsFin = suggestedColumns.columns.filter(c => c.confidence === 'accepted');
-                        const unresolvedSpans = detectOpenSpans(alignedFin.entries, acceptedColsFin, ignoredSpanIds).filter(s => s.status === 'unresolved');
-                        return unresolvedSpans.length > 0 && !finalizeWithWarnings ? (
-                          <div className="rounded border border-red-200 bg-red-50 px-2.5 py-2.5 flex flex-col gap-2">
-                            <p className="text-[11px] font-semibold text-red-700 flex items-start gap-1">
-                              <span className="shrink-0 mt-px">⚠</span>
-                              <span>{unresolvedSpans.length} open span{unresolvedSpans.length !== 1 ? 's' : ''} detected. Resolve them for a structurally sound layout.</span>
-                            </p>
-                            <div className="flex gap-1.5">
-                              <button
-                                type="button"
-                                onClick={() => { setShowSpanReview(true); setShowFinalizePreview(false); }}
-                                className="flex-1 px-2 py-1.5 rounded border border-amber-300 bg-amber-50 text-amber-700 text-xs font-medium hover:bg-amber-100"
-                              >Review Spans</button>
-                              <button
-                                type="button"
-                                onClick={() => setFinalizeWithWarnings(true)}
-                                className="flex-1 px-2 py-1.5 rounded border border-red-300 bg-white text-red-600 text-xs font-medium hover:bg-red-50"
-                              >Finalize Anyway</button>
-                            </div>
-                          </div>
-                        ) : (
-                          <button
-                            type="button"
-                            onClick={applyFinalizedPerimeter}
-                            disabled={finalizing}
-                            className="w-full flex items-center justify-center gap-1.5 px-3 py-2 rounded bg-slate-800 text-white text-sm font-medium hover:bg-slate-900 disabled:opacity-60 disabled:cursor-not-allowed"
-                          >
-                            <Layers size={14} />
-                            {finalizing ? 'Applying...' : `Apply to ${aligned.entries.length} Floor${aligned.entries.length === 1 ? '' : 's'}`}
-                          </button>
-                        );
-                      })()}
                       <button
                         type="button"
-                        onClick={() => { setShowFinalizePreview(false); setFinalizeWithWarnings(false); }}
+                        onClick={applyFinalizedPerimeter}
+                        disabled={finalizing}
+                        className="w-full flex items-center justify-center gap-1.5 px-3 py-2 rounded bg-slate-800 text-white text-sm font-medium hover:bg-slate-900 disabled:opacity-60 disabled:cursor-not-allowed"
+                      >
+                        <Layers size={14} />
+                        {finalizing ? 'Applying...' : `Apply to ${aligned.entries.length} Floor${aligned.entries.length === 1 ? '' : 's'}`}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setShowFinalizePreview(false)}
                         className="w-full px-3 py-1.5 rounded border border-[var(--border)] text-sm text-[var(--text-muted)] hover:bg-[var(--surface-2)]"
                       >
                         Cancel
@@ -3477,63 +2729,10 @@ export default function FloorPlans() {
                           View Objects
                         </button>
                       </div>
-                      {(() => {
-                        // Column consistency check across all floors
-                        const colCounts = aligned.entries.map(e =>
-                          (e.plan.objects ?? []).filter(o => o.id.includes('reserved-column')).length
-                        );
-                        const refCount = colCounts[0] ?? 0;
-                        const allMatch = colCounts.every(c => c === refCount);
-                        const anyColumns = colCounts.some(c => c > 0);
-                        const showMismatch = !allMatch && !ignoreColumnCheck;
-                        return anyColumns ? (
-                          <div className={`flex items-center gap-2 rounded px-2.5 py-2 mb-3 text-[11px] font-medium border ${
-                            showMismatch
-                              ? 'bg-red-50 border-red-200 text-red-700'
-                              : 'bg-green-50 border-green-200 text-green-700'
-                          }`}>
-                            <span className={`h-2 w-2 rounded-full flex-shrink-0 ${showMismatch ? 'bg-red-500' : 'bg-green-500'}`} />
-                            <span className="flex-1">
-                              {showMismatch
-                                ? `Column mismatch — floors have different counts (${colCounts.join(', ')})`
-                                : ignoreColumnCheck
-                                  ? `Columns — check ignored (${colCounts.join(', ')})`
-                                  : `Columns OK — all floors share ${refCount} column${refCount === 1 ? '' : 's'}`
-                              }
-                            </span>
-                            {showMismatch && (
-                              <button
-                                type="button"
-                                onClick={() => setIgnoreColumnCheck(true)}
-                                className="flex-shrink-0 text-[10px] underline hover:no-underline"
-                              >
-                                Ignore
-                              </button>
-                            )}
-                            {ignoreColumnCheck && (
-                              <button
-                                type="button"
-                                onClick={() => setIgnoreColumnCheck(false)}
-                                className="flex-shrink-0 text-[10px] underline hover:no-underline"
-                              >
-                                Unignore
-                              </button>
-                            )}
-                          </div>
-                        ) : (
-                          <div className="flex items-center gap-2 rounded px-2.5 py-2 mb-3 text-[11px] font-medium border border-slate-200 bg-slate-50 text-slate-500">
-                            <span className="h-2 w-2 rounded-full flex-shrink-0 bg-slate-300" />
-                            No columns placed — use the Columns button to suggest positions
-                          </div>
-                        );
-                      })()}
                       <div className="space-y-2">
                         {aligned.entries.map((entry, index) => {
                           const plan = entry.plan;
                           const info = getBuildingInfo(plan.name);
-                          const colCount = (plan.objects ?? []).filter(o => o.id.includes('reserved-column')).length;
-                          const refCount = (aligned.entries[0]?.plan.objects ?? []).filter(o => o.id.includes('reserved-column')).length;
-                          const colMismatch = colCount !== refCount;
                           return (
                             <div key={plan.id} className="flex items-start gap-2 rounded border border-[var(--border)] px-2 py-2">
                               <span className="mt-1 h-2.5 w-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: MERGE_COLORS[index % MERGE_COLORS.length] }} />
@@ -3549,42 +2748,10 @@ export default function FloorPlans() {
                                 {entry.fixedObjects.length > 0 && (
                                   <p className="text-[11px] text-[var(--text-muted)]">{entry.fixedObjects.length} fixed object{entry.fixedObjects.length === 1 ? '' : 's'} (stairs/elevator/restroom)</p>
                                 )}
-                                <p className={`text-[11px] font-medium mt-0.5 flex items-center gap-1 ${colMismatch && !ignoreColumnCheck ? 'text-red-600' : colCount > 0 ? 'text-green-600' : 'text-slate-400'}`}>
-                                  <span className={`h-1.5 w-1.5 rounded-full inline-block ${colMismatch && !ignoreColumnCheck ? 'bg-red-500' : colCount > 0 ? 'bg-green-500' : 'bg-slate-300'}`} />
-                                  {colCount > 0 ? `${colCount} column${colCount === 1 ? '' : 's'}${colMismatch && !ignoreColumnCheck ? ' — mismatch' : ''}` : 'No columns'}
-                                </p>
                               </div>
                             </div>
                           );
                         })}
-                      </div>
-
-                      {/* Score breakdown — always shown in Selected Floors view */}
-                      <div className="mt-4 pt-3 border-t border-[var(--border)]">
-                        <p className="text-[10px] font-bold uppercase tracking-wide text-[var(--text-muted)] mb-2">Layout Quality Score</p>
-                        <div className="space-y-1">
-                          {layoutScore.breakdown.map(b => (
-                            <div key={b.category} className="flex items-center gap-2">
-                              <div className="flex-1 min-w-0">
-                                <div className="flex items-center justify-between mb-0.5">
-                                  <span className="text-[10px] text-[var(--text-muted)] truncate">{b.category}</span>
-                                  <span className={`text-[10px] font-semibold ml-1 shrink-0 ${b.score === b.max ? 'text-green-600' : b.score >= b.max * 0.7 ? 'text-lime-600' : 'text-amber-600'}`}>
-                                    {b.score}/{b.max}
-                                  </span>
-                                </div>
-                                <div className="h-1 rounded-full bg-[var(--border)] overflow-hidden">
-                                  <div
-                                    className={`h-full rounded-full transition-all ${b.score === b.max ? 'bg-green-500' : b.score >= b.max * 0.7 ? 'bg-lime-500' : 'bg-amber-500'}`}
-                                    style={{ width: `${(b.score / b.max) * 100}%` }}
-                                  />
-                                </div>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                        <p className="text-[9px] text-[var(--text-muted)] italic mt-2 leading-tight">
-                          Automated layout-quality check only. Not a certified structural or architectural assessment.
-                        </p>
                       </div>
                     </>
                   )}
