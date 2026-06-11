@@ -59,30 +59,59 @@ const ROAD_DASHES = Array.from({ length: 12 }, (_, i) => i * 80 + 20);
 
 // ─── outdoor-wall helpers ─────────────────────────────────────────────────────
 interface ScaledWall { x1: number; y1: number; x2: number; y2: number; thickness: number; }
+interface WallBounds { minX: number; minY: number; maxX: number; maxY: number; }
 
-/** Extract walls that form the outdoor perimeter of a finalized plan. */
-function getOutdoorWalls(plan: FloorPlan): ScaledWall[] {
-  const objects = plan.objects ?? [];
-  const walls = (objects.filter(o => o.type === 'wall') as import('@/types/floorplan').WallObject[])
-    .filter(w =>
-      w.wallType === 'floor_original_outdoor'
-      || w.wallType === 'finalized_building_perimeter'
-      || w.isFinalizedPerimeter === true
-    );
-  if (walls.length === 0) return [];
+/**
+ * Compute the shared bounding box across ALL finalized floors in a building.
+ * Pass this to `getOutdoorWalls` so every floor uses the same scale/offset,
+ * ensuring the merged-perimeter shape looks identical on each floor band.
+ */
+function buildingPerimeterBounds(floors: FloorPlan[]): WallBounds | null {
+  const allWalls = floors.flatMap(plan =>
+    (plan.objects ?? [])
+      .filter(o => o.type === 'wall')
+      .map(o => o as import('@/types/floorplan').WallObject)
+      .filter(w => w.wallType === 'finalized_building_perimeter' || w.isFinalizedPerimeter === true)
+  );
+  if (allWalls.length === 0) return null;
+  const xs = allWalls.flatMap(w => [w.startX, w.endX]);
+  const ys = allWalls.flatMap(w => [w.startY, w.endY]);
+  return {
+    minX: Math.min(...xs), maxX: Math.max(...xs),
+    minY: Math.min(...ys), maxY: Math.max(...ys),
+  };
+}
 
-  // Bounding box of all outdoor wall endpoints
-  const xs = walls.flatMap(w => [w.startX, w.endX]);
-  const ys = walls.flatMap(w => [w.startY, w.endY]);
-  const minX = Math.min(...xs), maxX = Math.max(...xs);
-  const minY = Math.min(...ys), maxY = Math.max(...ys);
-  const rangeX = maxX - minX || 1;
-  const rangeY = maxY - minY || 1;
+/**
+ * Scale a plan's finalized perimeter walls into the facade cell.
+ * `sharedBounds` must be the building-level merged bounds so all floors
+ * share the same coordinate system and the shape is consistent per band.
+ */
+function getOutdoorWalls(plan: FloorPlan, sharedBounds?: WallBounds | null): ScaledWall[] {
+  const walls = (plan.objects ?? [])
+    .filter(o => o.type === 'wall') as import('@/types/floorplan').WallObject[];
+  const perim = walls.filter(w =>
+    w.wallType === 'finalized_building_perimeter' || w.isFinalizedPerimeter === true
+  );
+  // Fall back to floor_original_outdoor only when no finalized perimeter exists yet
+  const source = perim.length > 0 ? perim : walls.filter(w => w.wallType === 'floor_original_outdoor');
+  if (source.length === 0) return [];
+
+  // Use the building-level shared bounds when available so every floor
+  // is scaled identically; otherwise fall back to this floor's own bounds.
+  const bounds: WallBounds = sharedBounds ?? (() => {
+    const xs = source.flatMap(w => [w.startX, w.endX]);
+    const ys = source.flatMap(w => [w.startY, w.endY]);
+    return { minX: Math.min(...xs), maxX: Math.max(...xs), minY: Math.min(...ys), maxY: Math.max(...ys) };
+  })();
+
+  const rangeX = bounds.maxX - bounds.minX || 1;
+  const rangeY = bounds.maxY - bounds.minY || 1;
 
   // Scale into the facade cell with padding
   const pad = 8;
   const scX = (BUILDING_W - pad * 2) / rangeX;
-  const scY = (FLOOR_H - pad * 2) / rangeY;
+  const scY = (FLOOR_H   - pad * 2) / rangeY;
   const sc  = Math.min(scX, scY);
 
   // Centre the scaled outline in the cell
@@ -91,14 +120,15 @@ function getOutdoorWalls(plan: FloorPlan): ScaledWall[] {
   const offX = pad + (BUILDING_W - pad * 2 - scaledW) / 2;
   const offY = pad + (FLOOR_H   - pad * 2 - scaledH) / 2;
 
-  return walls.map(w => ({
-    x1: offX + (w.startX - minX) * sc,
-    y1: offY + (w.startY - minY) * sc,
-    x2: offX + (w.endX   - minX) * sc,
-    y2: offY + (w.endY   - minY) * sc,
+  return source.map(w => ({
+    x1: offX + (w.startX - bounds.minX) * sc,
+    y1: offY + (w.startY - bounds.minY) * sc,
+    x2: offX + (w.endX   - bounds.minX) * sc,
+    y2: offY + (w.endY   - bounds.minY) * sc,
     thickness: Math.max(1, (w.thickness ?? 8) * sc * 0.35),
   }));
 }
+
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
 function scoreColor(score?: number | null): string {
@@ -477,10 +507,15 @@ function buildIsoFloorNodes(
   const objects = plan.objects ?? [];
 
   // ── Perimeter polygon for finalized plans ─────────────────────────────────
-  const outerWalls = (objects.filter(o => o.type === 'wall') as import('@/types/floorplan').WallObject[])
-    .filter(w => w.wallType === 'floor_original_outdoor'
-             || w.wallType === 'finalized_building_perimeter'
-             || w.isFinalizedPerimeter === true);
+  // Prefer the authoritative merged perimeter; fall back to floor_original_outdoor
+  // only when no finalized perimeter has been applied yet.
+  const allWallObjs = objects.filter(o => o.type === 'wall') as import('@/types/floorplan').WallObject[];
+  const finalPerim = allWallObjs.filter(w =>
+    w.wallType === 'finalized_building_perimeter' || w.isFinalizedPerimeter === true
+  );
+  const outerWalls = finalPerim.length > 0
+    ? finalPerim
+    : allWallObjs.filter(w => w.wallType === 'floor_original_outdoor');
   const perimPts    = chainWallsToPolygon(outerWalls, planW, planH, ox, oy);
   const topFacePts  = (isFinalized && perimPts) ? perimPts : footprintPts;
 
@@ -512,13 +547,13 @@ function buildIsoFloorNodes(
     });
   }
 
-  // Indoor walls — low cutaway
+  // Indoor walls — low cutaway (skip anything that is part of the outdoor/perimeter set)
   for (const obj of objects) {
     if (obj.type !== 'wall') continue;
     const w = obj as import('@/types/floorplan').WallObject;
-    const isOuter = w.wallType === 'floor_original_outdoor'
-      || w.wallType === 'finalized_building_perimeter'
-      || w.isFinalizedPerimeter === true;
+    const isOuter = w.wallType === 'finalized_building_perimeter'
+      || w.isFinalizedPerimeter === true
+      || (finalPerim.length === 0 && w.wallType === 'floor_original_outdoor');
     if (isOuter) continue; // handled separately
 
     const [x1, y1] = toIso(w.startX, w.startY, planW, planH);
@@ -835,6 +870,12 @@ export default function Building2D() {
       const facadeH = totalFloors * FLOOR_H;
       const facadeTop = START_Y;
 
+      // Compute the shared perimeter bounds once for all finalized floors in this
+      // building so every floor band uses the same scale — producing one consistent
+      // merged-perimeter shape rather than per-floor independent outlines.
+      const finalizedFloors = bld.floors.filter(p => p.isApproved);
+      const sharedBounds = buildingPerimeterBounds(finalizedFloors);
+
       nodes.push(
         <Rect key={`facade-${bld.key}`}
           x={bx} y={facadeTop} width={BUILDING_W} height={facadeH}
@@ -904,7 +945,7 @@ export default function Building2D() {
         const overlayFill = isFinalized ? '#1d4ed8' : '#1e293b';
         const glassOpacity = isHovered ? 0.95 : 0.78;
 
-        const outdoorWalls = isFinalized ? getOutdoorWalls(plan) : [];
+        const outdoorWalls = isFinalized ? getOutdoorWalls(plan, sharedBounds) : [];
 
         nodes.push(
           <ElevationFloorBand key={`floor-${plan.id}`}

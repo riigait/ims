@@ -58,6 +58,7 @@ CLAUDE.local.md
 
 # Generated / tool output
 repomix-output.xml
+.playwright-mcp/
 
 # Deployment
 .vercel/

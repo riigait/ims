@@ -166,6 +166,7 @@ export const floorPlansApi = {
   regenerate: (id: string, data?: object) => api.post(`/floor-plans/${id}/regenerate`, data || {}).then(normalizeFloorPlanResponse),
   getRules: () => api.get('/floor-plans/rules'),
   getByBuilding: (buildingKey: string) => api.get(`/floor-plans/building/${encodeURIComponent(buildingKey)}`).then(normalizeFloorPlanResponse),
+  setPerimeter: (id: string, walls: object[]) => api.patch(`/floor-plans/${id}/perimeter`, { walls }),
 };
 
 // Map Search

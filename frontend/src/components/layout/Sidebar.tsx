@@ -20,6 +20,7 @@ export default function Sidebar({ collapsed, onToggle }: { collapsed: boolean; o
   const isActive = (path: string) => location.pathname === path;
 
   const handleDepartmentChange = (deptId: string) => {
+    setDeptDropdownOpen(false);
     setDeptChangeConfirm(deptId);
   };
 

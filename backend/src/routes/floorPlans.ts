@@ -1772,6 +1772,46 @@ router.post('/:id/regenerate', async (req: AuthRequest, res: Response, next: Nex
   }
 });
 
+// Write aligned finalized_building_perimeter walls — allowed even on finalized plans.
+// Only touches perimeter wall objects; all other plan content is preserved unchanged.
+router.patch('/:id/perimeter', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const floorPlan = await prisma.floorPlan.findUnique({ where: { id: req.params.id } });
+    if (!floorPlan) return res.status(404).json({ error: 'Floor plan not found' });
+    if (!canManageFloorPlan(req, floorPlan.departmentId)) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    const { walls } = req.body;
+    if (!Array.isArray(walls)) {
+      return res.status(400).json({ error: 'walls array is required' });
+    }
+
+    const perimeterWalls = (walls as FloorPlanObject[]).map(w => ({
+      ...w,
+      wallType: 'finalized_building_perimeter',
+      isFinalizedPerimeter: true,
+    }));
+
+    const existingObjects: FloorPlanObject[] = JSON.parse(floorPlan.planJson || '[]');
+    const withoutOldPerimeter = existingObjects.filter(o =>
+      !(o.type === 'wall' && (
+        (o as any).wallType === 'finalized_building_perimeter' ||
+        (o as any).isFinalizedPerimeter === true
+      ))
+    );
+
+    await prisma.floorPlan.update({
+      where: { id: req.params.id },
+      data: { planJson: JSON.stringify([...withoutOldPerimeter, ...perimeterWalls]) },
+    });
+
+    res.json({ perimeterWallCount: perimeterWalls.length });
+  } catch (error) {
+    next(error);
+  }
+});
+
 // Update floor plan
 router.put('/:id', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {

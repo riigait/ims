@@ -11,6 +11,7 @@ import { ALL_DEPARTMENTS_ID } from '@/constants/app';
 import { validateFloorplanObjects } from '@/utils/floorplanValidation';
 import { applyAutoFixes } from '@/utils/floorplanFixer';
 import { A4_PAGE_HEIGHT, A4_PAGE_WIDTH } from '@/utils/floorplanGrid';
+import { extractOutdoorWall } from '@/utils/floorplanGeometry';
 
 interface Department {
   id: string;
@@ -182,20 +183,20 @@ function getBuildingInfo(name: string): { key: string; label: string; floorNumbe
 }
 
 function outdoorWallsFor(plan: FloorPlan): WallObject[] {
-  return (plan.objects ?? [])
-    .filter((obj): obj is WallObject =>
-      obj.type === 'wall' &&
-      !((obj as WallObject).isFinalizedPerimeter) &&
-      (
-        (obj as WallObject).wallType === 'floor_original_outdoor' ||
-        (obj.id.includes('-ow-') && !obj.id.includes('-final-ow-'))
-      )
+  const allWalls = (plan.objects ?? []).filter((obj): obj is WallObject => obj.type === 'wall');
+
+  const original = allWalls
+    .filter(w =>
+      !w.isFinalizedPerimeter &&
+      (w.wallType === 'floor_original_outdoor' || (w.id.includes('-ow-') && !w.id.includes('-final-ow-')))
     )
     .sort((a, b) => {
       const ai = Number(a.id.match(/-ow-(\d+)$/)?.[1] ?? 0);
       const bi = Number(b.id.match(/-ow-(\d+)$/)?.[1] ?? 0);
       return ai - bi;
     });
+
+  return original;
 }
 
 function isFixedCoreObject(obj: FloorPlanObject): boolean {
@@ -593,177 +594,6 @@ function alignOutdoorWallsToSharedCoordinateSystem(plans: FloorPlan[], debug = f
 // UNION of all individual floor bounding boxes. This gives a clean shared outer
 // shell that covers the entire building footprint.
 //
-// For rectilinear (L-shaped, T-shaped) buildings we compute the actual union
-// outline by scanning all unique X/Y grid lines and keeping only the outermost
-// edge segments that face open space.
-
-
-function mergeCollinear1D(
-  segs: Array<{ a: number; b: number; fixed: number }>,
-  _dir: 'h' | 'v',
-): Array<{ a: number; b: number; fixed: number }> {
-  const groups = new Map<number, Array<[number, number]>>();
-  segs.forEach(s => {
-    if (!groups.has(s.fixed)) groups.set(s.fixed, []);
-    groups.get(s.fixed)!.push([Math.min(s.a, s.b), Math.max(s.a, s.b)]);
-  });
-  const result: Array<{ a: number; b: number; fixed: number }> = [];
-  groups.forEach((intervals, fixed) => {
-    intervals.sort((a, b) => a[0] - b[0]);
-    let cur = intervals[0];
-    for (let i = 1; i < intervals.length; i++) {
-      if (intervals[i][0] <= cur[1]) {
-        cur = [cur[0], Math.max(cur[1], intervals[i][1])];
-      } else {
-        result.push({ a: cur[0], b: cur[1], fixed });
-        cur = intervals[i];
-      }
-    }
-    result.push({ a: cur[0], b: cur[1], fixed });
-  });
-  return result;
-}
-
-// Trace the boundary segments (from the same grid-scan logic) into one or more
-// closed SVG path strings so the preview renders with hard mitered corners instead
-// of disconnected line caps.
-function buildBoxGrid(boxes: OutdoorWallBox[]) {
-  const xs = [...new Set(boxes.flatMap(b => [b.minX, b.maxX]))].sort((a, b) => a - b);
-  const ys = [...new Set(boxes.flatMap(b => [b.minY, b.maxY]))].sort((a, b) => a - b);
-  const inside = (cx: number, cy: number) =>
-    boxes.some(b => cx >= b.minX && cx < b.maxX && cy >= b.minY && cy < b.maxY);
-  return { xs, ys, inside };
-}
-
-function buildFinalizedPaths(boxes: OutdoorWallBox[]): string[] {
-  if (boxes.length === 0) return [];
-
-  const { xs, ys, inside } = buildBoxGrid(boxes);
-
-  // Collect raw boundary half-segments (not merged — need every individual grid step)
-  const edges: Array<[number, number, number, number]> = []; // [x1,y1,x2,y2]
-  for (let xi = 0; xi < xs.length - 1; xi++) {
-    for (let yi = 0; yi < ys.length - 1; yi++) {
-      const cellIn = inside(xs[xi], ys[yi]);
-      if (cellIn && !inside(xs[xi], ys[yi] - 1))   edges.push([xs[xi], ys[yi],     xs[xi+1], ys[yi]]);
-      if (cellIn && !inside(xs[xi], ys[yi+1]))      edges.push([xs[xi], ys[yi+1],   xs[xi+1], ys[yi+1]]);
-      if (cellIn && !inside(xs[xi] - 1, ys[yi]))    edges.push([xs[xi], ys[yi],     xs[xi],   ys[yi+1]]);
-      if (cellIn && !inside(xs[xi+1], ys[yi]))      edges.push([xs[xi+1], ys[yi],   xs[xi+1], ys[yi+1]]);
-    }
-  }
-
-  if (edges.length === 0) return [];
-
-  // Build adjacency map: point key -> list of connected point keys
-  const key = (x: number, y: number) => `${x},${y}`;
-  const adj = new Map<string, Array<[number, number]>>();
-  const addEdge = (x1: number, y1: number, x2: number, y2: number) => {
-    const k1 = key(x1, y1);
-    const k2 = key(x2, y2);
-    if (!adj.has(k1)) adj.set(k1, []);
-    if (!adj.has(k2)) adj.set(k2, []);
-    adj.get(k1)!.push([x2, y2]);
-    adj.get(k2)!.push([x1, y1]);
-  };
-  edges.forEach(([x1, y1, x2, y2]) => addEdge(x1, y1, x2, y2));
-
-  // Walk closed loops: each point in a rectilinear outline has exactly degree 2
-  const visited = new Set<string>();
-  const paths: string[] = [];
-
-  for (const startKey of adj.keys()) {
-    if (visited.has(startKey)) continue;
-    const [sx, sy] = startKey.split(',').map(Number);
-    const loop: Array<[number, number]> = [[sx, sy]];
-    visited.add(startKey);
-
-    let [cx, cy] = [sx, sy];
-    let prevKey = '';
-    // eslint-disable-next-line no-constant-condition
-    while (true) {
-      const neighbors = adj.get(key(cx, cy)) ?? [];
-      const next = neighbors.find(([nx, ny]) => {
-        const nk = key(nx, ny);
-        return nk !== prevKey && !visited.has(nk);
-      });
-      if (!next) break;
-      const [nx, ny] = next;
-      const nk = key(nx, ny);
-      visited.add(nk);
-      prevKey = key(cx, cy);
-      [cx, cy] = [nx, ny];
-      loop.push([nx, ny]);
-      if (nx === sx && ny === sy) break;
-    }
-
-    if (loop.length >= 3) {
-      const d = loop.map(([x, y], i) => `${i === 0 ? 'M' : 'L'}${x},${y}`).join(' ') + ' Z';
-      paths.push(d);
-    }
-  }
-
-  return paths;
-}
-
-// Build WallObject array from a union outline, tagged with a prefix so they
-// can be identified and replaced as finalized outdoor walls.
-function buildFinalizedWalls(
-  boxes: OutdoorWallBox[],
-  prefix: string,
-  color = '#1e293b',
-  thickness = 14,
-): WallObject[] {
-  const walls: WallObject[] = [];
-  if (boxes.length === 0) return walls;
-
-  const { xs, ys, inside } = buildBoxGrid(boxes);
-
-  // Collect boundary segments
-  const hSegs: Array<{ x1: number; x2: number; y: number }> = [];
-  const vSegs: Array<{ x: number; y1: number; y2: number }> = [];
-
-  for (let xi = 0; xi < xs.length - 1; xi++) {
-    for (let yi = 0; yi < ys.length - 1; yi++) {
-      const cellIn = inside(xs[xi], ys[yi]);
-      if (cellIn && !inside(xs[xi], ys[yi] - 1)) hSegs.push({ x1: xs[xi], x2: xs[xi + 1], y: ys[yi] });
-      if (cellIn && !inside(xs[xi], ys[yi + 1])) hSegs.push({ x1: xs[xi], x2: xs[xi + 1], y: ys[yi + 1] });
-      if (cellIn && !inside(xs[xi] - 1, ys[yi])) vSegs.push({ x: xs[xi], y1: ys[yi], y2: ys[yi + 1] });
-      if (cellIn && !inside(xs[xi + 1], ys[yi])) vSegs.push({ x: xs[xi + 1], y1: ys[yi], y2: ys[yi + 1] });
-    }
-  }
-
-  const mergedH = mergeCollinear1D(hSegs.map(s => ({ a: s.x1, b: s.x2, fixed: s.y })), 'h');
-  const mergedV = mergeCollinear1D(vSegs.map(s => ({ a: s.y1, b: s.y2, fixed: s.x })), 'v');
-
-  let idx = 0;
-  mergedH.forEach(s => {
-    walls.push({
-      id: `${prefix}-final-ow-h-${idx++}`,
-      type: 'wall',
-      startX: s.a, startY: s.fixed,
-      endX: s.b, endY: s.fixed,
-      thickness,
-      color,
-      layer: 1,
-      wallType: 'finalized_building_perimeter',
-      isFinalizedPerimeter: true,
-    });
-  });
-  mergedV.forEach(s => {
-    walls.push({
-      id: `${prefix}-final-ow-v-${idx++}`,
-      type: 'wall',
-      startX: s.fixed, startY: s.a,
-      endX: s.fixed, endY: s.b,
-      thickness,
-      color,
-      layer: 1,
-      wallType: 'finalized_building_perimeter',
-      isFinalizedPerimeter: true,
-    });
-  });
-  return walls;
-}
 
 function isFixedFloorObject(id: string) {
   return id.includes('reserved-stairs') || id.includes('reserved-elevator') ||
@@ -1344,18 +1174,35 @@ export default function FloorPlans() {
     try {
       setMergeApplying(true);
       const updatedPlans = await Promise.all(aligned.entries.map(async (entry) => {
-        if (entry.plan.isApproved) return entry.plan; // skip finalized floors
-        const { dx, dy } = entry;
-        const objects = (entry.plan.objects ?? []).map(obj => {
-          // Outdoor walls: use the already-aligned+snapped versions from entry.walls
+        if (entry.plan.isApproved) {
+          // Finalized plans cannot be fully rewritten — write only the aligned
+          // perimeter walls as finalized_building_perimeter so Building2D can render them.
+          await floorPlansApi.setPerimeter(entry.plan.id, entry.walls);
+          const existingObjects = entry.plan.objects ?? [];
+          const withoutOldPerimeter = existingObjects.filter(obj =>
+            !(obj.type === 'wall' && (
+              (obj as WallObject).wallType === 'finalized_building_perimeter' ||
+              (obj as WallObject).isFinalizedPerimeter === true
+            ))
+          );
+          const perimeterWalls = entry.walls.map(w => ({
+            ...w,
+            wallType: 'finalized_building_perimeter' as const,
+            isFinalizedPerimeter: true,
+          }));
+          return { ...entry.plan, objects: [...withoutOldPerimeter, ...perimeterWalls] };
+        }
+
+        const existingObjects = entry.plan.objects ?? [];
+        const objects = existingObjects.map(obj => {
           if (obj.type === 'wall') {
             const w = obj as WallObject;
             if (w.wallType === 'floor_original_outdoor' || (w.id.includes('-ow-') && !w.id.includes('-final-ow-'))) {
               const snapped = entry.walls.find(wall => wall.id === w.id);
-              return snapped ?? moveObject(obj, dx, dy);
+              return snapped ?? obj;
             }
           }
-          return moveObject(obj, dx, dy);
+          return obj;
         });
 
         await floorPlansApi.update(entry.plan.id, {
@@ -1448,16 +1295,28 @@ export default function FloorPlans() {
     const aligned = alignOutdoorWallsToSharedCoordinateSystem(mergePreviewPlans);
     if (aligned.entries.length === 0) return;
 
-    // Union of all aligned floor bounding boxes → shared perimeter shape
-    const boxes = aligned.entries.map(e => e.alignedBounds);
-
     try {
       setFinalizing(true);
       const updatedPlans = await Promise.all(aligned.entries.map(async (entry) => {
         if (entry.plan.isApproved) return entry.plan; // skip already-finalized floors
         const { dx, dy } = entry;
-        const floorPrefix = `floor${entry.floorNumber}-final`;
-        const finalWalls = buildFinalizedWalls(boxes, floorPrefix);
+        // Extract true outer perimeter from the aligned outdoor walls (entry.walls already has dx/dy baked in).
+        const { outerSegments } = extractOutdoorWall({
+          walls: entry.walls.map(w => ({ id: w.id, x1: w.startX, y1: w.startY, x2: w.endX, y2: w.endY })),
+        });
+        const finalWalls: WallObject[] = outerSegments.map((seg, i) => ({
+          id: `floor${entry.floorNumber}-final-ow-u-${i}`,
+          type: 'wall' as const,
+          startX: seg.x1,
+          startY: seg.y1,
+          endX: seg.x2,
+          endY: seg.y2,
+          wallType: 'finalized_building_perimeter' as const,
+          isFinalizedPerimeter: true,
+          thickness: 8,
+          color: '#1e293b',
+          layer: 1,
+        }));
         // Keep each floor's own outdoor walls, then add the finalized perimeter as extra walls.
         // Clean up: remove any previously applied finalized perimeter walls (by flag or legacy ID pattern).
         // Collect groupIds that belong to indoor wall groups so we can ungroup their members
@@ -2551,7 +2410,7 @@ export default function FloorPlans() {
               {/* Compute live span areas for overlay + sidebar */}
               {(() => { /* side-effect: nothing — spans computed inline below */ return null; })()}
               <div className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-[1fr_260px]">
-                <div className="min-h-0 bg-slate-50 overflow-hidden relative">
+                <div className="min-h-0 bg-[#1e293b] overflow-hidden relative">
                   <svg
                     viewBox={viewBox}
                     className="w-full h-full"
@@ -2559,11 +2418,17 @@ export default function FloorPlans() {
                     aria-label="Merge floors preview"
                   >
                     <defs>
-                      <pattern id="merge-grid" width="40" height="40" patternUnits="userSpaceOnUse">
-                        <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#dbe4ef" strokeWidth="1" />
+                      {/* Minor grid: 10px, matching FloorPlanEditor GRID_SIZE */}
+                      <pattern id="merge-grid-minor" width="10" height="10" patternUnits="userSpaceOnUse">
+                        <path d="M 10 0 L 0 0 0 10" fill="none" stroke="rgba(255,255,255,0.08)" strokeWidth="0.5" />
+                      </pattern>
+                      {/* Major grid: 40px = GRID_SIZE × MAJOR_GRID_EVERY */}
+                      <pattern id="merge-grid-major" width="40" height="40" patternUnits="userSpaceOnUse">
+                        <rect width="40" height="40" fill="url(#merge-grid-minor)" />
+                        <path d="M 40 0 L 0 0 0 40" fill="none" stroke="rgba(255,255,255,0.18)" strokeWidth="1" />
                       </pattern>
                     </defs>
-                    <rect x={bounds.minX - pad} y={bounds.minY - pad} width={bounds.maxX - bounds.minX + pad * 2} height={bounds.maxY - bounds.minY + pad * 2} fill="url(#merge-grid)" />
+                    <rect x={bounds.minX - pad} y={bounds.minY - pad} width={bounds.maxX - bounds.minX + pad * 2} height={bounds.maxY - bounds.minY + pad * 2} fill="url(#merge-grid-major)" />
                     {/* Per-floor walls retained after finalize, plus fixed objects. */}
                     <g opacity={1}>
                       {aligned.entries.map((entry, planIndex) => {
@@ -2595,7 +2460,7 @@ export default function FloorPlans() {
                                       textAnchor="middle"
                                       dominantBaseline="middle"
                                       fontSize={fontSize}
-                                      fill="#1e293b"
+                                      fill="#f8fafc"
                                       fontWeight="600"
                                       style={{ pointerEvents: 'none', userSelect: 'none' }}
                                     >
@@ -2627,48 +2492,28 @@ export default function FloorPlans() {
                       })}
                     </g>
 
-                    {/* Finalized perimeter preview: extra outdoor walls added on apply. */}
-                    {showFinalizePreview && (() => {
-                      const boxes = aligned.entries.map(e => e.alignedBounds);
-                      return (
-                        <g>
-                          {/* Filled silhouette to show the unified building shape */}
-                          {(() => {
-                            const xs = [...new Set(boxes.flatMap(b => [b.minX, b.maxX]))].sort((a, b) => a - b);
-                            const ys = [...new Set(boxes.flatMap(b => [b.minY, b.maxY]))].sort((a, b) => a - b);
-                            const inside = (cx: number, cy: number) =>
-                              boxes.some(b => cx >= b.minX && cx < b.maxX && cy >= b.minY && cy < b.maxY);
-                            return xs.slice(0, -1).flatMap((x1, xi) =>
-                              ys.slice(0, -1).map((y1, yi) =>
-                                inside(x1, y1) ? (
-                                  <rect
-                                    key={`fill-${xi}-${yi}`}
-                                    x={x1} y={y1}
-                                    width={xs[xi + 1] - x1}
-                                    height={ys[yi + 1] - y1}
-                                    fill="#1e293b"
-                                    fillOpacity={0.06}
-                                  />
-                                ) : null
-                              )
-                            );
-                          })()}
-                          {/* Finalized outer walls — single closed path per loop for hard mitered corners */}
-                          {buildFinalizedPaths(boxes).map((d, i) => (
-                            <path
-                              key={i}
-                              d={d}
-                              fill="none"
-                              stroke="#1e293b"
-                              strokeWidth={14}
-                              strokeLinejoin="miter"
-                              strokeMiterlimit={10}
+                    {/* Finalized perimeter preview: extracted true outer perimeter per floor */}
+                    {showFinalizePreview && (
+                      <g>
+                        {aligned.entries.flatMap((e) => {
+                          const { outerSegments } = extractOutdoorWall({
+                            walls: e.walls.map(w => ({ id: w.id, x1: w.startX, y1: w.startY, x2: w.endX, y2: w.endY })),
+                          });
+                          return outerSegments.map((seg, i) => (
+                            <line
+                              key={`finalize-${e.plan.id}-${i}`}
+                              x1={seg.x1}
+                              y1={seg.y1}
+                              x2={seg.x2}
+                              y2={seg.y2}
+                              stroke="#f8fafc"
+                              strokeWidth={6}
                               strokeLinecap="square"
                             />
-                          ))}
-                        </g>
-                      );
-                    })()}
+                          ));
+                        })}
+                      </g>
+                    )}
 
 
                     {/* Interior objects overlay */}
@@ -2733,7 +2578,7 @@ export default function FloorPlans() {
                                   />
                                   {displayLabel && (
                                     <text x={cx} y={cy} textAnchor="middle" dominantBaseline="middle"
-                                      fontSize={fontSize} fill="#1e293b" fontWeight="500"
+                                      fontSize={fontSize} fill="#f8fafc" fontWeight="500"
                                       style={{ pointerEvents: 'none', userSelect: 'none' }}>
                                       {displayLabel}
                                     </text>
