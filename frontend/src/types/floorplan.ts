@@ -107,6 +107,9 @@ export interface FloorPlan {
   generationScore?: number;
   buildingKey?: string | null;
   floorNumber?: number | null;
+  isAligned?: boolean;
+  alignmentData?: Record<string, unknown> | null;
+  alignedAt?: string | null;
   createdAt: string;
   updatedAt: string;
 }

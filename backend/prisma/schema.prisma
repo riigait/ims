@@ -342,6 +342,9 @@ model FloorPlan {
   generationScore Int?
   buildingKey     String?
   floorNumber     Int?
+  isAligned       Boolean    @default(false)
+  alignmentJson   String?
+  alignedAt       DateTime?
   createdAt       DateTime   @default(now())
   updatedAt       DateTime   @updatedAt
   examples        FloorPlanExample[]

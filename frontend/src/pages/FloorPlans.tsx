@@ -4,7 +4,7 @@ import { Plus, Trash2, MapPin, LayoutGrid, List, Edit, Sparkles, XCircle, Refres
 import MapFootprintModal from '@/components/floorplan/MapFootprintModal';
 import { formatDate } from '@/utils/ids';
 import { floorPlansApi, departmentsApi } from '@/services/api';
-import { FloorPlan, FloorPlanObject, RectangleObject, WallObject } from '@/types/floorplan';
+import { FloorPlan, FloorPlanObject, PolygonRoomObject, RectangleObject, WallObject } from '@/types/floorplan';
 import FloorPlanThumbnail from '@/components/floorplan/FloorPlanThumbnail';
 import Pagination from '@/components/Pagination';
 import { ALL_DEPARTMENTS_ID } from '@/constants/app';
@@ -170,6 +170,19 @@ type AlignedOutdoorWallResult = {
   totalWalls: number;
 };
 
+function alignmentDataFor(entry: AlignedOutdoorWallEntry): Record<string, unknown> {
+  return {
+    source: 'computed-from-existing-floorplan-json',
+    floorNumber: entry.floorNumber,
+    dx: entry.dx,
+    dy: entry.dy,
+    sharedAnchor: entry.sharedAnchor,
+    selectedAnchor: entry.selectedAnchor,
+    originalBounds: entry.originalBounds,
+    alignedBounds: entry.alignedBounds,
+  };
+}
+
 function getBuildingInfo(name: string): { key: string; label: string; floorNumber: number; source: 'auto_generated' | 'manual' } | null {
   const match = name.match(/^((?:Auto|Manual) - .+ - Building \d+) - Floor (\d+) - /);
   if (!match) return null;
@@ -183,20 +196,38 @@ function getBuildingInfo(name: string): { key: string; label: string; floorNumbe
 }
 
 function outdoorWallsFor(plan: FloorPlan): WallObject[] {
-  const allWalls = (plan.objects ?? []).filter((obj): obj is WallObject => obj.type === 'wall');
-
-  const original = allWalls
-    .filter(w =>
-      !w.isFinalizedPerimeter &&
-      (w.wallType === 'floor_original_outdoor' || (w.id.includes('-ow-') && !w.id.includes('-final-ow-')))
-    )
-    .sort((a, b) => {
-      const ai = Number(a.id.match(/-ow-(\d+)$/)?.[1] ?? 0);
-      const bi = Number(b.id.match(/-ow-(\d+)$/)?.[1] ?? 0);
-      return ai - bi;
-    });
-
-  return original;
+  const objects = plan.objects ?? [];
+  const polygons = objects
+    .filter((obj): obj is PolygonRoomObject => obj.type === 'room' && obj.points.length >= 6)
+    .map(room => ({
+      id: room.id,
+      name: room.label,
+      type: room.type,
+      points: Array.from({ length: room.points.length / 2 }, (_, index) => ({
+        x: room.points[index * 2],
+        y: room.points[index * 2 + 1],
+      })),
+    }));
+  const walls = objects
+    .filter((obj): obj is WallObject => obj.type === 'wall')
+    .map(wall => ({
+      id: wall.id,
+      x1: wall.startX,
+      y1: wall.startY,
+      x2: wall.endX,
+      y2: wall.endY,
+    }));
+  const { outerSegments } = extractOutdoorWall({ polygons, walls });
+  return outerSegments.map((segment, index) => ({
+    id: `${plan.id}-computed-outer-${index}`,
+    type: 'wall',
+    startX: segment.x1,
+    startY: segment.y1,
+    endX: segment.x2,
+    endY: segment.y2,
+    thickness: 8,
+    wallType: 'floor_original_outdoor',
+  }));
 }
 
 function isFixedCoreObject(obj: FloorPlanObject): boolean {
@@ -340,6 +371,12 @@ function moveObject(obj: FloorPlanObject, dx: number, dy: number): FloorPlanObje
   if (obj.type === 'wall') {
     const w = obj as WallObject;
     return { ...w, startX: w.startX + dx, startY: w.startY + dy, endX: w.endX + dx, endY: w.endY + dy };
+  }
+  if (obj.type === 'room') {
+    return {
+      ...obj,
+      points: obj.points.map((coordinate, index) => coordinate + (index % 2 === 0 ? dx : dy)),
+    };
   }
   if ('x' in obj && 'y' in obj) return { ...obj, x: (obj as { x: number }).x + dx, y: (obj as { y: number }).y + dy };
   return obj;
@@ -589,10 +626,7 @@ function alignOutdoorWallsToSharedCoordinateSystem(plans: FloorPlan[], debug = f
 
 // ─── Finalize: union perimeter of all aligned floor footprints ─────────────────
 //
-// Strategy: collect every wall endpoint from every floor, compute the axis-aligned
-// bounding box of all points, then trace a rectilinear perimeter that hugs the
-// UNION of all individual floor bounding boxes. This gives a clean shared outer
-// shell that covers the entire building footprint.
+// Final output is the ordered true exterior loop computed from existing plan JSON.
 //
 
 function isFixedFloorObject(id: string) {
@@ -703,7 +737,7 @@ export default function FloorPlans() {
   const applyUpdatedPlans = (updatedPlans: FloorPlan[]) => {
     setFloorPlans(prev => prev.map(plan => {
       const updated = updatedPlans.find(c => c.id === plan.id);
-      return updated ? { ...plan, objects: updated.objects } : plan;
+      return updated ? { ...plan, ...updated } : plan;
     }));
     setMergePreviewPlans(updatedPlans);
   };
@@ -713,6 +747,7 @@ export default function FloorPlans() {
       // Summary mode: metadata only — no objects. Thumbnails lazy-fetch full data on visibility.
       const response = await floorPlansApi.getAll(true);
       setFloorPlans(response.data);
+      setAlignedPlanIds(response.data.filter((p: FloorPlan) => p.isAligned && !p.isApproved).map((p: FloorPlan) => p.id));
       const fb: Record<string, FeedbackState> = {};
       response.data.forEach((p: any) => {
         if (p.isApproved) fb[p.id] = 'approved';
@@ -1174,36 +1209,20 @@ export default function FloorPlans() {
     try {
       setMergeApplying(true);
       const updatedPlans = await Promise.all(aligned.entries.map(async (entry) => {
+        const alignmentData = alignmentDataFor(entry);
         if (entry.plan.isApproved) {
-          // Finalized plans cannot be fully rewritten — write only the aligned
-          // perimeter walls as finalized_building_perimeter so Building2D can render them.
-          await floorPlansApi.setPerimeter(entry.plan.id, entry.walls);
-          const existingObjects = entry.plan.objects ?? [];
-          const withoutOldPerimeter = existingObjects.filter(obj =>
-            !(obj.type === 'wall' && (
-              (obj as WallObject).wallType === 'finalized_building_perimeter' ||
-              (obj as WallObject).isFinalizedPerimeter === true
-            ))
-          );
+          // Finalized plans use the dedicated perimeter endpoint to write aligned
+          // perimeter walls as the authoritative finalized plan JSON.
+          await floorPlansApi.setPerimeter(entry.plan.id, entry.walls, alignmentData);
           const perimeterWalls = entry.walls.map(w => ({
             ...w,
             wallType: 'finalized_building_perimeter' as const,
             isFinalizedPerimeter: true,
           }));
-          return { ...entry.plan, objects: [...withoutOldPerimeter, ...perimeterWalls] };
+          return { ...entry.plan, objects: perimeterWalls, isAligned: true, alignmentData };
         }
 
-        const existingObjects = entry.plan.objects ?? [];
-        const objects = existingObjects.map(obj => {
-          if (obj.type === 'wall') {
-            const w = obj as WallObject;
-            if (w.wallType === 'floor_original_outdoor' || (w.id.includes('-ow-') && !w.id.includes('-final-ow-'))) {
-              const snapped = entry.walls.find(wall => wall.id === w.id);
-              return snapped ?? obj;
-            }
-          }
-          return obj;
-        });
+        const objects = (entry.plan.objects ?? []).map(obj => moveObject(obj, entry.dx, entry.dy));
 
         await floorPlansApi.update(entry.plan.id, {
           name: entry.plan.name,
@@ -1212,9 +1231,11 @@ export default function FloorPlans() {
           scale: entry.plan.scale,
           locationId: entry.plan.locationId,
           objects,
+          isAligned: true,
+          alignmentData,
         });
 
-        return { ...entry.plan, objects };
+        return { ...entry.plan, objects, isAligned: true, alignmentData };
       }));
 
       applyUpdatedPlans(updatedPlans);
@@ -1299,11 +1320,14 @@ export default function FloorPlans() {
       setFinalizing(true);
       const updatedPlans = await Promise.all(aligned.entries.map(async (entry) => {
         if (entry.plan.isApproved) return entry.plan; // skip already-finalized floors
-        const { dx, dy } = entry;
+        const alignmentData = entry.plan.isAligned && entry.plan.alignmentData
+          ? entry.plan.alignmentData
+          : alignmentDataFor(entry);
         // Extract true outer perimeter from the aligned outdoor walls (entry.walls already has dx/dy baked in).
         const { outerSegments } = extractOutdoorWall({
           walls: entry.walls.map(w => ({ id: w.id, x1: w.startX, y1: w.startY, x2: w.endX, y2: w.endY })),
         });
+        if (outerSegments.length === 0) throw new Error(`No closed exterior loop found for ${entry.plan.name}`);
         const finalWalls: WallObject[] = outerSegments.map((seg, i) => ({
           id: `floor${entry.floorNumber}-final-ow-u-${i}`,
           type: 'wall' as const,
@@ -1317,29 +1341,7 @@ export default function FloorPlans() {
           color: '#1e293b',
           layer: 1,
         }));
-        // Keep each floor's own outdoor walls, then add the finalized perimeter as extra walls.
-        // Clean up: remove any previously applied finalized perimeter walls (by flag or legacy ID pattern).
-        // Collect groupIds that belong to indoor wall groups so we can ungroup their members
-        const indoorWallGroupIds = new Set(
-          (entry.plan.objects ?? [])
-            .filter(obj => obj.type === 'wall' && (obj as WallObject).wallType === 'floor_indoor' && obj.groupId)
-            .map(obj => obj.groupId as string)
-        );
-        const retainedObjects = (entry.plan.objects ?? [])
-          .filter(obj => {
-            if (obj.type !== 'wall') return true;
-            const w = obj as WallObject;
-            return !w.isFinalizedPerimeter && !w.id.includes('-final-ow-') && w.wallType !== 'floor_indoor';
-          })
-          .map(obj => {
-            const moved = moveObject(obj, dx, dy);
-            // Strip groupId from objects that were part of an indoor wall group
-            if (moved.groupId && indoorWallGroupIds.has(moved.groupId)) {
-              return { ...moved, groupId: undefined };
-            }
-            return moved;
-          });
-        const objects = [...retainedObjects, ...finalWalls];
+        const objects = finalWalls;
 
         await floorPlansApi.update(entry.plan.id, {
           name: entry.plan.name,
@@ -1349,8 +1351,10 @@ export default function FloorPlans() {
           locationId: entry.plan.locationId,
           objects,
           isApproved: true,
+          isAligned: true,
+          alignmentData,
         });
-        return { ...entry.plan, objects };
+        return { ...entry.plan, objects, isApproved: true, isAligned: true, alignmentData };
       }));
 
       applyUpdatedPlans(updatedPlans);

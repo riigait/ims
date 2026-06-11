@@ -97,6 +97,7 @@ test('duplicate segments — no duplicate in result', () => {
   });
   const unique = new Set(keys);
   expect(unique.size).toBe(keys.length);
+  expect(outerSegments.length).toBe(4);
 });
 
 // Polygon input — L-shape via FloorPolygon
@@ -114,4 +115,58 @@ test('polygon L-shape input — returns correct exterior', () => {
   const { outerPoints } = extractOutdoorWall({ polygons });
   expect(outerPoints.length).toBe(6);
   expect(outerPoints.some(p => p.x === 50 && p.y === 60)).toBe(true);
+});
+
+test('wall graph excludes interior partitions and merges broken exterior segments', () => {
+  const walls = [
+    { x1: 0, y1: 0, x2: 40, y2: 0 },
+    { x1: 40, y1: 0, x2: 100, y2: 0 },
+    { x1: 100, y1: 0, x2: 100, y2: 100 },
+    { x1: 100, y1: 100, x2: 0, y2: 100 },
+    { x1: 0, y1: 100, x2: 0, y2: 0 },
+    { x1: 40, y1: 0, x2: 40, y2: 100 },
+  ];
+  const { outerPoints, outerSegments } = extractOutdoorWall({ walls });
+  expect(outerPoints.length).toBe(4);
+  expect(outerSegments.length).toBe(4);
+  expect(outerSegments.some(segment => segment.x1 === 40 && segment.x2 === 40)).toBe(false);
+});
+
+test('partially shared polygon edges are removed from the exterior', () => {
+  const polygons = [
+    {
+      points: [
+        { x: 0, y: 0 }, { x: 50, y: 0 }, { x: 50, y: 100 }, { x: 0, y: 100 },
+      ],
+    },
+    {
+      points: [
+        { x: 50, y: 20 }, { x: 100, y: 20 }, { x: 100, y: 80 }, { x: 50, y: 80 },
+      ],
+    },
+  ];
+  const { outerPoints, outerSegments } = extractOutdoorWall({ polygons });
+  expect(outerPoints.length).toBe(8);
+  expect(outerSegments.some(segment =>
+    segment.x1 === 50 && segment.x2 === 50
+    && Math.min(segment.y1, segment.y2) === 20
+    && Math.max(segment.y1, segment.y2) === 80
+  )).toBe(false);
+});
+
+test('largest closed loop is selected when an interior loop exists', () => {
+  const walls = [
+    { x1: 0, y1: 0, x2: 100, y2: 0 },
+    { x1: 100, y1: 0, x2: 100, y2: 100 },
+    { x1: 100, y1: 100, x2: 0, y2: 100 },
+    { x1: 0, y1: 100, x2: 0, y2: 0 },
+    { x1: 30, y1: 30, x2: 70, y2: 30 },
+    { x1: 70, y1: 30, x2: 70, y2: 70 },
+    { x1: 70, y1: 70, x2: 30, y2: 70 },
+    { x1: 30, y1: 70, x2: 30, y2: 30 },
+  ];
+  const { outerPoints } = extractOutdoorWall({ walls });
+  expect(outerPoints).toHaveLength(4);
+  expect(outerPoints.some(point => point.x === 0 && point.y === 0)).toBe(true);
+  expect(outerPoints.some(point => point.x === 30 && point.y === 30)).toBe(false);
 });

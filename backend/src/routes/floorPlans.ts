@@ -42,6 +42,15 @@ function deriveBuildingMetadata(name: string, departmentId: string | null) {
   };
 }
 
+function parseAlignmentJson(alignmentJson: string | null): unknown {
+  if (!alignmentJson) return null;
+  try {
+    return JSON.parse(alignmentJson);
+  } catch {
+    return null;
+  }
+}
+
 type OutdoorWallBounds = {
   minX: number;
   minY: number;
@@ -815,6 +824,8 @@ router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
           generationScore: true,
           buildingKey: true,
           floorNumber: true,
+          isAligned: true,
+          alignedAt: true,
           createdAt: true,
           updatedAt: true,
           location: { select: { id: true, name: true } },
@@ -838,6 +849,7 @@ router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
     const parsed = floorPlans.map((plan) => ({
       ...plan,
       objects: JSON.parse(plan.planJson || '[]'),
+      alignmentData: parseAlignmentJson(plan.alignmentJson),
     }));
 
     res.json(parsed);
@@ -1454,6 +1466,7 @@ router.get('/building/:buildingKey', async (req: AuthRequest, res: Response, nex
     const result = plans.map(p => ({
       ...p,
       objects: (() => { try { return JSON.parse(p.planJson); } catch { return []; } })(),
+      alignmentData: parseAlignmentJson(p.alignmentJson),
     }));
     res.json(result);
   } catch (error) {
@@ -1480,6 +1493,7 @@ router.get('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
     res.json({
       ...floorPlan,
       objects: JSON.parse(floorPlan.planJson || '[]'),
+      alignmentData: parseAlignmentJson(floorPlan.alignmentJson),
     });
   } catch (error) {
     next(error);
@@ -1772,8 +1786,7 @@ router.post('/:id/regenerate', async (req: AuthRequest, res: Response, next: Nex
   }
 });
 
-// Write aligned finalized_building_perimeter walls — allowed even on finalized plans.
-// Only touches perimeter wall objects; all other plan content is preserved unchanged.
+// Write the aligned finalized perimeter as the authoritative finalized plan JSON.
 router.patch('/:id/perimeter', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const floorPlan = await prisma.floorPlan.findUnique({ where: { id: req.params.id } });
@@ -1782,7 +1795,7 @@ router.patch('/:id/perimeter', async (req: AuthRequest, res: Response, next: Nex
       return res.status(403).json({ error: 'Access denied' });
     }
 
-    const { walls } = req.body;
+    const { walls, alignmentData } = req.body;
     if (!Array.isArray(walls)) {
       return res.status(400).json({ error: 'walls array is required' });
     }
@@ -1793,17 +1806,14 @@ router.patch('/:id/perimeter', async (req: AuthRequest, res: Response, next: Nex
       isFinalizedPerimeter: true,
     }));
 
-    const existingObjects: FloorPlanObject[] = JSON.parse(floorPlan.planJson || '[]');
-    const withoutOldPerimeter = existingObjects.filter(o =>
-      !(o.type === 'wall' && (
-        (o as any).wallType === 'finalized_building_perimeter' ||
-        (o as any).isFinalizedPerimeter === true
-      ))
-    );
-
     await prisma.floorPlan.update({
       where: { id: req.params.id },
-      data: { planJson: JSON.stringify([...withoutOldPerimeter, ...perimeterWalls]) },
+      data: {
+        planJson: JSON.stringify(perimeterWalls),
+        isAligned: true,
+        alignmentJson: alignmentData === undefined ? floorPlan.alignmentJson : JSON.stringify(alignmentData),
+        alignedAt: new Date(),
+      },
     });
 
     res.json({ perimeterWallCount: perimeterWalls.length });
@@ -1825,7 +1835,10 @@ router.put('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
       return res.status(403).json({ error: 'This floor plan is finalized and cannot be modified.' });
     }
 
-    const { name, width, height, scale, objects, locationId, isTemplate, isApproved, buildingKey, floorNumber, validationIgnored } = req.body;
+    const {
+      name, width, height, scale, objects, locationId, isTemplate, isApproved,
+      buildingKey, floorNumber, validationIgnored, isAligned, alignmentData,
+    } = req.body;
 
     const floorPlan = await prisma.floorPlan.update({
       where: { id: req.params.id },
@@ -1840,6 +1853,13 @@ router.put('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
         ...(buildingKey !== undefined && { buildingKey: buildingKey || null }),
         ...(floorNumber !== undefined && { floorNumber: floorNumber ?? null }),
         ...(validationIgnored !== undefined && { validationIgnored: Boolean(validationIgnored) }),
+        ...(isAligned !== undefined && {
+          isAligned: Boolean(isAligned),
+          alignedAt: isAligned ? new Date() : null,
+        }),
+        ...(alignmentData !== undefined && {
+          alignmentJson: alignmentData === null ? null : JSON.stringify(alignmentData),
+        }),
       },
     });
 
@@ -1847,6 +1867,7 @@ router.put('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
       ...floorPlan,
       objects: objects || [],
       scale: scale || { pixelsPerMeter: 50 },
+      alignmentData: parseAlignmentJson(floorPlan.alignmentJson),
     });
   } catch (error) {
     next(error);

@@ -5,6 +5,7 @@ import Konva from 'konva';
 import { floorPlansApi } from '@/services/api';
 import type { FloorPlan } from '@/types/floorplan';
 import { Lock, Building2, RefreshCw, ZoomIn, ZoomOut, Maximize2, Layers, Box } from 'lucide-react';
+import { extractOutdoorWall } from '@/utils/floorplanGeometry';
 
 // ─── facade constants ─────────────────────────────────────────────────────────
 const BUILDING_W      = 220;
@@ -192,48 +193,25 @@ function planCorners(planW: number, planH: number, ox: number, oy: number): [num
 
 type Pt = [number, number];
 
-/**
- * Given a set of wall segments (pairs of endpoints), chain them into an
- * ordered polygon by greedily connecting endpoints within `snap` px.
- * Returns a flat number array suitable for Konva Line points, or null if
- * fewer than 3 unique vertices are found.
- */
 function chainWallsToPolygon(
   walls: import('@/types/floorplan').WallObject[],
   planW: number, planH: number,
   ox: number, oy: number,
-  snap = 4,
 ): number[] | null {
-  if (walls.length === 0) return null;
-
-  // Project every segment endpoint into iso screen space
-  const segs: [Pt, Pt][] = walls.map(w => {
-    const [ax, ay] = toIso(w.startX, w.startY, planW, planH);
-    const [bx, by] = toIso(w.endX,   w.endY,   planW, planH);
-    return [[ox + ax, oy + ay], [ox + bx, oy + by]];
+  const { outerPoints } = extractOutdoorWall({
+    walls: walls.map(wall => ({
+      id: wall.id,
+      x1: wall.startX,
+      y1: wall.startY,
+      x2: wall.endX,
+      y2: wall.endY,
+    })),
   });
-
-  // Greedily chain segments into a single polyline
-  const used = new Array(segs.length).fill(false);
-  const chain: Pt[] = [...segs[0]];
-  used[0] = true;
-
-  for (let iter = 0; iter < segs.length; iter++) {
-    const tail = chain[chain.length - 1];
-    let found = false;
-    for (let i = 0; i < segs.length; i++) {
-      if (used[i]) continue;
-      const [a, b] = segs[i];
-      const distA = Math.hypot(a[0] - tail[0], a[1] - tail[1]);
-      const distB = Math.hypot(b[0] - tail[0], b[1] - tail[1]);
-      if (distA <= snap) { chain.push(b); used[i] = true; found = true; break; }
-      if (distB <= snap) { chain.push(a); used[i] = true; found = true; break; }
-    }
-    if (!found) break;
-  }
-
-  if (chain.length < 3) return null;
-  return chain.flatMap(([x, y]) => [x, y]);
+  if (outerPoints.length < 3) return null;
+  return outerPoints.flatMap(point => {
+    const [x, y] = toIso(point.x, point.y, planW, planH);
+    return [ox + x, oy + y];
+  });
 }
 
 // ─── window sub-components (keep nesting ≤ 4 levels) ─────────────────────────
