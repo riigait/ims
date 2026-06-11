@@ -336,8 +336,9 @@ model FloorPlan {
   width           Int
   height          Int
   planJson        String     // JSON serialized floor plan data
-  isApproved      Boolean    @default(false)
-  isTemplate      Boolean    @default(false)
+  isApproved         Boolean    @default(false)
+  isTemplate         Boolean    @default(false)
+  validationIgnored  Boolean    @default(false)
   generationScore Int?
   buildingKey     String?
   floorNumber     Int?

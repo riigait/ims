@@ -1,6 +1,7 @@
 import { Fragment, memo, useEffect, useRef, useState } from 'react';
 import { Circle, Layer, Line, Rect, Stage, Text } from 'react-konva';
-import { FloorPlan, FloorPlanObject } from '@/types/floorplan';
+import { FloorPlan, FloorPlanObject, PolygonRoomObject, RectangleObject } from '@/types/floorplan';
+import { polygonBounds } from '@/utils/floorplanGrid';
 
 interface Props {
   readonly plan: FloorPlan;
@@ -43,11 +44,14 @@ function getBounds(objects: FloorPlanObject[], plan: FloorPlan) {
       minY = Math.min(minY, obj.startY, obj.endY);
       maxX = Math.max(maxX, obj.startX, obj.endX);
       maxY = Math.max(maxY, obj.startY, obj.endY);
-    } else if (obj.type === 'room' || obj.type === 'rack' || obj.type === 'shelf') {
-      minX = Math.min(minX, obj.x);
-      minY = Math.min(minY, obj.y);
-      maxX = Math.max(maxX, obj.x + obj.width);
-      maxY = Math.max(maxY, obj.y + obj.height);
+    } else if (obj.type === 'room') {
+      const b = polygonBounds((obj as PolygonRoomObject).points);
+      minX = Math.min(minX, b.x); minY = Math.min(minY, b.y);
+      maxX = Math.max(maxX, b.x + b.width); maxY = Math.max(maxY, b.y + b.height);
+    } else if (obj.type === 'rack' || obj.type === 'shelf') {
+      const r = obj as RectangleObject;
+      minX = Math.min(minX, r.x); minY = Math.min(minY, r.y);
+      maxX = Math.max(maxX, r.x + r.width); maxY = Math.max(maxY, r.y + r.height);
     } else if (obj.type === 'label') {
       minX = Math.min(minX, obj.x);
       minY = Math.min(minY, obj.y);
@@ -61,7 +65,7 @@ function getBounds(objects: FloorPlanObject[], plan: FloorPlan) {
 }
 
 function renderRoom(
-  obj: Extract<FloorPlanObject, { type: 'room' | 'rack' | 'shelf' }>,
+  obj: Extract<FloorPlanObject, { type: 'rack' | 'shelf' }>,
   x: number, y: number, w: number, h: number,
   isHighlighted: boolean,
   scale: number,
@@ -119,8 +123,24 @@ function renderObject(
     );
   }
 
-  if (obj.type === 'room' || obj.type === 'rack' || obj.type === 'shelf') {
-    return renderRoom(obj, tx(obj.x), ty(obj.y), obj.width * scale, obj.height * scale, isHighlighted, scale);
+  if (obj.type === 'room') {
+    const pts = (obj as PolygonRoomObject).points;
+    if (!Array.isArray(pts) || pts.length < 6) return null;
+    const scaledPts: number[] = [];
+    for (let i = 0; i < pts.length; i += 2) scaledPts.push(tx(pts[i]), ty(pts[i + 1]));
+    return (
+      <Line key={obj.id} points={scaledPts} closed
+        fill={isHighlighted ? '#dbeafe' : (obj.color ?? '#e0e0e0')}
+        opacity={isHighlighted ? 0.9 : 0.65}
+        stroke={isHighlighted ? '#2563eb' : '#64748b'}
+        strokeWidth={isHighlighted ? 1.5 : 0.8}
+      />
+    );
+  }
+
+  if (obj.type === 'rack' || obj.type === 'shelf') {
+    const r = obj as RectangleObject;
+    return renderRoom(r, tx(r.x), ty(r.y), r.width * scale, r.height * scale, isHighlighted, scale);
   }
 
   if (obj.type === 'door' || obj.type === 'entrance' || obj.type === 'window') {

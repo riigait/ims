@@ -444,6 +444,14 @@ function wallCutawayH(
   return                     { h: ISO_STYLE.sideWallH,  alpha: ISO_STYLE.sideWallAlpha  };
 }
 
+function polygonBoundsHelper(pts: number[]) {
+  const xs = pts.filter((_, i) => i % 2 === 0);
+  const ys = pts.filter((_, i) => i % 2 !== 0);
+  const minX = Math.min(...xs), maxX = Math.max(...xs);
+  const minY = Math.min(...ys), maxY = Math.max(...ys);
+  return { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
+}
+
 interface IsoFloorResult { visual: React.ReactNode; hit: React.ReactNode; }
 
 function buildIsoFloorNodes(
@@ -490,13 +498,14 @@ function buildIsoFloorNodes(
   // Rooms (flat top-face only, used as floor zones)
   for (const obj of objects) {
     if (obj.type !== 'room') continue;
-    const rect = obj as import('@/types/floorplan').RectangleObject;
-    const pts  = rectToIsoPts({ x: rect.x, y: rect.y, w: rect.width, h: rect.height }, size, origin);
+    const room = obj as import('@/types/floorplan').PolygonRoomObject;
+    const b = polygonBoundsHelper(room.points);
+    const pts  = rectToIsoPts({ x: b.x, y: b.y, w: b.width, h: b.height }, size, origin);
     const style = OBJ_STYLE.room;
     queue.push({
-      depth: depthKey(rect.x, rect.y),
+      depth: depthKey(b.x, b.y),
       node: (
-        <Line key={`room-${plan.id}-${rect.id}`} closed listening={false} points={pts}
+        <Line key={`room-${plan.id}-${room.id}`} closed listening={false} points={pts}
           fill={style.topFill} stroke={style.topStroke} strokeWidth={0.8} opacity={0.75}
         />
       ),

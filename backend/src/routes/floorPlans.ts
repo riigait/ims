@@ -1785,7 +1785,7 @@ router.put('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
       return res.status(403).json({ error: 'This floor plan is finalized and cannot be modified.' });
     }
 
-    const { name, width, height, scale, objects, locationId, isTemplate, isApproved, buildingKey, floorNumber } = req.body;
+    const { name, width, height, scale, objects, locationId, isTemplate, isApproved, buildingKey, floorNumber, validationIgnored } = req.body;
 
     const floorPlan = await prisma.floorPlan.update({
       where: { id: req.params.id },
@@ -1799,6 +1799,7 @@ router.put('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
         ...(isApproved !== undefined && { isApproved }),
         ...(buildingKey !== undefined && { buildingKey: buildingKey || null }),
         ...(floorNumber !== undefined && { floorNumber: floorNumber ?? null }),
+        ...(validationIgnored !== undefined && { validationIgnored: Boolean(validationIgnored) }),
       },
     });
 

@@ -189,6 +189,7 @@ type RoomZone = {
   windowAngle?: number;
   snappedEdge?: 'left' | 'right' | 'top' | 'bottom';
   objectGroupId?: string;
+  placementGroupId?: string; // groups zones into a single placement unit during reflow
   fixedSize?: boolean;
 };
 
@@ -595,7 +596,7 @@ function expandAndReflow(
     };
   });
   const placementUnits = [...expanded.reduce((units, zone) => {
-    const key = zone.objectGroupId ?? zone.key;
+    const key = zone.placementGroupId ?? zone.objectGroupId ?? zone.key;
     const unit = units.get(key) ?? [];
     unit.push(zone);
     units.set(key, unit);
@@ -610,7 +611,7 @@ function expandAndReflow(
   const reflowed: RoomZone[] = [];
 
   placementUnits.forEach((unit) => {
-    const unitGap = unit.some(zone => zone.objectGroupId?.includes('restroom-group')) ? 0 : 24;
+    const unitGap = unit.some(zone => zone.placementGroupId?.includes('service-core') || zone.objectGroupId?.includes('restroom-group')) ? 0 : 24;
     const unitWidth = unit.reduce((width, zone) => width + zone.w, 0) + unitGap * (unit.length - 1);
     if (cursorX > startX && cursorX + unitWidth > startX + targetRowWidth) {
       // Don't start a new row if it would push outerBottomY past the shared wall height.
@@ -1006,18 +1007,19 @@ function buildValidatedLayoutFloorPlan(floorLabel: string, locations: Array<{ id
   const layoutVariant = createLayoutVariant();
   const usePairedRestrooms = Math.random() < 0.5;
   const restroomGroupId = `${prefix}-restroom-group`;
+  const serviceCoreGroupId = `${prefix}-service-core`;
   const reservedSpaces: RoomZone[] = usePairedRestrooms ? [
-    { key: 'reserved-male-restroom', label: 'Male Restroom', x: 1900, y: 660, w: RESTROOM_WIDTH, h: RESTROOM_HEIGHT, color: '#bfdbfe', cols: 1, doorX: 1900 + RESTROOM_WIDTH / 2, doorY: 660, objectGroupId: restroomGroupId },
-    { key: 'reserved-female-restroom', label: 'Female Restroom', x: 1900 + RESTROOM_WIDTH, y: 660, w: RESTROOM_WIDTH, h: RESTROOM_HEIGHT, color: '#fbcfe8', cols: 1, doorX: 1900 + RESTROOM_WIDTH * 1.5, doorY: 660, objectGroupId: restroomGroupId },
+    { key: 'reserved-male-restroom', label: 'Male Restroom', x: 1900, y: 660, w: RESTROOM_WIDTH, h: RESTROOM_HEIGHT, color: '#bfdbfe', cols: 1, doorX: 1900 + RESTROOM_WIDTH / 2, doorY: 660, objectGroupId: restroomGroupId, placementGroupId: serviceCoreGroupId },
+    { key: 'reserved-female-restroom', label: 'Female Restroom', x: 1900 + RESTROOM_WIDTH, y: 660, w: RESTROOM_WIDTH, h: RESTROOM_HEIGHT, color: '#fbcfe8', cols: 1, doorX: 1900 + RESTROOM_WIDTH * 1.5, doorY: 660, objectGroupId: restroomGroupId, placementGroupId: serviceCoreGroupId },
   ] : [{
-    key: 'reserved-restroom', label: 'Restroom', x: 1900, y: 660, w: RESTROOM_WIDTH, h: RESTROOM_HEIGHT, color: '#dbeafe', cols: 1, doorX: 1900 + RESTROOM_WIDTH / 2, doorY: 660,
+    key: 'reserved-restroom', label: 'Restroom', x: 1900, y: 660, w: RESTROOM_WIDTH, h: RESTROOM_HEIGHT, color: '#dbeafe', cols: 1, doorX: 1900 + RESTROOM_WIDTH / 2, doorY: 660, objectGroupId: restroomGroupId, placementGroupId: serviceCoreGroupId,
   }];
   const verticalAccess = options.verticalAccess ?? 'both';
   if (verticalAccess === 'stairs' || verticalAccess === 'both') {
-    reservedSpaces.push({ key: 'reserved-stairs', label: 'Stairs', x: 2800, y: 660, w: STAIR_LANDING_WIDTH, h: STAIR_LANDING_HEIGHT, color: '#fef3c7', cols: 1, doorX: 2800 + STAIR_LANDING_WIDTH / 2, doorY: 660, fixedSize: true });
+    reservedSpaces.push({ key: 'reserved-stairs', label: 'Stairs', x: 2800, y: 660, w: STAIR_LANDING_WIDTH, h: STAIR_LANDING_HEIGHT, color: '#fef3c7', cols: 1, doorX: 2800 + STAIR_LANDING_WIDTH / 2, doorY: 660, fixedSize: true, placementGroupId: serviceCoreGroupId });
   }
   if (verticalAccess === 'elevator' || verticalAccess === 'both') {
-    reservedSpaces.push({ key: 'reserved-elevator', label: 'Elevator', x: 3100, y: 660, w: ELEVATOR_SHAFT_WIDTH, h: ELEVATOR_SHAFT_HEIGHT, color: '#e9d5ff', cols: 1, doorX: 3100 + ELEVATOR_SHAFT_WIDTH / 2, doorY: 660, fixedSize: true });
+    reservedSpaces.push({ key: 'reserved-elevator', label: 'Elevator', x: 3100, y: 660, w: ELEVATOR_SHAFT_WIDTH, h: ELEVATOR_SHAFT_HEIGHT, color: '#e9d5ff', cols: 1, doorX: 3100 + ELEVATOR_SHAFT_WIDTH / 2, doorY: 660, fixedSize: true, placementGroupId: serviceCoreGroupId });
   }
   const layoutZones = [...zones, ...reservedSpaces];
 

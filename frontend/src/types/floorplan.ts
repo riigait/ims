@@ -25,8 +25,15 @@ export interface WallObject extends BaseFloorPlanObject {
   isFinalizedPerimeter?: boolean;
 }
 
+export interface PolygonRoomObject extends BaseFloorPlanObject {
+  type: 'room';
+  /** Flat array of world-space coords: [x0,y0, x1,y1, ...] — at least 3 points (6 numbers). */
+  points: number[];
+  color?: string;
+}
+
 export interface RectangleObject extends BaseFloorPlanObject {
-  type: 'room' | 'rack' | 'shelf';
+  type: 'rack' | 'shelf';
   x: number;
   y: number;
   width: number;
@@ -81,7 +88,7 @@ export interface InventoryMarkerObject extends BaseFloorPlanObject {
   linkedProductId?: string;
 }
 
-export type FloorPlanObject = WallObject | RectangleObject | LabelObject | DoorObject | WindowObject | EntranceObject | InventoryMarkerObject;
+export type FloorPlanObject = WallObject | PolygonRoomObject | RectangleObject | LabelObject | DoorObject | WindowObject | EntranceObject | InventoryMarkerObject;
 
 export interface FloorPlan {
   id: string;
@@ -96,6 +103,7 @@ export interface FloorPlan {
   objects?: FloorPlanObject[];
   isApproved?: boolean;
   isTemplate?: boolean;
+  validationIgnored?: boolean;
   generationScore?: number;
   buildingKey?: string | null;
   floorNumber?: number | null;
@@ -106,11 +114,35 @@ export interface FloorPlan {
 // Floor plan with objects guaranteed present — used by the editor store (GET /:id always returns full data)
 export type LoadedFloorPlan = FloorPlan & { objects: FloorPlanObject[] };
 
+// Map footprint import types
+export interface MapFootprintMeasurements {
+  areaSqM: number;
+  perimeterM: number;
+  widthM: number;
+  lengthM: number;
+  orientationDeg: number;
+}
+
+export type FootprintConfidence = 'High' | 'Medium' | 'Low';
+
+export interface BuildingFootprint {
+  coordinates: [number, number][];
+  source: 'drawn' | 'osm';
+  osmId?: string;
+  measurements: MapFootprintMeasurements;
+  confidence: FootprintConfidence;
+  warnings: string[];
+  walls: WallObject[];
+  suggestedWidth: number;
+  suggestedHeight: number;
+}
+
 // Editor state
 export interface FloorPlanEditorState {
   selectedObjectId: string | null;
-  tool: 'select' | 'wall' | 'room' | 'rack' | 'shelf' | 'stairs' | 'elevator' | 'bathroom' | 'label' | 'door' | 'window' | 'entrance' | 'marker' | 'delete';
+  tool: 'select' | 'wall' | 'room' | 'rack' | 'shelf' | 'work-surface' | 'chair' | 'cabinet' | 'drawer' | 'locker' | 'storage-box' | 'bin' | 'pallet' | 'stairs' | 'elevator' | 'bathroom' | 'label' | 'door' | 'window' | 'entrance' | 'marker' | 'delete';
   zoomLevel: number;
   panX: number;
   panY: number;
+  darkBackground: boolean;
 }

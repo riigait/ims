@@ -1,5 +1,8 @@
 import axios from 'axios';
+import type { AxiosResponse } from 'axios';
 import type { Product, Category, Location, Department, User } from '../types/inventory';
+import type { FloorPlanObject } from '../types/floorplan';
+import { upgradeLegacyRoomObjects } from '../utils/floorplanGrid';
 
 const API_BASE_URL = '/api';
 
@@ -129,25 +132,48 @@ export const stockDetailsApi = {
 };
 
 // Floor Plans
+// Auto-generated/legacy plans store rooms as rectangles; the floor-plan UI is
+// polygon-based, so upgrade rooms in every floor-plan response shape (single
+// plan, plan array, or { regenerated: plan[] }).
+const withPolygonRooms = <T extends { objects?: unknown }>(plan: T): T =>
+  plan && Array.isArray(plan.objects)
+    ? { ...plan, objects: upgradeLegacyRoomObjects(plan.objects as FloorPlanObject[]) }
+    : plan;
+
+const normalizeFloorPlanResponse = (response: AxiosResponse) => {
+  const data = response.data;
+  if (Array.isArray(data)) {
+    response.data = data.map(withPolygonRooms);
+  } else if (data && typeof data === 'object') {
+    response.data = withPolygonRooms(data);
+    if (Array.isArray(data.regenerated)) {
+      response.data = { ...response.data, regenerated: data.regenerated.map(withPolygonRooms) };
+    }
+  }
+  return response;
+};
+
 export const floorPlansApi = {
-  getAll: (summary = false) => api.get('/floor-plans', summary ? { params: { summary: 'true' } } : undefined),
-  getByLocation: (locationId: string) => api.get(`/floor-plans/by-location/${locationId}`),
-  getById: (id: string) => api.get(`/floor-plans/${id}`),
-  autoGenerate: (data?: object) => api.post('/floor-plans/auto-generate', data),
-  create: (data: object) => api.post('/floor-plans', data),
-  update: (id: string, data: object) => api.put(`/floor-plans/${id}`, data),
+  getAll: (summary = false) => api.get('/floor-plans', summary ? { params: { summary: 'true' } } : undefined).then(normalizeFloorPlanResponse),
+  getByLocation: (locationId: string) => api.get(`/floor-plans/by-location/${locationId}`).then(normalizeFloorPlanResponse),
+  getById: (id: string) => api.get(`/floor-plans/${id}`).then(normalizeFloorPlanResponse),
+  autoGenerate: (data?: object) => api.post('/floor-plans/auto-generate', data).then(normalizeFloorPlanResponse),
+  create: (data: object) => api.post('/floor-plans', data).then(normalizeFloorPlanResponse),
+  update: (id: string, data: object) => api.put(`/floor-plans/${id}`, data).then(normalizeFloorPlanResponse),
   delete: (id: string) => api.delete(`/floor-plans/${id}`),
   feedback: (id: string, data: { feedback: string; rating?: number; correctedData?: string }) =>
     api.post(`/floor-plans/${id}/feedback`, data),
-  regenerate: (id: string, data?: object) => api.post(`/floor-plans/${id}/regenerate`, data || {}),
+  regenerate: (id: string, data?: object) => api.post(`/floor-plans/${id}/regenerate`, data || {}).then(normalizeFloorPlanResponse),
   getRules: () => api.get('/floor-plans/rules'),
-  getByBuilding: (buildingKey: string) => api.get(`/floor-plans/building/${encodeURIComponent(buildingKey)}`),
+  getByBuilding: (buildingKey: string) => api.get(`/floor-plans/building/${encodeURIComponent(buildingKey)}`).then(normalizeFloorPlanResponse),
 };
 
 // Map Search
 export const mapApi = {
   search: (query: string) => api.get('/map/search', { params: { q: query } }),
   reverse: (lat: number, lng: number) => api.get('/map/reverse', { params: { lat, lng } }),
+  buildings: (south: number, west: number, north: number, east: number) =>
+    api.get('/map/buildings', { params: { south, west, north, east } }),
 };
 
 // Dashboard

@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { Plus, Trash2, MapPin, LayoutGrid, List, Edit, Sparkles, XCircle, RefreshCw, BookmarkCheck, ChevronDown, ChevronUp, Info, AlertTriangle, Layers, Lock } from 'lucide-react';
+import { Plus, Trash2, MapPin, LayoutGrid, List, Edit, Sparkles, XCircle, RefreshCw, BookmarkCheck, ChevronDown, ChevronUp, Info, AlertTriangle, Layers, Lock, Map as MapIcon } from 'lucide-react';
+import MapFootprintModal from '@/components/floorplan/MapFootprintModal';
 import { formatDate } from '@/utils/ids';
 import { floorPlansApi, departmentsApi } from '@/services/api';
 import { FloorPlan, FloorPlanObject, RectangleObject, WallObject } from '@/types/floorplan';
@@ -9,6 +10,7 @@ import Pagination from '@/components/Pagination';
 import { ALL_DEPARTMENTS_ID } from '@/constants/app';
 import { validateFloorplanObjects } from '@/utils/floorplanValidation';
 import { applyAutoFixes } from '@/utils/floorplanFixer';
+import { A4_PAGE_HEIGHT, A4_PAGE_WIDTH } from '@/utils/floorplanGrid';
 
 interface Department {
   id: string;
@@ -199,6 +201,9 @@ function outdoorWallsFor(plan: FloorPlan): WallObject[] {
 function fixedObjectsFor(plan: FloorPlan): RectangleObject[] {
   return (plan.objects ?? []).filter((obj): obj is RectangleObject => {
     if (obj.type !== 'room') return false;
+    if (!('x' in obj) || !('y' in obj) || !('width' in obj) || !('height' in obj)) return false;
+    const r = obj as unknown as RectangleObject;
+    if (typeof r.x !== 'number' || !isFinite(r.x) || typeof r.y !== 'number' || !isFinite(r.y)) return false;
     const id = obj.id.toLowerCase();
     return (
       id.includes('reserved-stairs') ||
@@ -406,7 +411,7 @@ function alignOutdoorWallsToSharedCoordinateSystem(plans: FloorPlan[], debug = f
   const candidates = plans.map((plan) => {
     const info = getBuildingInfo(plan.name);
     const walls = outdoorWallsFor(plan).map(snapOutdoorWall);
-    const bounds = boundsForWalls(walls);
+    const bounds = boundsForWalls(walls) ?? boundsForObjects(plan.objects ?? []);
     const anchors = bounds ? alignmentAnchorsForPlan(plan, bounds) : [];
     return {
       plan,
@@ -711,6 +716,7 @@ export default function FloorPlans() {
   const [departments, setDepartments] = useState<Department[]>([]);
   const [loading, setLoading] = useState(true);
   const [showAddForm, setShowAddForm] = useState(false);
+  const [showMapImportModal, setShowMapImportModal] = useState(false);
   const [addFormMode, setAddFormMode] = useState<'building' | 'standalone'>('building');
   const [searchTerm, setSearchTerm] = useState('');
   const [departmentFilter, setDepartmentFilter] = useState('');
@@ -756,8 +762,8 @@ export default function FloorPlans() {
     buildingLabel: '',
     buildingNumber: 1,
     floorNumber: 1,
-    width: 1200,
-    height: 800,
+    width: A4_PAGE_WIDTH,
+    height: A4_PAGE_HEIGHT,
     departmentId: '',
     standaloneName: '',
   });
@@ -867,8 +873,7 @@ export default function FloorPlans() {
 
   const handleAddFloorPlan = async (e: React.FormEvent) => {
     e.preventDefault();
-    const { buildingLabel, buildingNumber, floorNumber, width, height, standaloneName } = manualFormData;
-    if (width <= 0 || height <= 0) { alert('Width and height must be positive'); return; }
+    const { buildingLabel, buildingNumber, floorNumber, standaloneName } = manualFormData;
     const selectedDepartmentId = user.role === 'superadmin' ? manualFormData.departmentId : (currentDepartmentId ?? undefined);
     if (user.role === 'superadmin' && !selectedDepartmentId) { alert('Department is required'); return; }
 
@@ -885,8 +890,8 @@ export default function FloorPlans() {
     try {
       const response = await floorPlansApi.create({
         name,
-        width,
-        height,
+        width: A4_PAGE_WIDTH,
+        height: A4_PAGE_HEIGHT,
         scale: { pixelsPerMeter: 50 },
         objects: [],
         ...(selectedDepartmentId ? { departmentId: selectedDepartmentId } : {}),
@@ -1853,23 +1858,21 @@ export default function FloorPlans() {
               )}
 
               <div>
-                <label className="block text-sm font-medium text-[var(--text)] mb-1">Canvas Width (px)</label>
+                <label className="block text-sm font-medium text-[var(--text)] mb-1">A4 Page Width (px)</label>
                 <input
                   type="number"
-                  min={100} max={10000}
-                  value={manualFormData.width}
-                  onChange={e => setManualFormData(cur => ({ ...cur, width: parseInt(e.target.value) || 1200 }))}
-                  className="w-full px-4 py-2 border border-[var(--border)] rounded-lg bg-[var(--surface)] text-[var(--text)]"
+                  value={A4_PAGE_WIDTH}
+                  disabled
+                  className="w-full px-4 py-2 border border-[var(--border)] rounded-lg bg-[var(--surface-2)] text-[var(--text)]"
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-[var(--text)] mb-1">Canvas Height (px)</label>
+                <label className="block text-sm font-medium text-[var(--text)] mb-1">A4 Page Height (px)</label>
                 <input
                   type="number"
-                  min={100} max={10000}
-                  value={manualFormData.height}
-                  onChange={e => setManualFormData(cur => ({ ...cur, height: parseInt(e.target.value) || 800 }))}
-                  className="w-full px-4 py-2 border border-[var(--border)] rounded-lg bg-[var(--surface)] text-[var(--text)]"
+                  value={A4_PAGE_HEIGHT}
+                  disabled
+                  className="w-full px-4 py-2 border border-[var(--border)] rounded-lg bg-[var(--surface-2)] text-[var(--text)]"
                 />
               </div>
             </div>
@@ -1884,6 +1887,13 @@ export default function FloorPlans() {
               <button type="submit" className="px-4 py-2 bg-[var(--primary)] text-white rounded-lg hover:bg-[var(--primary-hover)]">
                 Create &amp; Open Editor
               </button>
+              <button
+                type="button"
+                onClick={() => setShowMapImportModal(true)}
+                className="px-4 py-2 bg-[var(--surface-2)] border border-[var(--border)] rounded-lg hover:bg-[var(--border)] flex items-center gap-2 text-sm"
+              >
+                <MapIcon size={14} /> Import From Map
+              </button>
               <button type="button" onClick={() => setShowAddForm(false)}
                 className="px-4 py-2 bg-[var(--surface-2)] rounded-lg hover:bg-[var(--border)]">
                 Cancel
@@ -1891,6 +1901,21 @@ export default function FloorPlans() {
             </div>
           </form>
         </div>
+      )}
+
+      {showMapImportModal && (
+        <MapFootprintModal
+          departmentId={user.role === 'superadmin' ? manualFormData.departmentId || undefined : currentDepartmentId ?? undefined}
+          addFormMode={addFormMode}
+          manualFormData={manualFormData}
+          onClose={() => setShowMapImportModal(false)}
+          onImported={(id) => {
+            setShowMapImportModal(false);
+            setShowAddForm(false);
+            fetchFloorPlans();
+            navigate(`/floor-plans/${id}/edit`, { state: { fromMapImport: true } });
+          }}
+        />
       )}
 
       {/* Filters */}
@@ -2505,19 +2530,23 @@ export default function FloorPlans() {
                                 </g>
                               );
                             })}
-                            {entry.walls.map((wall) => (
-                              <line
-                                key={wall.id}
-                                x1={wall.startX}
-                                y1={wall.startY}
-                                x2={wall.endX}
-                                y2={wall.endY}
-                                stroke={color}
-                                strokeWidth={Math.max(6, wall.thickness)}
-                                strokeLinecap="round"
-                                opacity={showFinalizePreview ? 0.8 : 0.62}
-                              />
-                            ))}
+                            {(entry.plan.objects ?? [])
+                              .filter((obj): obj is WallObject => obj.type === 'wall')
+                              .map((wall) => (
+                                <line
+                                  key={wall.id}
+                                  x1={wall.startX + entry.dx}
+                                  y1={wall.startY + entry.dy}
+                                  x2={wall.endX + entry.dx}
+                                  y2={wall.endY + entry.dy}
+                                  stroke={color}
+                                  strokeWidth={Math.max(4, wall.thickness * 0.6)}
+                                  strokeLinecap="round"
+                                  strokeDasharray="8 5"
+                                  opacity={0.6}
+                                />
+                              ))
+                            }
                           </g>
                         );
                       })}
@@ -2609,7 +2638,9 @@ export default function FloorPlans() {
                         <g key={`interior-${entry.plan.id}`} opacity={interiorOpacity / 100}>
                           {interiorObjs.map(obj => {
                             if (obj.type === 'room' || obj.type === 'rack' || obj.type === 'shelf') {
+                              if (!('x' in obj) || !('width' in obj) || !('height' in obj)) return null;
                               const r = obj as RectangleObject;
+                              if (!isFinite(r.x) || !isFinite(r.y)) return null;
                               const rx = r.x + dx, ry = r.y + dy;
                               const cx = rx + r.width / 2, cy = ry + (r.height ?? r.width) / 2;
                               const fontSize = Math.max(8, Math.min(r.width, r.height ?? r.width) * 0.14);
