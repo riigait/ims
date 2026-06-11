@@ -198,19 +198,26 @@ function outdoorWallsFor(plan: FloorPlan): WallObject[] {
     });
 }
 
+function isFixedCoreObject(obj: FloorPlanObject): boolean {
+  const id = obj.id.toLowerCase();
+  if (
+    id.includes('reserved-stairs') ||
+    id.includes('reserved-elevator') ||
+    /reserved-(male-|female-)?restroom/.test(id) ||
+    id.includes('reserved-column')
+  ) return true;
+  // Also match manually-placed objects by label
+  const lbl = (obj.label ?? '').toLowerCase();
+  return lbl === 'stairs' || lbl === 'elevator' || lbl === 'restroom';
+}
+
 function fixedObjectsFor(plan: FloorPlan): RectangleObject[] {
   return (plan.objects ?? []).filter((obj): obj is RectangleObject => {
-    if (obj.type !== 'room') return false;
+    if (obj.type !== 'room' && obj.type !== 'rack' && obj.type !== 'shelf') return false;
     if (!('x' in obj) || !('y' in obj) || !('width' in obj) || !('height' in obj)) return false;
     const r = obj as unknown as RectangleObject;
     if (typeof r.x !== 'number' || !isFinite(r.x) || typeof r.y !== 'number' || !isFinite(r.y)) return false;
-    const id = obj.id.toLowerCase();
-    return (
-      id.includes('reserved-stairs') ||
-      id.includes('reserved-elevator') ||
-      /reserved-(male-|female-)?restroom/.test(id) ||
-      id.includes('reserved-column')
-    );
+    return isFixedCoreObject(obj);
   });
 }
 
@@ -286,9 +293,11 @@ function alignmentAnchorsForPlan(plan: FloorPlan, bounds: OutdoorWallBox): Align
   if (buildingAnchor) anchors.push({ kind: 'building-origin', x: buildingAnchor.x, y: buildingAnchor.y });
 
   const objects = plan.objects ?? [];
-  // Prefer stairs (most stable across floors), then elevator — ID match only
+  // Prefer stairs (most stable across floors), then elevator — by reserved ID or by label
   const core = objects.find(obj => /reserved-stairs/.test(obj.id))
-    ?? objects.find(obj => /reserved-elevator/.test(obj.id));
+    ?? objects.find(obj => /reserved-elevator/.test(obj.id))
+    ?? objects.find(obj => (obj.label ?? '').toLowerCase() === 'stairs')
+    ?? objects.find(obj => (obj.label ?? '').toLowerCase() === 'elevator');
   const coreCenter = core ? anchorCenter(core) : null;
   if (coreCenter) anchors.push({ kind: 'vertical-core', ...coreCenter });
 
@@ -430,15 +439,16 @@ function alignOutdoorWallsToSharedCoordinateSystem(plans: FloorPlan[], debug = f
 
   if (candidates.length === 0) return { entries: [], previewBounds: mergeBounds([]), totalWalls: 0 };
 
-  // Pick the best anchor kind that the majority of floors share.
-  // Falls back to bbox-top-left only when nothing better is shared by all.
+  // Pick the best anchor kind available on the reference floor (floor 1), not necessarily shared by all.
+  // If floor 1 has vertical-core (stairs/elevator) we use it even if some floors don't — those fall back to bbox.
   const anchorPriority: AlignmentAnchorKind[] = ['building-origin', 'vertical-core', 'main-entrance', 'door', 'grid-column', 'bbox-top-left'];
-  const selectedKind = anchorPriority.find(kind => candidates.every(item => item.anchors.some(anchor => anchor.kind === kind))) ?? 'bbox-top-left';
 
-  // Reference floor: prefer floor 1 with the best anchor; else first floor with any anchor.
-  const reference = candidates.find(item => item.floorNumber === 1 && item.anchors.some(a => a.kind === selectedKind))
-    ?? candidates.find(item => item.anchors.some(a => a.kind === selectedKind))
-    ?? candidates[0];
+  // Reference floor: prefer floor 1; fall back to lowest-numbered floor.
+  const reference = candidates.find(item => item.floorNumber === 1)
+    ?? candidates.reduce((a, b) => a.floorNumber <= b.floorNumber ? a : b);
+
+  // Use the best anchor the reference floor offers.
+  const selectedKind = anchorPriority.find(kind => reference.anchors.some(a => a.kind === kind)) ?? 'bbox-top-left';
   const refBestAnchor = (kind: AlignmentAnchorKind) => reference.anchors.find(a => a.kind === kind);
   // Shared target point — use the best anchor kind available on the reference floor.
   const sharedAnchor = refBestAnchor(selectedKind) ?? reference.anchors[reference.anchors.length - 1];
@@ -503,6 +513,71 @@ function alignOutdoorWallsToSharedCoordinateSystem(plans: FloorPlan[], debug = f
       fixedObjects,
     };
   }).sort((a, b) => a.floorNumber - b.floorNumber);
+
+  // Secondary pass: pixel-perfect stack of stairs/elevator/restroom across floors.
+  // Uses the lowest-numbered floor that has fixed core objects as the stacking
+  // reference. Applies exact center-to-center delta — no grid rounding.
+  const coreKindOf = (obj: RectangleObject): 'stairs' | 'elevator' | 'restroom' | null => {
+    const lbl = (obj.label ?? '').toLowerCase();
+    const id = obj.id.toLowerCase();
+    if (lbl === 'stairs' || id.includes('reserved-stairs')) return 'stairs';
+    if (lbl === 'elevator' || id.includes('reserved-elevator')) return 'elevator';
+    if (lbl === 'restroom' || /reserved-(male-|female-)?restroom/.test(id)) return 'restroom';
+    return null;
+  };
+  const centerOf = (obj: RectangleObject) => ({
+    x: obj.x + obj.width / 2,
+    y: obj.y + (obj.height ?? 0) / 2,
+  });
+
+  // Find reference entry — lowest floor number that actually has core fixed objects
+  const stackRefEntry = entries.find(e => e.fixedObjects.some(o => coreKindOf(o) !== null))
+    ?? entries[0];
+
+  // centroidOf: average center of all objects of a given kind on an entry
+  const centroidOf = (objs: RectangleObject[], kind: 'stairs' | 'elevator' | 'restroom') => {
+    const matching = objs.filter(o => coreKindOf(o) === kind);
+    if (matching.length === 0) return null;
+    const cx = matching.reduce((s, o) => s + centerOf(o).x, 0) / matching.length;
+    const cy = matching.reduce((s, o) => s + centerOf(o).y, 0) / matching.length;
+    return { x: cx, y: cy };
+  };
+
+  if (stackRefEntry) {
+    for (const entry of entries) {
+      if (entry === stackRefEntry) continue;
+      if (entry.fixedObjects.length === 0) continue;
+
+      // Align using centroid-to-centroid of same-kind groups.
+      // Priority: elevator (single object, most precise) > stairs > restroom.
+      const kinds: Array<'stairs' | 'elevator' | 'restroom'> = ['elevator', 'stairs', 'restroom'];
+      let best: { dx: number; dy: number } | null = null;
+      for (const kind of kinds) {
+        const srcC = centroidOf(entry.fixedObjects, kind);
+        const refC = centroidOf(stackRefEntry.fixedObjects, kind);
+        if (srcC && refC) {
+          best = { dx: refC.x - srcC.x, dy: refC.y - srcC.y };
+          break;
+        }
+      }
+
+      if (best && (Math.abs(best.dx) > 0.01 || Math.abs(best.dy) > 0.01)) {
+        const { dx: bdx, dy: bdy } = best;
+        entry.dx += bdx;
+        entry.dy += bdy;
+        // Move walls by the exact delta — do NOT re-snap, or the correction is lost
+        entry.walls = entry.walls.map(w => ({
+          ...w,
+          startX: w.startX + bdx,
+          startY: w.startY + bdy,
+          endX: w.endX + bdx,
+          endY: w.endY + bdy,
+        }));
+        entry.fixedObjects = entry.fixedObjects.map(o => ({ ...o, x: o.x + bdx, y: o.y + bdy }));
+        entry.alignedBounds = boundsForWalls(entry.walls) ?? entry.alignedBounds;
+      }
+    }
+  }
 
   return {
     entries,

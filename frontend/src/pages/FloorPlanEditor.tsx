@@ -210,6 +210,13 @@ export default function FloorPlanEditor() {
   const [selectRectStart, setSelectRectStart] = useState<{ x: number; y: number } | null>(null);
   const [selectRectEnd, setSelectRectEnd] = useState<{ x: number; y: number } | null>(null);
 
+  // Wall merge mode
+  const [wallMergeMode, setWallMergeMode] = useState(false);
+  const [wallMergePreview, setWallMergePreview] = useState<{ x1: number; y1: number; x2: number; y2: number } | null>(null);
+
+  // Anchor floor: fixed objects (stairs/elevator/restroom) from floor 1 of the same building
+  const [anchorFloorObjects, setAnchorFloorObjects] = useState<FloorPlanObject[]>([]);
+
   // Validation
   const [validationErrors, setValidationErrors] = useState<FloorplanValidationResult['errors']>([]);
   const [issuesIgnored, setIssuesIgnored] = useState(false);
@@ -299,7 +306,10 @@ export default function FloorPlanEditor() {
 
       if (e.key === 'Escape') {
         e.preventDefault();
-        if (wallChain.length > 0) {
+        if (wallMergeMode) {
+          setWallMergeMode(false);
+          setWallMergePreview(null);
+        } else if (wallChain.length > 0) {
           setWallChain([]);
           setStartPos(null);
           setCurrentMousePos(null);
@@ -485,6 +495,8 @@ export default function FloorPlanEditor() {
       setRoomPolyChain([]);
       setRoomWallSnapPoint(null);
     }
+    setWallMergeMode(false);
+    setWallMergePreview(null);
   }, [editorState.tool]);
 
   const loadFloorPlan = async () => {
@@ -499,6 +511,24 @@ export default function FloorPlanEditor() {
       };
       setCurrentFloorPlan(plan);
       setIssuesIgnored(!!plan.validationIgnored);
+
+      // Load anchor floor (floor 1) fixed objects for alignment when editing upper floors
+      if (plan.buildingKey && plan.floorNumber && plan.floorNumber > 1) {
+        try {
+          const allRes = await floorPlansApi.getAll(false);
+          const floor1 = (allRes.data as import('@/types/floorplan').FloorPlan[]).find(
+            p => p.buildingKey === plan.buildingKey && (p.floorNumber ?? 1) === 1 && p.id !== plan.id,
+          );
+          if (floor1?.objects) {
+            const fixed = floor1.objects.filter(o => {
+              const lbl = (o.label ?? '').toLowerCase();
+              return lbl === 'stairs' || lbl === 'elevator' || lbl === 'restroom';
+            });
+            setAnchorFloorObjects(fixed);
+          }
+        } catch { /* non-critical */ }
+      }
+
       return plan;
     } catch {
       alert('Failed to load floor plan');
@@ -1611,6 +1641,44 @@ export default function FloorPlanEditor() {
     return null;
   };
 
+  // Snap to center of nearest stairs/elevator/restroom object (current floor + anchor floor)
+  const SNAP_TO_FIXED_RADIUS = 28;
+  const getFixedObjectSnapPoint = (x: number, y: number): { x: number; y: number } | null => {
+    const allObjs = [
+      ...(currentFloorPlan?.objects ?? []),
+      ...anchorFloorObjects,
+    ];
+    let best: { x: number; y: number } | null = null;
+    let bestDist = SNAP_TO_FIXED_RADIUS;
+    for (const obj of allObjs) {
+      const lbl = (obj.label ?? '').toLowerCase();
+      if (lbl !== 'stairs' && lbl !== 'elevator' && lbl !== 'restroom') continue;
+      if (obj.type !== 'rack' && obj.type !== 'shelf') continue;
+      const rect = obj as RectangleObject;
+      const cx = rect.x + rect.width / 2;
+      const cy = rect.y + rect.height / 2;
+      const d = dist(x, y, cx, cy);
+      if (d < bestDist) { bestDist = d; best = { x: cx, y: cy }; }
+    }
+    return best;
+  };
+
+  // Given two walls, return the two endpoints that form the merged wall (outer endpoints)
+  const getMergedWallEndpoints = (
+    a: WallObject,
+    b: WallObject,
+  ): { x1: number; y1: number; x2: number; y2: number } => {
+    const d11 = dist(a.startX, a.startY, b.startX, b.startY);
+    const d12 = dist(a.startX, a.startY, b.endX,   b.endY  );
+    const d21 = dist(a.endX,   a.endY,   b.startX, b.startY);
+    const d22 = dist(a.endX,   a.endY,   b.endX,   b.endY  );
+    const minD = Math.min(d11, d12, d21, d22);
+    if (minD === d11) return { x1: a.endX,   y1: a.endY,   x2: b.endX,   y2: b.endY   };
+    if (minD === d12) return { x1: a.endX,   y1: a.endY,   x2: b.startX, y2: b.startY };
+    if (minD === d21) return { x1: a.startX, y1: a.startY, x2: b.endX,   y2: b.endY   };
+    return               { x1: a.startX, y1: a.startY, x2: b.startX, y2: b.startY };
+  };
+
   const getWallAngle = (wall: WallObject) =>
     Math.atan2(wall.endY - wall.startY, wall.endX - wall.startX);
 
@@ -1797,6 +1865,37 @@ export default function FloorPlanEditor() {
       return;
     }
 
+    // Wall merge mode: next wall click completes the merge
+    if (wallMergeMode && editorState.selectedObjectId) {
+      const sourceWall = currentFloorPlan?.objects.find(o => o.id === editorState.selectedObjectId) as WallObject | undefined;
+      if (sourceWall?.type === 'wall') {
+        const targetWall = getWallAtPoint(pos.x, pos.y);
+        if (targetWall && targetWall.id !== sourceWall.id) {
+          const merged = getMergedWallEndpoints(sourceWall, targetWall);
+          const wallColor = editorState.darkBackground ? '#e2e8f0' : '#1e293b';
+          const newWall: WallObject = {
+            id: 'wall_' + Date.now(),
+            type: 'wall',
+            startX: merged.x1,
+            startY: merged.y1,
+            endX: merged.x2,
+            endY: merged.y2,
+            thickness: WALL_THICKNESS,
+            color: sourceWall.color ?? wallColor,
+            wallType: sourceWall.wallType,
+          };
+          deleteObject(sourceWall.id);
+          deleteObject(targetWall.id);
+          addObject(newWall);
+          setSelectedObject(newWall.id);
+          useFloorPlanStore.getState().pushHistory();
+        }
+      }
+      setWallMergeMode(false);
+      setWallMergePreview(null);
+      return;
+    }
+
     if (editorState.tool === 'select') {
       const currentSelectedObj = editorState.selectedObjectId ? currentFloorPlan?.objects.find(o => o.id === editorState.selectedObjectId) : null;
 
@@ -1939,7 +2038,8 @@ export default function FloorPlanEditor() {
     } else if (editorState.tool === 'wall') {
       // Continuous chain: first click starts, subsequent clicks add segments, double-click finishes
       const snapped = gridPoint(pos.x, pos.y, !e.altKey);
-      const ep = getSnappedWallEndpoint(snapped.x, snapped.y);
+      const fixedSnap = getFixedObjectSnapPoint(snapped.x, snapped.y);
+      const ep = fixedSnap ?? getSnappedWallEndpoint(snapped.x, snapped.y);
       const pt = ep ? gridPoint(ep.x, ep.y, !e.altKey) : snapped;
       (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
       if (wallChain.length === 0) {
@@ -2125,13 +2225,27 @@ export default function FloorPlanEditor() {
       generatePagesForDraggedObjects();
       removeEmptyOuterPages(true);
     }
+    // Wall merge mode: update live preview as user hovers
+    if (wallMergeMode && editorState.selectedObjectId) {
+      const sourceWall = currentFloorPlan?.objects.find(o => o.id === editorState.selectedObjectId) as WallObject | undefined;
+      if (sourceWall?.type === 'wall') {
+        const targetWall = getWallAtPoint(pos.x, pos.y);
+        if (targetWall && targetWall.id !== sourceWall.id) {
+          setWallMergePreview(getMergedWallEndpoints(sourceWall, targetWall));
+        } else {
+          setWallMergePreview(null);
+        }
+      }
+    }
+
     if (startPos) {
       // Apply snap for grid-drawn objects. Openings are projected onto walls on release.
       let snappedPos = pos;
       if (editorState.tool === 'wall') {
         snappedPos = gridPoint(pos.x, pos.y, !e.altKey);
-        // Then check for endpoint snap (endpoint snap takes precedence)
-        const endpointSnap = getSnappedWallEndpoint(pos.x, pos.y);
+        // Fixed-object snap takes highest priority, then wall endpoint snap
+        const fixedSnap = getFixedObjectSnapPoint(pos.x, pos.y);
+        const endpointSnap = fixedSnap ?? getSnappedWallEndpoint(pos.x, pos.y);
         if (endpointSnap) snappedPos = gridPoint(endpointSnap.x, endpointSnap.y, !e.altKey);
       } else if (editorState.tool === 'room') {
         snappedPos = gridPoint(pos.x, pos.y, !e.altKey);
@@ -2363,6 +2477,7 @@ export default function FloorPlanEditor() {
 
   const getCursor = () => {
     if (isPanning) return 'cursor-grabbing';
+    if (wallMergeMode) return 'cursor-crosshair';
     if (wallEndpointDragging) return 'cursor-grabbing';
     if (isRotating || isGroupRotating) return 'cursor-crosshair';
     if (isResizing) return getResizeCursor();
@@ -2932,12 +3047,68 @@ export default function FloorPlanEditor() {
     );
   };
 
+  // Faint ghost of anchor floor's restroom/stairs/elevator to aid vertical alignment
+  const renderAnchorFloorGhosts = () => {
+    if (anchorFloorObjects.length === 0) return null;
+    return anchorFloorObjects.map(obj => {
+      if (obj.type !== 'rack' && obj.type !== 'shelf') return null;
+      const rect = obj as RectangleObject;
+      const lbl = (obj.label ?? '').toLowerCase();
+      const ghostColor = lbl === 'stairs' ? '#fde68a' : lbl === 'elevator' ? '#d8b4fe' : '#bfdbfe';
+      return (
+        <Group key={`anchor-ghost-${obj.id}`} opacity={0.28} listening={false}>
+          <KonvaRect
+            x={rect.x} y={rect.y} width={rect.width} height={rect.height}
+            fill={ghostColor} stroke="#94a3b8" strokeWidth={1.5} dash={[6, 3]}
+            cornerRadius={3}
+          />
+          <KonvaText
+            x={rect.x + 2} y={rect.y + rect.height / 2 - 6}
+            width={rect.width - 4} text={`F1 ${obj.label ?? ''}`}
+            fontSize={9} fill="#64748b" align="center" listening={false}
+          />
+        </Group>
+      );
+    });
+  };
+
+  // Dashed orange preview line for wall merge mode
+  const renderMergePreview = () => {
+    if (!wallMergeMode) return null;
+    // Highlight the source wall
+    const sourceWall = editorState.selectedObjectId
+      ? (currentFloorPlan?.objects.find(o => o.id === editorState.selectedObjectId) as WallObject | undefined)
+      : undefined;
+    const nodes: React.ReactNode[] = [];
+    if (sourceWall?.type === 'wall') {
+      nodes.push(
+        <Line key="merge-source-highlight"
+          points={[sourceWall.startX, sourceWall.startY, sourceWall.endX, sourceWall.endY]}
+          stroke="#f59e0b" strokeWidth={WALL_THICKNESS + 4} opacity={0.35} lineCap="round"
+        />,
+      );
+    }
+    if (wallMergePreview) {
+      const { x1, y1, x2, y2 } = wallMergePreview;
+      nodes.push(
+        <Line key="merge-preview-line"
+          points={[x1, y1, x2, y2]}
+          stroke="#22d3ee" strokeWidth={WALL_THICKNESS} dash={[8, 5]} opacity={0.75} lineCap="round"
+        />,
+        <Circle key="merge-preview-pt1" x={x1} y={y1} radius={5} fill="#22d3ee" opacity={0.85} />,
+        <Circle key="merge-preview-pt2" x={x2} y={y2} radius={5} fill="#22d3ee" opacity={0.85} />,
+      );
+    }
+    return nodes;
+  };
+
   const renderLivePreview = () => {
-    if (editorState.tool === 'room') return renderRoomChainPreview();
-    if (!startPos || !currentMousePos) return null;
+    const mergeNodes = renderMergePreview();
+    if (editorState.tool === 'room') return <>{mergeNodes}{renderRoomChainPreview()}</>;
+    if (!startPos || !currentMousePos) return mergeNodes ? <>{mergeNodes}</> : null;
 
     if (editorState.tool === 'wall') {
-      return <Line points={[startPos.x, startPos.y, currentMousePos.x, currentMousePos.y]} stroke="#334155" strokeWidth={WALL_THICKNESS} dash={[6, 4]} opacity={0.55} lineCap="round" />;
+      return <><>{mergeNodes}</><Line points={[startPos.x, startPos.y, currentMousePos.x, currentMousePos.y]} stroke="#334155" strokeWidth={WALL_THICKNESS} dash={[6, 4]} opacity={0.55} lineCap="round" /></>;
     }
 
     if (RECT_DRAWING_TOOLS.filter(t => t !== 'room').includes(editorState.tool)) {
@@ -3289,6 +3460,7 @@ export default function FloorPlanEditor() {
             >
               <Layer listening={false}>
                 <Group>
+                  {renderAnchorFloorGhosts()}
                   {currentFloorPlan.objects.map(renderKonvaObject)}
                   {renderGroupBounds()}
                   {renderLivePreview()}
@@ -3497,7 +3669,7 @@ export default function FloorPlanEditor() {
                   </>;
                 })()}
 
-                {/* Wall: thickness */}
+                {/* Wall: thickness + join */}
                 {selectedObject.type === 'wall' && (() => {
                   const wall = selectedObject as WallObject;
                   const length = Math.sqrt((wall.endX - wall.startX) ** 2 + (wall.endY - wall.startY) ** 2);
@@ -3515,6 +3687,21 @@ export default function FloorPlanEditor() {
                       <input type="number" value={WALL_THICKNESS} disabled
                         className="w-full px-2.5 py-1.5 border rounded text-sm text-[var(--text)] bg-[var(--surface-2)] border-[var(--border)]" />
                     </div>
+                    {!isReadOnly && !isFixedFloorObject(wall) && (
+                      <div>
+                        <button
+                          onClick={() => { setWallMergeMode(m => !m); setWallMergePreview(null); }}
+                          className={`w-full px-3 py-2 rounded text-xs font-medium transition-colors ${wallMergeMode ? 'bg-cyan-500 text-white' : 'bg-[var(--surface-2)] text-cyan-600 border border-cyan-400 hover:bg-cyan-50'}`}
+                        >
+                          {wallMergeMode ? '⬡ Click target wall to merge…' : 'Join Wall'}
+                        </button>
+                        {wallMergeMode && (
+                          <p className="text-[10px] text-[var(--text-muted)] mt-1 leading-tight">
+                            Hover a second wall to preview, click to merge. Snaps to stairs/elevator/restroom. Esc to cancel.
+                          </p>
+                        )}
+                      </div>
+                    )}
                   </>;
                 })()}
 
