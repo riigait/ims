@@ -164,9 +164,18 @@ function translateOutdoorWallsToSharedAnchor(
 
   const alignedBounds = outdoorWallBounds(alignedWalls);
 
+  // Translate the interior by the same delta as the walls so the floor stays
+  // internally consistent in the shared building space — rooms, cores, and
+  // fixtures keep their footprint-relative positions on every floor.
+  const movedInterior = translateFloorPlanObjects(
+    objects.filter((object) => !isOutdoorWallObject(object)),
+    dx,
+    dy,
+  );
+
   return {
     objects: [
-      ...objects.filter((object) => !isOutdoorWallObject(object)),
+      ...movedInterior,
       ...alignedWalls,
     ],
     selectedAnchor,
@@ -177,6 +186,19 @@ function translateOutdoorWallsToSharedAnchor(
     wallCountBefore: originalWalls.length,
     wallCountAfter: alignedWalls.length,
   };
+}
+
+function translateFloorPlanObjects(objects: FloorPlanObject[], dx: number, dy: number): FloorPlanObject[] {
+  if (dx === 0 && dy === 0) return objects;
+  return objects.map((object) => ({
+    ...object,
+    x: object.x + dx,
+    y: object.y + dy,
+    ...(object.startX !== undefined ? { startX: object.startX + dx } : {}),
+    ...(object.endX !== undefined ? { endX: object.endX + dx } : {}),
+    ...(object.startY !== undefined ? { startY: object.startY + dy } : {}),
+    ...(object.endY !== undefined ? { endY: object.endY + dy } : {}),
+  }));
 }
 
 function centerFloorPlanObjects(objects: FloorPlanObject[], width: number, height: number): FloorPlanObject[] {
@@ -1224,6 +1246,7 @@ router.post('/auto-generate', async (req: AuthRequest, res: Response, next: Next
         let sharedRestrooms = preservedFixed.filter(isRestroomObject).map((object) => ({ ...object }));
 
         const generatedFloorCount = floorCount + (addRooftopFloor ? 1 : 0);
+        const pendingFloors: Array<{ name: string; templateName: string; floorNumber: number; objects: FloorPlanObject[] }> = [];
         for (let floorIndex = 0; floorIndex < generatedFloorCount; floorIndex++) {
           const isRooftop = addRooftopFloor && floorIndex === floorCount;
           const templateName = isRooftop ? 'Rooftop' : floorTemplates[floorIndex];
@@ -1312,24 +1335,53 @@ router.post('/auto-generate', async (req: AuthRequest, res: Response, next: Next
           }
 
           objects = resolveIndoorObjectOverlaps(objects);
-          const templateType = determineTemplateType(templateName);
+          pendingFloors.push({ name, templateName, floorNumber, objects });
+        }
+
+        // Normalize the whole building at once: floors are anchor-aligned in a
+        // shared coordinate space, so apply one common shift into positive
+        // canvas space and one shared canvas size. Per-floor shifts would
+        // un-stack the cores again.
+        const CANVAS_MARGIN = 60;
+        let bMinX = Infinity;
+        let bMinY = Infinity;
+        let bMaxX = -Infinity;
+        let bMaxY = -Infinity;
+        for (const floor of pendingFloors) {
+          for (const object of floor.objects) {
+            const b = objectBounds(object);
+            bMinX = Math.min(bMinX, b.minX);
+            bMinY = Math.min(bMinY, b.minY);
+            bMaxX = Math.max(bMaxX, b.maxX);
+            bMaxY = Math.max(bMaxY, b.maxY);
+          }
+        }
+        const hasContent = Number.isFinite(bMinX) && Number.isFinite(bMinY);
+        const shiftX = hasContent ? Math.round((CANVAS_MARGIN - bMinX) / 20) * 20 : 0;
+        const shiftY = hasContent ? Math.round((CANVAS_MARGIN - bMinY) / 20) * 20 : 0;
+        const planWidth = hasContent ? Math.max(GENERATED_FLOOR_WIDTH, Math.ceil(bMaxX - bMinX) + CANVAS_MARGIN * 2) : GENERATED_FLOOR_WIDTH;
+        const planHeight = hasContent ? Math.max(GENERATED_FLOOR_HEIGHT, Math.ceil(bMaxY - bMinY) + CANVAS_MARGIN * 2) : GENERATED_FLOOR_HEIGHT;
+
+        for (const floor of pendingFloors) {
+          const objects = translateFloorPlanObjects(floor.objects, shiftX, shiftY);
+          const templateType = determineTemplateType(floor.templateName);
           const validation = validateGeneratedFloorPlan(objects, templateType);
           const floorPlan = await prisma.floorPlan.create({
             data: {
-              name,
-              width: GENERATED_FLOOR_WIDTH,
-              height: GENERATED_FLOOR_HEIGHT,
+              name: floor.name,
+              width: planWidth,
+              height: planHeight,
               departmentId,
               generationScore: validation.score,
               planJson: JSON.stringify(objects),
               buildingKey,
-              floorNumber,
+              floorNumber: floor.floorNumber,
             },
           });
           await prisma.floorPlanGenerationLog.create({
             data: {
               floorPlanId: floorPlan.id,
-              templateUsed: templateName,
+              templateUsed: floor.templateName,
               score: validation.score,
               validationResult: JSON.stringify(validation),
             },

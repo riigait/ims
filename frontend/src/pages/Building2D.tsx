@@ -28,6 +28,9 @@ const ISO_TH           = 1.4;
 const ISO_FLOOR_SEP    = 90;    // gap between floors in All mode
 const ISO_BUILDING_SEP = 520;
 const ISO_PLAN_SIZE    = 480;   // iso footprint side in screen px
+// Screen px produced by one full plan-dimension along an iso footprint edge.
+const ISO_EDGE_SCALE   = Math.hypot(ISO_PLAN_SIZE * ISO_TW / 2, ISO_PLAN_SIZE * ISO_TH / 2);
+const MIN_OBJ_EDGE_PX  = 16;    // minimum projected edge for racks/shelves
 const ISO_WALL_H       = 28;    // extruded wall face height in px
 
 // ─── iso visual style constants ───────────────────────────────────────────────
@@ -563,9 +566,18 @@ function buildIsoFloorNodes(
     if (obj.type !== 'rack' && obj.type !== 'shelf') continue;
     const rect  = obj as import('@/types/floorplan').RectangleObject;
     const style = OBJ_STYLE[rect.type];
-    const topPts = rectToIsoPts({ x: rect.x, y: rect.y, w: rect.width, h: rect.height }, size, origin);
+    // Boost sub-legible footprints: every projected edge renders at least
+    // MIN_OBJ_EDGE_PX so thin objects read as boxes instead of slivers.
+    // Inflated around center; the real object data is untouched.
+    const minW = (MIN_OBJ_EDGE_PX / ISO_EDGE_SCALE) * planW;
+    const minH = (MIN_OBJ_EDGE_PX / ISO_EDGE_SCALE) * planH;
+    const drawW = Math.max(rect.width, minW);
+    const drawH = Math.max(rect.height, minH);
+    const drawX = rect.x - (drawW - rect.width) / 2;
+    const drawY = rect.y - (drawH - rect.height) / 2;
+    const topPts = rectToIsoPts({ x: drawX, y: drawY, w: drawW, h: drawH }, size, origin);
     const { left: leftFace, right: rightFace } = extrudedFaces(
-      rect.x, rect.y, rect.width, rect.height, planW, planH, ox, oy, style.zH
+      drawX, drawY, drawW, drawH, planW, planH, ox, oy, style.zH
     );
     // Lift top face by zH
     const liftedTop = [];
@@ -791,18 +803,32 @@ export default function Building2D() {
   }, []);
 
   const buildings = useMemo<BuildingGroup[]>(() => {
-    const map = new Map<string, FloorPlan[]>();
+    const map = new Map<string, { label: string; floors: FloorPlan[] }>();
     for (const p of allPlans) {
-      if (!p.buildingKey) continue;
-      const list = map.get(p.buildingKey) ?? [];
-      list.push(p);
-      map.set(p.buildingKey, list);
+      let key = p.buildingKey ?? null;
+      let label: string | null = null;
+      let plan = p;
+      if (!key) {
+        // Manual buildings have no buildingKey column — derive identity and
+        // floor number from the "(Auto|Manual) - … - Building N - Floor M - …"
+        // name pattern, like the FloorPlans merge flow does.
+        const m = p.name.match(/^((?:Auto|Manual) - .+ - Building \d+) - Floor (\d+) - /);
+        if (!m) continue;
+        key = `name:${m[1]}`;
+        label = m[1].replace(/^(?:Auto|Manual) - /, '');
+        plan = { ...p, floorNumber: p.floorNumber ?? Number(m[2]) };
+      }
+      const entry = map.get(key) ?? {
+        label: label ?? `Building ${key.replace(/^dept-[^-]+-building-/, '')}`,
+        floors: [],
+      };
+      entry.floors.push(plan);
+      map.set(key, entry);
     }
     return Array.from(map.entries())
-      .map(([key, floors]) => {
+      .map(([key, { label, floors }]) => {
         const sorted = [...floors].sort((a, b) => (a.floorNumber ?? 0) - (b.floorNumber ?? 0));
-        const num = key.replace(/^dept-[^-]+-building-/, '');
-        return { key, label: `Building ${num}`, floors: sorted,
+        return { key, label, floors: sorted,
           maxFloor: Math.max(...sorted.map(f => f.floorNumber ?? 1)) };
       })
       .sort((a, b) => a.key.localeCompare(b.key));
@@ -1060,7 +1086,7 @@ export default function Building2D() {
 
   // ── stats ─────────────────────────────────────────────────────────────────────
   const totalFinalized = allPlans.filter(p => p.isApproved).length;
-  const trackedFloors  = allPlans.filter(p => p.buildingKey).length;
+  const trackedFloors  = buildings.reduce((sum, b) => sum + b.floors.length, 0);
   const avgScore = useMemo(() => {
     const scored = allPlans.filter(p => p.generationScore != null);
     if (!scored.length) return null;

@@ -3911,11 +3911,16 @@ export default function FloorPlanEditor() {
                   const wFrac = rect.width / planW;
                   const hFrac = rect.height / planH;
                   const minFrac = Math.min(wFrac, hFrac);
+                  // Mirrors Building2D's iso projection (480px footprint, 2.8:1.4
+                  // tile): a plan-dimension fraction projects to ≈ frac × 751 px.
+                  // Below ~16px the iso view auto-boosts the footprint, so nothing
+                  // is ever invisible — the badge just reflects fidelity.
+                  const isoEdgePx = minFrac * 751;
                   let visLabel: string;
                   let visColor: string;
-                  if (minFrac >= 0.15) { visLabel = 'Great in iso'; visColor = 'text-green-600'; }
-                  else if (minFrac >= 0.08) { visLabel = 'OK in iso'; visColor = 'text-yellow-600'; }
-                  else { visLabel = 'Too small for iso'; visColor = 'text-red-500'; }
+                  if (isoEdgePx >= 48) { visLabel = 'Great in iso'; visColor = 'text-green-600'; }
+                  else if (isoEdgePx >= 20) { visLabel = 'OK in iso'; visColor = 'text-yellow-600'; }
+                  else { visLabel = 'Small — auto-boosted in iso'; visColor = 'text-amber-500'; }
                   return <div className="space-y-2">
                     <div className="grid grid-cols-2 gap-2">
                       <div>
