@@ -5,14 +5,13 @@ import {
   ArrowLeft, Save, Trash2, Move, Box, Package,
   Minus, PenTool, ArrowUpDown, Droplets, AppWindow, ArrowRightFromLine,
   Table2, Armchair, BookMarked, GalleryHorizontalEnd, LockKeyhole, Archive, Container, Layers2,
-  Type, ZoomIn, ZoomOut, MapPin, AlertTriangle, CheckCircle, XCircle,
+  Type, ZoomIn, ZoomOut, MapPin, AlertTriangle, CheckCircle, XCircle, User,
   ChevronsUp, ChevronsDown, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, DoorOpen, Search, X as XIcon,
 } from 'lucide-react';
 import { floorPlansApi, locationsApi, productsApi } from '@/services/api';
 import { useFloorPlanStore } from '@/services/floorPlanStore';
 import { FloorPlanObject, WallObject, PolygonRoomObject, RectangleObject, LabelObject, DoorObject, WindowObject, EntranceObject, InventoryMarkerObject } from '@/types/floorplan';
-import { getDoorClearanceZone, validateFloorplanObjects, FloorplanValidationResult } from '@/utils/floorplanValidation';
-import { applyAutoFixes } from '@/utils/floorplanFixer';
+import type { FloorplanValidationResult } from '@/utils/floorplanValidation';
 import {
   DEFAULT_OBJECT_SIZES,
   A4_PAGE_HEIGHT,
@@ -52,6 +51,25 @@ const STATUS_COLORS: Record<StockStatus, { fill: string; stroke: string; badge: 
   unlinked: { fill: 'rgba(209,213,219,0.2)',  stroke: '#9ca3af', badge: '#9ca3af' },
 };
 
+function getDoorClearanceBounds(door: DoorObject | EntranceObject) {
+  const halfWidth = door.width / 2;
+  const halfDepth = 46;
+  const cos = Math.cos(door.angle);
+  const sin = Math.sin(door.angle);
+  const corners = [
+    [-halfWidth, -halfDepth],
+    [halfWidth, -halfDepth],
+    [halfWidth, halfDepth],
+    [-halfWidth, halfDepth],
+  ].map(([x, y]) => [
+    door.x + x * cos - y * sin,
+    door.y + x * sin + y * cos,
+  ]);
+  const xs = corners.map(([x]) => x);
+  const ys = corners.map(([, y]) => y);
+  return { left: Math.min(...xs), right: Math.max(...xs), top: Math.min(...ys), bottom: Math.max(...ys) };
+}
+
 // SVG path data (24×24 viewBox) for each object type, used to render an icon
 // inside placed objects on the Konva canvas. Paths extracted from lucide-react.
 const OBJECT_ICON_PATH: Record<string, string> = {
@@ -71,6 +89,8 @@ const OBJECT_ICON_PATH: Record<string, string> = {
   elevator:       'M5 4h14a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1z M12 8l-3 3h6l-3-3z M12 16l3-3H9l3 3z',
   // Restroom: person silhouette + water drop (universal WC symbol approximation)
   bathroom:       'M12 3a2 2 0 1 0 0 4 2 2 0 0 0 0-4z M8 21v-8H6l3-6h6l3 6h-2v8H8z',
+  // Human scale reference: simple person silhouette
+  human:          'M12 2a4 4 0 1 0 0 8 4 4 0 0 0 0-8z M6 21v-2a6 6 0 0 1 12 0v2',
 };
 
 const DEFAULT_RECT_FILL: Record<string, string> = {
@@ -85,16 +105,17 @@ const DEFAULT_RECT_FILL: Record<string, string> = {
   'storage-box':'#fca5a5', // red-200
   bin:          '#d1d5db', // gray-300
   pallet:       '#fed7aa', // orange-200
+  human:        '#bfdbfe', // blue-200 (reference marker — stands out but not alarming)
   stairs:       '#fde68a',
   elevator:     '#d8b4fe',
   bathroom:     '#bfdbfe',
 };
 
-const RECT_DRAWING_TOOLS = ['room', 'rack', 'shelf', 'work-surface', 'chair', 'cabinet', 'drawer', 'locker', 'storage-box', 'bin', 'pallet', 'stairs', 'elevator', 'bathroom'];
+const RECT_DRAWING_TOOLS = ['room', 'rack', 'shelf', 'work-surface', 'chair', 'cabinet', 'drawer', 'locker', 'storage-box', 'bin', 'pallet', 'stairs', 'elevator', 'bathroom', 'human'];
 // Clicking within this distance of the first room-path point closes the polygon.
 const ROOM_CLOSE_RADIUS = 14;
 // Tools that are placed at a fixed default size (single click) rather than drag-to-draw
-const PRESET_SIZE_TOOLS = ['stairs', 'elevator', 'bathroom', 'work-surface', 'chair', 'cabinet', 'drawer', 'locker', 'storage-box', 'bin', 'pallet'];
+const PRESET_SIZE_TOOLS = ['stairs', 'elevator', 'bathroom', 'work-surface', 'chair', 'cabinet', 'drawer', 'locker', 'storage-box', 'bin', 'pallet', 'human'];
 const ROOM_PRESET_LABELS: Record<string, string> = {
   stairs:         'Stairs',
   elevator:       'Elevator',
@@ -107,6 +128,7 @@ const ROOM_PRESET_LABELS: Record<string, string> = {
   'storage-box':  'Storage Box',
   bin:            'Bin',
   pallet:         'Pallet',
+  human:          'Human (scale ref)',
 };
 // Which base type (rack | shelf) each tool should create in the data model
 const STORAGE_BASE_TYPE: Record<string, 'rack' | 'shelf'> = {
@@ -120,6 +142,7 @@ const STORAGE_BASE_TYPE: Record<string, 'rack' | 'shelf'> = {
   'storage-box':  'shelf',
   bin:            'shelf',
   pallet:         'rack',
+  human:          'shelf',
 };
 
 
@@ -248,11 +271,23 @@ export default function FloorPlanEditor() {
   }, [id]);
 
   useEffect(() => {
-    if (currentFloorPlan?.objects) {
-      const result = validateFloorplanObjects(currentFloorPlan.objects);
-      setValidationErrors(result.errors);
-      if (result.errors.length > 0 && !currentFloorPlan.validationIgnored) setIssuesIgnored(false);
-    }
+    if (!currentFloorPlan?.objects) return;
+    let cancelled = false;
+    const timer = window.setTimeout(async () => {
+      try {
+        const response = await floorPlansApi.validate(currentFloorPlan.objects);
+        if (cancelled) return;
+        const errors = (response.data.errors ?? []) as FloorplanValidationResult['errors'];
+        setValidationErrors(errors);
+        if (errors.length > 0 && !currentFloorPlan.validationIgnored) setIssuesIgnored(false);
+      } catch {
+        // Keep the last successful validation result when the backend is unavailable.
+      }
+    }, 300);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
   }, [currentFloorPlan?.objects]);
 
   // Mark dirty whenever the object list changes after the initial load.
@@ -1089,6 +1124,37 @@ export default function FloorPlanEditor() {
       return;
     }
 
+    // Human scale reference object — top-down silhouette ellipse with stick figure
+    if ((obj as any).subType === 'human' || (obj as RectangleObject).label === 'Human (scale ref)') {
+      const r = obj as RectangleObject;
+      const cx = r.x + r.width / 2;
+      const cy = r.y + r.height / 2;
+      ctx.save();
+      // Filled ellipse (body footprint)
+      ctx.beginPath();
+      ctx.ellipse(cx, cy, r.width / 2, r.height / 2, 0, 0, Math.PI * 2);
+      ctx.fillStyle = isSelected ? 'rgba(37,99,235,0.2)' : 'rgba(96,165,250,0.25)';
+      ctx.fill();
+      ctx.strokeStyle = isSelected ? '#2563eb' : '#3b82f6';
+      ctx.lineWidth = isSelected ? 2 : 1.5;
+      ctx.setLineDash([3, 3]);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      // Head circle at top
+      const headR = Math.min(r.width, r.height) * 0.18;
+      ctx.beginPath();
+      ctx.arc(cx, r.y + headR + 2, headR, 0, Math.PI * 2);
+      ctx.fillStyle = isSelected ? '#2563eb' : '#3b82f6';
+      ctx.fill();
+      // Label
+      ctx.textAlign = 'center';
+      ctx.font = '9px Inter, Arial, sans-serif';
+      ctx.fillStyle = isSelected ? '#2563eb' : '#1e40af';
+      ctx.fillText('1.68 m · 90 kg', cx, r.y + r.height + 10);
+      ctx.restore();
+      return;
+    }
+
     // Rectangle objects (rack / shelf)
     const rect = obj as RectangleObject;
     const linkedId = obj.linkedLocationId;
@@ -1784,12 +1850,25 @@ export default function FloorPlanEditor() {
   };
 
   const getResizeCursor = () => {
-    if (resizeHandle === 'nw' || resizeHandle === 'se') return 'cursor-nwse-resize';
-    if (resizeHandle === 'ne' || resizeHandle === 'sw') return 'cursor-nesw-resize';
-    if (resizeHandle === 'n' || resizeHandle === 's') return 'cursor-ns-resize';
-    if (resizeHandle === 'w' || resizeHandle === 'e') return 'cursor-ew-resize';
     if (resizeHandle === 'opening-left' || resizeHandle === 'opening-right') return 'cursor-ew-resize';
-    return 'cursor-default';
+    const selectedObj = editorState.selectedObjectId
+      ? currentFloorPlan?.objects.find(o => o.id === editorState.selectedObjectId)
+      : null;
+    const rot = (selectedObj && (selectedObj.type === 'rack' || selectedObj.type === 'shelf'))
+      ? ((selectedObj as RectangleObject).rotation ?? 0)
+      : 0;
+    // Base angle for each handle in the unrotated object (degrees, 0=east, CW)
+    const baseAngles: Record<string, number> = {
+      e: 0, se: 45, s: 90, sw: 135, w: 180, nw: 225, n: 270, ne: 315,
+    };
+    if (!resizeHandle || !(resizeHandle in baseAngles)) return 'cursor-default';
+    const rotDeg = (rot * 180) / Math.PI;
+    const deg = ((baseAngles[resizeHandle] + rotDeg) % 360 + 360) % 360;
+    // Map 0–360° into 8 × 45° sectors → 4 CSS cursors
+    const sector = Math.round(deg / 45) % 8;
+    const cursors = ['cursor-ew-resize', 'cursor-nwse-resize', 'cursor-ns-resize', 'cursor-nesw-resize',
+                     'cursor-ew-resize', 'cursor-nwse-resize', 'cursor-ns-resize', 'cursor-nesw-resize'];
+    return cursors[sector];
   };
 
   const getWallEndpointAtPoint = (x: number, y: number, obj: FloorPlanObject | null): 'start' | 'end' | null => {
@@ -2165,31 +2244,93 @@ export default function FloorPlanEditor() {
       updateObject(editorState.selectedObjectId, { ...opening, width: snapToGrid(newHalf * 2) });
     }
     else if (isResizing && resizeHandle && dragStart && dragSnapshot && editorState.selectedObjectId) {
-      const dx = pos.x - dragStart.x, dy = pos.y - dragStart.y;
       const snap = dragSnapshot as RectangleObject;
-      let updates: Partial<RectangleObject> = {};
+      const angle = snap.rotation ?? 0;
+      const cosA = Math.cos(angle), sinA = Math.sin(angle);
+      const doSnap = !e.altKey;
 
-      if (resizeHandle === 'nw') {
-        updates = { x: snap.x + dx, y: snap.y + dy, width: snap.width - dx, height: snap.height - dy };
-      } else if (resizeHandle === 'ne') {
-        updates = { y: snap.y + dy, width: snap.width + dx, height: snap.height - dy };
+      // Project mouse into object local space (origin = snap top-left, axes = object local axes)
+      // Local X runs along the object's width axis, local Y along height axis.
+      const toLocal = (wx: number, wy: number) => ({
+        x:  (wx - snap.x) * cosA + (wy - snap.y) * sinA,
+        y: -(wx - snap.x) * sinA + (wy - snap.y) * cosA,
+      });
+
+      // Convert a local point back to world, with snap.x/y as origin
+      const toWorld = (lx: number, ly: number) => ({
+        x: snap.x + lx * cosA - ly * sinA,
+        y: snap.y + lx * sinA + ly * cosA,
+      });
+
+      const mouse = toLocal(pos.x, pos.y);
+
+      // For each handle: anchorL is the fixed corner in local space.
+      // We compute new width/height from (mouse - anchorL), then place
+      // the rect so anchorL stays at its original world position.
+      type Anchor = { lx: number; ly: number };
+      let anchorL: Anchor = { lx: 0, ly: 0 };
+      let newW = snap.width, newH = snap.height;
+
+      if (resizeHandle === 'se') {
+        anchorL = { lx: 0, ly: 0 };
+        newW = Math.max(GRID_SIZE, mouse.x - anchorL.lx);
+        newH = Math.max(GRID_SIZE, mouse.y - anchorL.ly);
       } else if (resizeHandle === 'sw') {
-        updates = { x: snap.x + dx, width: snap.width - dx, height: snap.height + dy };
-      } else if (resizeHandle === 'se') {
-        updates = { width: snap.width + dx, height: snap.height + dy };
-      } else if (resizeHandle === 'n') {
-        updates = { y: snap.y + dy, height: snap.height - dy };
-      } else if (resizeHandle === 's') {
-        updates = { height: snap.height + dy };
-      } else if (resizeHandle === 'w') {
-        updates = { x: snap.x + dx, width: snap.width - dx };
+        anchorL = { lx: snap.width, ly: 0 };
+        newW = Math.max(GRID_SIZE, anchorL.lx - mouse.x);
+        newH = Math.max(GRID_SIZE, mouse.y - anchorL.ly);
+      } else if (resizeHandle === 'ne') {
+        anchorL = { lx: 0, ly: snap.height };
+        newW = Math.max(GRID_SIZE, mouse.x - anchorL.lx);
+        newH = Math.max(GRID_SIZE, anchorL.ly - mouse.y);
+      } else if (resizeHandle === 'nw') {
+        anchorL = { lx: snap.width, ly: snap.height };
+        newW = Math.max(GRID_SIZE, anchorL.lx - mouse.x);
+        newH = Math.max(GRID_SIZE, anchorL.ly - mouse.y);
       } else if (resizeHandle === 'e') {
-        updates = { width: snap.width + dx };
+        anchorL = { lx: 0, ly: snap.height / 2 };
+        newW = Math.max(GRID_SIZE, mouse.x - anchorL.lx);
+      } else if (resizeHandle === 'w') {
+        anchorL = { lx: snap.width, ly: snap.height / 2 };
+        newW = Math.max(GRID_SIZE, anchorL.lx - mouse.x);
+      } else if (resizeHandle === 's') {
+        anchorL = { lx: snap.width / 2, ly: 0 };
+        newH = Math.max(GRID_SIZE, mouse.y - anchorL.ly);
+      } else if (resizeHandle === 'n') {
+        anchorL = { lx: snap.width / 2, ly: snap.height };
+        newH = Math.max(GRID_SIZE, anchorL.ly - mouse.y);
       }
 
-      const candidate = { ...snap, ...updates };
-      const resized = resizeObjectWithGrid(candidate, candidate.width, candidate.height, !e.altKey);
-      updateObject(editorState.selectedObjectId, constrainRectObject(resized));
+      if (doSnap) {
+        newW = snapToGrid(newW);
+        newH = snapToGrid(newH);
+      }
+
+      // Fixed anchor world position (never changes during the resize)
+      const anchorWorld = toWorld(anchorL.lx, anchorL.ly);
+
+      // New top-left = anchorWorld, but shifted back by anchorL's position within the new rect.
+      // anchorL's position within the NEW rect (where does the anchor sit after resize?)
+      // This is the offset from the new top-left to the anchor, in local space.
+      let offsetLx = 0, offsetLy = 0;
+      if (resizeHandle === 'se')                         { offsetLx = 0;      offsetLy = 0; }
+      if (resizeHandle === 'sw' || resizeHandle === 'w') { offsetLx = newW;   offsetLy = anchorL.ly; }
+      if (resizeHandle === 'ne')                         { offsetLx = 0;      offsetLy = newH; }
+      if (resizeHandle === 'nw')                         { offsetLx = newW;   offsetLy = newH; }
+      if (resizeHandle === 'e')                          { offsetLx = 0;      offsetLy = newH / 2; }
+      if (resizeHandle === 's')                          { offsetLx = newW / 2; offsetLy = 0; }
+      if (resizeHandle === 'n')                          { offsetLx = newW / 2; offsetLy = newH; }
+      if (resizeHandle === 'w')                          { offsetLx = newW;   offsetLy = newH / 2; }
+
+      const finalX = doSnap
+        ? snapToGrid(anchorWorld.x - offsetLx * cosA + offsetLy * sinA)
+        : anchorWorld.x - offsetLx * cosA + offsetLy * sinA;
+      const finalY = doSnap
+        ? snapToGrid(anchorWorld.y - offsetLx * sinA - offsetLy * cosA)
+        : anchorWorld.y - offsetLx * sinA - offsetLy * cosA;
+
+      const candidate = { ...snap, x: finalX, y: finalY, width: newW, height: newH };
+      updateObject(editorState.selectedObjectId, constrainRectObject(candidate));
     }
     // Handle group drag (multiple selected objects)
     else if (isDragging && dragStart && dragSnapshotsRef.current.length > 0) {
@@ -2894,8 +3035,8 @@ export default function FloorPlanEditor() {
     const labelY = showIcon ? iconY + iconSize + 2 : rectCy - fontSize / 2;
 
     return (
-      <>
-      <Group key={obj.id} x={rectCx} y={rectCy} offsetX={rectCx} offsetY={rectCy} rotation={(rect.rotation ?? 0) * 180 / Math.PI}>
+      <Group key={obj.id}>
+      <Group x={rectCx} y={rectCy} offsetX={rectCx} offsetY={rectCy} rotation={(rect.rotation ?? 0) * 180 / Math.PI}>
         <KonvaRect
           x={rect.x}
           y={rect.y}
@@ -2935,7 +3076,7 @@ export default function FloorPlanEditor() {
         )}
       </Group>
       {isSelected && !isFixedFloorObject(obj) && renderResizeHandles(rect)}
-      </>
+      </Group>
     );
   };
 
@@ -3198,7 +3339,7 @@ export default function FloorPlanEditor() {
 
     const MARGIN = 12;
     // Door clearance zone bounds (matches floorplanValidation.ts)
-    const { left: zLeft, right: zRight, top: zTop, bottom: zBottom } = getDoorClearanceZone(door);
+    const { left: zLeft, right: zRight, top: zTop, bottom: zBottom } = getDoorClearanceBounds(door);
 
     // Overlap on each side (positive = overlapping, Infinity = no contact on that side)
     const overlapL = (b.x + b.width) - zLeft;   // push blocker left
@@ -3374,6 +3515,7 @@ export default function FloorPlanEditor() {
                 { tool: 'window',       icon: <AppWindow size={18} />,            title: 'Window' },
                 { tool: 'entrance',     icon: <ArrowRightFromLine size={18} />,   title: 'Entrance Way' },
                 { tool: 'marker',       icon: <MapPin size={18} />,               title: 'Inventory Marker' },
+                { tool: 'human',        icon: <User size={18} />,                 title: 'Human Scale Reference (1.68 m / 90 kg)' },
               ] as const).map(({ tool, icon, title }) => (
                 <button key={tool} onClick={() => setTool(tool)} title={title}
                   className={`p-2.5 rounded-lg flex justify-center ${editorState.tool === tool ? 'bg-[var(--primary)] text-white' : 'text-[var(--text-muted)] hover:bg-[var(--surface-2)]'}`}>
@@ -3682,11 +3824,25 @@ export default function FloorPlanEditor() {
                         {meters}m
                       </div>
                     </div>
-                    <div>
-                      <label className="block text-xs font-medium text-[var(--text-muted)] mb-1">Thickness (px)</label>
-                      <input type="number" value={WALL_THICKNESS} disabled
-                        className="w-full px-2.5 py-1.5 border rounded text-sm text-[var(--text)] bg-[var(--surface-2)] border-[var(--border)]" />
-                    </div>
+                    {!isReadOnly && !isFixedFloorObject(wall) && (
+                      <div>
+                        <label className="block text-xs font-medium text-[var(--text-muted)] mb-1">Thickness (px)</label>
+                        <input type="number" value={wall.thickness} min={2} max={100} step={2}
+                          onChange={e => {
+                            const t = Math.max(2, parseInt(e.target.value) || 2);
+                            updateObject(wall.id, { thickness: t });
+                          }}
+                          className="w-full px-2.5 py-1.5 border border-[var(--border)] rounded text-sm bg-[var(--surface)] text-[var(--text)]" />
+                      </div>
+                    )}
+                    {isReadOnly && (
+                      <div>
+                        <label className="block text-xs font-medium text-[var(--text-muted)] mb-1">Thickness (px)</label>
+                        <div className="w-full px-2.5 py-1.5 border border-[var(--border)] rounded text-sm bg-[var(--surface-2)] text-[var(--text)]">
+                          {wall.thickness}
+                        </div>
+                      </div>
+                    )}
                     {!isReadOnly && !isFixedFloorObject(wall) && (
                       <div>
                         <button
@@ -4263,15 +4419,10 @@ export default function FloorPlanEditor() {
             <div className="flex items-center gap-1">
               {validationErrors.some(e => e.code === "door_blocked") && (
                 <button
-                  onClick={() => {
-                    const { objects: fixed } = applyAutoFixes(currentFloorPlan!.objects);
-                    fixed.forEach((obj, i) => {
-                      const orig = currentFloorPlan!.objects[i];
-                      if (isFixedFloorObject(orig)) return;
-                      if ('x' in obj && 'x' in orig && (obj.x !== (orig as any).x || (obj as any).y !== (orig as any).y)) {
-                        updateObject(obj.id, { x: (obj as any).x, y: (obj as any).y });
-                      }
-                    });
+                  onClick={async () => {
+                    const response = await floorPlansApi.autoFix(currentFloorPlan!.objects);
+                    const fixed = response.data.objects as FloorPlanObject[];
+                    setCurrentFloorPlan({ ...currentFloorPlan!, objects: fixed });
                     useFloorPlanStore.getState().pushHistory();
                   }}
                   className="text-[10px] bg-red-500 hover:bg-red-600 text-white px-2 py-0.5 rounded font-medium"

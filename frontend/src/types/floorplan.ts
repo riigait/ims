@@ -143,7 +143,7 @@ export interface BuildingFootprint {
 // Editor state
 export interface FloorPlanEditorState {
   selectedObjectId: string | null;
-  tool: 'select' | 'wall' | 'room' | 'rack' | 'shelf' | 'work-surface' | 'chair' | 'cabinet' | 'drawer' | 'locker' | 'storage-box' | 'bin' | 'pallet' | 'stairs' | 'elevator' | 'bathroom' | 'label' | 'door' | 'window' | 'entrance' | 'marker' | 'delete';
+  tool: 'select' | 'wall' | 'room' | 'rack' | 'shelf' | 'work-surface' | 'chair' | 'cabinet' | 'drawer' | 'locker' | 'storage-box' | 'bin' | 'pallet' | 'stairs' | 'elevator' | 'bathroom' | 'label' | 'door' | 'window' | 'entrance' | 'marker' | 'human' | 'delete';
   zoomLevel: number;
   panX: number;
   panY: number;

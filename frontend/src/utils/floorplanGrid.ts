@@ -10,11 +10,12 @@ import type {
   WindowObject,
 } from '@/types/floorplan';
 
+// Scale: 1 m = 100 SVG units. Grid cell = 10 cm.
 export const GRID_SIZE = 10;
 export const MAJOR_GRID_EVERY = 4;
 export const WALL_THICKNESS = 10;
-export const A4_PAGE_WIDTH = 800;
-export const A4_PAGE_HEIGHT = 1120;
+export const A4_PAGE_WIDTH = 2000;
+export const A4_PAGE_HEIGHT = 3000;
 export const GUIDE_SNAP_DISTANCE = 6;
 
 export interface GridRect {
@@ -31,25 +32,26 @@ export type SmartGuide =
   | { type: 'horizontal'; y: number };
 
 export const DEFAULT_OBJECT_SIZES = {
-  room: { width: 160, height: 120 },
-  wall: { width: 120, height: WALL_THICKNESS },
-  door: { width: 40, height: WALL_THICKNESS },
-  window: { width: 40, height: WALL_THICKNESS },
-  entrance: { width: 60, height: WALL_THICKNESS },
-  shelf: { width: 60, height: 40 },
-  rack: { width: 60, height: 40 },
-  restroom: { width: 80, height: 80 },
-  stairs: { width: 80, height: 120 },
-  elevator: { width: 60, height: 60 },
-  column: { width: 20, height: 20 },
-  'work-surface': { width: 120, height: 60 },
-  chair:          { width: 40,  height: 40  },
-  cabinet: { width: 60, height: 50 },
-  drawer: { width: 60, height: 40 },
-  locker: { width: 50, height: 50 },
-  'storage-box': { width: 50, height: 40 },
-  bin: { width: 40, height: 40 },
-  pallet: { width: 100, height: 80 },
+  room:           { width: 300, height: 200 },
+  wall:           { width: 120, height: WALL_THICKNESS },
+  door:           { width: 80,  height: WALL_THICKNESS },
+  window:         { width: 90,  height: WALL_THICKNESS },
+  entrance:       { width: 120, height: WALL_THICKNESS },
+  shelf:          { width: 90,  height: 30 },
+  rack:           { width: 90,  height: 40 },
+  restroom:       { width: 150, height: 150 },
+  stairs:         { width: 120, height: 240 },
+  elevator:       { width: 110, height: 140 },
+  column:         { width: 30,  height: 30 },
+  'work-surface': { width: 160, height: 80 },
+  chair:          { width: 50,  height: 50 },
+  cabinet:        { width: 80,  height: 50 },
+  drawer:         { width: 80,  height: 50 },
+  locker:         { width: 40,  height: 50 },
+  'storage-box':  { width: 60,  height: 40 },
+  bin:            { width: 50,  height: 50 },
+  pallet:         { width: 120, height: 100 },
+  human:          { width: 50,  height: 30 },
 } as const;
 
 export function snapToGrid(value: number): number {
