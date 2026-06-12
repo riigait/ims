@@ -37,7 +37,7 @@ const ISO_WALL_H       = 28;    // extruded wall face height in px
 const ISO_STYLE = {
   selectedFloorAlpha:  1.0,
   ghostFloorAlpha:     0.20,
-  idleFloorAlpha:      0.38,    // all-mode, nothing hovered
+  idleFloorAlpha:      0.45,    // all-mode, nothing hovered
   outdoorWallH:        42,
   indoorWallH:         13,
   frontWallH:          5,
@@ -47,6 +47,75 @@ const ISO_STYLE = {
   backWallH:           42,
   backWallAlpha:       0.92,
 } as const;
+
+const ISO_SLAB_H = 7;          // floor plinth thickness in screen px
+const ISO_HOVER_LIFT = 6;      // hovered floor raises by this many px
+
+// ── Material model: one light from the upper-left ─────────────────────────────
+// Faces are derived from each object's own editor color so the iso view
+// reflects the real plan data: top = lightened, left = mid, right = darkest.
+function clamp255(v: number) { return Math.max(0, Math.min(255, Math.round(v))); }
+
+function parseHex(hex: string): [number, number, number] | null {
+  const m = /^#?([0-9a-f]{6})$/i.exec(hex.trim());
+  if (!m) return null;
+  const n = parseInt(m[1], 16);
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+}
+
+/** Mix a hex color toward white by t (0..1). Returns input when unparseable. */
+function tint(hex: string, t: number): string {
+  const rgb = parseHex(hex);
+  if (!rgb) return hex;
+  const [r, g, b] = rgb.map(c => clamp255(c + (255 - c) * t));
+  return `#${((r << 16) | (g << 8) | b).toString(16).padStart(6, '0')}`;
+}
+
+/** Mix a hex color toward black by t (0..1). Returns input when unparseable. */
+function shade(hex: string, t: number): string {
+  const rgb = parseHex(hex);
+  if (!rgb) return hex;
+  const [r, g, b] = rgb.map(c => clamp255(c * (1 - t)));
+  return `#${((r << 16) | (g << 8) | b).toString(16).padStart(6, '0')}`;
+}
+
+function hexToRgba(hex: string, alpha: number): string {
+  const rgb = parseHex(hex);
+  if (!rgb) return hex;
+  return `rgba(${rgb[0]},${rgb[1]},${rgb[2]},${alpha})`;
+}
+
+/**
+ * Visible side quads for a polygon slab extruded downward by h screen px.
+ * An edge face shows only when its outward normal points down-screen
+ * (toward the viewer). Outward direction is resolved against the centroid,
+ * so any winding order works. Each quad carries a shading hint: edges that
+ * also face right read as the dark side of the light model.
+ */
+function slabSideQuads(pts: number[], h: number): Array<{ quad: number[]; dark: boolean }> {
+  const n = pts.length / 2;
+  if (n < 3) return [];
+  let cx = 0; let cy = 0;
+  for (let i = 0; i < n; i++) { cx += pts[2 * i]; cy += pts[2 * i + 1]; }
+  cx /= n; cy /= n;
+
+  const quads: Array<{ quad: number[]; dark: boolean }> = [];
+  for (let i = 0; i < n; i++) {
+    const j = (i + 1) % n;
+    const x1 = pts[2 * i]; const y1 = pts[2 * i + 1];
+    const x2 = pts[2 * j]; const y2 = pts[2 * j + 1];
+    let nx = y2 - y1;
+    let ny = x1 - x2;
+    const mx = (x1 + x2) / 2; const my = (y1 + y2) / 2;
+    if (nx * (mx - cx) + ny * (my - cy) < 0) { nx = -nx; ny = -ny; }
+    if (ny <= 0.05) continue; // faces up/away from the viewer
+    quads.push({
+      quad: [x1, y1, x2, y2, x2, y2 + h, x1, y1 + h],
+      dark: nx >= 0,
+    });
+  }
+  return quads;
+}
 
 // ─── stable computed data ─────────────────────────────────────────────────────
 const TOTAL_WIN_W = WINDOWS_PER_FLOOR * WINDOW_W + (WINDOWS_PER_FLOOR - 1) * WINDOW_GAP;
@@ -422,19 +491,19 @@ function extrudedFaces(
   const br = isoCorner([rx + rw, ry + rh]);
   const bl = isoCorner([rx,      ry + rh]);
 
-  // Left face: bl → br (front-left edge) extruded down
+  // Left face: bl → br (front-left edge) rising from the floor to the lifted top
   const left = [
     bl[0], bl[1],
     br[0], br[1],
-    br[0], br[1] + zH,
-    bl[0], bl[1] + zH,
+    br[0], br[1] - zH,
+    bl[0], bl[1] - zH,
   ];
-  // Right face: br → tr (front-right edge) extruded down
+  // Right face: br → tr (front-right edge) rising from the floor to the lifted top
   const right = [
     br[0], br[1],
     tr[0], tr[1],
-    tr[0], tr[1] + zH,
-    br[0], br[1] + zH,
+    tr[0], tr[1] - zH,
+    br[0], br[1] - zH,
   ];
   return { left, right };
 }
@@ -487,42 +556,47 @@ function buildIsoFloorNodes(
   const origin: IsoOrigin = { originX: ox, originY: oy };
   const objects = plan.objects ?? [];
 
-  // ── Perimeter polygon for finalized plans ─────────────────────────────────
-  // Prefer the authoritative merged perimeter; fall back to floor_original_outdoor
-  // only when no finalized perimeter has been applied yet.
+  // ── Perimeter polygons ─────────────────────────────────────────────────────
+  // The floor's OWN outline (floor_original_outdoor) is the slab — a floor must
+  // never appear to own another floor's area. The shared finalized envelope
+  // (union of all floors) renders only as a ghost ring for building context.
   const allWallObjs = objects.filter(o => o.type === 'wall') as import('@/types/floorplan').WallObject[];
   const finalPerim = allWallObjs.filter(w =>
     w.wallType === 'finalized_building_perimeter' || w.isFinalizedPerimeter === true
   );
-  const outerWalls = finalPerim.length > 0
-    ? finalPerim
-    : allWallObjs.filter(w => w.wallType === 'floor_original_outdoor');
+  const ownOutdoor = allWallObjs.filter(w => w.wallType === 'floor_original_outdoor');
+  const outerWalls = ownOutdoor.length > 0 ? ownOutdoor : finalPerim;
   const perimPts    = chainWallsToPolygon(outerWalls, planW, planH, ox, oy);
   const topFacePts  = (isFinalized && perimPts) ? perimPts : footprintPts;
+  const envelopePts = isFinalized && finalPerim.length > 0 && ownOutdoor.length > 0
+    ? chainWallsToPolygon(finalPerim, planW, planH, ox, oy)
+    : null;
 
-  let floorFill: string;
-  if (isFinalized) {
-    floorFill = isHovered ? '#1a3566' : '#0e1e42';
-  } else {
-    floorFill = isHovered ? '#253347' : '#0d1520';
-  }
+  // Slab material — finalized floors read as deep blue glass, drafts as slate.
+  const slabTopBase = isFinalized ? '#11295a' : '#0e1626';
+  const slabTop = isHovered ? tint(slabTopBase, 0.1) : slabTopBase;
 
   // ── Build depth-sorted render queue ──────────────────────────────────────
   type RQ = { depth: number; node: React.ReactNode };
   const queue: RQ[] = [];
 
-  // Rooms (flat top-face only, used as floor zones)
+  // Rooms — flat tinted zones derived from each room's own editor color so the
+  // iso view mirrors the plan data. Core rooms (stairs/elevator/restroom) get
+  // a stronger tint and a dashed edge to read as circulation.
   for (const obj of objects) {
     if (obj.type !== 'room') continue;
     const room = obj as import('@/types/floorplan').PolygonRoomObject;
     const b = polygonBoundsHelper(room.points);
     const pts  = rectToIsoPts({ x: b.x, y: b.y, w: b.width, h: b.height }, size, origin);
-    const style = OBJ_STYLE.room;
+    const base = room.color && parseHex(room.color) ? room.color : OBJ_STYLE.room.topStroke;
+    const isCore = /reserved-stairs|reserved-elevator|reserved-(?:male-|female-)?restroom/.test(room.id);
     queue.push({
       depth: depthKey(b.x, b.y),
       node: (
         <Line key={`room-${plan.id}-${room.id}`} closed listening={false} points={pts}
-          fill={style.topFill} stroke={style.topStroke} strokeWidth={0.8} opacity={0.75}
+          fill={hexToRgba(base, isCore ? 0.22 : 0.1)}
+          stroke={tint(base, 0.25)} strokeWidth={isCore ? 1 : 0.7}
+          opacity={0.9} dash={isCore ? [5, 3] : undefined}
         />
       ),
     });
@@ -534,7 +608,7 @@ function buildIsoFloorNodes(
     const w = obj as import('@/types/floorplan').WallObject;
     const isOuter = w.wallType === 'finalized_building_perimeter'
       || w.isFinalizedPerimeter === true
-      || (finalPerim.length === 0 && w.wallType === 'floor_original_outdoor');
+      || w.wallType === 'floor_original_outdoor';
     if (isOuter) continue; // handled separately
 
     const [x1, y1] = toIso(w.startX, w.startY, planW, planH);
@@ -551,10 +625,10 @@ function buildIsoFloorNodes(
         <Group key={`iwall-${plan.id}-${w.id}`} listening={false}>
           <Line closed
             points={[sx, sy, ex, ey, ex, ey - h, sx, sy - h]}
-            fill="#1e293b" stroke="#334155" strokeWidth={0.5} opacity={alpha}
+            fill="#243049" stroke="#3a4a6b" strokeWidth={0.5} opacity={alpha}
           />
           <Line points={[sx, sy - h, ex, ey - h]}
-            stroke="#475569" strokeWidth={thick * 0.6} opacity={alpha * 0.8} lineCap="round"
+            stroke="#6d83ad" strokeWidth={thick * 0.6} opacity={alpha * 0.8} lineCap="round"
           />
         </Group>
       ),
@@ -585,18 +659,33 @@ function buildIsoFloorNodes(
       liftedTop.push(topPts[i], topPts[i + 1] - style.zH);
     }
 
+    // Faces shaded from the object's own editor color (upper-left light):
+    // top lightened, left face mid, right face darkest.
+    const base = rect.color && parseHex(rect.color) ? rect.color : style.topStroke;
+    const matTop   = shade(tint(base, 0.12), 0.18);
+    const matLeft  = shade(base, 0.45);
+    const matRight = shade(base, 0.62);
+    const matEdge  = tint(base, 0.4);
+    // Contact shadow along the base front edges (bl → br → tr)
+    const contact = [
+      topPts[6], topPts[7], topPts[4], topPts[5], topPts[2], topPts[3],
+    ];
+
     queue.push({
       depth: depthKey(rect.x, rect.y) + rect.width + rect.height,
       node: (
         <Group key={`obj-${plan.id}-${rect.id}`} listening={false}>
+          <Line points={contact} stroke="rgba(2,6,14,0.45)" strokeWidth={2}
+            lineCap="round" lineJoin="round"
+          />
           <Line closed points={leftFace}
-            fill={style.sideFill} stroke={style.topStroke} strokeWidth={0.5} opacity={0.9}
+            fill={matLeft} stroke={shade(base, 0.7)} strokeWidth={0.4} opacity={0.95}
           />
           <Line closed points={rightFace}
-            fill={style.sideAlt} stroke={style.topStroke} strokeWidth={0.5} opacity={0.8}
+            fill={matRight} stroke={shade(base, 0.7)} strokeWidth={0.4} opacity={0.95}
           />
           <Line closed points={liftedTop}
-            fill={style.topFill} stroke={style.topStroke} strokeWidth={0.8} opacity={0.95}
+            fill={matTop} stroke={matEdge} strokeWidth={0.8} opacity={0.98}
           />
         </Group>
       ),
@@ -610,8 +699,8 @@ function buildIsoFloorNodes(
     const sx = ox + x1; const sy = oy + y1;
     const ex = ox + x2; const ey = oy + y2;
     const { h, alpha } = wallCutawayH(w.startX, w.startY, w.endX, w.endY, planH, true);
-    const wallColor = isFinalized ? '#1e3a8a' : '#1e293b';
-    const edgeColor = isFinalized ? '#60a5fa' : '#94a3b8';
+    const wallColor = isFinalized ? '#16336b' : '#1d2737';
+    const edgeColor = isFinalized ? '#82b5ff' : '#8b97ab';
 
     queue.push({
       depth: depthKey(w.startX + w.endX, w.startY + w.endY) / 2 + 1,
@@ -651,30 +740,67 @@ function buildIsoFloorNodes(
 
   // ── Assemble visual + hit nodes separately ────────────────────────────────
   const labelColor = floorAlpha >= 0.7
-    ? (isHovered ? '#f1f5f9' : '#94a3b8')
-    : '#475569';
+    ? (isHovered ? '#f8fafc' : '#a5b4cd')
+    : '#5a6886';
+
+  const slabSides = slabSideQuads(topFacePts, ISO_SLAB_H);
+  const shadowPts = topFacePts.map((v, i) => (i % 2 === 1 ? v + ISO_SLAB_H + 4 : v));
+  const chipW = isFinalized ? 44 : 28;
 
   const visual = (
-    <Group key={`floor-visual-${plan.id}`} opacity={floorAlpha} listening={false}>
-      {/* Foundation shadow */}
-      <Line closed points={footprintPts}
-        fill="#040810" stroke="#0f172a" strokeWidth={0.5} opacity={0.6}
+    <Group key={`floor-visual-${plan.id}`} opacity={floorAlpha} listening={false}
+      y={isHovered ? -ISO_HOVER_LIFT : 0}
+    >
+      {/* Grounded soft shadow — two passes fake a blurred edge cheaply */}
+      <Line closed points={shadowPts} fill="#01040a" opacity={0.5} />
+      <Line closed points={shadowPts} stroke="#01040a" strokeWidth={5} opacity={0.18} lineJoin="round" />
+      {/* Shared building envelope — ghost ring for context only */}
+      {envelopePts && (
+        <Line closed points={envelopePts} stroke={accentColor} strokeWidth={1}
+          dash={[6, 5]} opacity={0.3} lineJoin="round"
+        />
+      )}
+      {/* Slab plinth sides — lit by the shared upper-left light */}
+      {slabSides.map((side, i) => (
+        <Line key={`slab-${plan.id}-${i}`} closed points={side.quad}
+          fill={side.dark ? shade(slabTopBase, 0.55) : shade(slabTopBase, 0.32)}
+          stroke={shade(slabTopBase, 0.7)} strokeWidth={0.4}
+        />
+      ))}
+      {/* Slab top face */}
+      <Line closed points={topFacePts} fill={slabTop}
+        stroke={tint(slabTopBase, 0.28)} strokeWidth={0.8}
       />
-      {/* Floor slab */}
-      <Line closed points={topFacePts}
-        fill={floorFill} stroke={accentColor}
-        strokeWidth={isHovered ? 2 : 1.2}
-      />
+      {/* Perimeter accent: finalized floors get a glow, drafts a plain edge */}
+      {isFinalized ? (
+        <>
+          <Line closed points={topFacePts} stroke={accentColor} strokeWidth={4}
+            opacity={isHovered ? 0.4 : 0.22} lineJoin="round"
+          />
+          <Line closed points={topFacePts} stroke={tint(accentColor, 0.35)}
+            strokeWidth={1.3} opacity={0.95} lineJoin="round"
+          />
+        </>
+      ) : (
+        <Line closed points={topFacePts} stroke={accentColor}
+          strokeWidth={isHovered ? 1.8 : 1.1} opacity={0.8}
+        />
+      )}
       {/* Depth-sorted content */}
       {showObjects && queue.map(item => item.node)}
-      {/* Label */}
-      <Text
-        x={tl[0] + (tr[0] - tl[0]) * 0.08}
-        y={tl[1] + (tr[1] - tl[1]) * 0.08 - 16}
-        text={`F${fn}${isFinalized ? ' 🔒' : ''}`}
-        fontSize={floorAlpha >= 0.7 ? 12 : 10} fontStyle="bold"
-        fill={labelColor}
-      />
+      {/* Floor chip */}
+      <Group
+        x={tl[0] + (tr[0] - tl[0]) * 0.06}
+        y={tl[1] + (tr[1] - tl[1]) * 0.06 - 22}
+      >
+        <Rect width={chipW} height={16} cornerRadius={8}
+          fill="rgba(7,13,28,0.85)" stroke={accentColor} strokeWidth={0.8}
+        />
+        <Text x={0} y={4} width={chipW} align="center"
+          text={`F${fn}${isFinalized ? ' 🔒' : ''}`}
+          fontSize={9.5} fontStyle="bold" fill={labelColor}
+        />
+      </Group>
     </Group>
   );
 
@@ -749,9 +875,10 @@ function buildIsoBuilding(
   // Building label (visual only, non-interactive)
   visuals.push(
     <Text key={`ibl-${bld.key}`} listening={false}
-      x={bOffX - 50} y={baseY + ISO_WALL_H + 14}
-      width={100} align="center"
-      text={bld.label} fontSize={11} fontStyle="bold" fill="#475569"
+      x={bOffX - 90} y={baseY + ISO_WALL_H + 14}
+      width={180} align="center"
+      text={bld.label.toUpperCase()} fontSize={10} fontStyle="bold"
+      fill="#64748b" letterSpacing={1.5}
     />
   );
 
