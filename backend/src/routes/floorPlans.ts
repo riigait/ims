@@ -2,6 +2,7 @@
 import prisma from '../utils/prisma';
 import { AuthRequest, canAccessDepartment } from '../middleware/auth';
 import { csvToJson } from '../utils/csv';
+import { applyFloorplanAutoFixes, validateFloorplanObjects } from '../utils/floorPlanValidation';
 import {
   GENERATED_FLOORPLAN_SUFFIXES,
   GENERATED_FLOORPLAN_PREFIX,
@@ -1524,6 +1525,18 @@ router.get('/building/:buildingKey', async (req: AuthRequest, res: Response, nex
   } catch (error) {
     next(error);
   }
+});
+
+router.post('/validate', (req: AuthRequest, res: Response) => {
+  const { objects } = req.body;
+  if (!Array.isArray(objects)) return res.status(400).json({ error: 'objects array is required' });
+  return res.json(validateFloorplanObjects(objects));
+});
+
+router.post('/auto-fix', (req: AuthRequest, res: Response) => {
+  const { objects } = req.body;
+  if (!Array.isArray(objects)) return res.status(400).json({ error: 'objects array is required' });
+  return res.json(applyFloorplanAutoFixes(objects));
 });
 
 // Get floor plan by ID

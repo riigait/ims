@@ -166,6 +166,8 @@ export const floorPlansApi = {
   regenerate: (id: string, data?: object) => api.post(`/floor-plans/${id}/regenerate`, data || {}).then(normalizeFloorPlanResponse),
   getRules: () => api.get('/floor-plans/rules'),
   getByBuilding: (buildingKey: string) => api.get(`/floor-plans/building/${encodeURIComponent(buildingKey)}`).then(normalizeFloorPlanResponse),
+  validate: (objects: object[]) => api.post('/floor-plans/validate', { objects }),
+  autoFix: (objects: object[]) => api.post('/floor-plans/auto-fix', { objects }),
   setPerimeter: (id: string, walls: object[], alignmentData?: object) =>
     api.patch(`/floor-plans/${id}/perimeter`, { walls, alignmentData }),
 };

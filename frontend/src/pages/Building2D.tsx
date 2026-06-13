@@ -464,9 +464,12 @@ type NavHandler   = (id: string) => void;
 interface IsoCtx {
   hoveredId:    string | null;   // hovered plan id
   hoveredFloor: number | null;   // hovered floor number (for All mode ghosting)
+  hoveredObjectId: string | null;
   isoMode:      'single' | 'all';
   onHover:      HoverHandler;
   onHoverEnd:   () => void;
+  onObjectHover: (id: string) => void;
+  onObjectHoverEnd: () => void;
   onNavigate:   NavHandler;
 }
 
@@ -484,6 +487,28 @@ const OBJ_STYLE: Record<string, ObjStyle> = {
 
 // ── Depth key: sum of back-left corner coords (iso painter's sort) ────────────
 function depthKey(x: number, y: number) { return x + y; }
+
+function pointToWallDistance(
+  x: number,
+  y: number,
+  wall: import('@/types/floorplan').WallObject,
+): number {
+  const dx = wall.endX - wall.startX;
+  const dy = wall.endY - wall.startY;
+  const lengthSq = dx * dx + dy * dy;
+  if (lengthSq === 0) return Math.hypot(x - wall.startX, y - wall.startY);
+  const t = Math.max(0, Math.min(1, ((x - wall.startX) * dx + (y - wall.startY) * dy) / lengthSq));
+  return Math.hypot(x - (wall.startX + t * dx), y - (wall.startY + t * dy));
+}
+
+function openingIsAttachedToWall(
+  opening: DoorObject | WindowObject | EntranceObject,
+  walls: import('@/types/floorplan').WallObject[],
+): boolean {
+  return walls.some(wall =>
+    pointToWallDistance(opening.x, opening.y, wall) <= Math.max(20, (wall.thickness ?? 8) * 2)
+  );
+}
 
 // ── Build left/right extruded face pts for a rect object ─────────────────────
 function extrudedFaces(
@@ -534,6 +559,19 @@ function isoPresetKind(rect: RectangleObject): IsoPresetKind {
   if (/elevator|lift/.test(name)) return 'elevator';
   if (/restroom|bathroom|toilet/.test(name)) return 'restroom';
   return rect.type;
+}
+
+function isInventoryIsoObject(rect: RectangleObject): boolean {
+  return !['work-surface', 'chair', 'stairs', 'elevator', 'restroom'].includes(isoPresetKind(rect));
+}
+
+function isoPresetHeight(kind: IsoPresetKind): number {
+  if (kind === 'elevator') return 54;
+  if (kind === 'rack' || kind === 'locker') return 48;
+  if (kind === 'cabinet') return 38;
+  if (kind === 'stairs') return 42;
+  if (kind === 'restroom') return 30;
+  return 34;
 }
 
 function subIsoRect(rect: IsoRect, x: number, y: number, w: number, h: number): IsoRect {
@@ -598,9 +636,10 @@ interface IsoObjectShapeProps {
   readonly size: PlanSize;
   readonly origin: IsoOrigin;
   readonly base: string;
+  readonly hovered: boolean;
 }
 
-function IsoObjectShape({ planId, object, rect, size, origin, base }: IsoObjectShapeProps) {
+function IsoObjectShape({ planId, object, rect, size, origin, base, hovered }: IsoObjectShapeProps) {
   const kind = isoPresetKind(object);
   const footprint = rectToIsoPts(rect, size, origin);
   const contact = [footprint[6], footprint[7], footprint[4], footprint[5], footprint[2], footprint[3]];
@@ -665,11 +704,27 @@ function IsoObjectShape({ planId, object, rect, size, origin, base }: IsoObjectS
       ))}
     </>;
   } else if (kind === 'stairs') {
+    const stairPts = rectToIsoPts(rect, size, origin);
+    const railColor = tint(base, 0.65);
     shape = <>
-      {Array.from({ length: 5 }, (_, index) => (
-        <IsoPrism key={`step-${index}`} rect={subIsoRect(rect, index / 5, 0.04, 0.2, 0.92)}
-          size={size} origin={origin} base={base} height={(index + 1) * 7} />
+      {Array.from({ length: 6 }, (_, index) => (
+        <IsoPrism key={`step-${index}`} rect={subIsoRect(rect, index / 6, 0.06, 1 / 6, 0.88)}
+          size={size} origin={origin} base={base} height={(index + 1) * 6} />
       ))}
+      <Line points={[stairPts[6], stairPts[7] - 9, stairPts[0], stairPts[1] - 43]}
+        stroke={railColor} strokeWidth={1.5} lineCap="round" />
+      <Line points={[stairPts[4], stairPts[5] - 9, stairPts[2], stairPts[3] - 43]}
+        stroke={shade(railColor, 0.2)} strokeWidth={1.5} lineCap="round" />
+      {[0, 0.5, 1].map((t, index) => {
+        const lx = stairPts[6] + (stairPts[0] - stairPts[6]) * t;
+        const ly = stairPts[7] + (stairPts[1] - stairPts[7]) * t - (9 + 34 * t);
+        const rx = stairPts[4] + (stairPts[2] - stairPts[4]) * t;
+        const ry = stairPts[5] + (stairPts[3] - stairPts[5]) * t - (9 + 34 * t);
+        return <Group key={`rail-post-${index}`}>
+          <Line points={[lx, ly + 11, lx, ly]} stroke={railColor} strokeWidth={1} />
+          <Line points={[rx, ry + 11, rx, ry]} stroke={shade(railColor, 0.2)} strokeWidth={1} />
+        </Group>;
+      })}
     </>;
   } else if (kind === 'storage-box') {
     shape = <>
@@ -692,16 +747,35 @@ function IsoObjectShape({ planId, object, rect, size, origin, base }: IsoObjectS
   } else if (kind === 'cabinet') {
     shape = solid(37, 0, true);
   } else if (kind === 'elevator') {
-    const center = isoFaceCenter(rect, size, origin, 24);
+    const faces = extrudedFaces(rect.x, rect.y, rect.w, rect.h, size.planW, size.planH, origin.originX, origin.originY, 52);
+    const face = faces.left;
+    const ax = face[0] + (face[2] - face[0]) * 0.17;
+    const ay = face[1] + (face[3] - face[1]) * 0.17;
+    const bx = face[0] + (face[2] - face[0]) * 0.83;
+    const by = face[1] + (face[3] - face[1]) * 0.83;
+    const doorPanel = [ax, ay - 3, bx, by - 3, bx, by - 44, ax, ay - 44];
+    const panelX = face[0] + (face[2] - face[0]) * 0.92;
+    const panelY = face[1] + (face[3] - face[1]) * 0.92 - 25;
     shape = <>
-      {solid(52, 0, true)}
-      <Circle x={center[0]} y={center[1] - 5} radius={1.8} fill="#22c55e" stroke="#bbf7d0" strokeWidth={0.4} />
+      <IsoPrism rect={rect} size={size} origin={origin} base={base} height={52} />
+      <Line closed points={doorPanel} fill="#07111f" stroke={details} strokeWidth={1.2} />
+      <Line points={[(ax + bx) / 2, (ay + by) / 2 - 3, (ax + bx) / 2, (ay + by) / 2 - 44]}
+        stroke={details} strokeWidth={0.8} />
+      <Line points={[ax, ay - 44, bx, by - 44]} stroke={tint(base, 0.7)} strokeWidth={1.6} />
+      <Circle x={panelX} y={panelY} radius={2.2} fill="#22c55e" stroke="#bbf7d0" strokeWidth={0.5} />
+      <Circle x={panelX} y={panelY + 7} radius={1.5} fill="#60a5fa" stroke="#bfdbfe" strokeWidth={0.4} />
     </>;
   } else if (kind === 'restroom') {
-    const center = isoFaceCenter(rect, size, origin, 18);
+    const fixture = subIsoRect(rect, 0.57, 0.58, 0.18, 0.2);
+    const fixtureCenter = isoFaceCenter(fixture, size, origin, 9);
     shape = <>
-      {solid(32, 0, true)}
-      <Text x={center[0] - 10} y={center[1] - 8} width={20} align="center" text="WC"
+      <IsoPrism rect={subIsoRect(rect, 0, 0, 1, 0.09)} size={size} origin={origin} base={base} height={30} />
+      <IsoPrism rect={subIsoRect(rect, 0, 0.09, 0.09, 0.91)} size={size} origin={origin} base={base} height={30} />
+      <IsoPrism rect={subIsoRect(rect, 0.91, 0.09, 0.09, 0.91)} size={size} origin={origin} base={base} height={30} />
+      <IsoPrism rect={subIsoRect(rect, 0.45, 0.1, 0.07, 0.62)} size={size} origin={origin} base={shade(base, 0.08)} height={22} />
+      <IsoPrism rect={fixture} size={size} origin={origin} base="#e2e8f0" height={8} />
+      <Circle x={fixtureCenter[0]} y={fixtureCenter[1] - 2} radius={3.2} fill="#f8fafc" stroke="#94a3b8" strokeWidth={0.6} />
+      <Text x={fixtureCenter[0] - 12} y={fixtureCenter[1] - 28} width={24} align="center" text="WC"
         fontSize={7} fontStyle="bold" fill={details} />
     </>;
   } else {
@@ -710,6 +784,9 @@ function IsoObjectShape({ planId, object, rect, size, origin, base }: IsoObjectS
 
   return (
     <Group key={`obj-${planId}-${object.id}`} listening={false}>
+      {hovered && (
+        <Line closed points={footprint} stroke="#67e8f9" strokeWidth={5} opacity={0.32} lineJoin="round" />
+      )}
       <Line points={contact} stroke="rgba(2,6,14,0.55)" strokeWidth={2.2} lineCap="round" lineJoin="round" />
       {shape}
       {(kind === 'drawer' || kind === 'rack') && (
@@ -811,7 +888,7 @@ function buildIsoFloorNodes(
 ): IsoFloorResult {
   const fn          = plan.floorNumber ?? 1;
   const isFinalized = !!plan.isApproved;
-  const isHovered   = ctx.hoveredId === plan.id;
+  const isHovered   = ctx.isoMode === 'single' && ctx.hoveredId === plan.id;
   const accentColor = isFinalized ? '#3b82f6' : scoreColor(plan.generationScore);
   const planW = plan.width  || 800;
   const planH = plan.height || 600;
@@ -847,6 +924,7 @@ function buildIsoFloorNodes(
   // ── Build depth-sorted render queue ──────────────────────────────────────
   type RQ = { depth: number; node: React.ReactNode };
   const queue: RQ[] = [];
+  const objectHits: React.ReactNode[] = [];
 
   // Rooms — flat tinted zones derived from each room's own editor color so the
   // iso view mirrors the plan data. Core rooms (stairs/elevator/restroom) get
@@ -922,13 +1000,32 @@ function buildIsoFloorNodes(
     // Faces shaded from the object's own editor color (upper-left light):
     // top lightened, left face mid, right face darkest.
     const base = rect.color && parseHex(rect.color) ? rect.color : style.topStroke;
+    const kind = isoPresetKind(rect);
+    const hovered = ctx.hoveredObjectId === rect.id;
+    if (isInventoryIsoObject(rect)) {
+      const basePts = rectToIsoPts(drawRect, size, origin);
+      const topPts = liftIsoPoints(basePts, isoPresetHeight(kind));
+      objectHits.push(
+        <Line key={`object-hit-${plan.id}-${rect.id}`} closed
+          points={[
+            topPts[0], topPts[1], topPts[2], topPts[3], topPts[4], topPts[5],
+            basePts[4], basePts[5], basePts[6], basePts[7], topPts[6], topPts[7],
+          ]}
+          fill="rgba(0,0,0,0.001)" stroke="transparent" strokeWidth={0}
+          perfectDrawEnabled={false}
+          onMouseEnter={() => ctx.onObjectHover(rect.id)}
+          onMouseLeave={ctx.onObjectHoverEnd}
+          onClick={() => ctx.onNavigate(plan.id)}
+        />
+      );
+    }
     // Contact shadow along the base front edges (bl → br → tr)
 
     queue.push({
       depth: depthKey(rect.x, rect.y) + rect.width + rect.height,
       node: (
         <IsoObjectShape key={`obj-${plan.id}-${rect.id}`} planId={plan.id} object={rect}
-          rect={drawRect} size={size} origin={origin} base={base} />
+          rect={drawRect} size={size} origin={origin} base={base} hovered={hovered} />
       ),
     });
   }
@@ -939,7 +1036,9 @@ function buildIsoFloorNodes(
     const [x2, y2] = toIso(w.endX,   w.endY,   planW, planH);
     const sx = ox + x1; const sy = oy + y1;
     const ex = ox + x2; const ey = oy + y2;
-    const { h, alpha } = wallCutawayH(w.startX, w.startY, w.endX, w.endY, planH, true);
+    const cutaway = wallCutawayH(w.startX, w.startY, w.endX, w.endY, planH, true);
+    const h = cutaway.h;
+    const alpha = ctx.isoMode === 'all' ? Math.max(0.72, cutaway.alpha) : cutaway.alpha;
     const wallColor = isFinalized ? '#16336b' : '#1d2737';
     const edgeColor = isFinalized ? '#82b5ff' : '#8b97ab';
 
@@ -963,6 +1062,7 @@ function buildIsoFloorNodes(
   for (const obj of objects) {
     if (obj.type !== 'door' && obj.type !== 'window' && obj.type !== 'entrance') continue;
     const opening = obj as DoorObject | WindowObject | EntranceObject;
+    if (ctx.isoMode === 'all' && !openingIsAttachedToWall(opening, allWallObjs)) continue;
     queue.push({
       depth: depthKey(opening.x, opening.y) + 2,
       node: (
@@ -972,8 +1072,8 @@ function buildIsoFloorNodes(
     });
   }
 
-  // Labels and inventory markers remain readable while still sitting in 3D space.
-  for (const obj of objects) {
+  // Labels and markers are useful on one floor, but overlap heavily in the full stack.
+  if (ctx.isoMode === 'single') for (const obj of objects) {
     if (obj.type === 'label') {
       const label = obj as LabelObject;
       const [x, y] = isoPoint(label.x, label.y, size, origin);
@@ -1064,6 +1164,7 @@ function buildIsoFloorNodes(
       {showObjects && queue.map(item => item.node)}
       {/* Floor chip */}
       <Group
+        visible={ctx.isoMode === 'single'}
         x={tl[0] + (tr[0] - tl[0]) * 0.06}
         y={tl[1] + (tr[1] - tl[1]) * 0.06 - 22}
       >
@@ -1080,14 +1181,14 @@ function buildIsoFloorNodes(
 
   // Invisible hit polygon — full rectangular footprint, always same size per floor
   const hit = (
-    <Line key={`floor-hit-${plan.id}`} closed
-      points={footprintPts}
-      fill="rgba(0,0,0,0.001)" stroke="transparent" strokeWidth={0}
-      perfectDrawEnabled={false}
-      onMouseEnter={e => ctx.onHover(plan, e)}
-      onMouseLeave={ctx.onHoverEnd}
-      onClick={() => ctx.onNavigate(plan.id)}
-    />
+    <Group key={`floor-hit-${plan.id}`}>
+      <Line closed points={footprintPts}
+        fill="rgba(0,0,0,0.001)" stroke="transparent" strokeWidth={0}
+        perfectDrawEnabled={false}
+        onClick={() => ctx.onNavigate(plan.id)}
+      />
+      {objectHits}
+    </Group>
   );
 
   return { visual, hit };
@@ -1120,7 +1221,7 @@ function buildIsoBuilding(
 
   for (const plan of sorted) {
     const fn = plan.floorNumber ?? 1;
-    const oy = isSingleMode ? baseY : baseY - (fn - 1) * ISO_FLOOR_SEP;
+    const oy = baseY - (fn - 1) * ISO_FLOOR_SEP;
 
     let floorAlpha: number;
     let showObjects: boolean;
@@ -1128,17 +1229,9 @@ function buildIsoBuilding(
     if (isSingleMode) {
       floorAlpha  = ISO_STYLE.selectedFloorAlpha;
       showObjects = true;
-    } else if (ctx.hoveredFloor !== null) {
-      if (fn === ctx.hoveredFloor) {
-        floorAlpha  = ISO_STYLE.selectedFloorAlpha;
-        showObjects = true;
-      } else {
-        floorAlpha  = ISO_STYLE.ghostFloorAlpha;
-        showObjects = false;
-      }
     } else {
-      floorAlpha  = ISO_STYLE.idleFloorAlpha;
-      showObjects = false;
+      floorAlpha  = 1;
+      showObjects = true;
     }
 
     const { visual, hit } = buildIsoFloorNodes(plan, bOffX, oy, ctx, floorAlpha, showObjects);
@@ -1179,6 +1272,7 @@ export default function Building2D() {
   const [tooltip, setTooltip]         = useState<TooltipState | null>(null);
   const [hoveredId, setHoveredId]     = useState<string | null>(null);
   const [hoveredFloor, setHoveredFloor] = useState<number | null>(null);
+  const [hoveredObjectId, setHoveredObjectId] = useState<string | null>(null);
   const [scale, setScale]             = useState(1);
   const [stageSize, setStageSize]     = useState({ w: 800, h: 600 });
   const [isoFloorFilter, setIsoFloorFilter] = useState<number | null>(null); // null = all
@@ -1254,6 +1348,16 @@ export default function Building2D() {
     document.body.style.cursor = 'default';
   }, []);
 
+  const handleObjectHover = useCallback((id: string) => {
+    setHoveredObjectId(id);
+    document.body.style.cursor = 'pointer';
+  }, []);
+
+  const handleObjectHoverEnd = useCallback(() => {
+    setHoveredObjectId(null);
+    document.body.style.cursor = 'default';
+  }, []);
+
   const handleNavigate = useCallback((id: string) => {
     navigate(`/floor-plans/${id}/edit`);
   }, [navigate]);
@@ -1267,6 +1371,7 @@ export default function Building2D() {
     setIsoBuildingIndex(index => buildings.length > 0 ? (index + 1) % buildings.length : 0);
     setIsoFloorFilter(null);
     handleHoverEnd();
+    handleObjectHoverEnd();
     stageRef.current?.position({ x: 0, y: 0 });
   };
 
@@ -1462,8 +1567,9 @@ export default function Building2D() {
     const baseY   = stageSize.h * 0.72;
     const isoMode: 'single' | 'all' = isoFloorFilter !== null ? 'single' : 'all';
     const ctx: IsoCtx = {
-      hoveredId, hoveredFloor, isoMode,
+      hoveredId, hoveredFloor, hoveredObjectId, isoMode,
       onHover: handleHover, onHoverEnd: handleHoverEnd, onNavigate: handleNavigate,
+      onObjectHover: handleObjectHover, onObjectHoverEnd: handleObjectHoverEnd,
     };
 
     const allVisuals: React.ReactNode[] = [];
@@ -1539,7 +1645,7 @@ export default function Building2D() {
           {viewMode === 'isometric' && allFloorNumbers.length > 1 && (
             <div className="flex border border-[var(--border)] rounded overflow-hidden text-xs">
               <button
-                onClick={() => setIsoFloorFilter(null)}
+                onClick={() => { setIsoFloorFilter(null); handleHoverEnd(); handleObjectHoverEnd(); }}
                 className={`px-2.5 py-1.5 font-medium ${isoFloorFilter === null ? 'bg-[var(--primary)] text-white' : 'text-[var(--text-muted)] hover:bg-[var(--surface-2)]'}`}
               >
                 All
