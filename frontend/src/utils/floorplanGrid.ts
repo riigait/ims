@@ -60,6 +60,31 @@ export function snapToGrid(value: number): number {
 
 export const snap = snapToGrid;
 
+// Angles are stored in RADIANS throughout the editor (atan2 from the rotate
+// handle, deg→rad from the properties panel). Keep all angle math in radians.
+export const ANGLE_SNAP_TOLERANCE = (2 * Math.PI) / 180; // 2°
+
+/**
+ * Snap a radian angle to the nearest cardinal (0/90/180/270) when within
+ * ANGLE_SNAP_TOLERANCE, and normalize the result to [0, 2π).
+ *
+ * Used for the rotation HANDLE so an imprecise drag lands exactly on a cardinal
+ * instead of values like 359.8°/0.2° that read as 0° but aren't. Do not apply
+ * this to a typed properties value — it would make near-cardinal inputs (e.g.
+ * 271°) un-enterable.
+ */
+export function snapAngle(angleRad: number): number {
+  const TWO_PI = Math.PI * 2;
+  let a = angleRad % TWO_PI;
+  if (a < 0) a += TWO_PI;
+  for (const cardinal of [0, Math.PI / 2, Math.PI, (3 * Math.PI) / 2, TWO_PI]) {
+    if (Math.abs(a - cardinal) <= ANGLE_SNAP_TOLERANCE) {
+      return cardinal === TWO_PI ? 0 : cardinal;
+    }
+  }
+  return a;
+}
+
 export function screenToWorld(
   clientX: number,
   clientY: number,
@@ -315,13 +340,45 @@ export function createFloorplanObject(type: FloorPlanObjectType, x: number, y: n
   return normalizeObject({ id, type, x, y }, snap);
 }
 
+/**
+ * Center of a rectangle's (unrotated) box. Objects render rotated about this
+ * point, so it is the stable anchor for resize and rotation — never x/y.
+ */
+export function getRectCenter(rect: GridRect): { x: number; y: number } {
+  return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
+}
+
+/**
+ * Reposition a rectangle so its center lands on (centerX, centerY). Width,
+ * height, rotation and every other field are left untouched; only x/y move.
+ * The corner is intentionally NOT grid-snapped (see resizeObjectWithGrid).
+ */
+export function setRectCenter<T extends GridRect>(rect: T, centerX: number, centerY: number): T {
+  return { ...rect, x: centerX - rect.width / 2, y: centerY - rect.height / 2 };
+}
+
+/**
+ * Resize a rectangle object while keeping its center fixed.
+ *
+ * Rectangle objects render rotated about their center, so anchoring the
+ * top-left corner makes a rotated object swing to a new spot. Anchoring the
+ * center keeps it visually in place at any rotation.
+ *
+ * Only the dimensions snap to the grid; the corner is derived from the exact
+ * (unsnapped) center. Snapping the corner too would force a half-grid center
+ * onto the full grid, drifting the object by up to half a cell — the "slight
+ * movement" seen even at 0° when the width/height changes grid parity.
+ */
 export function resizeObjectWithGrid(
   object: RectangleObject,
   newWidth: number,
   newHeight: number,
   snap = true,
 ): RectangleObject {
-  return normalizeObject({ ...object, width: newWidth, height: newHeight }, snap);
+  const center = getRectCenter(object);
+  const width = normalizeSize(newWidth, snap);
+  const height = normalizeSize(newHeight, snap);
+  return setRectCenter({ ...object, width, height }, center.x, center.y);
 }
 
 export function moveObjectWithGrid<T extends FloorPlanObject>(object: T, newX: number, newY: number, snap = true): T {

@@ -29,6 +29,7 @@ import {
   resizeObjectWithGrid,
   screenToWorld,
   snapToGrid,
+  snapAngle,
   polygonBounds,
 } from '@/utils/floorplanGrid';
 import { Location, Product } from '@/types/inventory';
@@ -1553,6 +1554,15 @@ export default function FloorPlanEditor() {
   }
 
   function constrainRectObject(rect: RectangleObject, showGuides = true): RectangleObject {
+    // Smart guides align the object's UNROTATED bounding box to the page guides.
+    // For a rotated object that box is not what's drawn on screen, so snapping
+    // it would shift the visible center (drift). Skip guides when rotated and
+    // just keep the object on the page (clamp only translates for any object
+    // that fits the page, which furniture always does).
+    if ((rect.rotation ?? 0) !== 0) {
+      if (showGuides) setSmartGuides([]);
+      return clampRectToPage(rect, getPageRect());
+    }
     const guided = applySmartGuides(rect, getPageRect(), editorState.zoomLevel);
     if (showGuides) setSmartGuides(guided.guides);
     return clampRectToPage({ ...rect, ...guided.object }, getPageRect());
@@ -2226,7 +2236,9 @@ export default function FloorPlanEditor() {
         const cx = rectSnap.x + rectSnap.width / 2;
         const cy = rectSnap.y + rectSnap.height / 2;
         const mouseAngle = Math.atan2(pos.y - cy, pos.x - cx);
-        updateObject(editorState.selectedObjectId, { rotation: mouseAngle + rotateAngleOffsetRef.current });
+        // Cardinal-snap the handle drag so it lands exactly on 0/90/180/270
+        // instead of e.g. 359.8°. Center is untouched — rotation only.
+        updateObject(editorState.selectedObjectId, { rotation: snapAngle(mouseAngle + rotateAngleOffsetRef.current) });
       } else if (snap.type === 'door' || snap.type === 'window' || snap.type === 'entrance') {
         const angleSnap = snap as DoorObject | WindowObject | EntranceObject;
         const mouseAngle = Math.atan2(pos.y - angleSnap.y, pos.x - angleSnap.x);
@@ -2322,12 +2334,16 @@ export default function FloorPlanEditor() {
       if (resizeHandle === 'n')                          { offsetLx = newW / 2; offsetLy = newH; }
       if (resizeHandle === 'w')                          { offsetLx = newW;   offsetLy = newH / 2; }
 
-      const finalX = doSnap
-        ? snapToGrid(anchorWorld.x - offsetLx * cosA + offsetLy * sinA)
-        : anchorWorld.x - offsetLx * cosA + offsetLy * sinA;
-      const finalY = doSnap
-        ? snapToGrid(anchorWorld.y - offsetLx * sinA - offsetLy * cosA)
-        : anchorWorld.y - offsetLx * sinA - offsetLy * cosA;
+      // Keep the fixed anchor corner exactly in place. Do NOT grid-snap the
+      // derived top-left: for a rotated rect the top-left is off-grid, so
+      // snapping it translates the whole rotated rectangle by a sub-grid
+      // residual that changes each frame — the wobble/jitter when resizing a
+      // rotated object, and the drift that lingers after rotating via the
+      // handle (never lands at exactly 0°). Dimensions are already grid-snapped
+      // above; at true 0° the anchor is grid-aligned and the offsets are whole
+      // grid steps, so an unrotated object's corners stay on the grid.
+      const finalX = anchorWorld.x - offsetLx * cosA + offsetLy * sinA;
+      const finalY = anchorWorld.y - offsetLx * sinA - offsetLy * cosA;
 
       const candidate = { ...snap, x: finalX, y: finalY, width: newW, height: newH };
       updateObject(editorState.selectedObjectId, constrainRectObject(candidate));
