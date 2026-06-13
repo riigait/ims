@@ -2261,18 +2261,33 @@ export default function FloorPlanEditor() {
       const cosA = Math.cos(angle), sinA = Math.sin(angle);
       const doSnap = !e.altKey;
 
-      // Project mouse into object local space (origin = snap top-left, axes = object local axes)
-      // Local X runs along the object's width axis, local Y along height axis.
-      const toLocal = (wx: number, wy: number) => ({
-        x:  (wx - snap.x) * cosA + (wy - snap.y) * sinA,
-        y: -(wx - snap.x) * sinA + (wy - snap.y) * cosA,
-      });
+      // The object is RENDERED rotated about its center, and the handles are
+      // drawn/hit-tested about the center too. So the resize transforms must
+      // pivot about the center — not snap.x/snap.y. Using the top-left as pivot
+      // made the math frame disagree with the rendered frame, so rotated objects
+      // drifted while resizing and the opposite-side anchoring felt wrong.
+      const pivotX = snap.x + snap.width / 2;
+      const pivotY = snap.y + snap.height / 2;
 
-      // Convert a local point back to world, with snap.x/y as origin
-      const toWorld = (lx: number, ly: number) => ({
-        x: snap.x + lx * cosA - ly * sinA,
-        y: snap.y + lx * sinA + ly * cosA,
-      });
+      // World → object-local. Local coords keep a top-left origin (0..width,
+      // 0..height) so the per-handle anchor math below is identical to the 0°
+      // case; only the rotation pivot (the center) changes.
+      const toLocal = (wx: number, wy: number) => {
+        const dx = wx - pivotX, dy = wy - pivotY;
+        return {
+          x:  dx * cosA + dy * sinA + snap.width / 2,
+          y: -dx * sinA + dy * cosA + snap.height / 2,
+        };
+      };
+
+      // Object-local (top-left origin) → world, rotating about the center.
+      const toWorld = (lx: number, ly: number) => {
+        const rx = lx - snap.width / 2, ry = ly - snap.height / 2;
+        return {
+          x: pivotX + rx * cosA - ry * sinA,
+          y: pivotY + rx * sinA + ry * cosA,
+        };
+      };
 
       const mouse = toLocal(pos.x, pos.y);
 
@@ -2334,16 +2349,19 @@ export default function FloorPlanEditor() {
       if (resizeHandle === 'n')                          { offsetLx = newW / 2; offsetLy = newH; }
       if (resizeHandle === 'w')                          { offsetLx = newW;   offsetLy = newH / 2; }
 
-      // Keep the fixed anchor corner exactly in place. Do NOT grid-snap the
-      // derived top-left: for a rotated rect the top-left is off-grid, so
-      // snapping it translates the whole rotated rectangle by a sub-grid
-      // residual that changes each frame — the wobble/jitter when resizing a
-      // rotated object, and the drift that lingers after rotating via the
-      // handle (never lands at exactly 0°). Dimensions are already grid-snapped
-      // above; at true 0° the anchor is grid-aligned and the offsets are whole
-      // grid steps, so an unrotated object's corners stay on the grid.
-      const finalX = anchorWorld.x - offsetLx * cosA + offsetLy * sinA;
-      const finalY = anchorWorld.y - offsetLx * sinA - offsetLy * cosA;
+      // Place the resized rect so the fixed anchor stays exactly at anchorWorld,
+      // rotating about the NEW center (same pivot as the render). Solve for the
+      // new center from the anchor, then derive the top-left from it.
+      //   anchorWorld = center + R * (anchorOffsetFromCenter)
+      // Only width/height are grid-snapped (above); the position is exact so the
+      // anchor never drifts — the wobble at non-zero angles came from grid-
+      // snapping this derived top-left, which shoved the whole rotated rect.
+      const relX = offsetLx - newW / 2; // anchor offset from the new center,
+      const relY = offsetLy - newH / 2; // in the object's unrotated local frame
+      const newCenterX = anchorWorld.x - (relX * cosA - relY * sinA);
+      const newCenterY = anchorWorld.y - (relX * sinA + relY * cosA);
+      const finalX = newCenterX - newW / 2;
+      const finalY = newCenterY - newH / 2;
 
       const candidate = { ...snap, x: finalX, y: finalY, width: newW, height: newH };
       updateObject(editorState.selectedObjectId, constrainRectObject(candidate));
