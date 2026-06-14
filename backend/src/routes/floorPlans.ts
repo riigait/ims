@@ -1853,7 +1853,7 @@ router.post('/:id/regenerate', async (req: AuthRequest, res: Response, next: Nex
   }
 });
 
-// Write the aligned finalized perimeter as the authoritative finalized plan JSON.
+// Replace finalized perimeter walls while preserving every other floorplan object.
 router.patch('/:id/perimeter', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const floorPlan = await prisma.floorPlan.findUnique({ where: { id: req.params.id } });
@@ -1872,11 +1872,19 @@ router.patch('/:id/perimeter', async (req: AuthRequest, res: Response, next: Nex
       wallType: 'finalized_building_perimeter',
       isFinalizedPerimeter: true,
     }));
+    let existingObjects: FloorPlanObject[] = [];
+    try { existingObjects = JSON.parse(floorPlan.planJson || '[]'); } catch { existingObjects = []; }
+    const preservedObjects = existingObjects.filter(object => {
+      const wall = object as FloorPlanObject & { wallType?: string; isFinalizedPerimeter?: boolean };
+      return !(object.type === 'wall' && (
+        wall.wallType === 'finalized_building_perimeter' || wall.isFinalizedPerimeter === true
+      ));
+    });
 
     await prisma.floorPlan.update({
       where: { id: req.params.id },
       data: {
-        planJson: JSON.stringify(perimeterWalls),
+        planJson: JSON.stringify([...preservedObjects, ...perimeterWalls]),
         isAligned: true,
         alignmentJson: alignmentData === undefined ? floorPlan.alignmentJson : JSON.stringify(alignmentData),
         alignedAt: new Date(),

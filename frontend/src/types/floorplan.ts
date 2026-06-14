@@ -9,6 +9,11 @@ export interface BaseFloorPlanObject {
   notes?: string;
   linkedLocationId?: string;
   groupId?: string;
+  meta?: {
+    sourceFloorId?: string;
+    alignmentApplied?: boolean;
+    alignmentTransformId?: string;
+  };
 }
 
 export type WallType = 'floor_original_outdoor' | 'floor_indoor' | 'finalized_building_perimeter';

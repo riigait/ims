@@ -1,0 +1,200 @@
+import type { FloorPlanObject, WallObject } from '@/types/floorplan';
+
+export interface FloorAlignmentTransform {
+  floorId: string;
+  translateX: number;
+  translateY: number;
+  scaleX: number;
+  scaleY: number;
+  rotation: number;
+  anchorX: number;
+  anchorY: number;
+}
+
+function transformId(transform: FloorAlignmentTransform) {
+  return [
+    transform.floorId,
+    transform.translateX,
+    transform.translateY,
+    transform.scaleX,
+    transform.scaleY,
+    transform.rotation,
+    transform.anchorX,
+    transform.anchorY,
+  ].join(':');
+}
+
+export function transformPoint(
+  point: { x: number; y: number },
+  transform: FloorAlignmentTransform,
+) {
+  const radians = transform.rotation * Math.PI / 180;
+  const scaledX = (point.x - transform.anchorX) * transform.scaleX;
+  const scaledY = (point.y - transform.anchorY) * transform.scaleY;
+  return {
+    x: transform.anchorX + scaledX * Math.cos(radians) - scaledY * Math.sin(radians) + transform.translateX,
+    y: transform.anchorY + scaledX * Math.sin(radians) + scaledY * Math.cos(radians) + transform.translateY,
+  };
+}
+
+export function transformElement(
+  element: FloorPlanObject,
+  transform: FloorAlignmentTransform,
+): FloorPlanObject {
+  if (element.meta?.alignmentApplied) return element;
+
+  const meta = {
+    ...element.meta,
+    sourceFloorId: transform.floorId,
+    alignmentApplied: true,
+    alignmentTransformId: transformId(transform),
+  };
+
+  if (element.type === 'wall') {
+    const start = transformPoint({ x: element.startX, y: element.startY }, transform);
+    const end = transformPoint({ x: element.endX, y: element.endY }, transform);
+    return {
+      ...element,
+      startX: start.x,
+      startY: start.y,
+      endX: end.x,
+      endY: end.y,
+      thickness: element.thickness * Math.max(transform.scaleX, transform.scaleY),
+      meta,
+    };
+  }
+
+  if (element.type === 'room' && Array.isArray(element.points)) {
+    const points: number[] = [];
+    for (let index = 0; index < element.points.length; index += 2) {
+      const point = transformPoint({ x: element.points[index], y: element.points[index + 1] }, transform);
+      points.push(point.x, point.y);
+    }
+    return { ...element, points, meta };
+  }
+
+  if ('x' in element && 'y' in element) {
+    const point = transformPoint({ x: element.x, y: element.y }, transform);
+    const sized = element as FloorPlanObject & { width?: number; height?: number; rotation?: number; angle?: number };
+    return {
+      ...element,
+      x: point.x,
+      y: point.y,
+      ...('width' in sized && typeof sized.width === 'number' ? { width: sized.width * transform.scaleX } : {}),
+      ...('height' in sized && typeof sized.height === 'number' ? { height: sized.height * transform.scaleY } : {}),
+      ...('rotation' in sized && typeof sized.rotation === 'number' ? { rotation: sized.rotation + transform.rotation } : {}),
+      ...('angle' in sized && typeof sized.angle === 'number' ? { angle: sized.angle + transform.rotation * Math.PI / 180 } : {}),
+      meta,
+    } as FloorPlanObject;
+  }
+
+  return { ...element, meta };
+}
+
+export function transformFloorplanElements(
+  elements: FloorPlanObject[],
+  transform: FloorAlignmentTransform,
+) {
+  return elements.map(element => transformElement(element, transform));
+}
+
+function isFixedObject(element: FloorPlanObject) {
+  return element.id.includes('reserved-stairs')
+    || element.id.includes('reserved-elevator')
+    || /reserved-(male-|female-)?restroom/.test(element.id);
+}
+
+function finiteCoordinates(element: FloorPlanObject) {
+  if (element.type === 'wall') return [element.startX, element.startY, element.endX, element.endY];
+  if (element.type === 'room') return element.points;
+  if ('x' in element && 'y' in element) {
+    const sized = element as FloorPlanObject & { width?: number; height?: number };
+    return [
+      element.x,
+      element.y,
+      element.x + (sized.width ?? 0),
+      element.y + (sized.height ?? 0),
+    ];
+  }
+  return [];
+}
+
+function elementBounds(elements: FloorPlanObject[]) {
+  const points = elements.flatMap(element => {
+    const coordinates = finiteCoordinates(element);
+    const result: Array<{ x: number; y: number }> = [];
+    for (let index = 0; index + 1 < coordinates.length; index += 2) {
+      result.push({ x: coordinates[index], y: coordinates[index + 1] });
+    }
+    return result;
+  });
+  if (points.length === 0) return null;
+  const minX = Math.min(...points.map(point => point.x));
+  const minY = Math.min(...points.map(point => point.y));
+  const maxX = Math.max(...points.map(point => point.x));
+  const maxY = Math.max(...points.map(point => point.y));
+  return { minX, minY, maxX, maxY, width: maxX - minX, height: maxY - minY };
+}
+
+export function validateFloorAlignment(
+  original: FloorPlanObject[],
+  transformed: FloorPlanObject[],
+) {
+  const count = (elements: FloorPlanObject[], type: FloorPlanObject['type']) =>
+    elements.filter(element => element.type === type).length;
+  const invalidCoordinates = transformed.filter(element =>
+    finiteCoordinates(element).some(value => !Number.isFinite(value) || Math.abs(value) > 1_000_000));
+  const unalignedElements = transformed.filter(element => element.meta?.alignmentApplied !== true);
+  const roomsBefore = count(original, 'room');
+  const roomsAfter = count(transformed, 'room');
+  const wallsBefore = count(original, 'wall');
+  const wallsAfter = count(transformed, 'wall');
+
+  return {
+    valid: original.length === transformed.length
+      && original.filter(isFixedObject).length === transformed.filter(isFixedObject).length
+      && roomsBefore === roomsAfter
+      && wallsBefore === wallsAfter
+      && unalignedElements.length === 0
+      && invalidCoordinates.length === 0,
+    elementsBefore: original.length,
+    elementsAfter: transformed.length,
+    objectsBefore: original.length - roomsBefore - wallsBefore,
+    objectsAfter: transformed.length - roomsAfter - wallsAfter,
+    roomsBefore,
+    roomsAfter,
+    wallsBefore,
+    wallsAfter,
+    fixedObjectsBefore: original.filter(isFixedObject).length,
+    fixedObjectsAfter: transformed.filter(isFixedObject).length,
+    bboxBefore: elementBounds(original),
+    bboxAfter: elementBounds(transformed),
+    alreadyAlignedBefore: original.filter(element => element.meta?.alignmentApplied === true).length,
+    unalignedElements: unalignedElements.map(element => element.id),
+    invalidCoordinates: invalidCoordinates.map(element => element.id),
+  };
+}
+
+export function alignmentTransformForFloor(
+  floorId: string,
+  translateX: number,
+  translateY: number,
+): FloorAlignmentTransform {
+  return {
+    floorId,
+    translateX,
+    translateY,
+    scaleX: 1,
+    scaleY: 1,
+    rotation: 0,
+    anchorX: 0,
+    anchorY: 0,
+  };
+}
+
+export function transformWall(
+  wall: WallObject,
+  transform: FloorAlignmentTransform,
+): WallObject {
+  return transformElement(wall, transform) as WallObject;
+}

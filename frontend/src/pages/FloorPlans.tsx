@@ -15,6 +15,13 @@ import { validateFloorplanObjects } from '@/utils/floorplanValidation';
 import { applyAutoFixes } from '@/utils/floorplanFixer';
 import { A4_PAGE_HEIGHT, A4_PAGE_WIDTH } from '@/utils/floorplanGrid';
 import { extractOutdoorWall } from '@/utils/floorplanGeometry';
+import {
+  alignmentTransformForFloor,
+  transformElement,
+  transformFloorplanElements,
+  transformWall,
+  validateFloorAlignment,
+} from '@/utils/floorplanAlignment';
 
 interface Department {
   id: string;
@@ -145,7 +152,17 @@ type OutdoorWallBox = {
   height: number;
 };
 
-type AlignmentAnchorKind = 'building-origin' | 'vertical-core' | 'main-entrance' | 'door' | 'grid-column' | 'bbox-top-left';
+type AlignmentAnchorKind =
+  | 'elevator'
+  | 'stairs'
+  | 'restroom'
+  | 'shared-core'
+  | 'building-origin'
+  | 'main-entrance'
+  | 'door'
+  | 'grid-column'
+  | 'bbox-top-left'
+  | 'floor-center';
 
 type AlignmentAnchor = {
   kind: AlignmentAnchorKind;
@@ -162,10 +179,6 @@ type AlignedOutdoorWallEntry = {
   alignedBounds: OutdoorWallBox;
   dx: number;
   dy: number;
-  /** Extra intra-floor offset applied only to reserved core objects
-   * (stairs/elevator/restrooms) so they stack across auto-generated floors. */
-  coreDx: number;
-  coreDy: number;
   walls: WallObject[];
   rawWalls: WallObject[];
   fixedObjects: RectangleObject[];
@@ -183,6 +196,7 @@ function alignmentDataFor(entry: AlignedOutdoorWallEntry): Record<string, unknow
     floorNumber: entry.floorNumber,
     dx: entry.dx,
     dy: entry.dy,
+    transform: alignmentTransformForFloor(entry.plan.id, entry.dx, entry.dy),
     sharedAnchor: entry.sharedAnchor,
     selectedAnchor: entry.selectedAnchor,
     originalBounds: entry.originalBounds,
@@ -410,12 +424,34 @@ function alignmentAnchorsForPlan(plan: FloorPlan, bounds: OutdoorWallBox): Align
 
   const objects = plan.objects ?? [];
   // Prefer stairs (most stable across floors), then elevator — by reserved ID or by label
-  const core = objects.find(obj => /reserved-stairs/.test(obj.id))
-    ?? objects.find(obj => /reserved-elevator/.test(obj.id))
-    ?? objects.find(obj => (obj.label ?? '').toLowerCase() === 'stairs')
-    ?? objects.find(obj => (obj.label ?? '').toLowerCase() === 'elevator');
-  const coreCenter = core ? anchorCenter(core) : null;
-  if (coreCenter) anchors.push({ kind: 'vertical-core', ...coreCenter });
+  const fixedObjects = fixedObjectsFor(plan);
+  const coreKindOf = (obj: RectangleObject): 'elevator' | 'stairs' | 'restroom' | null => {
+    const description = `${obj.id} ${obj.label ?? ''}`.toLowerCase();
+    if (description.includes('elevator') || description.includes('lift')) return 'elevator';
+    if (description.includes('stairs') || description.includes('stair')) return 'stairs';
+    if (description.includes('restroom') || description.includes('toilet') || description.includes('bathroom')) return 'restroom';
+    return null;
+  };
+  const centroid = (items: RectangleObject[]) => {
+    if (items.length === 0) return null;
+    const centers = items.map(item => anchorCenter(item)!);
+    return {
+      x: centers.reduce((sum, center) => sum + center.x, 0) / centers.length,
+      y: centers.reduce((sum, center) => sum + center.y, 0) / centers.length,
+    };
+  };
+  (['elevator', 'stairs', 'restroom'] as const).forEach(kind => {
+    const center = centroid(fixedObjects.filter(obj => coreKindOf(obj) === kind));
+    if (center) anchors.push({ kind, ...center });
+  });
+  const sharedCoreBounds = boundsForObjects(fixedObjects);
+  if (sharedCoreBounds) {
+    anchors.push({
+      kind: 'shared-core',
+      x: sharedCoreBounds.minX + sharedCoreBounds.width / 2,
+      y: sharedCoreBounds.minY + sharedCoreBounds.height / 2,
+    });
+  }
 
   const mainEntrance = objects.find(obj => {
     if (obj.type === 'entrance') return true;
@@ -437,17 +473,8 @@ function alignmentAnchorsForPlan(plan: FloorPlan, bounds: OutdoorWallBox): Align
   if (columnCenter) anchors.push({ kind: 'grid-column', ...columnCenter });
 
   anchors.push({ kind: 'bbox-top-left', x: bounds.minX, y: bounds.minY });
+  anchors.push({ kind: 'floor-center', x: bounds.minX + bounds.width / 2, y: bounds.minY + bounds.height / 2 });
   return anchors;
-}
-
-function moveOutdoorWall(wall: WallObject, dx: number, dy: number): WallObject {
-  return snapOutdoorWall({
-    ...wall,
-    startX: wall.startX + dx,
-    startY: wall.startY + dy,
-    endX: wall.endX + dx,
-    endY: wall.endY + dy,
-  });
 }
 
 function moveObject(obj: FloorPlanObject, dx: number, dy: number): FloorPlanObject {
@@ -566,23 +593,25 @@ function alignOutdoorWallsToSharedCoordinateSystem(plans: FloorPlan[], debug = f
 
   if (candidates.length === 0) return { entries: [], previewBounds: mergeBounds([]), totalWalls: 0 };
 
-  // Pick the best anchor kind available on the reference floor (floor 1), not necessarily shared by all.
-  // If floor 1 has vertical-core (stairs/elevator) we use it even if some floors don't — those fall back to bbox.
-  const anchorPriority: AlignmentAnchorKind[] = ['building-origin', 'vertical-core', 'main-entrance', 'door', 'grid-column', 'bbox-top-left'];
-
-  // Auto-generated floors place the vertical core at a different spot per floor,
-  // so core/door anchors scatter the footprints. Align them by footprint bbox
-  // instead and skip core stacking; manual buildings keep the full behavior.
-  const allAutoGenerated = plans.every(plan => getBuildingInfo(plan.name)?.source === 'auto_generated');
+  // Pick the strongest stable anchor available on the reference floor.
+  const anchorPriority: AlignmentAnchorKind[] = [
+    'elevator',
+    'stairs',
+    'restroom',
+    'shared-core',
+    'bbox-top-left',
+    'floor-center',
+  ];
 
   // Reference floor: prefer floor 1; fall back to lowest-numbered floor.
   const reference = candidates.find(item => item.floorNumber === 1)
     ?? candidates.reduce((a, b) => a.floorNumber <= b.floorNumber ? a : b);
 
-  // Use the best anchor the reference floor offers.
-  const selectedKind = allAutoGenerated
-    ? 'bbox-top-left'
-    : anchorPriority.find(kind => reference.anchors.some(a => a.kind === kind)) ?? 'bbox-top-left';
+  // Use the strongest anchor shared by every selected floor.
+  const selectedKind = anchorPriority.find(kind =>
+    reference.anchors.some(anchor => anchor.kind === kind)
+    && candidates.every(item => item.anchors.some(anchor => anchor.kind === kind))
+  ) ?? 'floor-center';
   const refBestAnchor = (kind: AlignmentAnchorKind) => reference.anchors.find(a => a.kind === kind);
   // Shared target point — use the best anchor kind available on the reference floor.
   const sharedAnchor = refBestAnchor(selectedKind) ?? reference.anchors[reference.anchors.length - 1];
@@ -600,28 +629,23 @@ function alignOutdoorWallsToSharedCoordinateSystem(plans: FloorPlan[], debug = f
     let dy: number;
     if (itemAnchor) {
       // This floor has the shared anchor — align it directly.
-      dx = snapMergeGrid(sharedAnchor.x - itemAnchor.x);
-      dy = snapMergeGrid(sharedAnchor.y - itemAnchor.y);
+      dx = sharedAnchor.x - itemAnchor.x;
+      dy = sharedAnchor.y - itemAnchor.y;
     } else {
       // Floor lacks the anchor (e.g. rooftop) — align its bbox top-left
       // to where the reference bbox top-left is, preserving relative offset.
       const itemBbox = item.anchors.find(a => a.kind === 'bbox-top-left') ?? item.anchors[item.anchors.length - 1];
       const targetX = sharedAnchor.x + refAnchorToBboxDx;
       const targetY = sharedAnchor.y + refAnchorToBboxDy;
-      dx = snapMergeGrid(targetX - itemBbox.x);
-      dy = snapMergeGrid(targetY - itemBbox.y);
+      dx = targetX - itemBbox.x;
+      dy = targetY - itemBbox.y;
     }
-    const alignedWalls = item.walls.map(wall => moveOutdoorWall(wall, dx, dy));
+    const transform = alignmentTransformForFloor(item.plan.id, dx, dy);
+    const alignedWalls = item.walls.map(wall => transformWall(wall, transform));
     const alignedBounds = boundsForWalls(alignedWalls) ?? item.bounds;
     // Translate raw outlines by the exact same offset, without re-snapping,
     // so slanted drawn edges stay precise for the finalized perimeter.
-    const rawAlignedWalls = item.rawWalls.map(wall => ({
-      ...wall,
-      startX: wall.startX + dx,
-      startY: wall.startY + dy,
-      endX: wall.endX + dx,
-      endY: wall.endY + dy,
-    }));
+    const rawAlignedWalls = item.rawWalls.map(wall => transformWall(wall, transform));
 
     if (debug) {
       console.debug('[OutdoorWallMerge]', {
@@ -637,11 +661,7 @@ function alignOutdoorWallsToSharedCoordinateSystem(plans: FloorPlan[], debug = f
       });
     }
 
-    const fixedObjects = fixedObjectsFor(item.plan).map(obj => ({
-      ...obj,
-      x: obj.x + dx,
-      y: obj.y + dy,
-    }));
+    const fixedObjects = fixedObjectsFor(item.plan).map(obj => transformElement(obj, transform) as RectangleObject);
 
     return {
       plan: item.plan,
@@ -652,126 +672,11 @@ function alignOutdoorWallsToSharedCoordinateSystem(plans: FloorPlan[], debug = f
       alignedBounds,
       dx,
       dy,
-      coreDx: 0,
-      coreDy: 0,
       walls: alignedWalls,
       rawWalls: rawAlignedWalls,
       fixedObjects,
     };
   }).sort((a, b) => a.floorNumber - b.floorNumber);
-
-  // Secondary pass: pixel-perfect stack of stairs/elevator/restroom across floors.
-  // Uses the lowest-numbered floor that has fixed core objects as the stacking
-  // reference. Applies exact center-to-center delta — no grid rounding.
-  const coreKindOf = (obj: RectangleObject): 'stairs' | 'elevator' | 'restroom' | null => {
-    const lbl = (obj.label ?? '').toLowerCase();
-    const id = obj.id.toLowerCase();
-    if (lbl === 'stairs' || id.includes('reserved-stairs')) return 'stairs';
-    if (lbl === 'elevator' || id.includes('reserved-elevator')) return 'elevator';
-    if (lbl === 'restroom' || /reserved-(male-|female-)?restroom/.test(id)) return 'restroom';
-    return null;
-  };
-  const centerOf = (obj: RectangleObject) => ({
-    x: obj.x + obj.width / 2,
-    y: obj.y + (obj.height ?? 0) / 2,
-  });
-
-  // Find reference entry — lowest floor number that actually has core fixed objects
-  const stackRefEntry = entries.find(e => e.fixedObjects.some(o => coreKindOf(o) !== null))
-    ?? entries[0];
-
-  // centroidOf: average center of all objects of a given kind on an entry
-  const centroidOf = (objs: RectangleObject[], kind: 'stairs' | 'elevator' | 'restroom') => {
-    const matching = objs.filter(o => coreKindOf(o) === kind);
-    if (matching.length === 0) return null;
-    const cx = matching.reduce((s, o) => s + centerOf(o).x, 0) / matching.length;
-    const cy = matching.reduce((s, o) => s + centerOf(o).y, 0) / matching.length;
-    return { x: cx, y: cy };
-  };
-
-  if (stackRefEntry && !allAutoGenerated) {
-    for (const entry of entries) {
-      if (entry === stackRefEntry) continue;
-      if (entry.fixedObjects.length === 0) continue;
-
-      // Align using centroid-to-centroid of same-kind groups.
-      // Priority: elevator (single object, most precise) > stairs > restroom.
-      const kinds: Array<'stairs' | 'elevator' | 'restroom'> = ['elevator', 'stairs', 'restroom'];
-      let best: { dx: number; dy: number } | null = null;
-      for (const kind of kinds) {
-        const srcC = centroidOf(entry.fixedObjects, kind);
-        const refC = centroidOf(stackRefEntry.fixedObjects, kind);
-        if (srcC && refC) {
-          best = { dx: refC.x - srcC.x, dy: refC.y - srcC.y };
-          break;
-        }
-      }
-
-      if (best && (Math.abs(best.dx) > 0.01 || Math.abs(best.dy) > 0.01)) {
-        const { dx: bdx, dy: bdy } = best;
-        entry.dx += bdx;
-        entry.dy += bdy;
-        // Move walls by the exact delta — do NOT re-snap, or the correction is lost
-        entry.walls = entry.walls.map(w => ({
-          ...w,
-          startX: w.startX + bdx,
-          startY: w.startY + bdy,
-          endX: w.endX + bdx,
-          endY: w.endY + bdy,
-        }));
-        entry.rawWalls = entry.rawWalls.map(w => ({
-          ...w,
-          startX: w.startX + bdx,
-          startY: w.startY + bdy,
-          endX: w.endX + bdx,
-          endY: w.endY + bdy,
-        }));
-        entry.fixedObjects = entry.fixedObjects.map(o => ({ ...o, x: o.x + bdx, y: o.y + bdy }));
-        entry.alignedBounds = boundsForWalls(entry.walls) ?? entry.alignedBounds;
-      }
-    }
-  }
-
-  // Auto-generated buildings: floors are footprint-aligned above, but the
-  // generator (and older alignment runs) left the reserved core cluster at a
-  // different spot per floor. Relocate each floor's cluster — rooms, walls,
-  // doors — onto the reference floor's cluster so vertical circulation stacks.
-  if (allAutoGenerated) {
-    const clusterTopLeft = (plan: FloorPlan): { x: number; y: number } | null => {
-      let minX = Infinity;
-      let minY = Infinity;
-      for (const obj of plan.objects ?? []) {
-        if (!isFixedFloorObject(obj.id)) continue;
-        if (obj.type === 'wall') {
-          const w = obj as WallObject;
-          minX = Math.min(minX, w.startX, w.endX);
-          minY = Math.min(minY, w.startY, w.endY);
-        } else if (obj.type === 'room') {
-          const points = (obj as PolygonRoomObject).points;
-          for (let i = 0; i + 1 < points.length; i += 2) {
-            minX = Math.min(minX, points[i]);
-            minY = Math.min(minY, points[i + 1]);
-          }
-        } else if ('x' in obj && 'y' in obj) {
-          minX = Math.min(minX, (obj as { x: number }).x);
-          minY = Math.min(minY, (obj as { y: number }).y);
-        }
-      }
-      return Number.isFinite(minX) && Number.isFinite(minY) ? { x: minX, y: minY } : null;
-    };
-
-    const withCluster = entries
-      .map(entry => ({ entry, box: clusterTopLeft(entry.plan) }))
-      .filter((item): item is { entry: typeof entries[number]; box: { x: number; y: number } } => item.box !== null);
-    const ref = withCluster[0];
-    if (ref) {
-      for (const { entry, box } of withCluster) {
-        if (entry === ref.entry) continue;
-        entry.coreDx = (ref.box.x + ref.entry.dx) - (box.x + entry.dx);
-        entry.coreDy = (ref.box.y + ref.entry.dy) - (box.y + entry.dy);
-      }
-    }
-  }
 
   return {
     entries,
@@ -780,9 +685,7 @@ function alignOutdoorWallsToSharedCoordinateSystem(plans: FloorPlan[], debug = f
   };
 }
 
-// ─── Finalize: union perimeter of all aligned floor footprints ─────────────────
-//
-// Final output is the ordered true exterior loop computed from existing plan JSON.
+// Finalize each floor from its own existing plan JSON and shared alignment transform.
 //
 
 function isFixedFloorObject(id: string) {
@@ -1400,20 +1303,15 @@ export default function FloorPlans() {
       const updatedPlans = await Promise.all(aligned.entries.map(async (entry) => {
         const alignmentData = alignmentDataFor(entry);
         if (entry.plan.isApproved) {
-          // Finalized plans use the dedicated perimeter endpoint to write aligned
-          // perimeter walls as the authoritative finalized plan JSON.
-          await floorPlansApi.setPerimeter(entry.plan.id, entry.walls, alignmentData);
-          const perimeterWalls = entry.walls.map(w => ({
-            ...w,
-            wallType: 'finalized_building_perimeter' as const,
-            isFinalizedPerimeter: true,
-          }));
-          return { ...entry.plan, objects: perimeterWalls, isAligned: true, alignmentData };
+          return entry.plan;
         }
 
-        const objects = (entry.plan.objects ?? []).map(obj => isFixedFloorObject(obj.id)
-          ? moveObject(obj, entry.dx + entry.coreDx, entry.dy + entry.coreDy)
-          : moveObject(obj, entry.dx, entry.dy));
+        const sourceObjects = entry.plan.objects ?? [];
+        const transform = alignmentTransformForFloor(entry.plan.id, entry.dx, entry.dy);
+        const objects = transformFloorplanElements(sourceObjects, transform);
+        const validation = validateFloorAlignment(sourceObjects, objects);
+        console.table([{ floorId: entry.plan.id, transform, ...validation }]);
+        if (!validation.valid) throw new Error(`Invalid aligned floor data for ${entry.plan.id}`);
 
         await floorPlansApi.update(entry.plan.id, {
           name: entry.plan.name,
@@ -1510,48 +1408,31 @@ export default function FloorPlans() {
     // Union shell: one true exterior loop from ALL floors' aligned raw outlines
     // (dx/dy baked in, never grid-snapped — slanted drawn edges are preserved
     // exactly), applied to every floor.
-    const { outerSegments } = extractOutdoorWall({
-      walls: aligned.entries.flatMap(entry =>
-        entry.rawWalls.map(w => ({ id: w.id, x1: w.startX, y1: w.startY, x2: w.endX, y2: w.endY }))
-      ),
-    });
-    if (outerSegments.length === 0) {
-      setMergeError('No closed exterior loop found across the selected floors.');
-      return;
-    }
-
     try {
       setFinalizing(true);
       const updatedPlans = await Promise.all(aligned.entries.map(async (entry) => {
         if (entry.plan.isApproved) return entry.plan; // skip already-finalized floors
-        const alignmentData = entry.plan.isAligned && entry.plan.alignmentData
-          ? entry.plan.alignmentData
-          : alignmentDataFor(entry);
-        const finalWalls: WallObject[] = outerSegments.map((seg, i) => ({
-          id: `floor${entry.floorNumber}-final-ow-u-${i}`,
-          type: 'wall' as const,
-          startX: seg.x1,
-          startY: seg.y1,
-          endX: seg.x2,
-          endY: seg.y2,
+        const alignmentData = alignmentDataFor(entry);
+        const transform = alignmentTransformForFloor(entry.plan.id, entry.dx, entry.dy);
+        const sourceObjects = (entry.plan.objects ?? []).filter(obj => !(obj.type === 'wall' && (
+          (obj as WallObject).wallType === 'finalized_building_perimeter' ||
+          (obj as WallObject).isFinalizedPerimeter === true
+        )));
+        const transformedObjects = transformFloorplanElements(sourceObjects, transform);
+        const validation = validateFloorAlignment(sourceObjects, transformedObjects);
+        console.table([{ floorId: entry.plan.id, transform, ...validation }]);
+        if (!validation.valid) throw new Error(`Invalid finalized floor data for ${entry.plan.id}`);
+
+        const finalWalls: WallObject[] = entry.rawWalls.map((wall, i) => ({
+          ...wall,
+          id: `floor${entry.floorNumber}-final-ow-${i}`,
           wallType: 'finalized_building_perimeter' as const,
           isFinalizedPerimeter: true,
           thickness: 8,
           color: '#1e293b',
           layer: 1,
         }));
-        // Keep all existing floor data (rooms, indoor walls, fixtures, original
-        // outdoor walls) shifted into the shared coordinate system; only replace
-        // previously finalized perimeter walls with the new union shell.
-        const baseObjects = (entry.plan.objects ?? [])
-          .filter(obj => !(obj.type === 'wall' && (
-            (obj as WallObject).wallType === 'finalized_building_perimeter' ||
-            (obj as WallObject).isFinalizedPerimeter === true
-          )))
-          .map(obj => isFixedFloorObject(obj.id)
-            ? moveObject(obj, entry.dx + entry.coreDx, entry.dy + entry.coreDy)
-            : moveObject(obj, entry.dx, entry.dy));
-        const objects = [...baseObjects, ...finalWalls];
+        const objects = [...transformedObjects, ...finalWalls];
 
         await floorPlansApi.update(entry.plan.id, {
           name: entry.plan.name,
@@ -2642,7 +2523,7 @@ export default function FloorPlans() {
                         ? 'bg-slate-800 text-white border-slate-800'
                         : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'
                     }`}
-                    title="Preview the unified building perimeter across all floors"
+                    title="Preview each floor with its shared-core alignment"
                   >
                     <Layers size={15} />
                     Finalize Floorplan
@@ -2761,10 +2642,8 @@ export default function FloorPlans() {
                         return (
                           <g key={entry.plan.id}>
                             {entry.fixedObjects.filter(obj => !obj.id.includes('reserved-column')).map((obj) => {
-                              // fixedObjects carry dx/dy already; add coreDx/coreDy (same
-                              // correction applied to fixed walls at the render below).
-                              const fx = obj.x + entry.coreDx;
-                              const fy = obj.y + entry.coreDy;
+                              const fx = obj.x;
+                              const fy = obj.y;
                               const fontSize = Math.max(10, Math.min(obj.width, obj.height) * 0.18);
                               const cx = fx + obj.width / 2;
                               const cy = fy + (obj.height ?? 0) / 2;
@@ -2802,15 +2681,13 @@ export default function FloorPlans() {
                             {(entry.plan.objects ?? [])
                               .filter((obj): obj is WallObject => obj.type === 'wall')
                               .map((wall) => {
-                                const cdx = isFixedFloorObject(wall.id) ? entry.coreDx : 0;
-                                const cdy = isFixedFloorObject(wall.id) ? entry.coreDy : 0;
                                 return (
                                   <line
                                     key={wall.id}
-                                    x1={wall.startX + entry.dx + cdx}
-                                    y1={wall.startY + entry.dy + cdy}
-                                    x2={wall.endX + entry.dx + cdx}
-                                    y2={wall.endY + entry.dy + cdy}
+                                    x1={wall.startX + entry.dx}
+                                    y1={wall.startY + entry.dy}
+                                    x2={wall.endX + entry.dx}
+                                    y2={wall.endY + entry.dy}
                                     stroke={color}
                                     strokeWidth={Math.max(4, wall.thickness * 0.6)}
                                     strokeLinecap="round"
@@ -2824,32 +2701,6 @@ export default function FloorPlans() {
                         );
                       })}
                     </g>
-
-                    {/* Finalized perimeter preview: union shell of all floors' aligned raw outlines */}
-                    {showFinalizePreview && (() => {
-                      const { outerSegments } = extractOutdoorWall({
-                        walls: aligned.entries.flatMap(e =>
-                          e.rawWalls.map(w => ({ id: w.id, x1: w.startX, y1: w.startY, x2: w.endX, y2: w.endY }))
-                        ),
-                      });
-                      return (
-                        <g>
-                          {outerSegments.map((seg, i) => (
-                            <line
-                              key={`finalize-union-${i}`}
-                              x1={seg.x1}
-                              y1={seg.y1}
-                              x2={seg.x2}
-                              y2={seg.y2}
-                              stroke="#f8fafc"
-                              strokeWidth={6}
-                              strokeLinecap="square"
-                            />
-                          ))}
-                        </g>
-                      );
-                    })()}
-
 
                     {/* Interior objects overlay */}
                     {showInteriorObjects && aligned.entries.map((entry, planIndex) => {
@@ -2889,14 +2740,9 @@ export default function FloorPlans() {
                             if (obj.type === 'label') return isCoreLabel(obj);
                             return false;
                           });
-                      // Core objects carry an extra intra-floor offset so the
-                      // preview shows stairs/elevator/restrooms stacked.
-                      const interiorAdjusted = (entry.coreDx !== 0 || entry.coreDy !== 0)
-                        ? interiorObjs.map(obj => isFixedFloorObject(obj.id) ? moveObject(obj, entry.coreDx, entry.coreDy) : obj)
-                        : interiorObjs;
                       return (
                         <g key={`interior-${entry.plan.id}`} opacity={interiorOpacity / 100}>
-                          {interiorAdjusted.map(obj => {
+                          {interiorObjs.map(obj => {
                             const objType = (obj as { type: string }).type;
                             if (objType === 'room' || objType === 'rack' || objType === 'shelf' || objType === 'stairs' || objType === 'elevator' || objType === 'bathroom') {
                               if (!('x' in obj) || !('width' in obj) || !('height' in obj)) return null;
@@ -2980,10 +2826,10 @@ export default function FloorPlans() {
                           <Layers size={13} /> Finalize Floorplan
                         </p>
                         <p className="text-[11px] text-[var(--text-muted)] leading-relaxed">
-                          The dark outline shows the unified building perimeter — the union of all floor footprints merged into one clean outer shell.
+                          The preview shows each floor after applying its single shared-core alignment transform.
                         </p>
                         <p className="text-[11px] text-[var(--text-muted)] leading-relaxed mt-1.5">
-                          Applying this adds the shared perimeter as extra outdoor walls while keeping each floor's individual outdoor wall outline.
+                          Applying this preserves every room and object, then adds each floor's own aligned perimeter.
                         </p>
                       </div>
                       <div className="rounded border border-amber-200 bg-amber-50 px-2.5 py-2 text-[11px] text-amber-800">
