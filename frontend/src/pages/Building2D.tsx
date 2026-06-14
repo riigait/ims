@@ -1354,7 +1354,7 @@ export default function Building2D() {
   const [viewMode, setViewMode]       = useState<'elevation' | 'isometric'>('elevation');
   const [tooltip, setTooltip]         = useState<TooltipState | null>(null);
   const [hoveredId, setHoveredId]     = useState<string | null>(null);
-  const [hoveredFloor, setHoveredFloor] = useState<number | null>(null);
+  const [, setHoveredFloor] = useState<number | null>(null);
   const [hoveredObjectId, setHoveredObjectId] = useState<string | null>(null);
   const [scale, setScale]             = useState(1);
   const [stageSize, setStageSize]     = useState({ w: 800, h: 600 });
@@ -1419,9 +1419,11 @@ export default function Building2D() {
 
   const handleHover = useCallback((plan: FloorPlan, e: Konva.KonvaEventObject<MouseEvent>) => {
     const pos = e.target.getStage()?.getPointerPosition();
-    if (pos) setTooltip({ x: pos.x, y: pos.y, plan });
-    setHoveredId(plan.id);
-    setHoveredFloor(plan.floorNumber ?? null);
+    if (pos) setTooltip(prev =>
+      prev && prev.plan.id === plan.id && prev.x === pos.x && prev.y === pos.y ? prev : { x: pos.x, y: pos.y, plan }
+    );
+    setHoveredId(prev => prev === plan.id ? prev : plan.id);
+    setHoveredFloor(prev => { const fn = plan.floorNumber ?? null; return prev === fn ? prev : fn; });
     document.body.style.cursor = 'pointer';
   }, []);
 
@@ -1433,7 +1435,7 @@ export default function Building2D() {
   }, []);
 
   const handleObjectHover = useCallback((id: string) => {
-    setHoveredObjectId(id);
+    setHoveredObjectId(prev => prev === id ? prev : id);
     document.body.style.cursor = 'pointer';
   }, []);
 
@@ -1464,6 +1466,37 @@ export default function Building2D() {
     for (const p of focusedIsoBuilding?.floors ?? []) nums.add(p.floorNumber ?? 1);
     return Array.from(nums).sort((a, b) => a - b);
   }, [focusedIsoBuilding]);
+
+  // Precompute shared iso size and wall polygon points per floor so the render
+  // path never recomputes them on hover/tooltip state changes.
+  const isoSharedSize = useMemo<PlanSize | null>(() => {
+    if (!focusedIsoBuilding) return null;
+    return {
+      planW: Math.max(...focusedIsoBuilding.floors.map(p => p.width  ?? 800), 800),
+      planH: Math.max(...focusedIsoBuilding.floors.map(p => p.height ?? 600), 600),
+    };
+  }, [focusedIsoBuilding]);
+
+  // Cache chainWallsToPolygon results keyed by plan id.
+  // Origin is (0,0) — callers add the real ox/oy offset when using the points.
+  const isoWallPolyCache = useMemo<Map<string, number[] | null>>(() => {
+    const cache = new Map<string, number[] | null>();
+    if (!focusedIsoBuilding || !isoSharedSize) return cache;
+    const { planW, planH } = isoSharedSize;
+    for (const plan of focusedIsoBuilding.floors) {
+      const allWalls = (plan.objects ?? []).filter(o => o.type === 'wall') as import('@/types/floorplan').WallObject[];
+      const finalPerim = allWalls.filter(w => w.wallType === 'finalized_building_perimeter' || w.isFinalizedPerimeter === true);
+      const ownOutdoor = allWalls.filter(w => w.wallType === 'floor_original_outdoor');
+      const source = ownOutdoor.length > 0 ? ownOutdoor : finalPerim;
+      // Store with origin (0,0); offset added at render time
+      cache.set(plan.id, chainWallsToPolygon(source, planW, planH, 0, 0));
+      // Also cache the finalized envelope separately
+      if (finalPerim.length > 0 && ownOutdoor.length > 0) {
+        cache.set(`${plan.id}:envelope`, chainWallsToPolygon(finalPerim, planW, planH, 0, 0));
+      }
+    }
+    return cache;
+  }, [focusedIsoBuilding, isoSharedSize]);
 
   // ── elevation (front facade) renderer ────────────────────────────────────────
   const renderElevation = () => {
@@ -1645,46 +1678,115 @@ export default function Building2D() {
     return nodes;
   };
 
-  // ── isometric renderer — returns [visualLayer, hitLayer] ─────────────────────
-  const renderIsometric = () => {
-    const centerX = stageSize.w / 2;
-    const baseY   = stageSize.h * 0.72;
-    const isoMode: 'single' | 'all' = isoFloorFilter !== null ? 'single' : 'all';
-    const ctx: IsoCtx = {
-      hoveredId, hoveredFloor, hoveredObjectId, isoMode, isDark, labelFontSize,
+  // ── isometric renderer ───────────────────────────────────────────────────────
+  // Static geometry (slabs, walls, rooms, objects) is memoized — only recomputes
+  // when floor plan data, layout, or theme changes. Hover state is excluded from
+  // the memo deps so mouse movement never triggers a full rebuild.
+  const centerX = stageSize.w / 2;
+  const baseY   = stageSize.h * 0.72;
+  const isoMode: 'single' | 'all' = isoFloorFilter !== null ? 'single' : 'all';
+
+  const isoStaticResult = useMemo(() => {
+    const staticCtx: IsoCtx = {
+      hoveredId: null, hoveredFloor: null, hoveredObjectId: null,
+      isoMode, isDark, labelFontSize,
       onHover: handleHover, onHoverEnd: handleHoverEnd, onNavigate: handleNavigate,
       onObjectHover: handleObjectHover, onObjectHoverEnd: handleObjectHoverEnd,
     };
 
     const allVisuals: React.ReactNode[] = [];
-    // Hits collected in paint order, then reversed so front floors are on top of hit stack
     const allHits: React.ReactNode[] = [];
 
     if (focusedIsoBuilding) {
       const { visuals, hits } = buildIsoBuilding(
-        focusedIsoBuilding, 0, 1, centerX, baseY, ctx, isoFloorFilter
+        focusedIsoBuilding, 0, 1, centerX, baseY, staticCtx, isoFloorFilter
       );
       allVisuals.push(...visuals);
       allHits.push(...hits);
     }
 
-    // Reverse hits: highest floor number (painted last = visually on top) should also
-    // be on top in the hit layer so it wins pointer events first
     allHits.reverse();
+    return { allVisuals, allHits };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusedIsoBuilding, isoMode, isDark, labelFontSize, centerX, baseY, isoFloorFilter,
+      handleHover, handleHoverEnd, handleNavigate, handleObjectHover, handleObjectHoverEnd]);
 
-    return (
-      <>
-        {/* Visual layer — listening disabled so it never intercepts mouse */}
+  // Hover overlay — lightweight: just a lifted floor highlight and object glow.
+  // Recomputes on hover change but touches nothing in the static geometry.
+  const isoHoverOverlay = useMemo(() => {
+    if (!focusedIsoBuilding || (!hoveredId && !hoveredObjectId)) return null;
+
+    const sharedSize = isoSharedSize ?? { planW: 800, planH: 600 };
+    const nodes: React.ReactNode[] = [];
+
+    for (const plan of focusedIsoBuilding.floors) {
+      if (isoFloorFilter !== null && (plan.floorNumber ?? 1) !== isoFloorFilter) continue;
+      const fn = plan.floorNumber ?? 1;
+      const oy = baseY - (fn - 1) * ISO_FLOOR_SEP;
+
+      // Floor lift highlight
+      if (hoveredId === plan.id && isoMode === 'single') {
+        const cachedPts = isoWallPolyCache.get(plan.id);
+        const origin = { originX: centerX, originY: oy };
+        const topFacePts = cachedPts
+          ? cachedPts.map((v, i) => i % 2 === 0 ? v + centerX : v + oy)
+          : planCorners(sharedSize.planW, sharedSize.planH, centerX, oy).flatMap(([x, y]) => [x, y]);
+        nodes.push(
+          <Group key={`hover-floor-${plan.id}`} listening={false} y={-ISO_HOVER_LIFT}>
+            <Line closed points={topFacePts}
+              stroke="#3b82f6" strokeWidth={4} opacity={0.35} lineJoin="round"
+            />
+          </Group>
+        );
+        void origin; // used via topFacePts
+      }
+
+      // Object hover glow
+      if (hoveredObjectId) {
+        const obj = (plan.objects ?? []).find(o => o.id === hoveredObjectId) as RectangleObject | undefined;
+        if (obj && (obj.type === 'rack' || obj.type === 'shelf')) {
+          const { planW, planH } = sharedSize;
+          const minW = (MIN_OBJ_EDGE_PX / ISO_EDGE_SCALE) * planW;
+          const minH = (MIN_OBJ_EDGE_PX / ISO_EDGE_SCALE) * planH;
+          const drawW = Math.max(obj.width, minW);
+          const drawH = Math.max(obj.height, minH);
+          const drawRect = {
+            x: obj.x - (drawW - obj.width) / 2,
+            y: obj.y - (drawH - obj.height) / 2,
+            w: drawW, h: drawH,
+          };
+          const footprint = rectToIsoPts(drawRect, sharedSize, { originX: centerX, originY: oy });
+          nodes.push(
+            <Line key={`hover-obj-${plan.id}-${obj.id}`} listening={false}
+              closed points={footprint} stroke="#67e8f9" strokeWidth={5} opacity={0.32} lineJoin="round"
+            />
+          );
+        }
+      }
+    }
+
+    return nodes.length > 0 ? nodes : null;
+  }, [focusedIsoBuilding, hoveredId, hoveredObjectId, isoMode, isoFloorFilter,
+      baseY, centerX, isoSharedSize, isoWallPolyCache]);
+
+  const renderIsometric = () => (
+    <>
+      {/* Static layer — rebuilt only when data/theme changes, not on hover */}
+      <Layer listening={false}>
+        {isoStaticResult.allVisuals}
+      </Layer>
+      {/* Hover overlay layer — lightweight, redraws on hover only */}
+      {isoHoverOverlay && (
         <Layer listening={false}>
-          {allVisuals}
+          {isoHoverOverlay}
         </Layer>
-        {/* Hit layer — invisible polygons only, always on top */}
-        <Layer>
-          {allHits}
-        </Layer>
-      </>
-    );
-  };
+      )}
+      {/* Hit layer — invisible polygons only, always on top */}
+      <Layer>
+        {isoStaticResult.allHits}
+      </Layer>
+    </>
+  );
 
   // ── stats ─────────────────────────────────────────────────────────────────────
   const totalFinalized = allPlans.filter(p => p.isApproved).length;
