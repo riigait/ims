@@ -81,6 +81,16 @@ function isFixedObject(obj: FloorPlanObject): boolean {
     obj.id.includes('reserved-column');
 }
 
+function isServiceRoom(obj: FloorPlanObject): boolean {
+  if (isFixedObject(obj)) return true;
+  const lbl = (obj.label ?? '').toLowerCase().trim();
+  return (
+    lbl === 'restroom' || lbl === 'bathroom' || lbl === 'toilet' ||
+    lbl.startsWith('stairs') || lbl === 'elevator' ||
+    lbl.includes('restroom') || lbl.includes('bathroom')
+  );
+}
+
 function rectsOverlap(a: RectangleObject, b: RectangleObject, gap = 0): boolean {
   return a.x < b.x + b.width + gap &&
     a.x + a.width + gap > b.x &&
@@ -273,7 +283,7 @@ export function validateFloorplanObjects(objects: FloorPlanObject[]): FloorplanV
     }
   });
 
-  structuralRooms.filter(r => !r.id.includes('reserved-column')).forEach((room) => {
+  structuralRooms.filter(r => !isServiceRoom(r)).forEach((room) => {
     if (!doors.some((door) => pointNearRectEdge(door.x, door.y, room))) {
       errors.push({ code: 'door_missing', objectId: room.id, message: 'Door is missing in this enclosed area.' });
     }

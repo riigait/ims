@@ -61,6 +61,16 @@ const isFixed = (object: FloorPlanObject) =>
   || /reserved-(male-|female-)?restroom/.test(object.id)
   || object.id.includes('reserved-column');
 
+const isServiceRoom = (object: FloorPlanObject): boolean => {
+  if (isFixed(object)) return true;
+  const lbl = (object.label ?? '').toLowerCase().trim();
+  return (
+    lbl === 'restroom' || lbl === 'bathroom' || lbl === 'toilet' ||
+    lbl.startsWith('stairs') || lbl === 'elevator' ||
+    lbl.includes('restroom') || lbl.includes('bathroom')
+  );
+};
+
 function polygonBounds(points: number[]): Rect {
   const xs = points.filter((_, index) => index % 2 === 0);
   const ys = points.filter((_, index) => index % 2 === 1);
@@ -236,7 +246,7 @@ export function validateFloorplanObjects(objects: FloorPlanObject[]): FloorplanV
     }
   }
 
-  for (const room of structuralRooms.filter(room => !room.id.includes('reserved-column'))) {
+  for (const room of structuralRooms.filter(room => !isServiceRoom(room))) {
     const overlap = structuralRooms.find(other => other.id !== room.id && !other.id.includes('reserved-column') && rectsOverlap(room, other));
     if (overlap && !isFixed(room)) {
       errors.push({ code: 'object_overlap', objectId: room.id, message: `${labelFor(room)} overlaps ${labelFor(overlap)}.` });
