@@ -1,5 +1,5 @@
 import type { FloorPlan, WallObject, PolygonRoomObject, RectangleObject, DoorObject, WindowObject, EntranceObject, LabelObject } from '@/types/floorplan';
-import type { FloorplanData, FloorplanElement } from '@/types/birdsEye';
+import type { FloorplanData, FloorplanElement, FloorplanElementType } from '@/types/birdsEye';
 
 function polygonBounds(pts: number[]) {
   let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
@@ -16,6 +16,22 @@ function isOutdoorWall(w: WallObject): boolean {
   return w.wallType === 'floor_original_outdoor' ||
     w.isFinalizedPerimeter === true ||
     w.id.includes('-ow-');
+}
+
+function topDown25DType(rect: RectangleObject): FloorplanElementType {
+  const name = `${rect.label ?? ''} ${rect.id}`.toLowerCase();
+  if (/work surface|table/.test(name)) return 'table';
+  if (/chair/.test(name)) return 'chair';
+  if (/cabinet/.test(name)) return 'cabinet';
+  if (/drawer/.test(name)) return 'drawer';
+  if (/locker/.test(name)) return 'locker';
+  if (/storage box/.test(name)) return 'storage_box';
+  if (/\bbin\b|container/.test(name)) return 'bin';
+  if (/pallet/.test(name)) return 'pallet';
+  if (/stair/.test(name)) return 'stairs';
+  if (/elevator|lift/.test(name)) return 'elevator';
+  if (/restroom|bathroom|toilet/.test(name)) return 'restroom';
+  return rect.type;
 }
 
 export function floorPlanToBevData(plan: FloorPlan): FloorplanData {
@@ -54,31 +70,19 @@ export function floorPlanToBevData(plan: FloorPlan): FloorplanData {
         polygonPoints: r.points,
         label: r.label,
         layer: 'room',
-        style: { fill: r.color ?? '#e8e4dc' },
+        style: r.color ? { fill: r.color } : undefined,
       } satisfies FloorplanElement);
 
-    } else if (obj.type === 'rack' || obj.type === 'shelf') {
+    } else if (obj.type === 'rack' || obj.type === 'shelf' || obj.type === 'stairs' || obj.type === 'elevator') {
       const rect = obj as RectangleObject;
       elements.push({
         id: rect.id,
-        type: 'storage',
+        type: topDown25DType(rect),
         x: rect.x, y: rect.y, width: rect.width, height: rect.height,
         rotation: rect.rotation,
         label: rect.label,
         layer: 'object',
-        style: { fill: rect.color ?? '#fef3c7' },
-      } satisfies FloorplanElement);
-
-    } else if (obj.type === 'stairs' || obj.type === 'elevator') {
-      const rect = obj as RectangleObject;
-      elements.push({
-        id: rect.id,
-        type: 'storage',
-        x: rect.x, y: rect.y, width: rect.width, height: rect.height,
-        rotation: rect.rotation,
-        label: rect.label ?? (obj.type === 'stairs' ? 'Stairs' : 'Elevator'),
-        layer: 'object',
-        style: { fill: obj.type === 'stairs' ? '#fde68a' : '#c7d2fe' },
+        style: rect.color ? { fill: rect.color } : undefined,
       } satisfies FloorplanElement);
 
     } else if (obj.type === 'door' || obj.type === 'entrance') {

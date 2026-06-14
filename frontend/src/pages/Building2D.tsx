@@ -15,6 +15,8 @@ import type {
 import { Lock, Building2, RefreshCw, ZoomIn, ZoomOut, Maximize2, Layers, Box, ChevronRight } from 'lucide-react';
 import { extractOutdoorWall } from '@/utils/floorplanGeometry';
 import { useTheme } from '@/contexts/ThemeContext';
+import TopDown25DFloorplanView from '@/components/floorplan/TopDown25DFloorplanView';
+import { floorPlanToBevData } from '@/utils/floorplanBevAdapter';
 
 // ─── facade constants ─────────────────────────────────────────────────────────
 const BUILDING_W      = 220;
@@ -955,14 +957,30 @@ function buildIsoFloorNodes(
     const pts  = rectToIsoPts({ x: b.x, y: b.y, w: b.width, h: b.height }, size, origin);
     const base = room.color && parseHex(room.color) ? room.color : OBJ_STYLE.room.topStroke;
     const isCore = /reserved-stairs|reserved-elevator|reserved-(?:male-|female-)?restroom/.test(room.id);
+    const floorFill = shade(base, 0.58);
+    const tileGap = 42;
+    const tileLines: React.ReactNode[] = [];
+    for (let y = b.y + tileGap; y < b.y + b.height; y += tileGap) {
+      const start = isoPoint(b.x, y, size, origin);
+      const end = isoPoint(b.x + b.width, y, size, origin);
+      tileLines.push(
+        <Line key={`room-tile-${plan.id}-${room.id}-${y}`}
+          points={[start[0], start[1], end[0], end[1]]}
+          stroke={tint(base, 0.5)} strokeWidth={0.7} opacity={0.22} listening={false}
+        />,
+      );
+    }
     queue.push({
       depth: depthKey(b.x, b.y),
       node: (
-        <Line key={`room-${plan.id}-${room.id}`} closed listening={false} points={pts}
-          fill={hexToRgba(base, isCore ? 0.22 : 0.1)}
-          stroke={tint(base, 0.25)} strokeWidth={isCore ? 1 : 0.7}
-          opacity={0.9} dash={isCore ? [5, 3] : undefined}
-        />
+        <Group key={`room-${plan.id}-${room.id}`} listening={false}>
+          <Line closed points={pts}
+            fill={hexToRgba(floorFill, isCore ? 0.82 : 0.68)}
+            stroke={tint(base, 0.25)} strokeWidth={isCore ? 1 : 0.7}
+            dash={isCore ? [5, 3] : undefined}
+          />
+          {tileLines}
+        </Group>
       ),
     });
   }
@@ -1359,7 +1377,7 @@ export default function Building2D() {
   const [allPlans, setAllPlans]       = useState<FloorPlan[]>([]);
   const [loading, setLoading]         = useState(true);
   const [error, setError]             = useState<string | null>(null);
-  const [viewMode, setViewMode]       = useState<'elevation' | 'isometric'>('elevation');
+  const [viewMode, setViewMode]       = useState<'elevation' | 'topDown25D' | 'isometric'>('elevation');
   const [tooltip, setTooltip]         = useState<TooltipState | null>(null);
   const [hoveredId, setHoveredId]     = useState<string | null>(null);
   const [, setHoveredFloor] = useState<number | null>(null);
@@ -1474,6 +1492,23 @@ export default function Building2D() {
     for (const p of focusedIsoBuilding?.floors ?? []) nums.add(p.floorNumber ?? 1);
     return Array.from(nums).sort((a, b) => a - b);
   }, [focusedIsoBuilding]);
+
+  const finalizedFloors = useMemo(
+    () => (focusedIsoBuilding?.floors ?? []).filter(plan => plan.isApproved),
+    [focusedIsoBuilding],
+  );
+  const finalizedFloorNumbers = useMemo(
+    () => finalizedFloors.map(plan => plan.floorNumber ?? 1),
+    [finalizedFloors],
+  );
+  const topDownPlan = useMemo(() => {
+    const selected = finalizedFloors.find(plan => (plan.floorNumber ?? 1) === isoFloorFilter);
+    return selected ?? finalizedFloors[finalizedFloors.length - 1] ?? null;
+  }, [finalizedFloors, isoFloorFilter]);
+  const topDownData = useMemo(
+    () => topDownPlan ? floorPlanToBevData(topDownPlan) : null,
+    [topDownPlan],
+  );
 
   // Precompute shared iso size and wall polygon points per floor so the render
   // path never recomputes them on hover/tooltip state changes.
@@ -1832,7 +1867,9 @@ export default function Building2D() {
           <div>
             <h1 className="text-lg font-bold leading-tight">2D Building View</h1>
             <p className="text-xs text-[var(--text-muted)]">
-              {viewMode === 'elevation'
+              {viewMode === 'topDown25D'
+                ? 'Top-down 2.5D presentation - editable JSON floorplan with depth'
+                : viewMode === 'elevation'
                 ? 'Front elevation — buildings side by side, floors stacked upward'
                 : 'Isometric dollhouse — floor slabs stacked per building'}
             </p>
@@ -1841,19 +1878,22 @@ export default function Building2D() {
 
         <div className="flex items-center gap-2">
           {/* Floor filter — isometric only */}
-          {viewMode === 'isometric' && allFloorNumbers.length > 1 && (
+          {(viewMode === 'isometric' || viewMode === 'topDown25D') &&
+            (viewMode === 'isometric' ? allFloorNumbers : finalizedFloorNumbers).length > 1 && (
             <div className="flex border border-[var(--border)] rounded overflow-hidden text-xs">
-              <button
-                onClick={() => { setIsoFloorFilter(null); handleHoverEnd(); handleObjectHoverEnd(); }}
-                className={`px-2.5 py-1.5 font-medium ${isoFloorFilter === null ? 'bg-[var(--primary)] text-white' : 'text-[var(--text-muted)] hover:bg-[var(--surface-2)]'}`}
-              >
-                All
-              </button>
-              {allFloorNumbers.map(fn => (
+              {viewMode === 'isometric' && (
+                <button
+                  onClick={() => { setIsoFloorFilter(null); handleHoverEnd(); handleObjectHoverEnd(); }}
+                  className={`px-2.5 py-1.5 font-medium ${isoFloorFilter === null ? 'bg-[var(--primary)] text-white' : 'text-[var(--text-muted)] hover:bg-[var(--surface-2)]'}`}
+                >
+                  All
+                </button>
+              )}
+              {(viewMode === 'isometric' ? allFloorNumbers : finalizedFloorNumbers).map(fn => (
                 <button
                   key={fn}
-                  onClick={() => setIsoFloorFilter(isoFloorFilter === fn ? null : fn)}
-                  className={`px-2.5 py-1.5 font-medium border-l border-[var(--border)] ${isoFloorFilter === fn ? 'bg-[var(--primary)] text-white' : 'text-[var(--text-muted)] hover:bg-[var(--surface-2)]'}`}
+                  onClick={() => setIsoFloorFilter(viewMode === 'isometric' && isoFloorFilter === fn ? null : fn)}
+                  className={`px-2.5 py-1.5 font-medium border-l border-[var(--border)] ${(viewMode === 'topDown25D' ? (topDownPlan?.floorNumber ?? 1) === fn : isoFloorFilter === fn) ? 'bg-[var(--primary)] text-white' : 'text-[var(--text-muted)] hover:bg-[var(--surface-2)]'}`}
                 >
                   F{fn}
                 </button>
@@ -1868,6 +1908,12 @@ export default function Building2D() {
               className={`px-3 py-1.5 font-medium flex items-center gap-1.5 ${viewMode === 'elevation' ? 'bg-[var(--primary)] text-white' : 'text-[var(--text-muted)] hover:bg-[var(--surface-2)]'}`}
             >
               <Layers size={12} /> Elevation
+            </button>
+            <button
+              onClick={() => setViewMode('topDown25D')}
+              className={`px-3 py-1.5 font-medium flex items-center gap-1.5 border-l border-[var(--border)] ${viewMode === 'topDown25D' ? 'bg-[var(--primary)] text-white' : 'text-[var(--text-muted)] hover:bg-[var(--surface-2)]'}`}
+            >
+              <Layers size={12} /> Top-Down 2.5D
             </button>
             <button
               onClick={() => setViewMode('isometric')}
@@ -1944,7 +1990,7 @@ export default function Building2D() {
 
       {/* ── Canvas ─────────────────────────────────────────────────────── */}
       <div ref={containerRef} className="flex-1 overflow-hidden relative min-h-0">
-        {viewMode === 'isometric' && buildings.length > 1 && (
+        {(viewMode === 'isometric' || viewMode === 'topDown25D') && buildings.length > 1 && (
           <button
             onClick={showNextIsoBuilding}
             aria-label="Show next building"
@@ -1968,7 +2014,24 @@ export default function Building2D() {
           </div>
         )}
 
-        {hasBuildings ? (
+        {viewMode === 'topDown25D' && topDownData ? (
+          <TopDown25DFloorplanView
+            data={topDownData}
+            width={stageSize.w}
+            height={stageSize.h}
+            zoom={scale}
+            isDark={isDark}
+            stageRef={stageRef}
+            onZoomDelta={zoom}
+          />
+        ) : viewMode === 'topDown25D' ? (
+          !loading && !error && (
+            <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 text-[var(--text-muted)]">
+              <Building2 size={36} className="opacity-20" />
+              <p className="text-sm">This building has no finalized floorplan to show.</p>
+            </div>
+          )
+        ) : hasBuildings ? (
           <Stage
             ref={stageRef}
             width={stageSize.w}

@@ -804,24 +804,24 @@ function correctRegeneratedLayoutIssues(
 ): FloorPlanObject[] {
   let corrected = objects;
 
-  if (hasMovableRoomOverlap(corrected)) {
-    corrected = resolveIndoorObjectOverlaps(corrected);
+  if (fixedObjects.length > 0 && regenerateOutdoorWalls) {
+    corrected = expandOutdoorWallsToContainFixedObjects(corrected, fixedObjects);
   }
 
-  if (fixedObjects.length > 0) {
-    if (regenerateOutdoorWalls) {
-      corrected = expandOutdoorWallsToContainFixedObjects(corrected, fixedObjects);
-    }
-    if (hasMovableFixedOverlap(corrected, fixedObjects)) {
+  // Moving a room away from a fixed core can push it into another room, and
+  // resolving that room overlap can move it back into the core. Treat both
+  // constraints as one bounded correction cycle.
+  for (let pass = 0; pass < 8; pass++) {
+    const roomOverlap = hasMovableRoomOverlap(corrected);
+    const fixedOverlap = fixedObjects.length > 0 && hasMovableFixedOverlap(corrected, fixedObjects);
+    if (!roomOverlap && !fixedOverlap) break;
+
+    if (fixedOverlap) {
       corrected = resolveMovableObjectOverlapsWithFixed(corrected, fixedObjects);
     }
-  }
-
-  if (hasMovableRoomOverlap(corrected)) {
-    corrected = resolveIndoorObjectOverlaps(corrected);
-  }
-  if (fixedObjects.length > 0 && hasMovableFixedOverlap(corrected, fixedObjects)) {
-    corrected = resolveMovableObjectOverlapsWithFixed(corrected, fixedObjects, 0);
+    if (hasMovableRoomOverlap(corrected)) {
+      corrected = resolveIndoorObjectOverlaps(corrected);
+    }
   }
 
   return corrected;
@@ -1337,7 +1337,11 @@ router.post('/auto-generate', async (req: AuthRequest, res: Response, next: Next
             sharedRestrooms = objects.filter(isRestroomObject).map((object) => ({ ...object }));
           }
 
-          objects = resolveIndoorObjectOverlaps(objects);
+          // Shared stairs/elevator/restrooms may replace this floor's original
+          // core positions. Re-clear movable rooms and their grouped contents
+          // after substitution so no room can claim a vertical-service core.
+          const fixedCoreObjects = objects.filter(isFixedFloorObject);
+          objects = correctRegeneratedLayoutIssues(objects, fixedCoreObjects, true);
           pendingFloors.push({ name, templateName, floorNumber, objects });
         }
 
@@ -1715,6 +1719,7 @@ router.post('/:id/regenerate', async (req: AuthRequest, res: Response, next: Nex
       // Retry loop — runs entirely on the backend, only 1 HTTP request per user click.
       let bestObjects: FloorPlanObject[] = [];
       let bestIssues = Number.POSITIVE_INFINITY;
+      let bestRank = Number.POSITIVE_INFINITY;
       let attemptsUsed = 0;
       const templateType = determineTemplateType(floorTemplate);
 
@@ -1736,8 +1741,14 @@ router.post('/:id/regenerate', async (req: AuthRequest, res: Response, next: Nex
           candidate = correctRegeneratedLayoutIssues(candidate, existingAccessObjects, regenerateOutdoorWalls);
         }
         const issues = validateFloorplanObjects(candidate).errors.length;
-        if (issues < bestIssues) { bestIssues = issues; bestObjects = candidate; }
-        if (bestIssues <= TARGET_ISSUES) break;
+        const hasCoreOverlap = hasMovableFixedOverlap(candidate, candidate.filter(isFixedFloorObject));
+        const rank = issues + (hasCoreOverlap ? 10_000 : 0);
+        if (rank < bestRank) {
+          bestRank = rank;
+          bestIssues = issues;
+          bestObjects = candidate;
+        }
+        if (!hasCoreOverlap && issues <= TARGET_ISSUES) break;
       }
 
       const floorValidation = validateGeneratedFloorPlan(bestObjects, templateType);
@@ -1792,6 +1803,7 @@ router.post('/:id/regenerate', async (req: AuthRequest, res: Response, next: Nex
     // Retry loop on backend
     let bestObjects: FloorPlanObject[] = [];
     let bestIssues = Number.POSITIVE_INFINITY;
+    let bestRank = Number.POSITIVE_INFINITY;
     let attemptsUsed = 0;
 
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
@@ -1810,8 +1822,14 @@ router.post('/:id/regenerate', async (req: AuthRequest, res: Response, next: Nex
         candidate = correctRegeneratedLayoutIssues(candidate, existingFixedObjects, regenerateOutdoorWalls);
       }
       const issues = validateFloorplanObjects(candidate).errors.length;
-      if (issues < bestIssues) { bestIssues = issues; bestObjects = candidate; }
-      if (bestIssues <= TARGET_ISSUES) break;
+      const hasCoreOverlap = hasMovableFixedOverlap(candidate, candidate.filter(isFixedFloorObject));
+      const rank = issues + (hasCoreOverlap ? 10_000 : 0);
+      if (rank < bestRank) {
+        bestRank = rank;
+        bestIssues = issues;
+        bestObjects = candidate;
+      }
+      if (!hasCoreOverlap && issues <= TARGET_ISSUES) break;
     }
 
     const validation = validateGeneratedFloorPlan(bestObjects, templateType);

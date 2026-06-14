@@ -10,6 +10,17 @@ export type FloorplanElementType =
   | 'table'
   | 'chair'
   | 'desk'
+  | 'cabinet'
+  | 'drawer'
+  | 'locker'
+  | 'rack'
+  | 'shelf'
+  | 'storage_box'
+  | 'bin'
+  | 'pallet'
+  | 'stairs'
+  | 'elevator'
+  | 'restroom'
   | 'kitchen_counter'
   | 'sink'
   | 'toilet'
@@ -18,6 +29,8 @@ export type FloorplanElementType =
   | 'storage'
   | 'label'
   | 'inventory_marker';
+
+export type FloorplanLayer = 'floor' | 'room' | 'object' | 'wall' | 'opening' | 'label' | 'selection';
 
 export interface FloorplanElement {
   id: string;
@@ -32,12 +45,16 @@ export interface FloorplanElement {
   /** For rooms adapted from polygon data: flat [x0,y0, x1,y1, ...] */
   polygonPoints?: number[];
   label?: string;
-  layer?: 'floor' | 'room' | 'object' | 'wall' | 'opening' | 'label';
+  roomId?: string;
+  layer?: FloorplanLayer;
+  locked?: boolean;
+  selected?: boolean;
   style?: {
     fill?: string;
     stroke?: string;
     strokeWidth?: number;
     opacity?: number;
+    shadow?: boolean;
   };
 }
 
@@ -46,12 +63,12 @@ export interface FloorplanData {
   name: string;
   width: number;
   height: number;
-  viewMode?: 'technical' | 'sketch';
+  viewMode?: 'technical' | 'sketch' | 'topDown25D' | 'isometric';
   elements: FloorplanElement[];
 }
 
 export const DRAW_ORDER: Record<string, number> = {
-  floor: 0, room: 1, object: 2, wall: 3, opening: 4, label: 5,
+  floor: 0, room: 1, object: 2, wall: 3, opening: 4, label: 5, selection: 6,
 };
 
 // ─── Demo layout ──────────────────────────────────────────────────────────────
