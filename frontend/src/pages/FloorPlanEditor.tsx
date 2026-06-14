@@ -403,6 +403,24 @@ export default function FloorPlanEditor() {
         return;
       }
 
+      if (e.ctrlKey && e.key === 's') {
+        e.preventDefault();
+        const saveState = useFloorPlanStore.getState();
+        const plan = saveState.currentFloorPlan;
+        if (!plan || !id) return;
+        setSaving(true);
+        floorPlansApi.update(id, { ...plan })
+          .then(() => {
+            setSaveSuccess(true);
+            setIsDirty(false);
+            loadedObjectsRef.current = JSON.stringify(plan.objects);
+            setTimeout(() => setSaveSuccess(false), 2000);
+          })
+          .catch(() => alert('Failed to save'))
+          .finally(() => setSaving(false));
+        return;
+      }
+
       if (e.key === 'Delete' || e.key === 'Backspace') {
         // Don't hijack Delete/Backspace when the user is typing in an input/textarea
         const tag = (e.target as HTMLElement).tagName;
@@ -1626,14 +1644,22 @@ export default function FloorPlanEditor() {
   }
 
   function constrainRectObject(rect: RectangleObject, showGuides = true): RectangleObject {
-    // Smart guides align the object's UNROTATED bounding box to the page guides.
-    // For a rotated object that box is not what's drawn on screen, so snapping
-    // it would shift the visible center (drift). Skip guides when rotated and
-    // just keep the object on the page (clamp only translates for any object
-    // that fits the page, which furniture always does).
-    if ((rect.rotation ?? 0) !== 0) {
-      if (showGuides) setSmartGuides([]);
-      return clampRectToPage(rect, getPageRect());
+    const rotation = rect.rotation ?? 0;
+    if (rotation !== 0) {
+      // Use the axis-aligned bounding box of the rotated object for guide detection,
+      // then translate the actual rect by the same delta so visual edges snap correctly.
+      const cos = Math.abs(Math.cos(rotation));
+      const sin = Math.abs(Math.sin(rotation));
+      const aabbW = rect.width * cos + rect.height * sin;
+      const aabbH = rect.width * sin + rect.height * cos;
+      const cx = rect.x + rect.width / 2;
+      const cy = rect.y + rect.height / 2;
+      const aabb = { x: cx - aabbW / 2, y: cy - aabbH / 2, width: aabbW, height: aabbH };
+      const guided = applySmartGuides(aabb, getPageRect(), editorState.zoomLevel);
+      if (showGuides) setSmartGuides(guided.guides);
+      const dx = guided.object.x - aabb.x;
+      const dy = guided.object.y - aabb.y;
+      return clampRectToPage({ ...rect, x: rect.x + dx, y: rect.y + dy }, getPageRect());
     }
     const guided = applySmartGuides(rect, getPageRect(), editorState.zoomLevel);
     if (showGuides) setSmartGuides(guided.guides);
@@ -3566,10 +3592,17 @@ export default function FloorPlanEditor() {
           ))}
         </div>
         {!isReadOnly && (
-          <button onClick={handleSave} disabled={saving}
-            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium disabled:opacity-50 transition-colors ${saveSuccess ? 'bg-green-600 hover:bg-green-700 text-white' : 'bg-[var(--primary)] hover:bg-[var(--primary-hover)] text-white'}`}>
-            <Save size={16} /> {saving ? 'Saving…' : saveSuccess ? 'Saved' : 'Save'}
-          </button>
+          <div className="flex items-center gap-2">
+            {isDirty && !saving && !saveSuccess && (
+              <span className="text-xs text-[var(--text-muted)]">
+                {currentFloorPlan.objects.length} object{currentFloorPlan.objects.length !== 1 ? 's' : ''} unsaved
+              </span>
+            )}
+            <button onClick={handleSave} disabled={saving}
+              className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium disabled:opacity-50 transition-colors ${saveSuccess ? 'bg-green-600 hover:bg-green-700 text-white' : 'bg-[var(--primary)] hover:bg-[var(--primary-hover)] text-white'}`}>
+              <Save size={16} /> {saving ? 'Saving…' : saveSuccess ? 'Saved' : 'Save'}
+            </button>
+          </div>
         )}
         {isFinalized && (
           <span className="text-xs font-medium text-blue-800 bg-blue-100 border border-blue-300 px-3 py-2 rounded-lg flex items-center gap-1.5">

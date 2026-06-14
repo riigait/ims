@@ -16,13 +16,6 @@ type Phase =
 
 export type MapFootprintModalProps = {
   departmentId: string | undefined;
-  addFormMode: 'building' | 'standalone';
-  manualFormData: {
-    buildingLabel: string;
-    buildingNumber: number;
-    floorNumber: number;
-    standaloneName: string;
-  };
   onClose: () => void;
   onImported: (floorPlanId: string) => void;
 };
@@ -84,8 +77,6 @@ function polygonFC(ring: [number, number][]): GeoJSON.FeatureCollection {
 
 export default function MapFootprintModal({
   departmentId,
-  addFormMode,
-  manualFormData,
   onClose,
   onImported,
 }: Readonly<MapFootprintModalProps>) {
@@ -95,6 +86,9 @@ export default function MapFootprintModal({
   const [drawnCoords, setDrawnCoords] = useState<[number, number][]>([]);
   const [buildingHeightM, setBuildingHeightM] = useState(3);
   const [floorCount, setFloorCount] = useState(1);
+  const [planName, setPlanName] = useState('');
+  const [buildingLabel, setBuildingLabel] = useState('');
+  const [buildingNumber, setBuildingNumber] = useState(1);
 
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<MapSearchResult[]>([]);
@@ -203,27 +197,35 @@ export default function MapFootprintModal({
   const handleApply = async () => {
     if (phase.name !== 'footprint_selected') return;
     const { footprint: fp } = phase;
+
+    const isBuilding = floorCount > 1;
+    if (isBuilding && !buildingLabel.trim()) { setApplyError('Building label is required.'); return; }
+    if (!isBuilding && !planName.trim()) { setApplyError('Floor plan name is required.'); return; }
+
     setPhase({ name: 'applying' });
     setApplyError('');
 
-    let name: string;
-    if (addFormMode === 'building') {
-      const label = manualFormData.buildingLabel.trim() || 'Building';
-      name = `Manual - ${label} - Building ${manualFormData.buildingNumber} - Floor ${manualFormData.floorNumber}`;
-    } else {
-      name = manualFormData.standaloneName.trim() || 'Floorplan';
-    }
+    const base = {
+      width: fp.suggestedWidth,
+      height: fp.suggestedHeight,
+      scale: { pixelsPerMeter: 50 },
+      objects: fp.walls,
+      ...(departmentId ? { departmentId } : {}),
+    };
 
     try {
-      const response = await floorPlansApi.create({
-        name,
-        width: fp.suggestedWidth,
-        height: fp.suggestedHeight,
-        scale: { pixelsPerMeter: 50 },
-        objects: fp.walls,
-        ...(departmentId ? { departmentId } : {}),
-      });
-      onImported(response.data.id);
+      let firstId: string | null = null;
+      if (isBuilding) {
+        const label = buildingLabel.trim();
+        for (let floor = 1; floor <= floorCount; floor++) {
+          const response = await floorPlansApi.create({ ...base, name: `Manual - ${label} - Building ${buildingNumber} - Floor ${floor} - ${label}` });
+          if (floor === 1) firstId = response.data.id;
+        }
+      } else {
+        const response = await floorPlansApi.create({ ...base, name: planName.trim() });
+        firstId = response.data.id;
+      }
+      onImported(firstId!);
     } catch {
       setApplyError('Failed to create floor plan. Please try again.');
       setPhase({ name: 'footprint_selected', footprint: fp });
@@ -424,6 +426,32 @@ export default function MapFootprintModal({
                     onChange={e => setFloorCount(Math.max(1, Number.parseInt(e.target.value) || 1))}
                     className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white" />
                 </div>
+              </div>
+
+              <div className="border-t border-gray-200 dark:border-gray-700 pt-3 space-y-2">
+                {floorCount === 1 ? (
+                  <div>
+                    <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Floor Plan Name *</label>
+                    <input type="text" value={planName} onChange={e => setPlanName(e.target.value)}
+                      placeholder="e.g., Main Warehouse"
+                      className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white" />
+                  </div>
+                ) : (
+                  <>
+                    <div>
+                      <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Building Label *</label>
+                      <input type="text" value={buildingLabel} onChange={e => setBuildingLabel(e.target.value)}
+                        placeholder="e.g., Main Warehouse"
+                        className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white" />
+                    </div>
+                    <div>
+                      <label className="text-xs text-gray-500 dark:text-gray-400 block mb-1">Building Number</label>
+                      <input type="number" min={1} max={99} value={buildingNumber}
+                        onChange={e => setBuildingNumber(Math.max(1, Number(e.target.value) || 1))}
+                        className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white" />
+                    </div>
+                  </>
+                )}
               </div>
 
               <p className="text-xs text-gray-400 leading-relaxed">

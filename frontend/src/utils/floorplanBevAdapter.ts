@@ -1,4 +1,4 @@
-import type { FloorPlan, WallObject, PolygonRoomObject, RectangleObject, DoorObject, WindowObject, EntranceObject, LabelObject } from '@/types/floorplan';
+import type { FloorPlan, FloorPlanObject, WallObject, PolygonRoomObject, RectangleObject, DoorObject, WindowObject, EntranceObject, LabelObject, InventoryMarkerObject } from '@/types/floorplan';
 import type { FloorplanData, FloorplanElement, FloorplanElementType } from '@/types/birdsEye';
 
 function polygonBounds(pts: number[]) {
@@ -18,124 +18,147 @@ function isOutdoorWall(w: WallObject): boolean {
     w.id.includes('-ow-');
 }
 
-function topDown25DType(rect: RectangleObject): FloorplanElementType {
-  const name = `${rect.label ?? ''} ${rect.id}`.toLowerCase();
-  if (/work surface|table/.test(name)) return 'table';
-  if (/chair/.test(name)) return 'chair';
-  if (/cabinet/.test(name)) return 'cabinet';
-  if (/drawer/.test(name)) return 'drawer';
-  if (/locker/.test(name)) return 'locker';
-  if (/storage box/.test(name)) return 'storage_box';
-  if (/\bbin\b|container/.test(name)) return 'bin';
-  if (/pallet/.test(name)) return 'pallet';
-  if (/stair/.test(name)) return 'stairs';
-  if (/elevator|lift/.test(name)) return 'elevator';
-  if (/restroom|bathroom|toilet/.test(name)) return 'restroom';
-  return rect.type;
+// Default colors matching the editor's DEFAULT_RECT_FILL
+const EDITOR_COLORS: Record<string, string> = {
+  rack: '#ffeb3b', shelf: '#90caf9',
+  'work-surface': '#e9d5ff', chair: '#f3e8ff', cabinet: '#a7f3d0',
+  drawer: '#bfdbfe', locker: '#fde68a', 'storage-box': '#fca5a5',
+  bin: '#d1d5db', pallet: '#fed7aa', stairs: '#fde68a',
+  elevator: '#d8b4fe', bathroom: '#bfdbfe', human: '#bfdbfe',
+};
+
+// Includes all rect-shaped object types the editor can produce, beyond the 4 in FloorPlanObjectType
+const ALL_RECT_TYPES = new Set([
+  'rack', 'shelf', 'stairs', 'elevator',
+  'work-surface', 'chair', 'cabinet', 'drawer', 'locker',
+  'storage-box', 'bin', 'pallet', 'bathroom', 'human',
+]);
+
+const TYPE_MAP: Partial<Record<string, FloorplanElementType>> = {
+  stairs: 'stairs', elevator: 'elevator', bathroom: 'restroom',
+  chair: 'chair', 'work-surface': 'table', cabinet: 'cabinet',
+  drawer: 'drawer', locker: 'locker', 'storage-box': 'storage_box',
+  bin: 'bin', pallet: 'pallet', rack: 'rack', shelf: 'shelf',
+  human: 'chair',
+};
+
+const LABEL_PATTERNS: [RegExp, FloorplanElementType][] = [
+  [/work surface|table/, 'table'],
+  [/chair/, 'chair'],
+  [/cabinet/, 'cabinet'],
+  [/drawer/, 'drawer'],
+  [/locker/, 'locker'],
+  [/storage box/, 'storage_box'],
+  [/\bbin\b|container/, 'bin'],
+  [/pallet/, 'pallet'],
+  [/stair/, 'stairs'],
+  [/elevator|lift/, 'elevator'],
+  [/restroom|bathroom|toilet/, 'restroom'],
+];
+
+function topDown25DType(type: string, label?: string, id = ''): FloorplanElementType {
+  const direct = TYPE_MAP[type];
+  if (direct) return direct;
+  const name = `${label ?? ''} ${id}`.toLowerCase();
+  return LABEL_PATTERNS.find(([re]) => re.test(name))?.[1] ?? 'rack';
+}
+
+// Type predicate so ALL_RECT_TYPES.has() narrows to RectangleObject in the caller
+function isRectObj(obj: FloorPlanObject): obj is RectangleObject {
+  return ALL_RECT_TYPES.has(obj.type);
+}
+
+function wallToEl(w: WallObject): FloorplanElement {
+  const outdoor = isOutdoorWall(w);
+  const sw = w.thickness ?? (outdoor ? 8 : 4);
+  const minX = Math.min(w.startX, w.endX);
+  const minY = Math.min(w.startY, w.endY);
+  return {
+    id: w.id,
+    type: outdoor ? 'outdoor_wall' : 'indoor_wall',
+    x: minX, y: minY,
+    width: Math.abs(w.endX - w.startX),
+    height: Math.abs(w.endY - w.startY),
+    linePoints: [w.startX, w.startY, w.endX, w.endY],
+    layer: 'wall',
+    style: { strokeWidth: sw },
+  };
+}
+
+function roomToEl(r: PolygonRoomObject): FloorplanElement | null {
+  if (!r.points || r.points.length < 6) return null;
+  const b = polygonBounds(r.points);
+  return {
+    id: r.id, type: 'room',
+    x: b.x, y: b.y, width: b.w, height: b.h,
+    polygonPoints: r.points, label: r.label,
+    layer: 'room',
+    style: r.color ? { fill: r.color } : undefined,
+  };
+}
+
+function rectToEl(rect: RectangleObject): FloorplanElement {
+  return {
+    id: rect.id,
+    type: topDown25DType(rect.type, rect.label, rect.id),
+    x: rect.x, y: rect.y, width: rect.width, height: rect.height,
+    rotation: rect.rotation === undefined ? undefined : rect.rotation * (180 / Math.PI),
+    label: rect.label,
+    layer: 'object',
+    style: { fill: rect.color ?? EDITOR_COLORS[rect.type] },
+  };
+}
+
+function doorToEl(obj: DoorObject | EntranceObject): FloorplanElement {
+  return {
+    id: obj.id, type: 'door',
+    x: obj.x, y: obj.y, width: obj.width, height: 0,
+    rotation: (obj.angle ?? 0) * 180 / Math.PI,
+    swingDirection: obj.type === 'door' ? obj.swingDirection : undefined,
+    layer: 'opening',
+  };
+}
+
+function windowToEl(w: WindowObject): FloorplanElement {
+  return {
+    id: w.id, type: 'window',
+    x: w.x, y: w.y, width: w.width, height: w.height ?? 8,
+    rotation: (w.angle ?? 0) * 180 / Math.PI,
+    layer: 'opening',
+  };
+}
+
+function labelToEl(lbl: LabelObject): FloorplanElement {
+  return {
+    id: lbl.id, type: 'label',
+    x: lbl.x, y: lbl.y, width: 120, height: 20,
+    label: lbl.text, layer: 'label',
+    style: { stroke: lbl.color ?? '#334155', strokeWidth: lbl.fontSize ?? 12 },
+  };
+}
+
+function markerToEl(obj: InventoryMarkerObject): FloorplanElement {
+  return {
+    id: obj.id, type: 'inventory_marker',
+    x: obj.x, y: obj.y, width: 20, height: 20,
+    label: obj.label, layer: 'label',
+  };
 }
 
 export function floorPlanToBevData(plan: FloorPlan): FloorplanData {
   const elements: FloorplanElement[] = [];
-  const objects = plan.objects ?? [];
-
-  for (const obj of objects) {
-    if (obj.type === 'wall') {
-      const w = obj as WallObject;
-      const outdoor = isOutdoorWall(w);
-      const sw = w.thickness ?? (outdoor ? 8 : 4);
-      const dx = w.endX - w.startX;
-      const dy = w.endY - w.startY;
-      const minX = Math.min(w.startX, w.endX);
-      const minY = Math.min(w.startY, w.endY);
-      elements.push({
-        id: w.id,
-        type: outdoor ? 'outdoor_wall' : 'indoor_wall',
-        x: minX,
-        y: minY,
-        width: Math.abs(dx),
-        height: Math.abs(dy),
-        linePoints: [w.startX, w.startY, w.endX, w.endY],
-        layer: 'wall',
-        style: { strokeWidth: sw },
-      } satisfies FloorplanElement);
-
-    } else if (obj.type === 'room') {
-      const r = obj as PolygonRoomObject;
-      if (!r.points || r.points.length < 6) continue;
-      const b = polygonBounds(r.points);
-      elements.push({
-        id: r.id,
-        type: 'room',
-        x: b.x, y: b.y, width: b.w, height: b.h,
-        polygonPoints: r.points,
-        label: r.label,
-        layer: 'room',
-        style: r.color ? { fill: r.color } : undefined,
-      } satisfies FloorplanElement);
-
-    } else if (obj.type === 'rack' || obj.type === 'shelf' || obj.type === 'stairs' || obj.type === 'elevator') {
-      const rect = obj as RectangleObject;
-      elements.push({
-        id: rect.id,
-        type: topDown25DType(rect),
-        x: rect.x, y: rect.y, width: rect.width, height: rect.height,
-        rotation: rect.rotation,
-        label: rect.label,
-        layer: 'object',
-        style: rect.color ? { fill: rect.color } : undefined,
-      } satisfies FloorplanElement);
-
-    } else if (obj.type === 'door' || obj.type === 'entrance') {
-      const d = obj as DoorObject | EntranceObject;
-      elements.push({
-        id: d.id,
-        type: 'door',
-        x: d.x, y: d.y, width: d.width, height: 0,
-        rotation: (d.angle ?? 0) * 180 / Math.PI,
-        layer: 'opening',
-      } satisfies FloorplanElement);
-
-    } else if (obj.type === 'window') {
-      const w = obj as WindowObject;
-      elements.push({
-        id: w.id,
-        type: 'window',
-        x: w.x, y: w.y, width: w.width, height: w.height ?? 8,
-        rotation: (w.angle ?? 0) * 180 / Math.PI,
-        layer: 'opening',
-      } satisfies FloorplanElement);
-
-    } else if (obj.type === 'label') {
-      const lbl = obj as LabelObject;
-      elements.push({
-        id: lbl.id,
-        type: 'label',
-        x: lbl.x, y: lbl.y, width: 120, height: 20,
-        label: lbl.text,
-        layer: 'label',
-        style: { stroke: lbl.color ?? '#334155', strokeWidth: lbl.fontSize ?? 12 },
-      } satisfies FloorplanElement);
-
-    } else if (obj.type === 'marker') {
-      elements.push({
-        id: obj.id,
-        type: 'inventory_marker',
-        x: (obj as { x: number }).x,
-        y: (obj as { y: number }).y,
-        width: 20,
-        height: 20,
-        label: obj.label,
-        layer: 'label',
-      } satisfies FloorplanElement);
-    }
+  for (const obj of plan.objects ?? []) {
+    if (obj.type === 'wall') elements.push(wallToEl(obj));
+    else if (obj.type === 'room') { const el = roomToEl(obj); if (el) elements.push(el); }
+    else if (isRectObj(obj)) elements.push(rectToEl(obj));
+    else if (obj.type === 'door' || obj.type === 'entrance') elements.push(doorToEl(obj));
+    else if (obj.type === 'window') elements.push(windowToEl(obj));
+    else if (obj.type === 'label') elements.push(labelToEl(obj));
+    else if (obj.type === 'marker') elements.push(markerToEl(obj));
   }
-
   return {
-    id: plan.id,
-    name: plan.name,
-    width: plan.width || 800,
-    height: plan.height || 600,
-    viewMode: 'sketch',
-    elements,
+    id: plan.id, name: plan.name,
+    width: plan.width || 800, height: plan.height || 600,
+    viewMode: 'sketch', elements,
   };
 }

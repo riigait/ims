@@ -40,6 +40,7 @@ export interface FloorplanElement {
   width: number;
   height: number;
   rotation?: number;
+  swingDirection?: 'left' | 'right';
   /** For walls adapted from line-segment data: [x1, y1, x2, y2] */
   linePoints?: [number, number, number, number];
   /** For rooms adapted from polygon data: flat [x0,y0, x1,y1, ...] */

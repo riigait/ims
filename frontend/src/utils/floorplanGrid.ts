@@ -212,14 +212,21 @@ export function normalizeObject<T extends FloorPlanObject>(object: T, snap = tru
     } as T;
   }
 
-  if (object.type === 'rack' || object.type === 'shelf') {
+  if (object.type === 'rack' || object.type === 'shelf' || object.type === 'stairs' || object.type === 'elevator') {
+    const rotation = object.rotation ?? 0;
+    if (snap && rotation !== 0) {
+      // Snap the visual center to the grid so edges of rotated objects land on grid lines
+      const cx = snapToGrid(object.x + object.width / 2);
+      const cy = snapToGrid(object.y + object.height / 2);
+      return { ...object, x: cx - object.width / 2, y: cy - object.height / 2, width: normalizeSize(object.width, snap), height: normalizeSize(object.height, snap) };
+    }
     return {
       ...object,
       x: normalizeValue(object.x, snap),
       y: normalizeValue(object.y, snap),
       width: normalizeSize(object.width, snap),
       height: normalizeSize(object.height, snap),
-    } as T;
+    };
   }
 
   if (object.type === 'door' || object.type === 'entrance') {

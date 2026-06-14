@@ -1,5 +1,5 @@
-import { Fragment, memo, useEffect, useRef, useState } from 'react';
-import { Circle, Layer, Line, Rect, Stage, Text } from 'react-konva';
+import { memo, useEffect, useRef, useState } from 'react';
+import { Circle, Group, Layer, Line, Rect, Stage, Text } from 'react-konva';
 import { FloorPlan, FloorPlanObject, RectangleObject } from '@/types/floorplan';
 import { polygonBounds } from '@/utils/floorplanGrid';
 
@@ -13,9 +13,22 @@ interface Props {
 
 const RECT_FILL: Record<string, string> = {
   room: '#e5e7eb',
-  rack: '#fef3c7',
-  shelf: '#dbeafe',
+  rack: '#fef3c7', shelf: '#dbeafe',
+  stairs: '#fef3c7', elevator: '#ede9fe',
+  'work-surface': '#f3e8ff', chair: '#f3e8ff', cabinet: '#d1fae5',
+  drawer: '#dbeafe', locker: '#fef3c7', 'storage-box': '#fee2e2',
+  bin: '#f1f5f9', pallet: '#ffedd5', bathroom: '#dbeafe', human: '#dbeafe',
 };
+
+const ALL_THUMB_RECT_TYPES = new Set([
+  'rack', 'shelf', 'stairs', 'elevator',
+  'work-surface', 'chair', 'cabinet', 'drawer', 'locker',
+  'storage-box', 'bin', 'pallet', 'bathroom', 'human',
+]);
+
+function isThumbRectObj(obj: FloorPlanObject): obj is RectangleObject {
+  return ALL_THUMB_RECT_TYPES.has(obj.type);
+}
 
 const CSS_GRID_BG: React.CSSProperties = {
   backgroundImage:
@@ -25,8 +38,12 @@ const CSS_GRID_BG: React.CSSProperties = {
   backgroundColor: '#f8fafc',
 };
 
-function getServiceRoomKind(label?: string): 'stairs' | 'elevator' | 'bathroom' | null {
-  const normalized = label?.toLowerCase() ?? '';
+function getServiceRoomKind(obj: RectangleObject): 'stairs' | 'elevator' | 'bathroom' | null {
+  const t = (obj as { type: string }).type;
+  if (t === 'stairs') return 'stairs';
+  if (t === 'elevator') return 'elevator';
+  if (t === 'bathroom') return 'bathroom';
+  const normalized = obj.label?.toLowerCase() ?? '';
   if (normalized.startsWith('stairs')) return 'stairs';
   if (normalized.startsWith('elevator')) return 'elevator';
   if (normalized.includes('bathroom') || normalized.includes('restroom')) return 'bathroom';
@@ -48,13 +65,9 @@ function getBounds(objects: FloorPlanObject[], plan: FloorPlan) {
       const b = polygonBounds(obj.points);
       minX = Math.min(minX, b.x); minY = Math.min(minY, b.y);
       maxX = Math.max(maxX, b.x + b.width); maxY = Math.max(maxY, b.y + b.height);
-    } else if (obj.type === 'rack' || obj.type === 'shelf') {
+    } else if (isThumbRectObj(obj)) {
       minX = Math.min(minX, obj.x); minY = Math.min(minY, obj.y);
       maxX = Math.max(maxX, obj.x + obj.width); maxY = Math.max(maxY, obj.y + obj.height);
-    } else if ((obj as { type: string }).type === 'stairs' || (obj as { type: string }).type === 'elevator' || (obj as { type: string }).type === 'bathroom') {
-      const r = obj as unknown as RectangleObject;
-      minX = Math.min(minX, r.x); minY = Math.min(minY, r.y);
-      maxX = Math.max(maxX, r.x + r.width); maxY = Math.max(maxY, r.y + r.height);
     } else if (obj.type === 'label') {
       minX = Math.min(minX, obj.x);
       minY = Math.min(minY, obj.y);
@@ -68,31 +81,35 @@ function getBounds(objects: FloorPlanObject[], plan: FloorPlan) {
 }
 
 function renderRoom(
-  obj: Extract<FloorPlanObject, { type: 'rack' | 'shelf' | 'stairs' | 'elevator' }>,
+  obj: RectangleObject,
   x: number, y: number, w: number, h: number,
   isHighlighted: boolean,
   scale: number,
 ) {
   const label = obj.label ?? '';
-  const kind = getServiceRoomKind(label);
+  const kind = getServiceRoomKind(obj);
+  const rotDeg = (obj.rotation ?? 0) * (180 / Math.PI);
+  const cx = x + w / 2;
+  const cy = y + h / 2;
   return (
-    <Fragment key={obj.id}>
-      <Rect
-        x={x} y={y} width={w} height={h}
-        fill={isHighlighted ? '#dbeafe' : (obj.color ?? RECT_FILL[obj.type])}
-        opacity={isHighlighted ? 0.9 : 0.65}
-        stroke={isHighlighted ? '#2563eb' : (obj.color ?? '#64748b')}
-        strokeWidth={isHighlighted ? 1.5 : 0.8}
-      />
-      {kind === 'stairs' && [0, 1, 2, 3].map((i) => (
-        <Line key={`stair-${obj.id}-${i}`} points={[x + w * 0.2, y + h * (i + 1) / 6, x + w * 0.8, y + h * (i + 1) / 6]} stroke="#b45309" strokeWidth={Math.max(0.8, scale * 2)} />
-      ))}
-      {kind === 'elevator' && (
-        <Rect x={x + w * 0.25} y={y + h * 0.18} width={w * 0.5} height={h * 0.5} stroke="#7e22ce" strokeWidth={Math.max(0.8, scale * 2)} />
-      )}
-      {kind === 'bathroom' && (
-        <Circle x={x + w / 2} y={y + h * 0.34} radius={Math.min(w, h) * 0.12} stroke="#0369a1" strokeWidth={Math.max(0.8, scale * 2)} />
-      )}
+    <Group key={obj.id} x={cx} y={cy} rotation={rotDeg} listening={false}>
+      <Group x={-cx} y={-cy} listening={false}>
+        <Rect
+          x={x} y={y} width={w} height={h}
+          fill={isHighlighted ? '#dbeafe' : (obj.color ?? RECT_FILL[obj.type])}
+          opacity={isHighlighted ? 0.9 : 0.65}
+          stroke={isHighlighted ? '#2563eb' : (obj.color ?? '#64748b')}
+          strokeWidth={isHighlighted ? 1.5 : 0.8}
+        />
+        {kind === 'stairs' && [0, 1, 2, 3].map((i) => (
+          <Line key={`stair-${obj.id}-${i}`} points={[x + w * 0.2, y + h * (i + 1) / 6, x + w * 0.8, y + h * (i + 1) / 6]} stroke="#b45309" strokeWidth={Math.max(0.8, scale * 2)} />
+        ))}
+        {kind === 'elevator' && (
+          <Rect x={x + w * 0.25} y={y + h * 0.18} width={w * 0.5} height={h * 0.5} stroke="#7e22ce" strokeWidth={Math.max(0.8, scale * 2)} />
+        )}
+        {kind === 'bathroom' && (
+          <Circle x={x + w / 2} y={y + h * 0.34} radius={Math.min(w, h) * 0.12} stroke="#0369a1" strokeWidth={Math.max(0.8, scale * 2)} />
+        )}
       {w > 24 && h > 14 && label && (
         <Text
           x={x + 3} y={y + h / 2 - 5}
@@ -103,7 +120,8 @@ function renderRoom(
           fill="#334155"
         />
       )}
-    </Fragment>
+      </Group>
+    </Group>
   );
 }
 
@@ -176,14 +194,8 @@ function renderObject(
   if (obj.type === 'wall') return renderWall(obj, isHighlighted, scale, tx, ty);
   if (obj.type === 'room') return renderPolygonRoom(obj, isHighlighted, tx, ty);
 
-  if (obj.type === 'rack' || obj.type === 'shelf' || obj.type === 'stairs' || obj.type === 'elevator') {
+  if (isThumbRectObj(obj)) {
     return renderRoom(obj, tx(obj.x), ty(obj.y), obj.width * scale, obj.height * scale, isHighlighted, scale);
-  }
-
-  const objType = (obj as { type: string }).type;
-  if (objType === 'bathroom') {
-    const r = obj as unknown as RectangleObject;
-    return renderRoom(r, tx(r.x), ty(r.y), r.width * scale, r.height * scale, isHighlighted, scale);
   }
 
   if (obj.type === 'door' || obj.type === 'entrance' || obj.type === 'window') {

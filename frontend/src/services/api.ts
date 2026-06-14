@@ -170,6 +170,12 @@ export const floorPlansApi = {
   autoFix: (objects: object[]) => api.post('/floor-plans/auto-fix', { objects }),
   setPerimeter: (id: string, walls: object[], alignmentData?: object) =>
     api.patch(`/floor-plans/${id}/perimeter`, { walls, alignmentData }),
+  exportJson: () => api.get('/floor-plans/export/json'),
+  exportFinalizedJson: () => api.get('/floor-plans/export/finalized/json'),
+  importJson: (backup: object, departmentId?: string) =>
+    api.post('/floor-plans/import/json', { backup, departmentId }),
+  importFinalizedJson: (backup: object, departmentId?: string) =>
+    api.post('/floor-plans/import/finalized/json', { backup, departmentId }),
 };
 
 // Map Search

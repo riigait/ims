@@ -314,6 +314,42 @@ function canManageFloorPlan(req: AuthRequest, departmentId: string | null) {
   return req.userRole === 'admin' && Boolean(req.departmentId) && departmentId === req.departmentId;
 }
 
+function importedFloorPlanIsFinalized(plan: any) {
+  return plan?.status === 'finalized' || plan?.isFinalized === true || plan?.isApproved === true;
+}
+
+function parseImportedFloorPlanObjects(plan: any): FloorPlanObject[] {
+  if (Array.isArray(plan?.objects)) return plan.objects;
+  if (typeof plan?.planJson === 'string') {
+    const parsed = JSON.parse(plan.planJson);
+    if (Array.isArray(parsed)) return parsed;
+  }
+  throw new Error('objects array is required');
+}
+
+function exportedFloorPlan(plan: any) {
+  const isFinalized = plan.isApproved === true;
+  return {
+    sourceId: plan.id,
+    name: plan.name,
+    width: plan.width,
+    height: plan.height,
+    locationId: plan.locationId,
+    objects: JSON.parse(plan.planJson || '[]'),
+    status: isFinalized ? 'finalized' : 'draft',
+    isFinalized,
+    isApproved: isFinalized,
+    isTemplate: plan.isTemplate,
+    validationIgnored: plan.validationIgnored,
+    generationScore: plan.generationScore,
+    buildingKey: plan.buildingKey,
+    floorNumber: plan.floorNumber,
+    isAligned: plan.isAligned,
+    alignmentData: parseAlignmentJson(plan.alignmentJson),
+    alignedAt: plan.alignedAt,
+  };
+}
+
 type LocationKind = 'rack' | 'shelf' | 'room';
 
 // Per-floor location-assignment caps aligned with ZONE_RACK_SHELF_DEFAULTS.
@@ -882,6 +918,116 @@ router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
     next(error);
   }
 });
+
+async function exportFloorPlans(req: AuthRequest, res: Response, next: NextFunction, finalizedOnly: boolean) {
+  try {
+    if (req.userRole !== 'admin' && req.userRole !== 'superadmin') {
+      return res.status(403).json({ error: 'Only admins can export floor plans' });
+    }
+    const floorPlans = await prisma.floorPlan.findMany({
+      where: {
+        ...getDepartmentFilter(req),
+        ...(finalizedOnly ? { isApproved: true } : {}),
+      },
+      orderBy: [{ buildingKey: 'asc' }, { floorNumber: 'asc' }, { createdAt: 'asc' }],
+    });
+    return res.json({
+      format: 'ims-floorplans',
+      version: 1,
+      scope: finalizedOnly ? 'finalized' : 'all',
+      exportedAt: new Date().toISOString(),
+      plans: floorPlans.map(exportedFloorPlan),
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
+async function importFloorPlans(req: AuthRequest, res: Response, next: NextFunction, finalizedOnly: boolean) {
+  try {
+    if (req.userRole !== 'admin' && req.userRole !== 'superadmin') {
+      return res.status(403).json({ error: 'Only admins can import floor plans' });
+    }
+    const departmentId = req.departmentId || (req.userRole === 'superadmin' ? req.body.departmentId : undefined);
+    if (!departmentId) {
+      return res.status(400).json({ error: 'Select a department before importing floor plans' });
+    }
+    const backup = req.body.backup ?? req.body;
+    if (backup?.format !== 'ims-floorplans' || !Array.isArray(backup?.plans)) {
+      return res.status(400).json({ error: 'Invalid IMS floorplan backup file' });
+    }
+
+    const created = [];
+    const errors: Array<{ plan: number; name?: string; error: string }> = [];
+    for (let index = 0; index < backup.plans.length; index++) {
+      const plan = backup.plans[index];
+      try {
+        const isFinalized = importedFloorPlanIsFinalized(plan);
+        if (finalizedOnly && !isFinalized) {
+          throw new Error('Finalized-only import cannot contain draft floorplans');
+        }
+        const width = Number.parseInt(String(plan.width), 10);
+        const height = Number.parseInt(String(plan.height), 10);
+        if (!plan.name || !Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
+          throw new Error('name, width, and height are required');
+        }
+        const objects = parseImportedFloorPlanObjects(plan);
+        let locationId: string | null = null;
+        if (typeof plan.locationId === 'string' && plan.locationId) {
+          const location = await prisma.location.findFirst({ where: { id: plan.locationId, departmentId } });
+          locationId = location?.id ?? null;
+        }
+        const imported = await prisma.floorPlan.create({
+          data: {
+            name: plan.name,
+            width,
+            height,
+            locationId,
+            departmentId,
+            planJson: JSON.stringify(objects),
+            isApproved: isFinalized,
+            isTemplate: plan.isTemplate === true,
+            validationIgnored: plan.validationIgnored === true,
+            generationScore: Number.isFinite(plan.generationScore) ? plan.generationScore : null,
+            buildingKey: typeof plan.buildingKey === 'string' ? plan.buildingKey : null,
+            floorNumber: Number.isFinite(plan.floorNumber) ? plan.floorNumber : null,
+            isAligned: plan.isAligned === true,
+            alignmentJson: plan.alignmentData === undefined || plan.alignmentData === null
+              ? null
+              : JSON.stringify(plan.alignmentData),
+            alignedAt: plan.isAligned === true ? new Date() : null,
+          },
+        });
+        created.push({ id: imported.id, name: imported.name, isFinalized: imported.isApproved });
+      } catch (error: any) {
+        errors.push({ plan: index + 1, name: plan?.name, error: error.message });
+      }
+    }
+
+    return res.json({
+      created: created.length,
+      finalized: created.filter(plan => plan.isFinalized).length,
+      drafts: created.filter(plan => !plan.isFinalized).length,
+      plans: created,
+      errors,
+      message: `Imported ${created.length} floor plans (${created.filter(plan => plan.isFinalized).length} finalized, ${created.filter(plan => !plan.isFinalized).length} draft)${errors.length > 0 ? ` with ${errors.length} errors` : ''}`,
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
+router.get('/export/json', (req: AuthRequest, res: Response, next: NextFunction) =>
+  exportFloorPlans(req, res, next, false));
+
+router.get('/export/finalized/json', (req: AuthRequest, res: Response, next: NextFunction) =>
+  exportFloorPlans(req, res, next, true));
+
+router.post('/import/json', (req: AuthRequest, res: Response, next: NextFunction) =>
+  importFloorPlans(req, res, next, false));
+
+router.post('/import/finalized/json', (req: AuthRequest, res: Response, next: NextFunction) =>
+  importFloorPlans(req, res, next, true));
 
 // Find the first floor plan containing a linked location
 router.get('/by-location/:locationId', async (req: AuthRequest, res: Response, next: NextFunction) => {

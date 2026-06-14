@@ -52,6 +52,9 @@ export default function ImportPCLSF() {
   const [exportLoading, setExportLoading] = useState<ExportType | 'unified' | null>(null);
   const [correctorFile, setCorrectorFile] = useState<File | null>(null);
   const [correctorLoading, setCorrectorLoading] = useState(false);
+  const [floorPlanFile, setFloorPlanFile] = useState<File | null>(null);
+  const [floorPlanLoading, setFloorPlanLoading] = useState<'import' | 'import-finalized' | 'export' | 'export-finalized' | null>(null);
+  const [floorPlanMessage, setFloorPlanMessage] = useState('');
   const [result, setResult] = useState<ImportResult | null>(null);
   const [error, setError] = useState('');
   const [exportMessage, setExportMessage] = useState('');
@@ -124,8 +127,8 @@ export default function ImportPCLSF() {
     return normalized;
   });
 
-  const downloadTextFile = (content: string, filename: string) => {
-    const blob = new Blob([content], { type: 'text/csv' });
+  const downloadTextFile = (content: string, filename: string, type = 'text/csv') => {
+    const blob = new Blob([content], { type });
     const url = window.URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
@@ -515,6 +518,60 @@ export default function ImportPCLSF() {
     }
   };
 
+  const handleFloorPlanExport = async (finalizedOnly: boolean) => {
+    try {
+      setFloorPlanLoading(finalizedOnly ? 'export-finalized' : 'export');
+      setFloorPlanMessage('');
+      setError('');
+      const response = finalizedOnly
+        ? await floorPlansApi.exportFinalizedJson()
+        : await floorPlansApi.exportJson();
+      const scope = finalizedOnly ? 'finalized' : 'all';
+      downloadTextFile(
+        JSON.stringify(response.data, null, 2),
+        `floorplans-${scope}-${timestampForFilename()}.json`,
+        'application/json',
+      );
+      setFloorPlanMessage(`Downloaded ${response.data.plans?.length ?? 0} ${scope} floorplan${response.data.plans?.length === 1 ? '' : 's'}.`);
+    } catch {
+      setError('Failed to export floorplan JSON backup.');
+    } finally {
+      setFloorPlanLoading(null);
+    }
+  };
+
+  const handleFloorPlanImport = async (finalizedOnly: boolean) => {
+    if (!floorPlanFile) {
+      setError('Please select a floorplan JSON backup.');
+      return;
+    }
+    if (showDeptSelector && !importDeptId) {
+      setError('Please select a department before importing floorplans.');
+      return;
+    }
+
+    const savedDeptId = localStorage.getItem('currentDepartmentId');
+    if (importDeptId) localStorage.setItem('currentDepartmentId', importDeptId);
+    try {
+      setFloorPlanLoading(finalizedOnly ? 'import-finalized' : 'import');
+      setFloorPlanMessage('');
+      setError('');
+      const backup = JSON.parse(await floorPlanFile.text());
+      const response = finalizedOnly
+        ? await floorPlansApi.importFinalizedJson(backup, importDeptId || undefined)
+        : await floorPlansApi.importJson(backup, importDeptId || undefined);
+      setFloorPlanMessage(response.data.message);
+    } catch (err) {
+      setError((err as any).response?.data?.error || 'Failed to import floorplan JSON backup.');
+    } finally {
+      if (importDeptId) {
+        if (savedDeptId !== null) localStorage.setItem('currentDepartmentId', savedDeptId);
+        else localStorage.removeItem('currentDepartmentId');
+      }
+      setFloorPlanLoading(null);
+    }
+  };
+
   const handleUnifiedExport = async () => {
     try {
       setExportLoading('unified');
@@ -545,7 +602,7 @@ export default function ImportPCLSF() {
         {(['import', 'export', 'corrector'] as Tab[]).filter(tab => user.role === 'staff' ? tab === 'corrector' : true).map(tab => (
           <button
             key={tab}
-            onClick={() => { setActiveTab(tab); setError(''); setExportMessage(''); setCorrectorMessage(''); }}
+            onClick={() => { setActiveTab(tab); setError(''); setExportMessage(''); setFloorPlanMessage(''); setCorrectorMessage(''); }}
             className={`px-4 py-2 text-sm font-medium capitalize ${activeTab === tab ? 'bg-[var(--primary)] text-white' : 'bg-[var(--surface)] text-[var(--text)] hover:bg-[var(--surface-2)]'}`}
           >
             {tab === 'corrector' ? 'CSV Corrector' : tab}
@@ -641,6 +698,48 @@ export default function ImportPCLSF() {
           >
             {loading ? 'Importing...' : 'Import CSV'}
           </button>
+
+          <div className="bg-[var(--surface-2)] rounded-lg p-4 border border-[var(--border)] space-y-3">
+            <div>
+              <h3 className="font-semibold text-[var(--text)]">Floorplan JSON Backup Import</h3>
+              <p className="text-sm text-[var(--text-muted)] mt-1">
+                Restores full floorplan objects and detects whether each floorplan is draft or finalized.
+              </p>
+            </div>
+            <label className="block cursor-pointer rounded border border-dashed border-[var(--border)] bg-[var(--surface)] px-3 py-3 text-sm text-[var(--text-muted)] hover:bg-[var(--border)]">
+              <span className="text-[var(--primary)] font-semibold">Select floorplan JSON backup</span>
+              <input
+                type="file"
+                accept=".json,application/json"
+                onChange={event => {
+                  setFloorPlanFile(event.target.files?.[0] || null);
+                  setFloorPlanMessage('');
+                  setError('');
+                }}
+                disabled={!!floorPlanLoading}
+                className="hidden"
+              />
+              {floorPlanFile && <span className="block mt-1">Selected: {floorPlanFile.name}</span>}
+            </label>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <button
+                type="button"
+                onClick={() => handleFloorPlanImport(false)}
+                disabled={!floorPlanFile || !!floorPlanLoading}
+                className="px-3 py-2 rounded bg-[var(--primary)] text-white text-sm font-semibold disabled:opacity-50"
+              >
+                {floorPlanLoading === 'import' ? 'Importing...' : 'Import Floorplans'}
+              </button>
+              <button
+                type="button"
+                onClick={() => handleFloorPlanImport(true)}
+                disabled={!floorPlanFile || !!floorPlanLoading}
+                className="px-3 py-2 rounded border border-[var(--border)] bg-[var(--surface)] text-[var(--text)] text-sm font-semibold disabled:opacity-50"
+              >
+                {floorPlanLoading === 'import-finalized' ? 'Importing...' : 'Import Finalized Only'}
+              </button>
+            </div>
+          </div>
         </>
       ) : activeTab === 'export' ? (
         <>
@@ -658,6 +757,35 @@ export default function ImportPCLSF() {
           >
             {exportLoading === 'unified' ? 'Exporting...' : 'Unified Export'}
           </button>
+
+          <div className="bg-[var(--surface-2)] rounded-lg p-4 border border-[var(--border)] space-y-3">
+            <div>
+              <h3 className="font-semibold text-[var(--text)]">Floorplan JSON Backup</h3>
+              <p className="text-sm text-[var(--text-muted)] mt-1">
+                Exports full floorplan data with explicit draft/finalized status.
+              </p>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <button
+                type="button"
+                onClick={() => handleFloorPlanExport(false)}
+                disabled={!!floorPlanLoading}
+                className="flex items-center justify-center gap-2 px-3 py-2 rounded bg-[var(--primary)] text-white text-sm font-semibold disabled:opacity-50"
+              >
+                <Download size={14} />
+                {floorPlanLoading === 'export' ? 'Exporting...' : 'Export All Floorplans'}
+              </button>
+              <button
+                type="button"
+                onClick={() => handleFloorPlanExport(true)}
+                disabled={!!floorPlanLoading}
+                className="flex items-center justify-center gap-2 px-3 py-2 rounded border border-[var(--border)] bg-[var(--surface)] text-[var(--text)] text-sm font-semibold disabled:opacity-50"
+              >
+                <Download size={14} />
+                {floorPlanLoading === 'export-finalized' ? 'Exporting...' : 'Export Finalized Floorplans'}
+              </button>
+            </div>
+          </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
               {SOLO_EXPORT_TYPES.map(type => (
@@ -719,6 +847,7 @@ export default function ImportPCLSF() {
 
       {error && <div className="p-4 bg-red-100 text-red-800 rounded-lg">Error: {error}</div>}
       {exportMessage && <div className="p-4 bg-green-100 text-green-800 rounded-lg">{exportMessage}</div>}
+      {floorPlanMessage && <div className="p-4 bg-green-100 text-green-800 rounded-lg">{floorPlanMessage}</div>}
       {correctorMessage && <div className="p-4 bg-green-100 text-green-800 rounded-lg">{correctorMessage}</div>}
 
       {result && (

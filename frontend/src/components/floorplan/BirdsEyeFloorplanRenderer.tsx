@@ -65,7 +65,7 @@ function renderRoom(el: FloorplanElement, sketch: boolean): React.ReactNode {
 
 function renderRug(el: FloorplanElement, _sketch: boolean): React.ReactNode {
   const colors = ['#d4a76a', '#9dc4b8', '#c4b0d0', '#d4c4a0', '#b8c4d4'];
-  const color = colors[parseInt(el.id.replace(/\D/g, '').slice(-1) || '0') % colors.length];
+  const color = colors[Number.parseInt(el.id.replace(/\D/g, '').slice(-1) || '0') % colors.length];
   const bi = Math.min(el.width, el.height) * 0.1;
   return (
     <Group key={el.id} listening={false}>
@@ -112,8 +112,8 @@ function renderBed(el: FloorplanElement, sketch: boolean): React.ReactNode {
       <Rect x={x + w / 2 + pg / 2} y={y + h * 0.14} width={pw} height={ph}
         fill="white" stroke="#d8cfc8" strokeWidth={0.8} cornerRadius={4} opacity={0.95}
       />
-      {sketch && [0.52, 0.72].map((t, i) => (
-        <Line key={i}
+      {sketch && [0.52, 0.72].map((t) => (
+        <Line key={t}
           points={[x + 3, y + h * t, x + w - 3, y + h * t]}
           stroke="#c8c0b8" strokeWidth={0.6} opacity={0.35}
         />
@@ -136,7 +136,7 @@ function renderSofa(el: FloorplanElement, sketch: boolean): React.ReactNode {
   return (
     <Group key={el.id} listening={false}>
       <Rect x={x} y={y} width={w} height={backH}
-        fill="#c8d0c0" stroke="#a8b0a0" strokeWidth={1} cornerRadius={[3, 3, 0, 0] as unknown as number}
+        fill="#c8d0c0" stroke="#a8b0a0" strokeWidth={1} cornerRadius={[3, 3, 0, 0]}
       />
       <Rect x={x} y={y + backH} width={armW} height={seatH}
         fill="#b8c0b0" stroke="#a8b0a0" strokeWidth={1}
@@ -173,8 +173,8 @@ function renderTable(el: FloorplanElement, sketch: boolean): React.ReactNode {
       {([
         [x + 4, y + 4], [x + w - 9, y + 4],
         [x + 4, y + h - 9], [x + w - 9, y + h - 9],
-      ] as [number, number][]).map(([lx, ly], i) => (
-        <Rect key={i} x={lx} y={ly} width={5} height={5} fill="#c8b89a" opacity={0.7} />
+      ] as [number, number][]).map(([lx, ly]) => (
+        <Rect key={`${lx}-${ly}`} x={lx} y={ly} width={5} height={5} fill="#c8b89a" opacity={0.7} />
       ))}
       {sketch && (
         <Rect x={x + so(1)} y={y + so(2)} width={w} height={h}
@@ -193,10 +193,10 @@ function renderChair(el: FloorplanElement, _sketch: boolean): React.ReactNode {
   return (
     <Group key={el.id} listening={false}>
       <Rect x={x} y={y} width={w} height={backH}
-        fill="#c8c8b8" stroke="#a8a898" strokeWidth={1} cornerRadius={[4, 4, 0, 0] as unknown as number}
+        fill="#c8c8b8" stroke="#a8a898" strokeWidth={1} cornerRadius={[4, 4, 0, 0]}
       />
       <Rect x={x + seatOff} y={y + backH} width={seatW} height={h - backH}
-        fill="#d8d8c8" stroke="#a8a898" strokeWidth={1} cornerRadius={[0, 0, 3, 3] as unknown as number}
+        fill="#d8d8c8" stroke="#a8a898" strokeWidth={1} cornerRadius={[0, 0, 3, 3]}
       />
     </Group>
   );
@@ -279,11 +279,11 @@ function renderToilet(el: FloorplanElement, _sketch: boolean): React.ReactNode {
       />
       <Rect x={x + w * 0.1} y={y + tankH} width={w * 0.8} height={bowlH}
         fill="#e8ecf0" stroke="#a0a8b0" strokeWidth={1}
-        cornerRadius={[0, 0, w * 0.4, w * 0.4] as unknown as number}
+        cornerRadius={[0, 0, w * 0.4, w * 0.4]}
       />
       <Rect x={x + w * 0.2} y={y + tankH + h * 0.05} width={w * 0.6} height={bowlH - h * 0.1}
         fill="#d0d8e0" stroke="#a0a8b0" strokeWidth={0.5}
-        cornerRadius={[0, 0, w * 0.3, w * 0.3] as unknown as number}
+        cornerRadius={[0, 0, w * 0.3, w * 0.3]}
       />
     </Group>
   );
@@ -315,7 +315,7 @@ function renderPlant(el: FloorplanElement, _sketch: boolean): React.ReactNode {
   return (
     <Group key={el.id} listening={false}>
       <Rect x={cx - r * 0.5} y={cy + r * 0.2} width={r} height={r * 0.6}
-        fill="#b8a080" stroke="#906858" strokeWidth={1} cornerRadius={[0, 0, 3, 3] as unknown as number}
+        fill="#b8a080" stroke="#906858" strokeWidth={1} cornerRadius={[0, 0, 3, 3]}
       />
       <Circle x={cx} y={cy} radius={lr} fill="#5a9048" opacity={0.8} />
       {Array.from({ length: 6 }, (_, i) => {
@@ -343,8 +343,8 @@ function renderStorage(el: FloorplanElement, sketch: boolean): React.ReactNode {
       />
       <Line points={[x + 4, y + 4, x + w - 4, y + h - 4]} stroke="#c0b8a8" strokeWidth={1} opacity={0.55} />
       <Line points={[x + w - 4, y + 4, x + 4, y + h - 4]} stroke="#c0b8a8" strokeWidth={1} opacity={0.55} />
-      {w > 40 && [0.33, 0.66].map((t, i) => (
-        <Line key={i}
+      {w > 40 && [0.33, 0.66].map((t) => (
+        <Line key={t}
           points={[x + 2, y + h * t, x + w - 2, y + h * t]}
           stroke="#c0b8a8" strokeWidth={0.8} opacity={0.45}
         />
@@ -367,14 +367,22 @@ function renderStorage(el: FloorplanElement, sketch: boolean): React.ReactNode {
 
 function renderDoor(el: FloorplanElement, _sketch: boolean): React.ReactNode {
   const { x, y, width: w, rotation } = el;
+  // el.x/y is the CENTER of the door opening; draw symmetrically around (0,0).
+  // Arc matches the editor: centered at (0,0), radius = w/2, sweep 135°.
+  // Right swing: editor goes anticlockwise 0°→-135° = Konva clockwise -135°→0°.
+  // Left swing:  editor goes clockwise 180°→315°   = Konva clockwise 180°→315°.
+  const hw = w / 2;
+  const arcRotation = el.swingDirection === 'left' ? 180 : -135;
   return (
     <Group key={el.id} x={x} y={y} rotation={rotation ?? 0} listening={false}>
-      <Line points={[0, 0, w, 0]} stroke="#16a34a" strokeWidth={2.5} lineCap="round" />
+      <Line points={[-hw, 0, hw, 0]} stroke="#16a34a" strokeWidth={2.5} lineCap="round" />
       <Arc
         x={0} y={0}
-        innerRadius={0} outerRadius={w}
-        angle={90} rotation={0}
-        stroke="#16a34a" strokeWidth={0.8} fill="rgba(22,163,74,0.06)"
+        innerRadius={0} outerRadius={hw}
+        angle={135} rotation={arcRotation}
+        stroke="#16a34a" strokeWidth={0.8}
+        dash={[3, 2]}
+        fill="rgba(22,163,74,0.06)"
       />
     </Group>
   );
@@ -382,13 +390,16 @@ function renderDoor(el: FloorplanElement, _sketch: boolean): React.ReactNode {
 
 function renderWindow(el: FloorplanElement, _sketch: boolean): React.ReactNode {
   const { x, y, width: w, height: h, rotation } = el;
-  const t = Math.min(h || 8, 8);
+  // el.x/y is the CENTER of the window opening; draw symmetrically around (0,0)
+  const hw = w / 2;
+  const t = Math.min(Math.max(8, h || 8), 16);
+  const ht = t / 2;
   return (
     <Group key={el.id} x={x} y={y} rotation={rotation ?? 0} listening={false}>
-      <Rect x={0} y={0} width={w} height={t} fill="white" />
-      <Line points={[0, 0, w, 0]} stroke="#38bdf8" strokeWidth={2} />
-      <Line points={[0, t, w, t]} stroke="#38bdf8" strokeWidth={2} />
-      <Line points={[w / 2, 0, w / 2, t]} stroke="#38bdf8" strokeWidth={0.8} opacity={0.6} />
+      <Rect x={-hw} y={-ht} width={w} height={t} fill="white" />
+      <Line points={[-hw, -ht, hw, -ht]} stroke="#38bdf8" strokeWidth={2} />
+      <Line points={[-hw, ht, hw, ht]} stroke="#38bdf8" strokeWidth={2} />
+      <Line points={[0, -ht, 0, ht]} stroke="#38bdf8" strokeWidth={0.8} opacity={0.6} />
     </Group>
   );
 }
@@ -451,7 +462,76 @@ function renderInventoryMarker(el: FloorplanElement, _sketch: boolean): React.Re
   );
 }
 
-function renderFloorplanElement(el: FloorplanElement, sketch: boolean): React.ReactNode {
+function renderShelfUnit(el: FloorplanElement, sketch: boolean): React.ReactNode {
+  const { x, y, width: w, height: h } = el;
+  const fill = el.style?.fill ?? (el.type === 'shelf' ? '#dbeafe' : '#fef3c7');
+  const stripe = el.type === 'shelf' ? '#93c5fd' : '#fcd34d';
+  const rows = Math.max(2, Math.floor(h / 20));
+  return (
+    <Group key={el.id} listening={false}>
+      <Rect x={x} y={y} width={w} height={h} fill={fill} stroke={stripe} strokeWidth={sketch ? 1.5 : 1} />
+      {Array.from({ length: rows - 1 }, (_, i) => {
+        const yy = y + ((i + 1) / rows) * h;
+        return <Line key={i} points={[x + 2, yy, x + w - 2, yy]} stroke={stripe} strokeWidth={0.8} opacity={0.7} />;
+      })}
+      {el.label && w > 30 && h > 16 && (
+        <Text text={el.label.length > 12 ? `${el.label.slice(0, 11)}…` : el.label}
+          x={x + 2} y={y + h / 2 - 5} width={w - 4} align="center"
+          fontSize={Math.max(6, Math.min(9, h / 4))} fill="#334155" opacity={0.85}
+        />
+      )}
+      {sketch && <Rect x={x + so(2)} y={y + so(0)} width={w} height={h} stroke={stripe} strokeWidth={0.4} fill="transparent" opacity={0.22} />}
+    </Group>
+  );
+}
+
+function renderStairs(el: FloorplanElement, _sketch: boolean): React.ReactNode {
+  const { x, y, width: w, height: h } = el;
+  const fill = el.style?.fill ?? '#fef3c7';
+  const steps = Math.max(3, Math.floor(h / 20));
+  return (
+    <Group key={el.id} listening={false}>
+      <Rect x={x} y={y} width={w} height={h} fill={fill} stroke="#b45309" strokeWidth={1.5} />
+      {Array.from({ length: steps - 1 }, (_, i) => {
+        const yy = y + ((i + 1) / steps) * h;
+        return <Line key={i} points={[x + w * 0.15, yy, x + w * 0.85, yy]} stroke="#b45309" strokeWidth={1} />;
+      })}
+      <Line points={[x + w * 0.5, y + 4, x + w * 0.5, y + h - 4]} stroke="#b45309" strokeWidth={0.8} opacity={0.4} />
+    </Group>
+  );
+}
+
+function renderElevator(el: FloorplanElement, _sketch: boolean): React.ReactNode {
+  const { x, y, width: w, height: h } = el;
+  const fill = el.style?.fill ?? '#ede9fe';
+  const cx = x + w / 2;
+  const cy = y + h / 2;
+  return (
+    <Group key={el.id} listening={false}>
+      <Rect x={x} y={y} width={w} height={h} fill={fill} stroke="#7e22ce" strokeWidth={1.5} />
+      <Rect x={x + w * 0.2} y={y + h * 0.18} width={w * 0.6} height={h * 0.55} stroke="#7e22ce" strokeWidth={1} fill="transparent" />
+      <Line points={[cx, cy - h * 0.08, cx - w * 0.12, cy, cx + w * 0.12, cy]} stroke="#7e22ce" strokeWidth={1} opacity={0.7} />
+      <Line points={[cx, cy + h * 0.08, cx - w * 0.12, cy, cx + w * 0.12, cy]} stroke="#7e22ce" strokeWidth={1} opacity={0.7} />
+    </Group>
+  );
+}
+
+function renderRestroom(el: FloorplanElement, _sketch: boolean): React.ReactNode {
+  const { x, y, width: w, height: h } = el;
+  const fill = el.style?.fill ?? '#dbeafe';
+  const cx = x + w / 2;
+  const r = Math.min(w, h) * 0.22;
+  return (
+    <Group key={el.id} listening={false}>
+      <Rect x={x} y={y} width={w} height={h} fill={fill} stroke="#0369a1" strokeWidth={1.5} />
+      <Circle x={cx} y={y + h * 0.35} radius={r} stroke="#0369a1" strokeWidth={1} fill="transparent" />
+      <Line points={[cx, y + h * 0.35 + r, cx, y + h * 0.7]} stroke="#0369a1" strokeWidth={1} />
+      <Line points={[cx - w * 0.18, y + h * 0.5, cx + w * 0.18, y + h * 0.5]} stroke="#0369a1" strokeWidth={1} />
+    </Group>
+  );
+}
+
+function renderByType(el: FloorplanElement, sketch: boolean): React.ReactNode {
   switch (el.type) {
     case 'room':            return renderRoom(el, sketch);
     case 'rug':             return renderRug(el, sketch);
@@ -466,6 +546,17 @@ function renderFloorplanElement(el: FloorplanElement, sketch: boolean): React.Re
     case 'bathtub':         return renderBathtub(el, sketch);
     case 'plant':           return renderPlant(el, sketch);
     case 'storage':         return renderStorage(el, sketch);
+    case 'rack':
+    case 'shelf':           return renderShelfUnit(el, sketch);
+    case 'stairs':          return renderStairs(el, sketch);
+    case 'elevator':        return renderElevator(el, sketch);
+    case 'restroom':        return renderRestroom(el, sketch);
+    case 'cabinet':
+    case 'drawer':
+    case 'locker':
+    case 'storage_box':
+    case 'bin':
+    case 'pallet':          return renderStorage(el, sketch);
     case 'door':            return renderDoor(el, sketch);
     case 'window':          return renderWindow(el, sketch);
     case 'outdoor_wall':
@@ -474,17 +565,43 @@ function renderFloorplanElement(el: FloorplanElement, sketch: boolean): React.Re
     case 'inventory_marker':return renderInventoryMarker(el, sketch);
     default:
       return (
-        <Rect key={el.id} x={el.x} y={el.y} width={el.width} height={el.height}
-          fill={el.style?.fill ?? '#e8e8e8'}
-          stroke={el.style?.stroke ?? '#b0b0b0'} strokeWidth={1}
-          listening={false}
-        />
+        <Group key={el.id} listening={false}>
+          <Rect x={el.x} y={el.y} width={el.width} height={el.height}
+            fill={el.style?.fill ?? '#e8e8e8'}
+            stroke={el.style?.stroke ?? '#b0b0b0'} strokeWidth={1}
+          />
+          {el.label && el.width > 20 && el.height > 12 && (
+            <Text x={el.x + 2} y={el.y + el.height / 2 - 5} width={el.width - 4} align="center"
+              text={el.label.length > 12 ? `${el.label.slice(0, 11)}…` : el.label}
+              fontSize={Math.max(6, Math.min(9, el.height / 4))} fill="#334155"
+            />
+          )}
+        </Group>
       );
   }
 }
 
+// Wrap object-layer elements in a rotation group so el.rotation (degrees) is applied
+// around the element's visual center. Uses a double-group trick so child renderers can
+// keep their absolute coordinates without modification.
+function renderFloorplanElement(el: FloorplanElement, sketch: boolean): React.ReactNode {
+  const inner = renderByType(el, sketch);
+  if (el.rotation && el.layer === 'object') {
+    const cx = el.x + el.width / 2;
+    const cy = el.y + el.height / 2;
+    return (
+      <Group key={el.id} x={cx} y={cy} rotation={el.rotation} listening={false}>
+        <Group x={-cx} y={-cy} listening={false}>
+          {inner}
+        </Group>
+      </Group>
+    );
+  }
+  return inner;
+}
+
 // ── Floor background ──────────────────────────────────────────────────────────
-function FloorBackground({ data, sketch }: { data: FloorplanData; sketch: boolean }) {
+function FloorBackground({ data, sketch }: { readonly data: FloorplanData; readonly sketch: boolean }) {
   const plankPx = 60;
   const lineColor = sketch ? '#ece5da' : '#e4e4e4';
 
@@ -512,10 +629,10 @@ function FloorBackground({ data, sketch }: { data: FloorplanData; sketch: boolea
 
 // ── Component ─────────────────────────────────────────────────────────────────
 interface Props {
-  data: FloorplanData;
-  width?: number;
-  height?: number;
-  viewStyle?: 'technical' | 'sketch';
+  readonly data: FloorplanData;
+  readonly width?: number;
+  readonly height?: number;
+  readonly viewStyle?: 'technical' | 'sketch';
 }
 
 export default function BirdsEyeFloorplanRenderer({
@@ -526,11 +643,35 @@ export default function BirdsEyeFloorplanRenderer({
 }: Props) {
   const sketch = viewStyle === 'sketch';
   const pad = 24;
-  const safeW = data.width || 1;
-  const safeH = data.height || 1;
-  const scale = Math.min((width - pad * 2) / safeW, (height - pad * 2) / safeH);
-  const offsetX = (width - safeW * scale) / 2;
-  const offsetY = (height - safeH * scale) / 2;
+
+  // Compute tight bounding box of actual content so we crop to it rather than
+  // scaling the entire (mostly-empty) canvas to fit the display area.
+  const contentBounds = useMemo(() => {
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (const el of data.elements) {
+      if (el.linePoints) {
+        const [x1, y1, x2, y2] = el.linePoints;
+        minX = Math.min(minX, x1, x2); minY = Math.min(minY, y1, y2);
+        maxX = Math.max(maxX, x1, x2); maxY = Math.max(maxY, y1, y2);
+      } else if (el.polygonPoints) {
+        for (let i = 0; i < el.polygonPoints.length; i += 2) {
+          minX = Math.min(minX, el.polygonPoints[i]);
+          minY = Math.min(minY, el.polygonPoints[i + 1]);
+          maxX = Math.max(maxX, el.polygonPoints[i]);
+          maxY = Math.max(maxY, el.polygonPoints[i + 1]);
+        }
+      } else {
+        minX = Math.min(minX, el.x); minY = Math.min(minY, el.y);
+        maxX = Math.max(maxX, el.x + el.width); maxY = Math.max(maxY, el.y + el.height);
+      }
+    }
+    if (!Number.isFinite(minX)) return { x: 0, y: 0, w: data.width || 1, h: data.height || 1 };
+    return { x: minX, y: minY, w: Math.max(1, maxX - minX), h: Math.max(1, maxY - minY) };
+  }, [data.elements, data.width, data.height]);
+
+  const scale = Math.min((width - pad * 2) / contentBounds.w, (height - pad * 2) / contentBounds.h);
+  const offsetX = (width - contentBounds.w * scale) / 2 - contentBounds.x * scale;
+  const offsetY = (height - contentBounds.h * scale) / 2 - contentBounds.y * scale;
 
   const byLayer = useMemo(() => {
     const layers: Record<string, FloorplanElement[]> = {

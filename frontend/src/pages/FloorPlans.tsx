@@ -723,7 +723,6 @@ export default function FloorPlans() {
   const [loading, setLoading] = useState(true);
   const [showAddForm, setShowAddForm] = useState(false);
   const [showMapImportModal, setShowMapImportModal] = useState(false);
-  const [addFormMode, setAddFormMode] = useState<'building' | 'standalone'>('building');
   const [searchTerm, setSearchTerm] = useState('');
   const [departmentFilter, setDepartmentFilter] = useState('');
   const [sortBy, setSortBy] = useState('recently-added');
@@ -775,7 +774,7 @@ export default function FloorPlans() {
   const [manualFormData, setManualFormData] = useState({
     buildingLabel: '',
     buildingNumber: 1,
-    floorNumber: 1,
+    floorCount: 1,
     width: A4_PAGE_WIDTH,
     height: A4_PAGE_HEIGHT,
     departmentId: '',
@@ -878,42 +877,41 @@ export default function FloorPlans() {
     return () => window.removeEventListener('storage', handleStorageChange);
   }, [locationId, navigate]);
 
-  const openAddForm = (mode: 'building' | 'standalone' = 'building') => {
+  const openAddForm = () => {
     setManualFormData(cur => ({
       ...cur,
       departmentId: user.role === 'superadmin' ? departmentFilter : cur.departmentId,
     }));
-    setAddFormMode(mode);
     setShowAddForm(true);
   };
 
   const handleAddFloorPlan = async (e: React.FormEvent) => {
     e.preventDefault();
-    const { buildingLabel, buildingNumber, floorNumber, standaloneName } = manualFormData;
+    const { buildingLabel, buildingNumber, floorCount, standaloneName } = manualFormData;
     const selectedDepartmentId = user.role === 'superadmin' ? manualFormData.departmentId : (currentDepartmentId ?? undefined);
     if (user.role === 'superadmin' && !selectedDepartmentId) { alert('Department is required'); return; }
 
-    let name: string;
-    if (addFormMode === 'building') {
-      if (!buildingLabel.trim()) { alert('Building label is required'); return; }
-      const label = buildingLabel.trim();
-      name = `Manual - ${label} - Building ${buildingNumber} - Floor ${floorNumber} - ${label}`;
-    } else {
-      if (!standaloneName.trim()) { alert('Floor plan name is required'); return; }
-      name = standaloneName.trim();
-    }
+    const isBuilding = floorCount > 1;
+    if (isBuilding && !buildingLabel.trim()) { alert('Building label is required'); return; }
+    if (!isBuilding && !standaloneName.trim()) { alert('Floor plan name is required'); return; }
 
     try {
-      const response = await floorPlansApi.create({
-        name,
-        width: A4_PAGE_WIDTH,
-        height: A4_PAGE_HEIGHT,
-        scale: { pixelsPerMeter: 50 },
-        objects: [],
-        ...(selectedDepartmentId ? { departmentId: selectedDepartmentId } : {}),
-      });
+      let firstId: string | null = null;
+      const base = { width: A4_PAGE_WIDTH, height: A4_PAGE_HEIGHT, scale: { pixelsPerMeter: 50 }, objects: [], ...(selectedDepartmentId ? { departmentId: selectedDepartmentId } : {}) };
+
+      if (isBuilding) {
+        const label = buildingLabel.trim();
+        for (let floor = 1; floor <= floorCount; floor++) {
+          const response = await floorPlansApi.create({ ...base, name: `Manual - ${label} - Building ${buildingNumber} - Floor ${floor} - ${label}` });
+          if (floor === 1) firstId = response.data.id;
+        }
+      } else {
+        const response = await floorPlansApi.create({ ...base, name: standaloneName.trim() });
+        firstId = response.data.id;
+      }
+
       setShowAddForm(false);
-      navigate(`/floor-plans/${response.data.id}/edit`);
+      navigate(`/floor-plans/${firstId}/edit`);
     } catch {
       alert('Failed to create floor plan');
     }
@@ -1519,7 +1517,7 @@ export default function FloorPlans() {
             </button>
             <button
               type="button"
-              onClick={() => openAddForm('building')}
+              onClick={() => openAddForm()}
               className="flex items-center gap-2 bg-[var(--primary)] text-white px-4 py-2 rounded-lg hover:bg-[var(--primary-hover)]">
               <Plus size={20} /> Add Floor Plan
             </button>
@@ -1818,27 +1816,21 @@ export default function FloorPlans() {
         <div className="bg-[var(--surface)] p-6 rounded-lg shadow-lg border border-[var(--border)]">
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-xl font-semibold text-[var(--text)]">Add Floor Plan</h2>
-            <div className="flex rounded-lg border border-[var(--border)] overflow-hidden text-sm">
-              <button
-                type="button"
-                onClick={() => setAddFormMode('building')}
-                className={`px-3 py-1.5 font-medium transition-colors ${addFormMode === 'building' ? 'bg-[var(--primary)] text-white' : 'bg-[var(--surface-2)] text-[var(--text-muted)] hover:bg-[var(--border)]'}`}
-              >
-                Building Floor
-              </button>
-              <button
-                type="button"
-                onClick={() => setAddFormMode('standalone')}
-                className={`px-3 py-1.5 font-medium transition-colors ${addFormMode === 'standalone' ? 'bg-[var(--primary)] text-white' : 'bg-[var(--surface-2)] text-[var(--text-muted)] hover:bg-[var(--border)]'}`}
-              >
-                Standalone
-              </button>
+            <div className="flex items-center gap-2">
+              <label className="text-sm text-[var(--text-muted)] whitespace-nowrap">Number of Floors</label>
+              <input
+                type="number"
+                min={1} max={99}
+                value={manualFormData.floorCount}
+                onChange={e => setManualFormData(cur => ({ ...cur, floorCount: Math.max(1, Number(e.target.value) || 1) }))}
+                className="w-20 px-2 py-1 border border-[var(--border)] rounded-lg bg-[var(--surface)] text-[var(--text)] text-sm"
+              />
             </div>
           </div>
           <p className="text-sm text-[var(--text-muted)] mb-4">
-            {addFormMode === 'building'
-              ? 'Creates a blank floor in a named building group. Appears in the Merge Floors / Finalize pipeline alongside other floors from the same building.'
-              : 'Creates a blank floor plan with a free-form name. Not part of any building group — use for one-off layouts.'}
+            {manualFormData.floorCount === 1
+              ? 'Creates a single standalone floor plan. Not part of any building group — use for one-off layouts.'
+              : `Creates ${manualFormData.floorCount} building floors (Floor 1–${manualFormData.floorCount}) in a named group. All floors appear in the Merge Floors / Finalize pipeline.`}
           </p>
           <form onSubmit={handleAddFloorPlan} className="space-y-4">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -1859,7 +1851,7 @@ export default function FloorPlans() {
                 </div>
               )}
 
-              {addFormMode === 'standalone' ? (
+              {manualFormData.floorCount === 1 ? (
                 <div className="md:col-span-2">
                   <label className="block text-sm font-medium text-[var(--text)] mb-1">Floor Plan Name *</label>
                   <input
@@ -1895,16 +1887,6 @@ export default function FloorPlans() {
                       className="w-full px-4 py-2 border border-[var(--border)] rounded-lg bg-[var(--surface)] text-[var(--text)]"
                     />
                   </div>
-                  <div>
-                    <label className="block text-sm font-medium text-[var(--text)] mb-1">Floor Number</label>
-                    <input
-                      type="number"
-                      min={1} max={99}
-                      value={manualFormData.floorNumber}
-                      onChange={e => setManualFormData(cur => ({ ...cur, floorNumber: Math.max(1, Number(e.target.value) || 1) }))}
-                      className="w-full px-4 py-2 border border-[var(--border)] rounded-lg bg-[var(--surface)] text-[var(--text)]"
-                    />
-                  </div>
                 </>
               )}
 
@@ -1928,9 +1910,9 @@ export default function FloorPlans() {
               </div>
             </div>
 
-            {addFormMode === 'building' && (
+            {manualFormData.floorCount > 1 && (
               <div className="rounded border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2 text-xs text-[var(--text-muted)]">
-                Will be named: <span className="font-mono font-medium text-[var(--text)]">Manual - {manualFormData.buildingLabel || '…'} - Building {manualFormData.buildingNumber} - Floor {manualFormData.floorNumber} - {manualFormData.buildingLabel || '…'}</span>
+                Will be named: <span className="font-mono font-medium text-[var(--text)]">Manual - {manualFormData.buildingLabel || '…'} - Building {manualFormData.buildingNumber} - Floor 1..{manualFormData.floorCount} - {manualFormData.buildingLabel || '…'}</span>
               </div>
             )}
 
@@ -1957,8 +1939,6 @@ export default function FloorPlans() {
       {showMapImportModal && (
         <MapFootprintModal
           departmentId={user.role === 'superadmin' ? manualFormData.departmentId || undefined : currentDepartmentId ?? undefined}
-          addFormMode={addFormMode}
-          manualFormData={manualFormData}
           onClose={() => setShowMapImportModal(false)}
           onImported={(id) => {
             setShowMapImportModal(false);
@@ -2164,7 +2144,7 @@ export default function FloorPlans() {
               {floorPlans.length === 0 && canManageFloorPlans && (
                 <>
                   <p className="text-[var(--text-muted)] text-sm mb-4">Create one to start mapping your warehouse</p>
-                  <button onClick={() => openAddForm('building')}
+                  <button onClick={() => openAddForm()}
                     className="px-4 py-2 bg-[var(--primary)] text-white rounded-lg hover:bg-[var(--primary-hover)]">
                     Create your first floor plan
                   </button>
