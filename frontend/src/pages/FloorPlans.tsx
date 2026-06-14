@@ -1,6 +1,9 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { Plus, Trash2, MapPin, LayoutGrid, List, Edit, Sparkles, X, XCircle, RefreshCw, BookmarkCheck, ChevronDown, ChevronUp, Info, AlertTriangle, Layers, Lock, Map as MapIcon } from 'lucide-react';
+import { Plus, Trash2, MapPin, LayoutGrid, List, Edit, Sparkles, X, XCircle, RefreshCw, BookmarkCheck, ChevronDown, ChevronUp, Info, AlertTriangle, Layers, Lock, Map as MapIcon, Eye } from 'lucide-react';
+import BirdsEyeFloorplanRenderer from '@/components/floorplan/BirdsEyeFloorplanRenderer';
+import { cozyBirdsEyeDemoFloorplan } from '@/types/birdsEye';
+import { floorPlanToBevData } from '@/utils/floorplanBevAdapter';
 import MapFootprintModal from '@/components/floorplan/MapFootprintModal';
 import { formatDate } from '@/utils/ids';
 import { floorPlansApi, departmentsApi } from '@/services/api';
@@ -814,7 +817,9 @@ export default function FloorPlans() {
   const [departmentFilter, setDepartmentFilter] = useState('');
   const [sortBy, setSortBy] = useState('recently-added');
   const [statusFilter, setStatusFilter] = useState<'all' | 'new' | 'unaligned' | 'aligned' | 'finalized'>('all');
-  const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
+  const [viewMode, setViewMode] = useState<'grid' | 'list' | 'birds-eye'>('grid');
+  const [bevSelectedPlanId, setBevSelectedPlanId] = useState<string | 'demo' | null>('demo');
+  const [bevViewStyle, setBevViewStyle] = useState<'technical' | 'sketch'>('sketch');
   const [confirmingDeleteId, setConfirmingDeleteId] = useState<string | null>(null);
   const [confirmingDeleteSiblingsId, setConfirmingDeleteSiblingsId] = useState<string | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
@@ -2114,6 +2119,13 @@ export default function FloorPlans() {
             >
               <List size={16} />
             </button>
+            <button
+              onClick={() => setViewMode('birds-eye')}
+              className={`px-2 py-1 border-l border-[var(--border)] ${viewMode === 'birds-eye' ? 'bg-[var(--surface-2)] text-[var(--primary)]' : 'text-[var(--text-muted)] hover:bg-[var(--surface-2)]'}`}
+              title="Bird's eye sketch view"
+            >
+              <Eye size={16} />
+            </button>
           </div>
         </div>
 
@@ -2182,7 +2194,70 @@ export default function FloorPlans() {
         )}
       </div>
 
-      {viewMode === 'grid' ? (
+      {viewMode === 'birds-eye' ? (() => {
+        const activePlan = bevSelectedPlanId !== 'demo' && bevSelectedPlanId
+          ? floorPlans.find(p => p.id === bevSelectedPlanId) ?? null
+          : null;
+        const bevData = bevSelectedPlanId === 'demo' || !activePlan
+          ? cozyBirdsEyeDemoFloorplan
+          : floorPlanToBevData(activePlan);
+        return (
+          <div className="flex flex-1 min-h-0 overflow-hidden border-t border-[var(--border)]">
+            {/* Sidebar */}
+            <div className="w-56 flex-shrink-0 border-r border-[var(--border)] flex flex-col overflow-hidden">
+              <div className="px-3 py-2 text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wide border-b border-[var(--border)] flex items-center gap-2">
+                <Eye size={11} /> Bird's Eye View
+              </div>
+              {/* Style toggle */}
+              <div className="flex border-b border-[var(--border)]">
+                <button
+                  onClick={() => setBevViewStyle('sketch')}
+                  className={`flex-1 py-1.5 text-xs font-medium ${bevViewStyle === 'sketch' ? 'bg-[var(--primary)] text-white' : 'text-[var(--text-muted)] hover:bg-[var(--surface-2)]'}`}
+                >
+                  Sketch
+                </button>
+                <button
+                  onClick={() => setBevViewStyle('technical')}
+                  className={`flex-1 py-1.5 text-xs font-medium border-l border-[var(--border)] ${bevViewStyle === 'technical' ? 'bg-[var(--primary)] text-white' : 'text-[var(--text-muted)] hover:bg-[var(--surface-2)]'}`}
+                >
+                  Technical
+                </button>
+              </div>
+              <div className="overflow-y-auto flex-1 py-1">
+                <button
+                  onClick={() => setBevSelectedPlanId('demo')}
+                  className={`w-full text-left px-3 py-2 text-xs hover:bg-[var(--surface-2)] transition-colors ${bevSelectedPlanId === 'demo' ? 'bg-[var(--surface-2)] text-[var(--primary)] font-semibold' : 'text-[var(--text-muted)]'}`}
+                >
+                  Demo Layout
+                </button>
+                {filteredAndSortedPlans.map(plan => (
+                  <button
+                    key={plan.id}
+                    onClick={() => setBevSelectedPlanId(plan.id)}
+                    className={`w-full text-left px-3 py-2 text-xs hover:bg-[var(--surface-2)] transition-colors truncate ${bevSelectedPlanId === plan.id ? 'bg-[var(--surface-2)] text-[var(--primary)] font-semibold' : 'text-[var(--text)]'}`}
+                  >
+                    {plan.name}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Renderer */}
+            <div className="flex-1 min-w-0 bg-[var(--surface)] flex items-center justify-center overflow-hidden">
+              {bevData.elements.length === 0 ? (
+                <p className="text-sm text-[var(--text-muted)]">
+                  No floor plan data to display. Select a plan with objects loaded.
+                </p>
+              ) : (
+                <BirdsEyeFloorplanRenderer
+                  data={bevData}
+                  viewStyle={bevViewStyle}
+                />
+              )}
+            </div>
+          </div>
+        );
+      })() : viewMode === 'grid' ? (
         <>
         <div className="grid grid-cols-3 md:grid-cols-5 lg:grid-cols-6 gap-2">
           {filteredAndSortedPlans.length === 0 ? (

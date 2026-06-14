@@ -12,7 +12,7 @@ import type {
   RectangleObject,
   WindowObject,
 } from '@/types/floorplan';
-import { Lock, Building2, RefreshCw, ZoomIn, ZoomOut, Maximize2, Layers, Box, ChevronRight, Eye } from 'lucide-react';
+import { Lock, Building2, RefreshCw, ZoomIn, ZoomOut, Maximize2, Layers, Box, ChevronRight } from 'lucide-react';
 import { extractOutdoorWall } from '@/utils/floorplanGeometry';
 import { useTheme } from '@/contexts/ThemeContext';
 
@@ -60,15 +60,6 @@ const ISO_STYLE = {
 const ISO_SLAB_H = 7;          // floor plinth thickness in screen px
 const ISO_HOVER_LIFT = 6;      // hovered floor raises by this many px
 
-// ─── bird's-eye constants ─────────────────────────────────────────────────────
-const BEV_SIZE         = 200;   // footprint bounding square (screen px)
-const BEV_GAP_H        = 120;   // horizontal gap between buildings
-const BEV_GAP_V        = 80;    // vertical gap between rows (excl. label)
-const BEV_LABEL_H      = 34;    // vertical space for building label
-const BEV_EXTRUDE      = 5;     // screen px per floor for SE shadow depth
-const BEV_GRID_PX      = 32;    // background grid line spacing
-const BEV_START_X      = 80;
-const BEV_START_Y      = 80;
 
 // ── Material model: one light from the upper-left ─────────────────────────────
 // Faces are derived from each object's own editor color so the iso view
@@ -470,45 +461,11 @@ function ElevationFloorBand({
   );
 }
 
-// ─── bird's-eye helpers ───────────────────────────────────────────────────────
-interface BevTransform {
-  scale: number; offX: number; offY: number;
-  planW: number; planH: number;
-}
-
-function makeBevTransform(planW: number, planH: number): BevTransform {
-  const safeW = planW > 0 ? planW : 800;
-  const safeH = planH > 0 ? planH : 600;
-  const scale = BEV_SIZE / Math.max(safeW, safeH);
-  return { scale, offX: (BEV_SIZE - safeW * scale) / 2, offY: (BEV_SIZE - safeH * scale) / 2, planW: safeW, planH: safeH };
-}
-
-function bevPt(wx: number, wy: number, t: BevTransform, ox: number, oy: number): [number, number] {
-  return [ox + t.offX + wx * t.scale, oy + t.offY + wy * t.scale];
-}
-
-function bevWallsToOutlinePts(
-  walls: import('@/types/floorplan').WallObject[],
-  t: BevTransform, ox: number, oy: number,
-): number[] | null {
-  const { outerPoints } = extractOutdoorWall({
-    walls: walls.map(w => ({ id: w.id, x1: w.startX, y1: w.startY, x2: w.endX, y2: w.endY })),
-  });
-  if (outerPoints.length < 3) return null;
-  return outerPoints.flatMap(p => bevPt(p.x, p.y, t, ox, oy));
-}
 
 // ─── iso open-floorplan renderer ─────────────────────────────────────────────
 type HoverHandler = (plan: FloorPlan, e: Konva.KonvaEventObject<MouseEvent>) => void;
 type NavHandler   = (id: string) => void;
 
-interface BevCtx {
-  hoveredId:  string | null;
-  isDark:     boolean;
-  onHover:    HoverHandler;
-  onHoverEnd: () => void;
-  onNavigate: NavHandler;
-}
 
 interface IsoCtx {
   hoveredId:    string | null;   // hovered plan id
@@ -1383,330 +1340,6 @@ function buildIsoBuilding(
   return { visuals, hits };
 }
 
-// ─── bird's-eye building renderer ────────────────────────────────────────────
-function buildBevBuilding(
-  bld: { key: string; label: string; floors: FloorPlan[]; maxFloor: number },
-  ox: number, oy: number,
-  ctx: BevCtx,
-): { visual: React.ReactNode; hit: React.ReactNode } {
-  const sharedW = Math.max(...bld.floors.map(p => (p.width  ?? 0) > 0 ? p.width!  : 800), 800);
-  const sharedH = Math.max(...bld.floors.map(p => (p.height ?? 0) > 0 ? p.height! : 600), 600);
-  const t = makeBevTransform(sharedW, sharedH);
-
-  const sorted    = [...bld.floors].sort((a, b) => (a.floorNumber ?? 1) - (b.floorNumber ?? 1));
-  const topFloor  = sorted[sorted.length - 1] ?? sorted[0];
-  if (!topFloor) return { visual: null, hit: null };
-
-  const isHovered    = sorted.some(p => ctx.hoveredId === p.id);
-  const isFinalized  = !!topFloor.isApproved;
-  const accentColor  = isFinalized ? '#3b82f6' : scoreColor(topFloor.generationScore);
-  const maxFloorNum  = bld.maxFloor;
-  const shadowDepth  = Math.max(4, maxFloorNum * BEV_EXTRUDE);
-
-  // Footprint polygon from the topmost floor's perimeter walls
-  const topObjs     = topFloor.objects ?? [];
-  const allWalls    = topObjs.filter(o => o.type === 'wall') as import('@/types/floorplan').WallObject[];
-  const finalPerim  = allWalls.filter(w => w.wallType === 'finalized_building_perimeter' || w.isFinalizedPerimeter === true);
-  const ownOutdoor  = allWalls.filter(w => w.wallType === 'floor_original_outdoor');
-  const outerWalls  = ownOutdoor.length > 0 ? ownOutdoor : finalPerim;
-  const footprintPts = (outerWalls.length > 0 ? bevWallsToOutlinePts(outerWalls, t, ox, oy) : null)
-    ?? [ox, oy, ox + BEV_SIZE, oy, ox + BEV_SIZE, oy + BEV_SIZE, ox, oy + BEV_SIZE];
-  const rectFallback = [ox, oy, ox + BEV_SIZE, oy, ox + BEV_SIZE, oy + BEV_SIZE, ox, oy + BEV_SIZE];
-
-  const nodes: React.ReactNode[] = [];
-
-  // ── 1. Drop shadow (conveys building height) ──────────────────────────────
-  const shadowPts  = footprintPts.map((v, i) => i % 2 === 0 ? v + shadowDepth     : v + shadowDepth);
-  const shadow2Pts = footprintPts.map((v, i) => i % 2 === 0 ? v + shadowDepth + 5 : v + shadowDepth + 5);
-  nodes.push(
-    <Line key={`bs2-${bld.key}`} closed listening={false} points={shadow2Pts} fill="rgba(0,0,0,0.10)" stroke="transparent" />,
-    <Line key={`bs1-${bld.key}`} closed listening={false} points={shadowPts}  fill="rgba(0,0,0,0.24)" stroke="transparent" />,
-  );
-
-  // ── 2. SE-facing edge faces (height extrusion) ────────────────────────────
-  const n = footprintPts.length / 2;
-  let cx = 0, cy = 0;
-  for (let i = 0; i < n; i++) { cx += footprintPts[2*i]; cy += footprintPts[2*i+1]; }
-  cx /= n; cy /= n;
-
-  for (let i = 0; i < n; i++) {
-    const j = (i + 1) % n;
-    const x1 = footprintPts[2*i], y1 = footprintPts[2*i+1];
-    const x2 = footprintPts[2*j], y2 = footprintPts[2*j+1];
-    let nx = y2 - y1, ny = x1 - x2;
-    const mx = (x1 + x2) / 2, my = (y1 + y2) / 2;
-    if (nx * (mx - cx) + ny * (my - cy) < 0) { nx = -nx; ny = -ny; }
-    if (nx + ny <= 0.08) continue; // skip NW-facing edges
-    const isRightFace = ny > nx;
-    const faceColor = isFinalized
-      ? (isRightFace ? '#091936' : '#102248')
-      : (isRightFace ? '#07101e' : '#0e1a2e');
-    nodes.push(
-      <Line key={`bface-${bld.key}-${i}`} closed listening={false}
-        points={[x1, y1, x2, y2, x2 + shadowDepth, y2 + shadowDepth, x1 + shadowDepth, y1 + shadowDepth]}
-        fill={faceColor}
-        stroke={isFinalized ? '#18305a' : '#182030'}
-        strokeWidth={0.5} opacity={isRightFace ? 0.80 : 0.65}
-      />
-    );
-  }
-
-  // ── 3. Top face background ────────────────────────────────────────────────
-  nodes.push(
-    <Line key={`bbg-${bld.key}`} closed listening={false}
-      points={footprintPts}
-      fill={isFinalized ? (ctx.isDark ? '#0d2044' : '#e8f0fb') : (ctx.isDark ? '#0b1525' : '#f0f4fa')}
-      stroke="transparent"
-    />
-  );
-
-  // ── 4. Room zones ─────────────────────────────────────────────────────────
-  for (const obj of topObjs) {
-    if (obj.type !== 'room') continue;
-    const room = obj as import('@/types/floorplan').PolygonRoomObject;
-    if (!Array.isArray(room.points) || room.points.length < 6) continue;
-    const screenPts: number[] = [];
-    for (let i = 0; i < room.points.length; i += 2) {
-      const [sx, sy] = bevPt(room.points[i], room.points[i + 1], t, ox, oy);
-      screenPts.push(sx, sy);
-    }
-    const base = room.color && parseHex(room.color) ? room.color : '#3b82f6';
-    const isCore = /reserved-stairs|reserved-elevator|reserved-(?:male-|female-)?restroom/.test(room.id);
-    nodes.push(
-      <Line key={`brm-${bld.key}-${room.id}`} closed listening={false}
-        points={screenPts}
-        fill={hexToRgba(base, ctx.isDark ? (isCore ? 0.22 : 0.16) : (isCore ? 0.26 : 0.18))}
-        stroke={hexToRgba(base, isCore ? 0.55 : 0.35)} strokeWidth={isCore ? 0.8 : 0.6}
-        dash={isCore ? [4, 3] : undefined}
-      />
-    );
-  }
-
-  // ── 5. Indoor walls ───────────────────────────────────────────────────────
-  for (const w of allWalls) {
-    const isOuter = w.wallType === 'finalized_building_perimeter'
-      || w.isFinalizedPerimeter === true
-      || w.wallType === 'floor_original_outdoor';
-    if (isOuter) continue;
-    const [x1, y1] = bevPt(w.startX, w.startY, t, ox, oy);
-    const [x2, y2] = bevPt(w.endX,   w.endY,   t, ox, oy);
-    nodes.push(
-      <Line key={`biw-${bld.key}-${w.id}`} listening={false}
-        points={[x1, y1, x2, y2]}
-        stroke={ctx.isDark ? '#3a5a88' : '#334155'}
-        strokeWidth={Math.max(0.8, (w.thickness ?? 8) * t.scale)}
-        lineCap="square" opacity={0.78}
-      />
-    );
-  }
-
-  // ── 6. Inventory objects (rack / shelf / stairs / elevator) ───────────────
-  for (const obj of topObjs) {
-    if (obj.type !== 'rack' && obj.type !== 'shelf' && obj.type !== 'stairs' && obj.type !== 'elevator') continue;
-    const rect = obj as RectangleObject;
-    const [rx, ry] = bevPt(rect.x, rect.y, t, ox, oy);
-    const rw = Math.max(3, rect.width  * t.scale);
-    const rh = Math.max(3, rect.height * t.scale);
-    const kind = isoPresetKind(rect);
-    const base = rect.color && parseHex(rect.color) ? rect.color : (OBJ_STYLE[rect.type]?.topStroke ?? '#64748b');
-
-    nodes.push(
-      <Rect key={`bobj-${bld.key}-${rect.id}`} listening={false}
-        x={rx} y={ry} width={rw} height={rh}
-        fill={hexToRgba(base, 0.80)}
-        stroke={tint(base, 0.22)} strokeWidth={0.7}
-        cornerRadius={kind === 'elevator' ? 2 : 0}
-      />
-    );
-
-    // Interior detail marks
-    if (kind === 'rack' && rh > 7) {
-      const lineCount = Math.max(1, Math.floor(rh / 5));
-      for (let li = 1; li < lineCount; li++) {
-        nodes.push(
-          <Line key={`brl-${rect.id}-${li}`} listening={false}
-            points={[rx + 1, ry + (rh / lineCount) * li, rx + rw - 1, ry + (rh / lineCount) * li]}
-            stroke={shade(base, 0.35)} strokeWidth={0.5} opacity={0.70}
-          />
-        );
-      }
-    } else if (kind === 'shelf' && rw > 7) {
-      nodes.push(
-        <Line key={`bsl-${rect.id}`} listening={false}
-          points={[rx + 1, ry + rh / 2, rx + rw - 1, ry + rh / 2]}
-          stroke={shade(base, 0.30)} strokeWidth={0.65} opacity={0.72}
-        />
-      );
-    } else if (kind === 'stairs') {
-      // Step lines perpendicular to the long axis
-      const isVertical = rh >= rw;
-      const steps = Math.max(2, Math.floor((isVertical ? rh : rw) / 5));
-      for (let si = 1; si < steps; si++) {
-        const frac = si / steps;
-        nodes.push(
-          <Line key={`bst-${rect.id}-${si}`} listening={false}
-            points={isVertical
-              ? [rx + 1, ry + rh * frac, rx + rw - 1, ry + rh * frac]
-              : [rx + rw * frac, ry + 1, rx + rw * frac, ry + rh - 1]}
-            stroke={shade(base, 0.25)} strokeWidth={0.6} opacity={0.75}
-          />
-        );
-      }
-      // Diagonal direction arrow
-      nodes.push(
-        <Line key={`bsta-${rect.id}`} listening={false}
-          points={isVertical
-            ? [rx + rw * 0.25, ry + rh - 4, rx + rw * 0.75, ry + 4]
-            : [rx + 4, ry + rh * 0.75, rx + rw - 4, ry + rh * 0.25]}
-          stroke={tint(base, 0.55)} strokeWidth={1.1} lineCap="round" opacity={0.88}
-        />
-      );
-    } else if (kind === 'elevator' && rw > 8 && rh > 8) {
-      // Cross (X) motif
-      nodes.push(
-        <Line key={`bel-d1-${rect.id}`} listening={false}
-          points={[rx + 3, ry + 3, rx + rw - 3, ry + rh - 3]}
-          stroke={tint(base, 0.50)} strokeWidth={0.75} opacity={0.82}
-        />,
-        <Line key={`bel-d2-${rect.id}`} listening={false}
-          points={[rx + rw - 3, ry + 3, rx + 3, ry + rh - 3]}
-          stroke={shade(base, 0.10)} strokeWidth={0.75} opacity={0.82}
-        />
-      );
-    }
-  }
-
-  // ── 7. Openings (doors / windows / entrances) ─────────────────────────────
-  for (const obj of topObjs) {
-    if (obj.type !== 'door' && obj.type !== 'entrance' && obj.type !== 'window') continue;
-    const opening = obj as DoorObject | WindowObject | EntranceObject;
-    if (!openingIsAttachedToWall(opening, allWalls)) continue;
-    const angle = opening.angle ?? 0;
-    const hw = opening.width / 2;
-    const [p1x, p1y] = bevPt(opening.x - Math.cos(angle) * hw, opening.y - Math.sin(angle) * hw, t, ox, oy);
-    const [p2x, p2y] = bevPt(opening.x + Math.cos(angle) * hw, opening.y + Math.sin(angle) * hw, t, ox, oy);
-    const openColor = opening.type === 'window' ? '#38bdf8'
-      : opening.type === 'entrance' ? '#10b981' : '#a8734a';
-    nodes.push(
-      <Line key={`bop-${bld.key}-${opening.id}`} listening={false}
-        points={[p1x, p1y, p2x, p2y]}
-        stroke={openColor}
-        strokeWidth={Math.max(1.5, 3.5 * t.scale)}
-        lineCap="round" opacity={0.92}
-      />
-    );
-  }
-
-  // ── 8. Outer perimeter walls (on top of interior) ─────────────────────────
-  for (const w of outerWalls) {
-    const [x1, y1] = bevPt(w.startX, w.startY, t, ox, oy);
-    const [x2, y2] = bevPt(w.endX,   w.endY,   t, ox, oy);
-    nodes.push(
-      <Line key={`bow-${bld.key}-${w.id}`} listening={false}
-        points={[x1, y1, x2, y2]}
-        stroke={ctx.isDark ? '#4a6898' : '#1e293b'}
-        strokeWidth={Math.max(1.8, (w.thickness ?? 8) * t.scale * 1.2)}
-        lineCap="square" opacity={0.90}
-      />
-    );
-  }
-
-  // ── 9. Perimeter accent ring ───────────────────────────────────────────────
-  if (isFinalized) {
-    nodes.push(
-      <Line key={`bpg-${bld.key}`} closed listening={false}
-        points={footprintPts} fill="transparent"
-        stroke={accentColor} strokeWidth={isHovered ? 6 : 4}
-        lineJoin="round" opacity={isHovered ? 0.44 : 0.22}
-      />,
-      <Line key={`bpa-${bld.key}`} closed listening={false}
-        points={footprintPts} fill="transparent"
-        stroke={accentColor} strokeWidth={1.6} lineJoin="round" opacity={0.92}
-      />
-    );
-  } else {
-    nodes.push(
-      <Line key={`bpa-${bld.key}`} closed listening={false}
-        points={footprintPts} fill="transparent"
-        stroke={accentColor} strokeWidth={isHovered ? 2.2 : 1.4}
-        lineJoin="round" opacity={0.85}
-      />
-    );
-  }
-
-  // ── 10. Hover cyan glow ────────────────────────────────────────────────────
-  if (isHovered) {
-    nodes.push(
-      <Line key={`bhov-${bld.key}`} closed listening={false}
-        points={footprintPts} fill="transparent"
-        stroke="#67e8f9" strokeWidth={9} lineJoin="round" opacity={0.18}
-      />
-    );
-  }
-
-  // ── 11. Floor count chip (top-right corner of footprint) ──────────────────
-  const chipText = maxFloorNum > 1 ? `F1–F${maxFloorNum}` : `F${topFloor.floorNumber ?? 1}`;
-  const chipW    = maxFloorNum > 1 ? 44 : 28;
-  const chipX    = ox + BEV_SIZE - chipW - 2;
-  nodes.push(
-    <Group key={`bchip-${bld.key}`} listening={false}>
-      <Rect x={chipX} y={oy + 2} width={chipW} height={16} cornerRadius={8}
-        fill={ctx.isDark ? 'rgba(7,13,28,0.90)' : 'rgba(255,255,255,0.92)'}
-        stroke={accentColor} strokeWidth={0.8}
-      />
-      <Text x={chipX} y={oy + 6} width={chipW} align="center"
-        text={chipText} fontSize={8} fontStyle="bold"
-        fill={ctx.isDark ? '#94a3b8' : '#334155'}
-      />
-    </Group>
-  );
-
-  // Score bar along the bottom edge of the footprint
-  if (topFloor.generationScore != null) {
-    nodes.push(
-      <Rect key={`bscore-${bld.key}`} listening={false}
-        x={ox} y={oy + BEV_SIZE - 3}
-        width={BEV_SIZE * (topFloor.generationScore / 100)} height={3}
-        fill={accentColor} opacity={0.55}
-      />
-    );
-  }
-
-  // Finalized lock icon (text emoji — cheap and reliable)
-  if (isFinalized) {
-    nodes.push(
-      <Text key={`block-${bld.key}`} listening={false}
-        x={ox + 3} y={oy + 2} text="🔒" fontSize={11}
-      />
-    );
-  }
-
-  // ── 12. Building label ────────────────────────────────────────────────────
-  nodes.push(
-    <Text key={`blbl-${bld.key}`} listening={false}
-      x={ox - 10} y={oy + BEV_SIZE + 10}
-      width={BEV_SIZE + 20} align="center"
-      text={bld.label.toUpperCase()} fontSize={9} fontStyle="bold"
-      fill={ctx.isDark ? '#64748b' : '#475569'} letterSpacing={1.2}
-    />
-  );
-
-  const visual = <Group key={`bev-${bld.key}`}>{nodes}</Group>;
-
-  // Hit polygon — use the rectangular fallback for a consistent, easy-to-click area
-  const hit = (
-    <Line key={`bevhit-${bld.key}`} closed
-      points={rectFallback}
-      fill="rgba(0,0,0,0.001)" stroke="transparent"
-      perfectDrawEnabled={false}
-      onMouseEnter={e => ctx.onHover(topFloor, e)}
-      onMouseLeave={ctx.onHoverEnd}
-      onClick={() => ctx.onNavigate(topFloor.id)}
-    />
-  );
-
-  return { visual, hit };
-}
 
 // ─── types ────────────────────────────────────────────────────────────────────
 interface BuildingGroup {
@@ -1726,7 +1359,7 @@ export default function Building2D() {
   const [allPlans, setAllPlans]       = useState<FloorPlan[]>([]);
   const [loading, setLoading]         = useState(true);
   const [error, setError]             = useState<string | null>(null);
-  const [viewMode, setViewMode]       = useState<'elevation' | 'isometric' | 'birds-eye'>('elevation');
+  const [viewMode, setViewMode]       = useState<'elevation' | 'isometric'>('elevation');
   const [tooltip, setTooltip]         = useState<TooltipState | null>(null);
   const [hoveredId, setHoveredId]     = useState<string | null>(null);
   const [, setHoveredFloor] = useState<number | null>(null);
@@ -2163,95 +1796,8 @@ export default function Building2D() {
     </>
   );
 
-  // ── bird's-eye renderer ───────────────────────────────────────────────────
-  const bevStaticResult = useMemo(() => {
-    if (viewMode !== 'birds-eye') return null;
-    const cols = Math.max(1, Math.floor((stageSize.w - BEV_START_X * 2) / (BEV_SIZE + BEV_GAP_H)));
-    const bevCtx: BevCtx = {
-      hoveredId: null,   // hover handled in a separate overlay memo
-      isDark,
-      onHover: handleHover, onHoverEnd: handleHoverEnd, onNavigate: handleNavigate,
-    };
-    const visuals: React.ReactNode[] = [];
-    const hits:    React.ReactNode[] = [];
-    buildings.forEach((bld, bi) => {
-      const col = bi % cols;
-      const row = Math.floor(bi / cols);
-      const ox = BEV_START_X + col * (BEV_SIZE + BEV_GAP_H);
-      const oy = BEV_START_Y + row * (BEV_SIZE + BEV_GAP_V + BEV_LABEL_H);
-      const { visual, hit } = buildBevBuilding(bld, ox, oy, bevCtx);
-      visuals.push(visual);
-      hits.push(hit);
-    });
-    return { visuals, hits, cols };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [viewMode, buildings, isDark, stageSize.w, handleHover, handleHoverEnd, handleNavigate]);
 
-  const bevHoverOverlay = useMemo(() => {
-    if (!hoveredId || viewMode !== 'birds-eye' || !bevStaticResult) return null;
-    const { cols } = bevStaticResult;
-    const bi  = buildings.findIndex(b => b.floors.some(p => p.id === hoveredId));
-    if (bi < 0) return null;
-    const bld = buildings[bi];
-    const col = bi % cols;
-    const row = Math.floor(bi / cols);
-    const ox  = BEV_START_X + col * (BEV_SIZE + BEV_GAP_H);
-    const oy  = BEV_START_Y + row * (BEV_SIZE + BEV_GAP_V + BEV_LABEL_H);
-    const sharedW = Math.max(...bld.floors.map(p => (p.width  ?? 0) > 0 ? p.width!  : 800), 800);
-    const sharedH = Math.max(...bld.floors.map(p => (p.height ?? 0) > 0 ? p.height! : 600), 600);
-    const t = makeBevTransform(sharedW, sharedH);
-    const topFloor = [...bld.floors].sort((a, b) => (a.floorNumber ?? 1) - (b.floorNumber ?? 1)).pop()!;
-    const allW = (topFloor?.objects ?? []).filter(o => o.type === 'wall') as import('@/types/floorplan').WallObject[];
-    const fp   = allW.filter(w => w.wallType === 'finalized_building_perimeter' || w.isFinalizedPerimeter === true);
-    const own  = allW.filter(w => w.wallType === 'floor_original_outdoor');
-    const src  = own.length > 0 ? own : fp;
-    const pts  = (src.length > 0 ? bevWallsToOutlinePts(src, t, ox, oy) : null)
-      ?? [ox, oy, ox + BEV_SIZE, oy, ox + BEV_SIZE, oy + BEV_SIZE, ox, oy + BEV_SIZE];
-    return (
-      <Line listening={false} closed points={pts}
-        fill="transparent" stroke="#67e8f9" strokeWidth={9} lineJoin="round" opacity={0.22}
-      />
-    );
-  }, [hoveredId, viewMode, buildings, bevStaticResult]);
 
-  const renderBirdsEye = () => {
-    if (!bevStaticResult) return null;
-    // Background grid lines (drawn once; static even through pan/zoom)
-    const GRID_EXTENT = 4000;
-    const gridLines: React.ReactNode[] = [];
-    for (let gx = 0; gx <= GRID_EXTENT; gx += BEV_GRID_PX) {
-      gridLines.push(
-        <Line key={`bgv-${gx}`} listening={false}
-          points={[gx, 0, gx, GRID_EXTENT]}
-          stroke={isDark ? '#111923' : '#dde4ed'} strokeWidth={0.5}
-        />
-      );
-    }
-    for (let gy = 0; gy <= GRID_EXTENT; gy += BEV_GRID_PX) {
-      gridLines.push(
-        <Line key={`bgh-${gy}`} listening={false}
-          points={[0, gy, GRID_EXTENT, gy]}
-          stroke={isDark ? '#111923' : '#dde4ed'} strokeWidth={0.5}
-        />
-      );
-    }
-    return (
-      <>
-        <Layer listening={false}>
-          {gridLines}
-          {bevStaticResult.visuals}
-        </Layer>
-        {bevHoverOverlay && (
-          <Layer listening={false}>
-            {bevHoverOverlay}
-          </Layer>
-        )}
-        <Layer>
-          {bevStaticResult.hits}
-        </Layer>
-      </>
-    );
-  };
 
   // ── stats ─────────────────────────────────────────────────────────────────────
   const totalFinalized = allPlans.filter(p => p.isApproved).length;
@@ -2288,9 +1834,7 @@ export default function Building2D() {
             <p className="text-xs text-[var(--text-muted)]">
               {viewMode === 'elevation'
                 ? 'Front elevation — buildings side by side, floors stacked upward'
-                : viewMode === 'isometric'
-                  ? 'Isometric dollhouse — floor slabs stacked per building'
-                  : 'Bird\'s-eye — all buildings top-down with full floor plan detail'}
+                : 'Isometric dollhouse — floor slabs stacked per building'}
             </p>
           </div>
         </div>
@@ -2327,15 +1871,9 @@ export default function Building2D() {
             </button>
             <button
               onClick={() => setViewMode('isometric')}
-              className={`px-3 py-1.5 font-medium flex items-center gap-1.5 border-x border-[var(--border)] ${viewMode === 'isometric' ? 'bg-[var(--primary)] text-white' : 'text-[var(--text-muted)] hover:bg-[var(--surface-2)]'}`}
+              className={`px-3 py-1.5 font-medium flex items-center gap-1.5 border-l border-[var(--border)] ${viewMode === 'isometric' ? 'bg-[var(--primary)] text-white' : 'text-[var(--text-muted)] hover:bg-[var(--surface-2)]'}`}
             >
               <Box size={12} /> Isometric
-            </button>
-            <button
-              onClick={() => setViewMode('birds-eye')}
-              className={`px-3 py-1.5 font-medium flex items-center gap-1.5 ${viewMode === 'birds-eye' ? 'bg-[var(--primary)] text-white' : 'text-[var(--text-muted)] hover:bg-[var(--surface-2)]'}`}
-            >
-              <Eye size={12} /> Bird's eye
             </button>
           </div>
 
@@ -2444,8 +1982,7 @@ export default function Building2D() {
             }}
             style={{ background:
               viewMode === 'elevation' ? (isDark ? '#0f172a' : '#b8d4f0') :
-              viewMode === 'isometric' ? (isDark ? '#060b14' : '#dde6f0') :
-              /* birds-eye */            (isDark ? '#080f1a' : '#eaeff5') }}
+              /* isometric */ (isDark ? '#060b14' : '#dde6f0') }}
           >
               {viewMode === 'elevation' ? (
                 <Layer>
@@ -2463,10 +2000,8 @@ export default function Building2D() {
                   ))}
                   {renderElevation()}
                 </Layer>
-              ) : viewMode === 'isometric' ? (
-                renderIsometric()
               ) : (
-                renderBirdsEye()
+                renderIsometric()
               )}
           </Stage>
         ) : (
