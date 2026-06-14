@@ -273,7 +273,7 @@ export function createFloorplanObject(type: FloorPlanObjectType, x: number, y: n
     return { id, type, points: [snapToGrid(x), snapToGrid(y)], color: '#e0e0e0' };
   }
 
-  if (type === 'rack' || type === 'shelf') {
+  if (type === 'rack' || type === 'shelf' || type === 'stairs' || type === 'elevator') {
     const size = DEFAULT_OBJECT_SIZES[type];
     return normalizeObject({
       id,

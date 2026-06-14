@@ -946,9 +946,9 @@ function addRoomShell(objects: FloorPlanObject[], prefix: string, room: RoomZone
   const isRestroom = /reserved-(male-|female-)?restroom/.test(room.key);
 
   if (isStairsOrElevator) {
-    // Structural vertical-access cores: emit as 'rack' type so the iso view renders
-    // the existing 3D stair/elevator shape. Enclosed by 4 walls, no door (fixed core).
-    addSpace(objects, `${prefix}-${room.key}`, room.label, room.x, room.y, room.w, room.h, room.color, 'rack', roomGroupId);
+    // Vertical-access core: fully enclosed by 4 solid walls, no opening.
+    const coreType = room.key.includes('reserved-elevator') ? 'elevator' : 'stairs';
+    addSpace(objects, `${prefix}-${room.key}`, room.label, room.x, room.y, room.w, room.h, room.color, coreType, roomGroupId);
     addWall(objects, `${prefix}-${room.key}-wall-top`,    room.x,          room.y,          room.x + room.w, room.y,          INNER_T, roomGroupId);
     addWall(objects, `${prefix}-${room.key}-wall-bottom`, room.x,          room.y + room.h, room.x + room.w, room.y + room.h, INNER_T, roomGroupId);
     addWall(objects, `${prefix}-${room.key}-wall-left`,   room.x,          room.y,          room.x,          room.y + room.h, INNER_T, roomGroupId);
@@ -957,13 +957,12 @@ function addRoomShell(objects: FloorPlanObject[], prefix: string, room: RoomZone
   }
 
   if (isRestroom) {
-    // Restroom is hybrid — full room shell with walls + door, same as regular rooms.
+    // Restroom: fully enclosed by 4 solid walls, no opening.
     addSpace(objects, `${prefix}-${room.key}`, room.label, room.x, room.y, room.w, room.h, room.color, 'rack', roomGroupId);
     addWall(objects, `${prefix}-${room.key}-wall-top`,    room.x,          room.y,          room.x + room.w, room.y,          INNER_T, roomGroupId);
     addWall(objects, `${prefix}-${room.key}-wall-bottom`, room.x,          room.y + room.h, room.x + room.w, room.y + room.h, INNER_T, roomGroupId);
     addWall(objects, `${prefix}-${room.key}-wall-left`,   room.x,          room.y,          room.x,          room.y + room.h, INNER_T, roomGroupId);
     addWall(objects, `${prefix}-${room.key}-wall-right`,  room.x + room.w, room.y,          room.x + room.w, room.y + room.h, INNER_T, roomGroupId);
-    addOpening(objects, `${prefix}-${room.key}-door`, `${room.label} Door`, room.doorX, room.doorY, INTERIOR_DOOR_WIDTH, room.doorAngle ?? 0, 'single', roomGroupId);
     return;
   }
 

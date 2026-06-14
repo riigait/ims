@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { Plus, Trash2, MapPin, LayoutGrid, List, Edit, Sparkles, XCircle, RefreshCw, BookmarkCheck, ChevronDown, ChevronUp, Info, AlertTriangle, Layers, Lock, Map as MapIcon } from 'lucide-react';
+import { Plus, Trash2, MapPin, LayoutGrid, List, Edit, Sparkles, X, XCircle, RefreshCw, BookmarkCheck, ChevronDown, ChevronUp, Info, AlertTriangle, Layers, Lock, Map as MapIcon } from 'lucide-react';
 import MapFootprintModal from '@/components/floorplan/MapFootprintModal';
 import { formatDate } from '@/utils/ids';
 import { floorPlansApi, departmentsApi } from '@/services/api';
@@ -816,12 +816,18 @@ export default function FloorPlans() {
   const [statusFilter, setStatusFilter] = useState<'all' | 'new' | 'unaligned' | 'aligned' | 'finalized'>('all');
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
   const [confirmingDeleteId, setConfirmingDeleteId] = useState<string | null>(null);
+  const [confirmingDeleteSiblingsId, setConfirmingDeleteSiblingsId] = useState<string | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
   const [locationLookupFailed, setLocationLookupFailed] = useState(false);
   const [autoGenerating, setAutoGenerating] = useState(false);
   const [showAutoGenerateConfirm, setShowAutoGenerateConfirm] = useState(false);
   const [autoGenerateStatus, setAutoGenerateStatus] = useState<AutoGenerateStatus>(null);
+  const [autoGenerateStatusDismissing, setAutoGenerateStatusDismissing] = useState(false);
+  const dismissAutoGenerateStatus = useCallback(() => {
+    setAutoGenerateStatusDismissing(true);
+    window.setTimeout(() => { setAutoGenerateStatus(null); setAutoGenerateStatusDismissing(false); }, 400);
+  }, []);
   const [autoGenerateCount, setAutoGenerateCount] = useState(1);
   const [autoGenerateFloorCount, setAutoGenerateFloorCount] = useState(2);
   const [autoGenerateFloorTemplates, setAutoGenerateFloorTemplates] = useState<string[]>(['Storage room', 'SCADA control room']);
@@ -1014,6 +1020,24 @@ export default function FloorPlans() {
     }
   };
 
+  const doDeleteSiblings = async (id: string) => {
+    const buildingKey = getBuildingInfo(floorPlans.find(p => p.id === id)?.name ?? '')?.key;
+    if (!buildingKey) return;
+    const siblings = floorPlans.filter(p => getBuildingInfo(p.name)?.key === buildingKey);
+    for (const sibling of siblings) {
+      try { await floorPlansApi.delete(sibling.id); } catch { /* continue */ }
+    }
+    const siblingIds = new Set(siblings.map(p => p.id));
+    setFloorPlans(prev => prev.filter(p => !siblingIds.has(p.id)));
+    setPlanFeedback(prev => {
+      const next = { ...prev };
+      siblingIds.forEach(sid => delete next[sid]);
+      return next;
+    });
+    setAlignedPlanIds(prev => prev.filter(pid => !siblingIds.has(pid)));
+    setConfirmingDeleteSiblingsId(null);
+  };
+
   const openAutoGenerateConfirm = () => {
     const selectedDepartmentId = user.role === 'superadmin' ? departmentFilter : currentDepartmentId;
     if (!selectedDepartmentId || selectedDepartmentId === ALL_DEPARTMENTS_ID) {
@@ -1070,7 +1094,7 @@ export default function FloorPlans() {
         progress: 100,
         logs: ['Generated all requested floors', 'Fitted indoor objects inside walls', 'Validation completed', 'No unresolved generation issues'],
       });
-      window.setTimeout(() => setAutoGenerateStatus(null), 5000);
+      window.setTimeout(() => dismissAutoGenerateStatus(), 5000);
     } catch (error: any) {
       if (error.response?.data?.requiresMoreFloors) {
         handleOverflowError(error, 'generate');
@@ -1207,6 +1231,7 @@ export default function FloorPlans() {
         progress: 100,
         logs: [`Server ran ${attemptsUsed} attempt${attemptsUsed === 1 ? '' : 's'}`, 'Fit checks completed', `${remainingIssues} issue checks remaining`],
       });
+      window.setTimeout(() => dismissAutoGenerateStatus(), 6000);
     } catch (error: any) {
       // Ignore aborted requests — user cancelled or a new request replaced this one
       if (abortController.signal.aborted || error.name === 'AbortError' || error.code === 'ERR_CANCELED') return;
@@ -1600,33 +1625,38 @@ export default function FloorPlans() {
       </div>
 
       {autoGenerateStatus && (
-        <div
-          className={`rounded-lg border px-4 py-3 shadow-sm transition-all duration-300 ${
-            autoGenerateStatus.type === 'success'
-              ? 'border-green-500/30 bg-green-500/10 text-green-700'
-              : autoGenerateStatus.type === 'error'
-                ? 'border-red-500/30 bg-red-500/10 text-red-700'
-                : 'border-[var(--border)] bg-[var(--surface)] text-[var(--text)]'
-          }`}
-        >
-          <div className="flex items-center gap-3">
+        <div className={`fixed bottom-5 right-5 z-50 w-80 rounded-lg border shadow-xl transition-[opacity,transform] duration-[400ms] ease-in-out ${autoGenerateStatusDismissing ? 'opacity-0 translate-y-2' : 'opacity-100 translate-y-0 animate-slideInRight'} ${
+          autoGenerateStatus.type === 'success'
+            ? 'border-green-500/40 bg-green-50 text-green-800 dark:bg-green-950 dark:text-green-200'
+            : autoGenerateStatus.type === 'error'
+              ? 'border-red-500/40 bg-red-50 text-red-800 dark:bg-red-950 dark:text-red-200'
+              : 'border-[var(--border)] bg-[var(--surface)] text-[var(--text)]'
+        }`}>
+          <div className="flex items-start gap-3 px-4 py-3">
             {autoGenerateStatus.type === 'info' && (
-              <div className="h-4 w-4 rounded-full border-2 border-[var(--primary)] border-t-transparent animate-spin" />
+              <div className="mt-0.5 h-4 w-4 flex-shrink-0 rounded-full border-2 border-[var(--primary)] border-t-transparent animate-spin" />
             )}
-            <p className="text-sm font-medium">{autoGenerateStatus.message}</p>
+            <p className="flex-1 text-sm font-medium leading-snug">{autoGenerateStatus.message}</p>
+            <button
+              onClick={() => dismissAutoGenerateStatus()}
+              className="flex-shrink-0 opacity-50 hover:opacity-100 transition-opacity"
+              aria-label="Dismiss"
+            >
+              <X size={14} />
+            </button>
           </div>
           {autoGenerateStatus.progress !== undefined && (
-            <div className="mt-3">
-              <div className="h-2 overflow-hidden rounded-full bg-[var(--surface-2)]">
+            <div className="px-4 pb-3">
+              <div className="h-1.5 overflow-hidden rounded-full bg-black/10">
                 <div
                   className={`h-full transition-all duration-500 ${autoGenerateStatus.type === 'error' ? 'bg-red-500' : autoGenerateStatus.type === 'success' ? 'bg-green-500' : 'bg-[var(--primary)]'}`}
                   style={{ width: `${autoGenerateStatus.progress}%` }}
                 />
               </div>
-              <div className="mt-2 space-y-1">
+              <div className="mt-2 space-y-0.5">
                 {autoGenerateStatus.logs?.map((log, index) => (
-                  <div key={`${log}-${index}`} className="flex items-center gap-2 text-xs opacity-80">
-                    <span>{index === (autoGenerateStatus.logs?.length ?? 1) - 1 && autoGenerateStatus.type === 'info' ? '...' : 'OK'}</span>
+                  <div key={`${log}-${index}`} className="flex items-center gap-2 text-xs opacity-70">
+                    <span className="font-mono">{index === (autoGenerateStatus.logs?.length ?? 1) - 1 && autoGenerateStatus.type === 'info' ? '…' : '✓'}</span>
                     <span>{log}</span>
                   </div>
                 ))}
@@ -2266,6 +2296,18 @@ export default function FloorPlans() {
                           No
                         </button>
                       </div>
+                    ) : confirmingDeleteSiblingsId === plan.id ? (
+                      <div className="flex gap-1" onClick={e => e.stopPropagation()}>
+                        <span className="text-xs text-red-600 flex-1 leading-tight">Delete all floors?</span>
+                        <button onClick={() => doDeleteSiblings(plan.id)}
+                          className="px-1 py-0.5 bg-red-600 text-white text-xs rounded hover:bg-red-700">
+                          Yes
+                        </button>
+                        <button onClick={() => setConfirmingDeleteSiblingsId(null)}
+                          className="px-1 py-0.5 bg-[var(--surface-2)] text-xs rounded hover:bg-[var(--border)]">
+                          No
+                        </button>
+                      </div>
                     ) : isAutoGenerated ? (
                       /* Auto-generated plan: feedback + actions row */
                       <div className="flex flex-col gap-0.5" onClick={e => e.stopPropagation()}>
@@ -2287,9 +2329,16 @@ export default function FloorPlans() {
                           )}
                           <button onClick={() => setConfirmingDeleteId(plan.id)}
                             className="px-1 py-0.5 bg-red-50 text-red-600 text-xs rounded hover:bg-red-100"
-                            title="Delete">
+                            title="Delete this floor">
                             <Trash2 size={10} />
                           </button>
+                          {getBuildingInfo(plan.name) && (
+                            <button onClick={() => setConfirmingDeleteSiblingsId(plan.id)}
+                              className="px-1 py-0.5 bg-red-50 text-red-600 text-xs rounded hover:bg-red-100"
+                              title="Delete all floors in this building">
+                              <Layers size={10} />
+                            </button>
+                          )}
                         </div>
                       </div>
                     ) : (
@@ -2416,6 +2465,14 @@ export default function FloorPlans() {
                               <button onClick={() => setConfirmingDeleteId(null)}
                                 className="text-[var(--text-muted)] text-xs hover:text-[var(--text)] font-medium">No</button>
                             </span>
+                          ) : confirmingDeleteSiblingsId === plan.id ? (
+                            <span className="inline-flex gap-2 items-center">
+                              <span className="text-xs text-red-600">Delete all floors?</span>
+                              <button onClick={() => doDeleteSiblings(plan.id)}
+                                className="text-red-600 text-xs hover:text-red-800 font-medium">Yes</button>
+                              <button onClick={() => setConfirmingDeleteSiblingsId(null)}
+                                className="text-[var(--text-muted)] text-xs hover:text-[var(--text)] font-medium">No</button>
+                            </span>
                           ) : (
                             <span className="inline-flex gap-2 items-center">
                               {canRegeneratePlan && (
@@ -2434,9 +2491,18 @@ export default function FloorPlans() {
                               </button>
                               <button
                                 onClick={() => setConfirmingDeleteId(plan.id)}
-                                className="text-red-600 hover:text-red-800">
+                                className="text-red-600 hover:text-red-800"
+                                title="Delete this floor">
                                 <Trash2 size={18} />
                               </button>
+                              {getBuildingInfo(plan.name) && (
+                                <button
+                                  onClick={() => setConfirmingDeleteSiblingsId(plan.id)}
+                                  className="text-red-600 hover:text-red-800"
+                                  title="Delete all floors in this building">
+                                  <Layers size={18} />
+                                </button>
+                              )}
                             </span>
                           )
                         )}

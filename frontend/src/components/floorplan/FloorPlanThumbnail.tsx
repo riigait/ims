@@ -68,7 +68,7 @@ function getBounds(objects: FloorPlanObject[], plan: FloorPlan) {
 }
 
 function renderRoom(
-  obj: Extract<FloorPlanObject, { type: 'rack' | 'shelf' }>,
+  obj: Extract<FloorPlanObject, { type: 'rack' | 'shelf' | 'stairs' | 'elevator' }>,
   x: number, y: number, w: number, h: number,
   isHighlighted: boolean,
   scale: number,
@@ -152,6 +152,7 @@ function renderOpening(
   ty: (v: number) => number,
 ) {
   const shape = obj as { x: number; y: number; width: number; angle?: number };
+  if (!Number.isFinite(shape.x) || !Number.isFinite(shape.y) || !Number.isFinite(shape.width)) return null;
   return (
     <Line
       key={obj.id}
@@ -175,12 +176,12 @@ function renderObject(
   if (obj.type === 'wall') return renderWall(obj, isHighlighted, scale, tx, ty);
   if (obj.type === 'room') return renderPolygonRoom(obj, isHighlighted, tx, ty);
 
-  if (obj.type === 'rack' || obj.type === 'shelf') {
+  if (obj.type === 'rack' || obj.type === 'shelf' || obj.type === 'stairs' || obj.type === 'elevator') {
     return renderRoom(obj, tx(obj.x), ty(obj.y), obj.width * scale, obj.height * scale, isHighlighted, scale);
   }
 
   const objType = (obj as { type: string }).type;
-  if (objType === 'stairs' || objType === 'elevator' || objType === 'bathroom') {
+  if (objType === 'bathroom') {
     const r = obj as unknown as RectangleObject;
     return renderRoom(r, tx(r.x), ty(r.y), r.width * scale, r.height * scale, isHighlighted, scale);
   }

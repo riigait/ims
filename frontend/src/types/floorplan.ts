@@ -1,5 +1,5 @@
 // Floor Plan Types
-export type FloorPlanObjectType = 'wall' | 'room' | 'rack' | 'shelf' | 'label' | 'door' | 'window' | 'entrance' | 'marker';
+export type FloorPlanObjectType = 'wall' | 'room' | 'rack' | 'shelf' | 'stairs' | 'elevator' | 'label' | 'door' | 'window' | 'entrance' | 'marker';
 
 export interface BaseFloorPlanObject {
   id: string;
@@ -33,7 +33,7 @@ export interface PolygonRoomObject extends BaseFloorPlanObject {
 }
 
 export interface RectangleObject extends BaseFloorPlanObject {
-  type: 'rack' | 'shelf';
+  type: 'rack' | 'shelf' | 'stairs' | 'elevator';
   x: number;
   y: number;
   width: number;
