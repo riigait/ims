@@ -246,7 +246,7 @@ export function validateFloorplanObjects(objects: FloorPlanObject[]): FloorplanV
     }
   }
 
-  for (const room of structuralRooms.filter(room => !isServiceRoom(room))) {
+  for (const room of structuralRooms.filter(room => !room.id.includes('reserved-column'))) {
     const overlap = structuralRooms.find(other => other.id !== room.id && !other.id.includes('reserved-column') && rectsOverlap(room, other));
     if (overlap && !isFixed(room)) {
       errors.push({ code: 'object_overlap', objectId: room.id, message: `${labelFor(room)} overlaps ${labelFor(overlap)}.` });
@@ -257,7 +257,7 @@ export function validateFloorplanObjects(objects: FloorPlanObject[]): FloorplanV
     })())) {
       errors.push({ code: 'object_crosses_wall', objectId: room.id, message: `Indoor wall crosses ${isFixed(room) ? 'fixed ' : ''}${labelFor(room)}.` });
     }
-    if (!doors.some(door => Number.isFinite(door.x) && Number.isFinite(door.y) && pointNearRectEdge(door.x!, door.y!, room))) {
+    if (!isServiceRoom(room) && !doors.some(door => Number.isFinite(door.x) && Number.isFinite(door.y) && pointNearRectEdge(door.x!, door.y!, room))) {
       errors.push({ code: 'door_missing', objectId: room.id, message: 'Door is missing in this enclosed area.' });
     }
   }
