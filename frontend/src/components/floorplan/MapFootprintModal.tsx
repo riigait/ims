@@ -218,7 +218,8 @@ export default function MapFootprintModal({
       if (isBuilding) {
         const label = buildingLabel.trim();
         for (let floor = 1; floor <= floorCount; floor++) {
-          const response = await floorPlansApi.create({ ...base, name: `Manual - ${label} - Building ${buildingNumber} - Floor ${floor} - ${label}` });
+          const floorWalls = fp.walls.map(w => ({ ...w, id: `f${floor}-${w.id}` }));
+          const response = await floorPlansApi.create({ ...base, objects: floorWalls, name: `Manual - ${label} - Building ${buildingNumber} - Floor ${floor} - ${label}` });
           if (floor === 1) firstId = response.data.id;
         }
       } else {

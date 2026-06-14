@@ -897,12 +897,20 @@ export default function FloorPlans() {
 
     try {
       let firstId: string | null = null;
-      const base = { width: A4_PAGE_WIDTH, height: A4_PAGE_HEIGHT, scale: { pixelsPerMeter: 50 }, objects: [], ...(selectedDepartmentId ? { departmentId: selectedDepartmentId } : {}) };
+      const base = { width: A4_PAGE_WIDTH, height: A4_PAGE_HEIGHT, scale: { pixelsPerMeter: 50 }, objects: [] as WallObject[], ...(selectedDepartmentId ? { departmentId: selectedDepartmentId } : {}) };
 
       if (isBuilding) {
         const label = buildingLabel.trim();
+        const margin = 20;
+        const x0 = margin, y0 = margin, x1 = A4_PAGE_WIDTH - margin, y1 = A4_PAGE_HEIGHT - margin;
         for (let floor = 1; floor <= floorCount; floor++) {
-          const response = await floorPlansApi.create({ ...base, name: `Manual - ${label} - Building ${buildingNumber} - Floor ${floor} - ${label}` });
+          const outdoorWalls: WallObject[] = [
+            { id: `floor-${floor}-ow-top`,    type: 'wall', startX: x0, startY: y0, endX: x1, endY: y0, thickness: 8, wallType: 'floor_original_outdoor' },
+            { id: `floor-${floor}-ow-right`,  type: 'wall', startX: x1, startY: y0, endX: x1, endY: y1, thickness: 8, wallType: 'floor_original_outdoor' },
+            { id: `floor-${floor}-ow-bottom`, type: 'wall', startX: x1, startY: y1, endX: x0, endY: y1, thickness: 8, wallType: 'floor_original_outdoor' },
+            { id: `floor-${floor}-ow-left`,   type: 'wall', startX: x0, startY: y1, endX: x0, endY: y0, thickness: 8, wallType: 'floor_original_outdoor' },
+          ];
+          const response = await floorPlansApi.create({ ...base, objects: outdoorWalls, name: `Manual - ${label} - Building ${buildingNumber} - Floor ${floor} - ${label}` });
           if (floor === 1) firstId = response.data.id;
         }
       } else {
