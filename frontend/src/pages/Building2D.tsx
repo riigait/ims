@@ -14,6 +14,7 @@ import type {
 } from '@/types/floorplan';
 import { Lock, Building2, RefreshCw, ZoomIn, ZoomOut, Maximize2, Layers, Box, ChevronRight } from 'lucide-react';
 import { extractOutdoorWall } from '@/utils/floorplanGeometry';
+import { useTheme } from '@/contexts/ThemeContext';
 
 // ─── facade constants ─────────────────────────────────────────────────────────
 const BUILDING_W      = 220;
@@ -466,6 +467,7 @@ interface IsoCtx {
   hoveredFloor: number | null;   // hovered floor number (for All mode ghosting)
   hoveredObjectId: string | null;
   isoMode:      'single' | 'all';
+  isDark:       boolean;
   onHover:      HoverHandler;
   onHoverEnd:   () => void;
   onObjectHover: (id: string) => void;
@@ -881,16 +883,16 @@ function buildIsoFloorNodes(
   ctx: IsoCtx,
   floorAlpha: number,
   showObjects: boolean,
+  sharedSize?: PlanSize,
 ): IsoFloorResult {
   const fn          = plan.floorNumber ?? 1;
   const isFinalized = !!plan.isApproved;
   const isHovered   = ctx.isoMode === 'single' && ctx.hoveredId === plan.id;
   const accentColor = isFinalized ? '#3b82f6' : scoreColor(plan.generationScore);
-  const planW = plan.width  || 800;
-  const planH = plan.height || 600;
+  const planW = sharedSize?.planW ?? plan.width  ?? 800;
+  const planH = sharedSize?.planH ?? plan.height ?? 600;
 
   const corners = planCorners(planW, planH, ox, oy);
-  const [tl, tr] = corners;
   const footprintPts = corners.flatMap(([x, y]) => [x, y]);
 
   const size: PlanSize    = { planW, planH };
@@ -909,6 +911,19 @@ function buildIsoFloorNodes(
   const outerWalls = ownOutdoor.length > 0 ? ownOutdoor : finalPerim;
   const perimPts    = chainWallsToPolygon(outerWalls, planW, planH, ox, oy);
   const topFacePts  = (isFinalized && perimPts) ? perimPts : footprintPts;
+
+  // Extract actual screen tips from the real slab polygon (not the rectangular footprint).
+  // topFacePts is [x0,y0, x1,y1, ...] in screen space.
+  const slabXs = topFacePts.filter((_, i) => i % 2 === 0);
+  const slabYs = topFacePts.filter((_, i) => i % 2 !== 0);
+  const slabMaxX = Math.max(...slabXs);
+  const slabMaxY = Math.max(...slabYs);
+  // Left tip: point with smallest X. Right tip: largest X. Bottom tip: largest Y.
+  const rightTipIdx  = slabXs.indexOf(slabMaxX);
+  const bottomTipIdx = slabYs.indexOf(slabMaxY);
+  const rightTip:  [number, number] = [slabXs[rightTipIdx],  slabYs[rightTipIdx]];
+  const bottomTip: [number, number] = [slabXs[bottomTipIdx], slabYs[bottomTipIdx]];
+
   const envelopePts = isFinalized && finalPerim.length > 0 && ownOutdoor.length > 0
     ? chainWallsToPolygon(finalPerim, planW, planH, ox, oy)
     : null;
@@ -1017,8 +1032,14 @@ function buildIsoFloorNodes(
     }
     // Contact shadow along the base front edges (bl → br → tr)
 
+    // Depth from centroid so objects at the same grid position sort correctly.
+    // Stairs/elevator/restroom are circulation cores — push them behind inventory
+    // objects at the same depth so racks/shelves always render in front of them.
+    const cx = rect.x + rect.width  / 2;
+    const cy = rect.y + rect.height / 2;
+    const isCirculation = ['stairs', 'elevator', 'restroom'].includes(kind);
     queue.push({
-      depth: depthKey(rect.x, rect.y) + rect.width + rect.height,
+      depth: depthKey(cx, cy) - (isCirculation ? 500 : 0),
       node: (
         <IsoObjectShape key={`obj-${plan.id}-${rect.id}`} planId={plan.id} object={rect}
           rect={drawRect} size={size} origin={origin} base={base} hovered={hovered} />
@@ -1060,7 +1081,7 @@ function buildIsoFloorNodes(
   for (const obj of objects) {
     if (obj.type !== 'door' && obj.type !== 'window' && obj.type !== 'entrance') continue;
     const opening = obj as DoorObject | WindowObject | EntranceObject;
-    if (ctx.isoMode === 'all' && !openingIsAttachedToWall(opening, allWallObjs)) continue;
+    if (!openingIsAttachedToWall(opening, allWallObjs)) continue;
     queue.push({
       depth: depthKey(opening.x, opening.y) + 2,
       node: (
@@ -1070,37 +1091,88 @@ function buildIsoFloorNodes(
     });
   }
 
-  // Labels and markers are useful on one floor, but overlap heavily in the full stack.
-  if (ctx.isoMode === 'single') for (const obj of objects) {
-    if (obj.type === 'label') {
-      const label = obj as LabelObject;
-      const [x, y] = isoPoint(label.x, label.y, size, origin);
-      const text = label.text || label.label || 'Label';
-      const width = Math.max(28, Math.min(78, text.length * 5 + 12));
-      queue.push({
-        depth: depthKey(label.x, label.y) + 3,
-        node: (
-          <Group key={`label-${plan.id}-${label.id}`} listening={false}>
-            <Line points={[x, y, x, y - 18]} stroke="#94a3b8" strokeWidth={1} />
-            <Rect x={x - width / 2} y={y - 31} width={width} height={15} cornerRadius={3}
-              fill="#e2e8f0" stroke="#60a5fa" strokeWidth={0.8} />
-            <Text x={x - width / 2 + 3} y={y - 27} width={width - 6} text={text}
-              align="center" fontSize={7} fontStyle="bold" fill="#0f172a" />
-          </Group>
-        ),
+  // Labels and markers — rendered outside the left wall in a uniform vertical column.
+  // All floors share the same column X (corners[0].x) so the list is visually aligned
+  // across the whole building stack.
+  if (ctx.isoMode === 'single') {
+    // Labels anchor at the bottom/front tip (corners[3]) — where left+right walls meet.
+    // Stack pills centered horizontally on that tip, growing upward from it.
+    const anchorX  = bottomTip[0];
+    const anchorY  = bottomTip[1] + ISO_WALL_H + 8; // just below the front tip
+    const pillW    = 160;
+    const pillH    = 20;
+    const colX     = anchorX - pillW / 2; // centered on the tip
+
+    const labelItems: { key: string; text: string; dotColor: string }[] = [];
+
+    for (const obj of objects) {
+      if (labelItems.length >= 10) break;
+      if (obj.type === 'label') {
+        const label = obj as LabelObject;
+        const text  = label.text || label.label || 'Label';
+        labelItems.push({ key: `label-${plan.id}-${label.id}`, text, dotColor: '#60a5fa' });
+      } else if (obj.type === 'marker') {
+        const marker = obj as InventoryMarkerObject;
+        const text   = marker.label || marker.id || 'Marker';
+        labelItems.push({ key: `marker-${plan.id}-${marker.id}`, text, dotColor: '#34d399' });
+      }
+    }
+
+    if (labelItems.length > 0) {
+      const textW    = pillW - 22; // available text width inside pill
+      const lineH    = 11;         // px per wrapped line at fontSize 9
+      const padV     = 6;          // top + bottom padding inside pill
+
+      // Pre-compute height for each pill based on estimated line count
+      const itemHeights = labelItems.map(item => {
+        const charsPerLine = Math.floor(textW / 5.4); // ~5.4px per char at fontSize 9
+        const lines = Math.ceil(item.text.length / Math.max(1, charsPerLine));
+        return Math.max(pillH, padV + lines * lineH);
       });
-    } else if (obj.type === 'marker') {
-      const marker = obj as InventoryMarkerObject;
-      const [x, y] = isoPoint(marker.x, marker.y, size, origin);
+
+      // Accumulate Y positions
+      const itemGap = 4;
+      const itemYs: number[] = [];
+      let curY = anchorY;
+      for (const h of itemHeights) {
+        itemYs.push(curY);
+        curY += h + itemGap;
+      }
+
       queue.push({
-        depth: depthKey(marker.x, marker.y) + 4,
+        depth: 999999,
         node: (
-          <Group key={`marker-${plan.id}-${marker.id}`} listening={false}>
-            <Circle x={x} y={y} radius={7} fill="rgba(37,99,235,0.16)" stroke="#60a5fa" strokeWidth={0.8} />
-            <Line points={[x, y, x, y - 24]} stroke="#60a5fa" strokeWidth={1.4} />
-            <Circle x={x} y={y - 27} radius={7} fill="#2563eb" stroke="#93c5fd" strokeWidth={1} />
-            <Line points={[x - 3, y - 27, x + 3, y - 27, x, y - 24, x, y - 30]}
-              stroke="#ffffff" strokeWidth={1} lineCap="round" lineJoin="round" />
+          <Group key={`labelcol-${plan.id}`} listening={false}>
+            {/* Short leader line from tip down to the first pill */}
+            <Line
+              points={[anchorX, bottomTip[1] + ISO_WALL_H, anchorX, anchorY]}
+              stroke={ctx.isDark ? '#334155' : '#94a3b8'} strokeWidth={1} dash={[3, 3]} opacity={0.6}
+            />
+            {/* Dot at the front tip */}
+            <Circle x={anchorX} y={bottomTip[1] + ISO_WALL_H} radius={3}
+              fill={ctx.isDark ? '#334155' : '#94a3b8'} opacity={0.9} />
+            {labelItems.map((item, i) => {
+              const rowY = itemYs[i];
+              const h    = itemHeights[i];
+              return (
+                <Group key={item.key}>
+                  <Rect
+                    x={colX} y={rowY}
+                    width={pillW} height={h} cornerRadius={3}
+                    fill={ctx.isDark ? 'rgba(7,13,28,0.88)' : 'rgba(255,255,255,0.92)'}
+                    stroke={ctx.isDark ? '#1e3a5f' : '#bfcfdf'} strokeWidth={0.8}
+                  />
+                  <Circle x={colX + 8} y={rowY + padV / 2 + lineH / 2} radius={3} fill={item.dotColor} />
+                  <Text
+                    x={colX + 18} y={rowY + padV / 2}
+                    width={textW} text={item.text}
+                    fontSize={9} fontStyle="bold"
+                    fill={ctx.isDark ? '#cbd5e1' : '#1e293b'}
+                    wrap="word"
+                  />
+                </Group>
+              );
+            })}
           </Group>
         ),
       });
@@ -1111,9 +1183,9 @@ function buildIsoFloorNodes(
   queue.sort((a, b) => a.depth - b.depth);
 
   // ── Assemble visual + hit nodes separately ────────────────────────────────
-  const labelColor = floorAlpha >= 0.7
-    ? (isHovered ? '#f8fafc' : '#a5b4cd')
-    : '#5a6886';
+  const labelColor = ctx.isDark
+    ? (floorAlpha >= 0.7 ? (isHovered ? '#f8fafc' : '#a5b4cd') : '#5a6886')
+    : (floorAlpha >= 0.7 ? (isHovered ? '#0f172a' : '#334155') : '#64748b');
 
   const slabSides = slabSideQuads(topFacePts, ISO_SLAB_H);
   const shadowPts = topFacePts.map((v, i) => (i % 2 === 1 ? v + ISO_SLAB_H + 4 : v));
@@ -1160,18 +1232,19 @@ function buildIsoFloorNodes(
       )}
       {/* Depth-sorted content */}
       {showObjects && queue.map(item => item.node)}
-      {/* Floor chip */}
+      {/* Floor chip — sits exactly at the right diamond tip */}
       <Group
         visible={ctx.isoMode === 'single'}
-        x={tl[0] + (tr[0] - tl[0]) * 0.06}
-        y={tl[1] + (tr[1] - tl[1]) * 0.06 - 22}
+        x={rightTip[0] + 6}
+        y={rightTip[1] - 9}
       >
-        <Rect width={chipW} height={16} cornerRadius={8}
-          fill="rgba(7,13,28,0.85)" stroke={accentColor} strokeWidth={0.8}
+        <Rect width={chipW} height={18} cornerRadius={9}
+          fill={ctx.isDark ? 'rgba(7,13,28,0.88)' : 'rgba(255,255,255,0.92)'}
+          stroke={accentColor} strokeWidth={1}
         />
         <Text x={0} y={4} width={chipW} align="center"
-          text={`F${fn}${isFinalized ? ' 🔒' : ''}`}
-          fontSize={9.5} fontStyle="bold" fill={labelColor}
+          text={`F${fn}${isFinalized ? ' (F)' : ''}`}
+          fontSize={10} fontStyle="bold" fill={labelColor}
         />
       </Group>
     </Group>
@@ -1214,6 +1287,13 @@ function buildIsoBuilding(
     : bld.floors.filter(p => (p.floorNumber ?? 1) === floorFilter);
   const sorted = [...filtered].sort((a, b) => (a.floorNumber ?? 1) - (b.floorNumber ?? 1));
 
+  // All floors in a building must share the same coordinate space so objects
+  // line up vertically in the stacked iso view.
+  const sharedSize: PlanSize = {
+    planW: Math.max(...bld.floors.map(p => p.width  ?? 800), 800),
+    planH: Math.max(...bld.floors.map(p => p.height ?? 600), 600),
+  };
+
   const visuals: React.ReactNode[] = [];
   const hits: React.ReactNode[] = [];
 
@@ -1232,7 +1312,7 @@ function buildIsoBuilding(
       showObjects = true;
     }
 
-    const { visual, hit } = buildIsoFloorNodes(plan, bOffX, oy, ctx, floorAlpha, showObjects);
+    const { visual, hit } = buildIsoFloorNodes(plan, bOffX, oy, ctx, floorAlpha, showObjects, sharedSize);
     visuals.push(visual);
     hits.push(hit);
   }
@@ -1243,7 +1323,7 @@ function buildIsoBuilding(
       x={bOffX - 90} y={baseY + ISO_WALL_H + 14}
       width={180} align="center"
       text={bld.label.toUpperCase()} fontSize={10} fontStyle="bold"
-      fill="#64748b" letterSpacing={1.5}
+      fill={ctx.isDark ? '#64748b' : '#475569'} letterSpacing={1.5}
     />
   );
 
@@ -1260,6 +1340,8 @@ interface TooltipState { x: number; y: number; plan: FloorPlan; }
 // ─── component ────────────────────────────────────────────────────────────────
 export default function Building2D() {
   const navigate     = useNavigate();
+  const { theme }    = useTheme();
+  const isDark       = theme === 'dark';
   const containerRef = useRef<HTMLDivElement>(null);
   const stageRef     = useRef<Konva.Stage>(null);
 
@@ -1565,7 +1647,7 @@ export default function Building2D() {
     const baseY   = stageSize.h * 0.72;
     const isoMode: 'single' | 'all' = isoFloorFilter !== null ? 'single' : 'all';
     const ctx: IsoCtx = {
-      hoveredId, hoveredFloor, hoveredObjectId, isoMode,
+      hoveredId, hoveredFloor, hoveredObjectId, isoMode, isDark,
       onHover: handleHover, onHoverEnd: handleHoverEnd, onNavigate: handleNavigate,
       onObjectHover: handleObjectHover, onObjectHoverEnd: handleObjectHoverEnd,
     };
@@ -1617,7 +1699,9 @@ export default function Building2D() {
     ? {
         fillLinearGradientStartPoint: { x: 0, y: 0 },
         fillLinearGradientEndPoint: { x: 0, y: canvasH },
-        fillLinearGradientColorStops: [0, '#bfdbfe', 0.6, '#dbeafe', 1, '#e0f2fe'] as (string | number)[],
+        fillLinearGradientColorStops: isDark
+          ? [0, '#0f172a', 0.6, '#1e293b', 1, '#273549'] as (string | number)[]
+          : [0, '#bfdbfe', 0.6, '#dbeafe', 1, '#e0f2fe'] as (string | number)[],
       }
     : undefined;
 
@@ -1764,7 +1848,9 @@ export default function Building2D() {
               e.evt.preventDefault();
               zoom(e.evt.deltaY > 0 ? -0.08 : 0.08);
             }}
-            style={{ background: viewMode === 'elevation' ? '#b8d4f0' : '#060b14' }}
+            style={{ background: viewMode === 'elevation'
+              ? (isDark ? '#0f172a' : '#b8d4f0')
+              : (isDark ? '#060b14' : '#dde6f0') }}
           >
               {viewMode === 'elevation' ? (
                 <Layer>
@@ -1798,19 +1884,19 @@ export default function Building2D() {
         {/* Tooltip */}
         {tooltip && (
           <div
-            className="absolute z-20 pointer-events-none bg-gray-900 border border-gray-700 rounded-xl shadow-2xl px-3 py-2.5 text-xs min-w-[190px]"
+            className="absolute z-20 pointer-events-none bg-[var(--surface)] border border-[var(--border)] rounded-xl shadow-2xl px-3 py-2.5 text-xs min-w-[190px]"
             style={{
               left: Math.min(tooltip.x + 14, stageSize.w - 210),
               top:  Math.max(8, tooltip.y - 90),
             }}
           >
-            <p className="font-bold text-white mb-1.5 leading-tight truncate max-w-[180px]">
+            <p className="font-bold text-[var(--text)] mb-1.5 leading-tight truncate max-w-[180px]">
               {tooltip.plan.name}
             </p>
-            <div className="space-y-1 text-gray-400">
+            <div className="space-y-1 text-[var(--text-muted)]">
               <div className="flex justify-between gap-4">
                 <span>Floor</span>
-                <span className="text-white font-medium">F{tooltip.plan.floorNumber}</span>
+                <span className="text-[var(--text)] font-medium">F{tooltip.plan.floorNumber}</span>
               </div>
               {tooltip.plan.generationScore != null && (
                 <div className="flex justify-between gap-4">
@@ -1825,7 +1911,7 @@ export default function Building2D() {
                   <Lock size={10} /> Finalized
                 </div>
               )}
-              <p className="text-gray-600 mt-1.5 pt-1.5 border-t border-gray-800 text-[10px]">
+              <p className="text-[var(--text-muted)] opacity-60 mt-1.5 pt-1.5 border-t border-[var(--border)] text-[10px]">
                 Click to open editor
               </p>
             </div>

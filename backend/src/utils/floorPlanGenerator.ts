@@ -940,35 +940,34 @@ function openingTouchesRoom(room: FloorPlanObject, opening: FloorPlanObject): bo
   return overlapsRoom && touchesWall;
 }
 
-// Reserved zone keys map to the editor's proper typed objects (stairs/elevator/bathroom).
-// These are single-rectangle objects with a special visual — no inner walls or door needed.
-function reservedZoneObjectType(key: string): 'stairs' | 'elevator' | 'bathroom' | null {
-  if (key.includes('reserved-stairs')) return 'stairs';
-  if (key.includes('reserved-elevator')) return 'elevator';
-  if (/reserved-(male-|female-)?restroom/.test(key)) return 'bathroom';
-  return null;
-}
-
 function addRoomShell(objects: FloorPlanObject[], prefix: string, room: RoomZone) {
-  // One shared groupId for the room rect, all its indoor walls, door, and window.
   const roomGroupId = room.objectGroupId ?? `${prefix}-${room.key}-group`;
+  const isStairsOrElevator = room.key.includes('reserved-stairs') || room.key.includes('reserved-elevator');
+  const isRestroom = /reserved-(male-|female-)?restroom/.test(room.key);
 
-  // Stairs, elevator, and bathroom have their own editor-rendered visual.
-  // Emit them as the correct typed rectangle rather than a generic room shell.
-  const specialType = reservedZoneObjectType(room.key);
-  if (specialType) {
-    objects.push({
-      id: `${prefix}-${room.key}`,
-      type: specialType,
-      x: room.x, y: room.y, width: room.w, height: room.h,
-      label: room.label,
-      color: room.color,
-      groupId: roomGroupId,
-      layer: FLOORPLAN_LAYERS.ROOM_FILL,
-    });
+  if (isStairsOrElevator) {
+    // Structural vertical-access cores: emit as 'rack' type so the iso view renders
+    // the existing 3D stair/elevator shape. Enclosed by 4 walls, no door (fixed core).
+    addSpace(objects, `${prefix}-${room.key}`, room.label, room.x, room.y, room.w, room.h, room.color, 'rack', roomGroupId);
+    addWall(objects, `${prefix}-${room.key}-wall-top`,    room.x,          room.y,          room.x + room.w, room.y,          INNER_T, roomGroupId);
+    addWall(objects, `${prefix}-${room.key}-wall-bottom`, room.x,          room.y + room.h, room.x + room.w, room.y + room.h, INNER_T, roomGroupId);
+    addWall(objects, `${prefix}-${room.key}-wall-left`,   room.x,          room.y,          room.x,          room.y + room.h, INNER_T, roomGroupId);
+    addWall(objects, `${prefix}-${room.key}-wall-right`,  room.x + room.w, room.y,          room.x + room.w, room.y + room.h, INNER_T, roomGroupId);
     return;
   }
 
+  if (isRestroom) {
+    // Restroom is hybrid — full room shell with walls + door, same as regular rooms.
+    addSpace(objects, `${prefix}-${room.key}`, room.label, room.x, room.y, room.w, room.h, room.color, 'rack', roomGroupId);
+    addWall(objects, `${prefix}-${room.key}-wall-top`,    room.x,          room.y,          room.x + room.w, room.y,          INNER_T, roomGroupId);
+    addWall(objects, `${prefix}-${room.key}-wall-bottom`, room.x,          room.y + room.h, room.x + room.w, room.y + room.h, INNER_T, roomGroupId);
+    addWall(objects, `${prefix}-${room.key}-wall-left`,   room.x,          room.y,          room.x,          room.y + room.h, INNER_T, roomGroupId);
+    addWall(objects, `${prefix}-${room.key}-wall-right`,  room.x + room.w, room.y,          room.x + room.w, room.y + room.h, INNER_T, roomGroupId);
+    addOpening(objects, `${prefix}-${room.key}-door`, `${room.label} Door`, room.doorX, room.doorY, INTERIOR_DOOR_WIDTH, room.doorAngle ?? 0, 'single', roomGroupId);
+    return;
+  }
+
+  // Regular room — room fill + 4 walls + door + optional window.
   addSpace(objects, `${prefix}-${room.key}`, room.label, room.x, room.y, room.w, room.h, room.color, 'room', roomGroupId);
   addWall(objects, `${prefix}-${room.key}-wall-top`, room.x, room.y, room.x + room.w, room.y, INNER_T, roomGroupId);
   addWall(objects, `${prefix}-${room.key}-wall-bottom`, room.x, room.y + room.h, room.x + room.w, room.y + room.h, INNER_T, roomGroupId);
@@ -992,8 +991,7 @@ function placeLocationsInZone(
   locations: Array<{ id: string; name: string }>,
   groupId?: string,
 ) {
-  // Guard: don't add a fallback room background if addRoomShell already placed an
-  // object here (could be type 'room', 'stairs', 'elevator', or 'bathroom').
+  // Guard: don't add a fallback room background if addRoomShell already placed an object here.
   if (!objects.some(o => o.label === zone.label && o.x === zone.x && o.y === zone.y)) {
     objects.push({ id: `zone-${zone.key}`, type: 'room', x: zone.x, y: zone.y, width: zone.w, height: zone.h, label: zone.label, color: zone.color, layer: FLOORPLAN_LAYERS.ROOM_FILL, ...(groupId ? { groupId } : {}) });
   }

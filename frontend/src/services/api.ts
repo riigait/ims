@@ -163,7 +163,7 @@ export const floorPlansApi = {
   delete: (id: string) => api.delete(`/floor-plans/${id}`),
   feedback: (id: string, data: { feedback: string; rating?: number; correctedData?: string }) =>
     api.post(`/floor-plans/${id}/feedback`, data),
-  regenerate: (id: string, data?: object) => api.post(`/floor-plans/${id}/regenerate`, data || {}).then(normalizeFloorPlanResponse),
+  regenerate: (id: string, data?: object, signal?: AbortSignal) => api.post(`/floor-plans/${id}/regenerate`, data ?? {}, { signal }).then(normalizeFloorPlanResponse),
   getRules: () => api.get('/floor-plans/rules'),
   getByBuilding: (buildingKey: string) => api.get(`/floor-plans/building/${encodeURIComponent(buildingKey)}`).then(normalizeFloorPlanResponse),
   validate: (objects: object[]) => api.post('/floor-plans/validate', { objects }),

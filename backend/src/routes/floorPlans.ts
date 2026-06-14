@@ -1651,7 +1651,8 @@ router.post('/:id/feedback', async (req: AuthRequest, res: Response, next: NextF
   }
 });
 
-// Regenerate a single auto-generated floor plan
+// Regenerate a single auto-generated floor plan — runs up to maxAttempts internally,
+// returns the best result in a single HTTP response so the browser only sees 1 request.
 router.post('/:id/regenerate', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     if (req.userRole !== 'admin' && req.userRole !== 'superadmin') {
@@ -1666,9 +1667,13 @@ router.post('/:id/regenerate', async (req: AuthRequest, res: Response, next: Nex
 
     const departmentId = floorPlan.departmentId;
     if (!departmentId) return res.status(400).json({ error: 'Floor plan has no department' });
+
     const regenerateOutdoorWalls = req.body.regenerateOutdoorWalls !== false;
+    const maxAttempts: number = Math.min(50, Math.max(1, Number(req.body.maxAttempts) || 50));
+    const TARGET_ISSUES = 1;
 
     const buildingMatch = floorPlan.name.match(/^(Auto - .+ - Building \d+) - Floor \d+ - /);
+
     if (buildingMatch) {
       const floorNum = Number(floorPlan.name.match(/ - Floor (\d+) - /)?.[1] ?? 1);
       let existingObjects: FloorPlanObject[] = [];
@@ -1678,27 +1683,20 @@ router.post('/:id/regenerate', async (req: AuthRequest, res: Response, next: Nex
       const isOW = (o: FloorPlanObject) => o.type === 'wall' && o.id.includes('-ow-');
       const existingOutdoorWalls = existingObjects.filter(isOW);
       const existingAccessObjects = existingObjects.filter(isFixedFloorObject);
-      const assignedIds = existingObjects
-        .filter(o => o.linkedLocationId)
-        .map(o => o.linkedLocationId as string);
+      const assignedIds = existingObjects.filter(o => o.linkedLocationId).map(o => o.linkedLocationId as string);
 
       const dept = await prisma.department.findUnique({ where: { id: departmentId } });
       if (!dept) return res.status(404).json({ error: 'Department not found' });
 
       const floorLocations = assignedIds.length > 0
-        ? await prisma.location.findMany({
-            where: { id: { in: assignedIds } },
-            orderBy: { name: 'asc' },
-            select: { id: true, name: true },
-          })
+        ? await prisma.location.findMany({ where: { id: { in: assignedIds } }, orderBy: { name: 'asc' }, select: { id: true, name: true } })
         : [];
 
       const floorTemplate =
         FLOORPLAN_KNOWLEDGE.imsUseful.find(t => floorPlan.name.endsWith(` - ${t}`)) ||
-        floorPlan.name.split(' - ').pop() ||
-        floorPlan.name;
+        floorPlan.name.split(' - ').pop() || floorPlan.name;
 
-      const hasStairs = existingObjects.some(o => o.id.includes('reserved-stairs'));
+      const hasStairs  = existingObjects.some(o => o.id.includes('reserved-stairs'));
       const hasElevator = existingObjects.some(o => o.id.includes('reserved-elevator'));
       const floorVerticalAccess: 'stairs' | 'elevator' | 'both' =
         hasStairs && hasElevator ? 'both' : hasElevator ? 'elevator' : 'stairs';
@@ -1714,57 +1712,53 @@ router.post('/:id/regenerate', async (req: AuthRequest, res: Response, next: Nex
         if (ySpan > 0) maxLayoutHeight = Math.max(0, ySpan - 2 * OUTDOOR_WALL_MARGIN);
       }
 
-      let newFloorObjects = buildKnowledgeTemplateFloorPlan(floorTemplate, dept.name, floorLocations, {
-        verticalAccess: floorVerticalAccess,
-        totalFloors: 1,
-        ...(maxLayoutWidth  ? { maxLayoutWidth  } : {}),
-        ...(maxLayoutHeight ? { maxLayoutHeight } : {}),
-      });
+      // Retry loop — runs entirely on the backend, only 1 HTTP request per user click.
+      let bestObjects: FloorPlanObject[] = [];
+      let bestIssues = Number.POSITIVE_INFINITY;
+      let attemptsUsed = 0;
+      const templateType = determineTemplateType(floorTemplate);
 
-      if (!regenerateOutdoorWalls) {
-        newFloorObjects = [
-          ...newFloorObjects.filter(o => !isOW(o)),
-          ...existingOutdoorWalls,
-        ];
-        newFloorObjects = fitIndoorObjectsInsideOutdoorWalls(newFloorObjects);
+      for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+        attemptsUsed = attempt;
+        let candidate = buildKnowledgeTemplateFloorPlan(floorTemplate, dept.name, floorLocations, {
+          verticalAccess: floorVerticalAccess, totalFloors: 1,
+          ...(maxLayoutWidth  ? { maxLayoutWidth  } : {}),
+          ...(maxLayoutHeight ? { maxLayoutHeight } : {}),
+        });
+        if (!regenerateOutdoorWalls) {
+          candidate = [...candidate.filter(o => !isOW(o)), ...existingOutdoorWalls];
+          candidate = fitIndoorObjectsInsideOutdoorWalls(candidate);
+        }
+        candidate = centerFloorPlanObjects(candidate, floorPlan.width, floorPlan.height);
+        candidate = resolveIndoorObjectOverlaps(candidate);
+        if (existingAccessObjects.length > 0) {
+          candidate = [...candidate.filter(o => !isFixedFloorObject(o)), ...existingAccessObjects];
+          candidate = correctRegeneratedLayoutIssues(candidate, existingAccessObjects, regenerateOutdoorWalls);
+        }
+        const issues = validateFloorplanObjects(candidate).errors.length;
+        if (issues < bestIssues) { bestIssues = issues; bestObjects = candidate; }
+        if (bestIssues <= TARGET_ISSUES) break;
       }
 
-      newFloorObjects = centerFloorPlanObjects(newFloorObjects, floorPlan.width, floorPlan.height);
-      newFloorObjects = resolveIndoorObjectOverlaps(newFloorObjects);
-      if (existingAccessObjects.length > 0) {
-        newFloorObjects = [
-          ...newFloorObjects.filter(o => !isFixedFloorObject(o)),
-          ...existingAccessObjects,
-        ];
-        newFloorObjects = correctRegeneratedLayoutIssues(newFloorObjects, existingAccessObjects, regenerateOutdoorWalls);
-      }
-
-      const floorValidation = validateGeneratedFloorPlan(newFloorObjects, determineTemplateType(floorTemplate));
+      const floorValidation = validateGeneratedFloorPlan(bestObjects, templateType);
       const updatedFloor = await prisma.floorPlan.update({
         where: { id: floorPlan.id },
-        data: {
-          planJson: JSON.stringify(newFloorObjects),
-          generationScore: floorValidation.score,
-          isApproved: false,
-        },
+        data: { planJson: JSON.stringify(bestObjects), generationScore: floorValidation.score, isApproved: false },
       });
       await prisma.floorPlanGenerationLog.create({
-        data: {
-          floorPlanId: updatedFloor.id,
-          templateUsed: floorTemplate,
-          score: floorValidation.score,
-          validationResult: JSON.stringify(floorValidation),
-        },
+        data: { floorPlanId: updatedFloor.id, templateUsed: floorTemplate, score: floorValidation.score, validationResult: JSON.stringify(floorValidation) },
       });
       return res.json({
         ...updatedFloor,
-        objects: newFloorObjects,
+        objects: bestObjects,
         generationScore: floorValidation.score,
-        message: `Regenerated Floor ${floorNum}${regenerateOutdoorWalls ? '' : ' with outdoor walls fixed'}`,
+        attemptsUsed,
+        issuesRemaining: bestIssues,
+        message: `Regenerated Floor ${floorNum} in ${attemptsUsed} attempt${attemptsUsed === 1 ? '' : 's'}${regenerateOutdoorWalls ? '' : ' with outdoor walls fixed'}`,
       });
     }
 
-    // Extract template from plan name: "Auto - DeptName - TemplateName"
+    // Simple (non-building) path
     const prefix = GENERATED_FLOORPLAN_PREFIX;
     let templateName = floorPlan.name;
     if (floorPlan.name.startsWith(prefix)) {
@@ -1772,81 +1766,69 @@ router.post('/:id/regenerate', async (req: AuthRequest, res: Response, next: Nex
       const knownTemplate = FLOORPLAN_KNOWLEDGE.imsUseful.find((template) => suffix.endsWith(` - ${template}`));
       templateName = knownTemplate || suffix.split(' - ').pop() || suffix;
     }
-
     if (!templateName) {
-      return res.status(400).json({ error: 'Cannot determine template from plan name â€” only auto-generated plans can be regenerated' });
+      return res.status(400).json({ error: 'Cannot determine template from plan name — only auto-generated plans can be regenerated' });
     }
 
     const department = await prisma.department.findUnique({ where: { id: departmentId } });
     if (!department) return res.status(404).json({ error: 'Department not found' });
 
     const locations = await prisma.location.findMany({
-      where: { departmentId },
-      orderBy: { name: 'asc' },
-      select: { id: true, name: true },
+      where: { departmentId }, orderBy: { name: 'asc' }, select: { id: true, name: true },
     });
-
     if (locations.length === 0) return res.status(400).json({ error: 'No locations found for department' });
 
     const isKnownTemplate = FLOORPLAN_KNOWLEDGE.imsUseful.includes(templateName);
     let existingObjects: FloorPlanObject[] = [];
-    try {
-      existingObjects = JSON.parse(floorPlan.planJson || '[]');
-    } catch {
-      existingObjects = [];
-    }
+    try { existingObjects = JSON.parse(floorPlan.planJson || '[]'); } catch { existingObjects = []; }
     existingObjects = centerFloorPlanObjects(existingObjects, floorPlan.width, floorPlan.height);
-    const hasStairs = existingObjects.some((object) => object.id.includes('reserved-stairs'));
-    const hasElevator = existingObjects.some((object) => object.id.includes('reserved-elevator'));
+    const hasStairs  = existingObjects.some(o => o.id.includes('reserved-stairs'));
+    const hasElevator = existingObjects.some(o => o.id.includes('reserved-elevator'));
     const verticalAccess = hasStairs && hasElevator ? 'both' : hasElevator ? 'elevator' : 'stairs';
     const existingFixedObjects = existingObjects.filter(isFixedFloorObject);
-    let objects = isKnownTemplate
-      ? buildKnowledgeTemplateFloorPlan(templateName, department.name, locations, { verticalAccess })
-      : buildGeneratedFloorPlan(floorPlan.name, locations, { verticalAccess });
-    if (!regenerateOutdoorWalls) {
-      const isOutdoorWall = (object: FloorPlanObject) => object.type === 'wall' && object.id.includes('-ow-');
-      objects = [
-        ...objects.filter((object) => !isOutdoorWall(object)),
-        ...existingObjects.filter(isOutdoorWall),
-      ];
-      objects = fitIndoorObjectsInsideOutdoorWalls(objects);
-    }
-    objects = centerFloorPlanObjects(objects, floorPlan.width, floorPlan.height);
-    objects = resolveIndoorObjectOverlaps(objects);
-    if (existingFixedObjects.length > 0) {
-      objects = [
-        ...objects.filter((object) => !isFixedFloorObject(object)),
-        ...existingFixedObjects,
-      ];
-      objects = correctRegeneratedLayoutIssues(objects, existingFixedObjects, regenerateOutdoorWalls);
-    }
-
+    const isOutdoorWall = (o: FloorPlanObject) => o.type === 'wall' && o.id.includes('-ow-');
     const templateType = determineTemplateType(templateName);
-    const validation = validateGeneratedFloorPlan(objects, templateType);
 
+    // Retry loop on backend
+    let bestObjects: FloorPlanObject[] = [];
+    let bestIssues = Number.POSITIVE_INFINITY;
+    let attemptsUsed = 0;
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      attemptsUsed = attempt;
+      let candidate = isKnownTemplate
+        ? buildKnowledgeTemplateFloorPlan(templateName, department.name, locations, { verticalAccess })
+        : buildGeneratedFloorPlan(floorPlan.name, locations, { verticalAccess });
+      if (!regenerateOutdoorWalls) {
+        candidate = [...candidate.filter(o => !isOutdoorWall(o)), ...existingObjects.filter(isOutdoorWall)];
+        candidate = fitIndoorObjectsInsideOutdoorWalls(candidate);
+      }
+      candidate = centerFloorPlanObjects(candidate, floorPlan.width, floorPlan.height);
+      candidate = resolveIndoorObjectOverlaps(candidate);
+      if (existingFixedObjects.length > 0) {
+        candidate = [...candidate.filter(o => !isFixedFloorObject(o)), ...existingFixedObjects];
+        candidate = correctRegeneratedLayoutIssues(candidate, existingFixedObjects, regenerateOutdoorWalls);
+      }
+      const issues = validateFloorplanObjects(candidate).errors.length;
+      if (issues < bestIssues) { bestIssues = issues; bestObjects = candidate; }
+      if (bestIssues <= TARGET_ISSUES) break;
+    }
+
+    const validation = validateGeneratedFloorPlan(bestObjects, templateType);
     const updated = await prisma.floorPlan.update({
       where: { id: req.params.id },
-      data: {
-        planJson: JSON.stringify(objects),
-        generationScore: validation.score,
-        isApproved: false,
-      },
+      data: { planJson: JSON.stringify(bestObjects), generationScore: validation.score, isApproved: false },
     });
-
     await prisma.floorPlanGenerationLog.create({
-      data: {
-        floorPlanId: updated.id,
-        templateUsed: templateName,
-        score: validation.score,
-        validationResult: JSON.stringify(validation),
-      },
+      data: { floorPlanId: updated.id, templateUsed: templateName, score: validation.score, validationResult: JSON.stringify(validation) },
     });
-
     res.json({
       ...updated,
-      objects,
+      objects: bestObjects,
       validation,
-      message: `Regenerated${regenerateOutdoorWalls ? '' : ' with outdoor walls fixed'} â€” layout score: ${validation.score}%`,
+      attemptsUsed,
+      issuesRemaining: bestIssues,
+      message: `Regenerated in ${attemptsUsed} attempt${attemptsUsed === 1 ? '' : 's'}${regenerateOutdoorWalls ? '' : ' with outdoor walls fixed'} — layout score: ${validation.score}%`,
     });
   } catch (error) {
     next(error);

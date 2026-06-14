@@ -111,7 +111,6 @@ type AutoGenerateStatus = {
 type FeedbackState = 'approved' | 'bad_layout' | null;
 
 const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
-const MAX_REGENERATION_ATTEMPTS = 50;
 const TARGET_REGENERATION_ISSUES = 1;
 
 function countRegenerationIssues(data: any): number {
@@ -866,7 +865,8 @@ export default function FloorPlans() {
   const [errorPanelPlanId, setErrorPanelPlanId] = useState<string | null>(null);
   // Per-plan regenerating state
   const [regeneratingId, setRegeneratingId] = useState<string | null>(null);
-  // Per-plan saving-as-template state
+  // AbortController for the active regeneration request — cancel on re-click or unmount
+  const regenAbortRef = useRef<AbortController | null>(null);
 
   // Tracks in-flight per-plan full fetches so we don't double-fetch
   const fetchingPlansRef = useRef<Set<string>>(new Set());
@@ -1114,29 +1114,30 @@ export default function FloorPlans() {
   };
 
   const handleRegenerate = async (planId: string) => {
+    // Cancel any in-flight regeneration before starting a new one
+    if (regenAbortRef.current) {
+      regenAbortRef.current.abort();
+    }
+    const abortController = new AbortController();
+    regenAbortRef.current = abortController;
+
     try {
       setRegeneratingId(planId);
       setAutoGenerateStatus({
         type: 'info',
-        message: regenerateOutdoorWalls ? 'Regenerating indoor and outdoor layouts...' : 'Keeping outdoor walls fixed and fitting indoor layouts...',
-        progress: 25,
-        logs: ['Started regeneration', regenerateOutdoorWalls ? 'Rebuilding outdoor walls' : 'Preserving outdoor walls'],
+        message: regenerateOutdoorWalls ? 'Regenerating layout (up to 50 attempts on server)...' : 'Keeping outdoor walls fixed — fitting indoor layouts...',
+        progress: 30,
+        logs: ['Single request sent to server', 'Server running up to 50 attempts internally'],
       });
-      let response;
-      let remainingIssues = Number.POSITIVE_INFINITY;
-      let attempt = 0;
+      // One request — server runs up to maxAttempts internally
+      const response = await floorPlansApi.regenerate(planId, {
+        regenerateOutdoorWalls,
+        pairStairsByFloors,
+        maxAttempts: 50,
+      }, abortController.signal);
 
-      while (attempt < MAX_REGENERATION_ATTEMPTS && remainingIssues > TARGET_REGENERATION_ISSUES) {
-        attempt += 1;
-        setAutoGenerateStatus({
-          type: 'info',
-          message: `Regenerating layout attempt ${attempt} of ${MAX_REGENERATION_ATTEMPTS}...`,
-          progress: Math.min(95, 20 + attempt),
-          logs: [`Attempt ${attempt}: generating layout`, 'Validating issue checks after regeneration'],
-        });
-        response = await floorPlansApi.regenerate(planId, { regenerateOutdoorWalls, pairStairsByFloors });
-        remainingIssues = countRegenerationIssues(response.data);
-      }
+      if (abortController.signal.aborted) return;
+      const remainingIssues = countRegenerationIssues(response.data);
 
       if (!response) return;
       setAutoGenerateStatus({
@@ -1156,13 +1157,14 @@ export default function FloorPlans() {
           regeneratedMap.has(p.id) ? { ...p, ...regeneratedMap.get(p.id)! } : p
         ));
         setAlignedPlanIds(prev => prev.filter(id => !regeneratedMap.has(id)));
+        const attemptsUsed = response.data.attemptsUsed ?? '?';
         setAutoGenerateStatus({
           type: remainingIssues <= TARGET_REGENERATION_ISSUES ? 'success' : 'error',
           message: remainingIssues <= TARGET_REGENERATION_ISSUES
             ? `${response.data.message || 'Floor plans regenerated.'} ${remainingIssues} issue check${remainingIssues === 1 ? '' : 's'} remaining.`
-            : `Paused after ${MAX_REGENERATION_ATTEMPTS} attempts with ${remainingIssues} issue checks remaining.`,
+            : `Completed ${attemptsUsed} server-side attempts with ${remainingIssues} issue check${remainingIssues === 1 ? '' : 's'} remaining. Click regenerate to retry.`,
           progress: 100,
-          logs: [`Completed ${attempt} regeneration attempt${attempt === 1 ? '' : 's'}`, 'Fit checks completed', `${remainingIssues} issue checks remaining`],
+          logs: [`Server ran ${attemptsUsed} attempt${attemptsUsed === 1 ? '' : 's'}`, 'Fit checks completed', `${remainingIssues} issue checks remaining`],
         });
         setPlanFeedback(prev => {
           const next = { ...prev };
@@ -1190,6 +1192,7 @@ export default function FloorPlans() {
         }
       }
 
+      const attemptsUsed = response.data.attemptsUsed ?? '?';
       setFloorPlans(prev => prev.map(p => p.id === planId
         ? { ...p, objects: finalObjects, generationScore: response.data.generationScore, isApproved: false }
         : p
@@ -1200,11 +1203,13 @@ export default function FloorPlans() {
         type: remainingIssues <= TARGET_REGENERATION_ISSUES ? 'success' : 'error',
         message: remainingIssues <= TARGET_REGENERATION_ISSUES
           ? `${response.data.message || 'Floor plan regenerated.'} ${remainingIssues} issue check${remainingIssues === 1 ? '' : 's'} remaining.`
-          : `Paused after ${MAX_REGENERATION_ATTEMPTS} attempts with ${remainingIssues} issue checks remaining.`,
+          : `Completed ${attemptsUsed} server-side attempts with ${remainingIssues} issue check${remainingIssues === 1 ? '' : 's'} remaining. Click regenerate to retry.`,
         progress: 100,
-        logs: [`Completed ${attempt} regeneration attempt${attempt === 1 ? '' : 's'}`, 'Fit checks completed', `${remainingIssues} issue checks remaining`],
+        logs: [`Server ran ${attemptsUsed} attempt${attemptsUsed === 1 ? '' : 's'}`, 'Fit checks completed', `${remainingIssues} issue checks remaining`],
       });
     } catch (error: any) {
+      // Ignore aborted requests — user cancelled or a new request replaced this one
+      if (abortController.signal.aborted || error.name === 'AbortError' || error.code === 'ERR_CANCELED') return;
       if (error.response?.data?.requiresMoreFloors) {
         handleOverflowError(error, 'regenerate');
         return;
@@ -1217,7 +1222,7 @@ export default function FloorPlans() {
       });
       alert(error.response?.data?.error || 'Failed to regenerate floor plan');
     } finally {
-      setRegeneratingId(null);
+      if (!abortController.signal.aborted) setRegeneratingId(null);
     }
   };
 
