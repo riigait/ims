@@ -468,6 +468,7 @@ interface IsoCtx {
   hoveredObjectId: string | null;
   isoMode:      'single' | 'all';
   isDark:       boolean;
+  labelFontSize: number;
   onHover:      HoverHandler;
   onHoverEnd:   () => void;
   onObjectHover: (id: string) => void;
@@ -1324,7 +1325,7 @@ function buildIsoBuilding(
     <Text key={`ibl-${bld.key}`} listening={false}
       x={bOffX - 90} y={bottomTipY}
       width={180} align="center"
-      text={bld.label.toUpperCase()} fontSize={10} fontStyle="bold"
+      text={bld.label.toUpperCase()} fontSize={ctx.labelFontSize} fontStyle="bold"
       fill={ctx.isDark ? '#64748b' : '#475569'} letterSpacing={1.5}
     />
   );
@@ -1359,6 +1360,7 @@ export default function Building2D() {
   const [stageSize, setStageSize]     = useState({ w: 800, h: 600 });
   const [isoFloorFilter, setIsoFloorFilter] = useState<number | null>(null); // null = all
   const [isoBuildingIndex, setIsoBuildingIndex] = useState(0);
+  const [labelFontSize, setLabelFontSize] = useState(10);
 
   const load = useCallback(async () => {
     setLoading(true); setError(null);
@@ -1649,7 +1651,7 @@ export default function Building2D() {
     const baseY   = stageSize.h * 0.72;
     const isoMode: 'single' | 'all' = isoFloorFilter !== null ? 'single' : 'all';
     const ctx: IsoCtx = {
-      hoveredId, hoveredFloor, hoveredObjectId, isoMode, isDark,
+      hoveredId, hoveredFloor, hoveredObjectId, isoMode, isDark, labelFontSize,
       onHover: handleHover, onHoverEnd: handleHoverEnd, onNavigate: handleNavigate,
       onObjectHover: handleObjectHover, onObjectHoverEnd: handleObjectHoverEnd,
     };
@@ -1768,6 +1770,21 @@ export default function Building2D() {
             <button onClick={() => zoom(-0.15)} className="px-2 py-1.5 hover:bg-[var(--surface-2)] text-[var(--text-muted)] border-x border-[var(--border)]"><ZoomOut size={13} /></button>
             <button onClick={resetZoom} className="px-2 py-1.5 hover:bg-[var(--surface-2)] text-[var(--text-muted)]"><Maximize2 size={13} /></button>
           </div>
+
+          {/* Building label font size — only useful in iso view */}
+          {viewMode === 'isometric' && (
+            <div className="flex items-center gap-1 border border-[var(--border)] rounded overflow-hidden">
+              <button
+                onClick={() => setLabelFontSize(s => Math.max(6, s - 1))}
+                className="px-2 py-1.5 hover:bg-[var(--surface-2)] text-[var(--text-muted)] text-xs font-bold"
+              >A-</button>
+              <span className="px-1 text-xs text-[var(--text-muted)] select-none">{labelFontSize}</span>
+              <button
+                onClick={() => setLabelFontSize(s => Math.min(24, s + 1))}
+                className="px-2 py-1.5 hover:bg-[var(--surface-2)] text-[var(--text-muted)] text-xs font-bold border-l border-[var(--border)]"
+              >A+</button>
+            </div>
+          )}
 
           <button onClick={load} className="p-1.5 hover:bg-[var(--surface-2)] rounded border border-[var(--border)] text-[var(--text-muted)]">
             <RefreshCw size={13} className={loading ? 'animate-spin' : ''} />
