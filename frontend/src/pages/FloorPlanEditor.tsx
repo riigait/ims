@@ -7,6 +7,7 @@ import {
   Table2, Armchair, BookMarked, GalleryHorizontalEnd, LockKeyhole, Archive, Container, Layers2,
   Type, ZoomIn, ZoomOut, MapPin, AlertTriangle, CheckCircle, XCircle, User,
   ChevronsUp, ChevronsDown, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, DoorOpen, Search, X as XIcon,
+  Maximize2, Crop,
 } from 'lucide-react';
 import { floorPlansApi, locationsApi, productsApi } from '@/services/api';
 import { useFloorPlanStore } from '@/services/floorPlanStore';
@@ -315,17 +316,14 @@ export default function FloorPlanEditor() {
     if (!currentFloorPlan || !canvasWrapperRef.current) return;
     hasUserPannedRef.current = false;
     const wrapper = canvasWrapperRef.current;
-    const centerPage = () => {
+    // Auto-fit the content into view on open, and on resize until the user pans.
+    const autoFit = () => {
       if (hasUserPannedRef.current) return;
-      const zoom = useFloorPlanStore.getState().editorState.zoomLevel;
-      setPan(
-        (wrapper.clientWidth - currentFloorPlan.width * zoom) / 2,
-        (wrapper.clientHeight - currentFloorPlan.height * zoom) / 2,
-      );
+      fitToContent();
     };
-    const observer = new ResizeObserver(centerPage);
+    const observer = new ResizeObserver(autoFit);
     observer.observe(wrapper);
-    centerPage();
+    autoFit();
     return () => observer.disconnect();
   }, [currentFloorPlan?.id]);
 
@@ -1019,6 +1017,80 @@ export default function FloorPlanEditor() {
 
     return minX < Infinity ? { minX, minY, maxX, maxY } : null;
   };
+
+  // Margins (world units) kept around content when fitting the view / baking the crop.
+  const FIT_PADDING = 60;
+  const CROP_MARGIN = 40;
+
+  // Content bounding box, additionally expanded for rotated rectangles whose
+  // rotated corners stick out past their unrotated box, so a crop never clips them.
+  function getContentBounds(objects: FloorPlanObject[]) {
+    const base = getGroupBounds(objects);
+    if (!base) return null;
+    let { minX, minY, maxX, maxY } = base;
+    for (const obj of objects) {
+      const r = obj as RectangleObject;
+      if ((obj.type === 'rack' || obj.type === 'shelf') && r.rotation) {
+        const cx = r.x + r.width / 2, cy = r.y + r.height / 2;
+        const cos = Math.cos(r.rotation), sin = Math.sin(r.rotation);
+        const corners: [number, number][] = [
+          [-r.width / 2, -r.height / 2], [r.width / 2, -r.height / 2],
+          [r.width / 2, r.height / 2], [-r.width / 2, r.height / 2],
+        ];
+        for (const [dx, dy] of corners) {
+          const wx = cx + dx * cos - dy * sin;
+          const wy = cy + dx * sin + dy * cos;
+          minX = Math.min(minX, wx); minY = Math.min(minY, wy);
+          maxX = Math.max(maxX, wx); maxY = Math.max(maxY, wy);
+        }
+      }
+    }
+    return { minX, minY, maxX, maxY };
+  }
+
+  // Non-destructive: zoom/pan so the content fills the viewport with padding
+  // (GIMP "fit to content"). Falls back to framing the whole page when empty.
+  function fitToContent() {
+    const plan = useFloorPlanStore.getState().currentFloorPlan;
+    const wrapper = canvasWrapperRef.current;
+    if (!plan || !wrapper) return;
+    const b = plan.objects.length ? getContentBounds(plan.objects) : null;
+    const region = b
+      ? { x: b.minX - FIT_PADDING, y: b.minY - FIT_PADDING,
+          w: (b.maxX - b.minX) + FIT_PADDING * 2, h: (b.maxY - b.minY) + FIT_PADDING * 2 }
+      : { x: 0, y: 0, w: plan.width, h: plan.height };
+    if (region.w <= 0 || region.h <= 0) return;
+    const zoom = Math.min(3, Math.max(0.3, Math.min(wrapper.clientWidth / region.w, wrapper.clientHeight / region.h)));
+    const cx = region.x + region.w / 2, cy = region.y + region.h / 2;
+    setZoomLevel(zoom);
+    setPan(wrapper.clientWidth / 2 - cx * zoom, wrapper.clientHeight / 2 - cy * zoom);
+  }
+
+  // Destructive: trim the saved page to the content box (+margin) and shift every
+  // object so the layout is preserved. Marks the plan dirty; user saves to persist.
+  function cropToContent() {
+    const plan = useFloorPlanStore.getState().currentFloorPlan;
+    if (!plan || plan.objects.length === 0) return;
+    const b = getContentBounds(plan.objects);
+    if (!b) return;
+    const shiftX = snapToGrid(b.minX - CROP_MARGIN);
+    const shiftY = snapToGrid(b.minY - CROP_MARGIN);
+    const width = Math.max(GRID_SIZE, snapToGrid(b.maxX - shiftX + CROP_MARGIN));
+    const height = Math.max(GRID_SIZE, snapToGrid(b.maxY - shiftY + CROP_MARGIN));
+    if (width === plan.width && height === plan.height && !shiftX && !shiftY) return;
+    if (!window.confirm(
+      `Crop the page to the floor plan content?\n\n` +
+      `Page size becomes ${width} × ${height} px and all objects shift to fit. ` +
+      `This changes the saved layout — click Save afterward to keep it.`
+    )) return;
+    const objects = (shiftX || shiftY)
+      ? plan.objects.map(object => moveObjectByDelta(object, -shiftX, -shiftY, false))
+      : plan.objects;
+    setCurrentFloorPlan({ ...plan, width, height, objects });
+    setIsDirty(true);
+    hasUserPannedRef.current = false;
+    setTimeout(fitToContent, 0);
+  }
 
   const drawGrid = (ctx: CanvasRenderingContext2D, canvas: HTMLCanvasElement) => {
     for (let x = 0, index = 0; x < canvas.width; x += GRID_SIZE, index++) {
@@ -3580,11 +3652,21 @@ export default function FloorPlanEditor() {
               </button>
             </div>
             <div className="text-xs text-[var(--text-muted)] mt-1">{Math.round(editorState.zoomLevel * 100)}%</div>
+            {/* Crop is an edit action, so it lives in the (editable-only) toolbar. */}
+            <button onClick={cropToContent} title="Crop page to content"
+              className="p-2.5 rounded-lg w-20 flex justify-center text-[var(--text-muted)] hover:bg-[var(--surface-2)]">
+              <Crop size={18} />
+            </button>
           </div>
         )}
 
         {/* Canvas area */}
-        <div ref={canvasWrapperRef} className="flex-1 overflow-hidden bg-[var(--surface-2)] p-4">
+        <div ref={canvasWrapperRef} className="relative flex-1 overflow-hidden bg-[var(--surface-2)] p-4">
+          {/* Floating Fit-to-content control — always available, incl. read-only/finalized views. */}
+          <button onClick={fitToContent} title="Fit to content"
+            className="absolute top-3 right-3 z-10 p-2 rounded-lg bg-[var(--surface)] border border-[var(--border)] shadow-md text-[var(--text-muted)] hover:bg-[var(--surface-2)] hover:text-[var(--text)]">
+            <Maximize2 size={18} />
+          </button>
           <div
             ref={canvasRef}
             onPointerDown={handleCanvasPointerDown}

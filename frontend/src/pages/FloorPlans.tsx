@@ -278,7 +278,9 @@ function isFixedCoreObject(obj: FloorPlanObject): boolean {
 
 function fixedObjectsFor(plan: FloorPlan): RectangleObject[] {
   return (plan.objects ?? []).filter((obj): obj is RectangleObject => {
-    if (obj.type !== 'room' && obj.type !== 'rack' && obj.type !== 'shelf') return false;
+    // Accept legacy type='room' objects AND the new dedicated types emitted by the generator.
+    const t = (obj as { type: string }).type;
+    if (t !== 'room' && t !== 'rack' && t !== 'shelf' && t !== 'stairs' && t !== 'elevator' && t !== 'bathroom') return false;
     if (!('x' in obj) || !('y' in obj) || !('width' in obj) || !('height' in obj)) return false;
     const r = obj as unknown as RectangleObject;
     if (typeof r.x !== 'number' || !isFinite(r.x) || typeof r.y !== 'number' || !isFinite(r.y)) return false;
@@ -2613,14 +2615,18 @@ export default function FloorPlans() {
                         return (
                           <g key={entry.plan.id}>
                             {entry.fixedObjects.filter(obj => !obj.id.includes('reserved-column')).map((obj) => {
+                              // fixedObjects carry dx/dy already; add coreDx/coreDy (same
+                              // correction applied to fixed walls at the render below).
+                              const fx = obj.x + entry.coreDx;
+                              const fy = obj.y + entry.coreDy;
                               const fontSize = Math.max(10, Math.min(obj.width, obj.height) * 0.18);
-                              const cx = obj.x + obj.width / 2;
-                              const cy = obj.y + (obj.height ?? 0) / 2;
+                              const cx = fx + obj.width / 2;
+                              const cy = fy + (obj.height ?? 0) / 2;
                               return (
                                 <g key={obj.id}>
                                   <rect
-                                    x={obj.x}
-                                    y={obj.y}
+                                    x={fx}
+                                    y={fy}
                                     width={obj.width}
                                     height={obj.height}
                                     fill={obj.color ?? '#e2e8f0'}
@@ -2745,7 +2751,8 @@ export default function FloorPlans() {
                       return (
                         <g key={`interior-${entry.plan.id}`} opacity={interiorOpacity / 100}>
                           {interiorAdjusted.map(obj => {
-                            if (obj.type === 'room' || obj.type === 'rack' || obj.type === 'shelf') {
+                            const objType = (obj as { type: string }).type;
+                            if (objType === 'room' || objType === 'rack' || objType === 'shelf' || objType === 'stairs' || objType === 'elevator' || objType === 'bathroom') {
                               if (!('x' in obj) || !('width' in obj) || !('height' in obj)) return null;
                               const r = obj as RectangleObject;
                               if (!isFinite(r.x) || !isFinite(r.y)) return null;

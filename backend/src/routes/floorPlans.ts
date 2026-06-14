@@ -673,7 +673,8 @@ function resolveMovableObjectOverlapsWithFixed(objects: FloorPlanObject[], fixed
   const isMovableZone = (o: FloorPlanObject) =>
     o.type === 'room' && !isOW(o) && !isFixedFloorObject(o) && !o.linkedLocationId;
   const blockerObjects = fixedObjects.filter((object) =>
-    object.type === 'room' || object.type === 'rack' || object.type === 'shelf');
+    object.type === 'room' || object.type === 'rack' || object.type === 'shelf' ||
+    object.type === 'stairs' || object.type === 'elevator' || object.type === 'bathroom');
   const movable = objects.filter(isMovableZone).map((object) => ({ ...object }));
   if (movable.length === 0 || blockerObjects.length === 0) return objects;
 
@@ -791,7 +792,8 @@ function hasMovableFixedOverlap(objects: FloorPlanObject[], fixedObjects: FloorP
   const rooms = objects.filter((object) =>
     object.type === 'room' && !isOW(object) && !isFixedFloorObject(object) && !object.linkedLocationId);
   const blockers = fixedObjects.filter((object) =>
-    object.type === 'room' || object.type === 'rack' || object.type === 'shelf');
+    object.type === 'room' || object.type === 'rack' || object.type === 'shelf' ||
+    object.type === 'stairs' || object.type === 'elevator' || object.type === 'bathroom');
   return rooms.some((room) => blockers.some((blocker) => rectsOverlap(objectBounds(room), objectBounds(blocker))));
 }
 

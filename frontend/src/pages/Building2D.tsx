@@ -47,13 +47,13 @@ const ISO_STYLE = {
   ghostFloorAlpha:     0.20,
   idleFloorAlpha:      0.45,    // all-mode, nothing hovered
   outdoorWallH:        42,
-  indoorWallH:         13,
-  frontWallH:          5,
-  frontWallAlpha:      0.18,
-  sideWallH:           24,
-  sideWallAlpha:       0.7,
-  backWallH:           42,
-  backWallAlpha:       0.92,
+  indoorWallH:         10,      // half-height — objects clearly visible above partitions
+  frontWallH:          52,      // all outer walls same height — Matterport dollhouse style
+  frontWallAlpha:      0.72,    // front/left slightly transparent for depth perception
+  sideWallH:           52,
+  sideWallAlpha:       0.82,
+  backWallH:           52,      // all outer walls full height, roof removed
+  backWallAlpha:       0.95,
 } as const;
 
 const ISO_SLAB_H = 7;          // floor plinth thickness in screen px
@@ -854,19 +854,15 @@ function IsoOpeningShape({
 }
 
 // ── Cutaway height for a wall segment ─────────────────────────────────────────
+// Matterport-style dollhouse: all 4 outer walls full height, roof removed.
+// Interior visible from above via isometric angle — no wall cutaway needed.
+// Indoor partition walls are half-height so objects read clearly over them.
 function wallCutawayH(
-  startX: number, startY: number, endX: number, endY: number,
-  planH: number, isOuter: boolean,
+  _startX: number, _startY: number, _endX: number, _endY: number,
+  _planW: number, _planH: number, isOuter: boolean,
 ): { h: number; alpha: number } {
-  if (!isOuter) return { h: ISO_STYLE.indoorWallH, alpha: 0.55 };
-
-  const isHorizontal = Math.abs(endX - startX) > Math.abs(endY - startY);
-  const avgY = (startY + endY) / 2;
-  const isFront = isHorizontal && avgY >= planH * 0.6;  // bottom 40% = front
-
-  if (isFront)        return { h: ISO_STYLE.frontWallH, alpha: ISO_STYLE.frontWallAlpha };
-  if (isHorizontal)   return { h: ISO_STYLE.backWallH,  alpha: ISO_STYLE.backWallAlpha  };
-  return                     { h: ISO_STYLE.sideWallH,  alpha: ISO_STYLE.sideWallAlpha  };
+  if (!isOuter) return { h: ISO_STYLE.indoorWallH, alpha: 0.50 };
+  return { h: ISO_STYLE.backWallH, alpha: ISO_STYLE.backWallAlpha };
 }
 
 function polygonBoundsHelper(pts: number[]) {
@@ -959,7 +955,7 @@ function buildIsoFloorNodes(
 
     const [x1, y1] = toIso(w.startX, w.startY, planW, planH);
     const [x2, y2] = toIso(w.endX,   w.endY,   planW, planH);
-    const { h, alpha } = wallCutawayH(w.startX, w.startY, w.endX, w.endY, planH, false);
+    const { h, alpha } = wallCutawayH(w.startX, w.startY, w.endX, w.endY, planW, planH, false);
     const thick = Math.max(1, (w.thickness ?? 8) / planW * ISO_PLAN_SIZE * 0.3);
 
     // Extruded wall ribbon: quad from the two base points lifted by h
@@ -1030,20 +1026,22 @@ function buildIsoFloorNodes(
     });
   }
 
-  // Outdoor wall cutaway extrusion (per segment, direction-aware height)
+  // Outdoor wall extrusion — all 4 walls full height, Matterport dollhouse style
   for (const w of outerWalls) {
+    const cutaway = wallCutawayH(w.startX, w.startY, w.endX, w.endY, planW, planH, true);
     const [x1, y1] = toIso(w.startX, w.startY, planW, planH);
     const [x2, y2] = toIso(w.endX,   w.endY,   planW, planH);
     const sx = ox + x1; const sy = oy + y1;
     const ex = ox + x2; const ey = oy + y2;
-    const cutaway = wallCutawayH(w.startX, w.startY, w.endX, w.endY, planH, true);
     const h = cutaway.h;
     const alpha = ctx.isoMode === 'all' ? Math.max(0.72, cutaway.alpha) : cutaway.alpha;
     const wallColor = isFinalized ? '#16336b' : '#1d2737';
     const edgeColor = isFinalized ? '#82b5ff' : '#8b97ab';
 
+    // Outer walls always paint before any object — use strongly negative depth offset
+    // so every object depth-sorts in front of every outer wall segment.
     queue.push({
-      depth: depthKey(w.startX + w.endX, w.startY + w.endY) / 2 + 1,
+      depth: depthKey(w.startX + w.endX, w.startY + w.endY) / 2 - 99999,
       node: (
         <Group key={`owall-${plan.id}-${w.id}`} listening={false}>
           <Line closed
