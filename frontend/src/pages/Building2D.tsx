@@ -1317,10 +1317,12 @@ function buildIsoBuilding(
     hits.push(hit);
   }
 
-  // Building label (visual only, non-interactive)
+  // Building label — centred on the bottom tip of the iso diamond
+  // Bottom tip screen position: origin + toIso(planW, planH) = (0, +ISO_PLAN_SIZE*ISO_TH/2)
+  const bottomTipY = baseY + (ISO_PLAN_SIZE * ISO_TH) / 2 + ISO_SLAB_H + 10;
   visuals.push(
     <Text key={`ibl-${bld.key}`} listening={false}
-      x={bOffX - 90} y={baseY + ISO_WALL_H + 14}
+      x={bOffX - 90} y={bottomTipY}
       width={180} align="center"
       text={bld.label.toUpperCase()} fontSize={10} fontStyle="bold"
       fill={ctx.isDark ? '#64748b' : '#475569'} letterSpacing={1.5}
