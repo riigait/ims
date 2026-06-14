@@ -47,7 +47,7 @@ const DOOR_CLEARANCE_DEPTH = 92;
 const FIX_MARGIN = 12;
 
 const isRect = (object: FloorPlanObject): object is FloorPlanObject & Rect =>
-  (object.type === 'rack' || object.type === 'shelf')
+  (object.type === 'rack' || object.type === 'shelf' || object.type === 'stairs' || object.type === 'elevator')
   && [object.x, object.y, object.width, object.height].every(Number.isFinite);
 
 const isPolygonRoom = (object: FloorPlanObject): object is FloorPlanObject & { points: number[] } =>

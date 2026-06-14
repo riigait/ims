@@ -54,7 +54,7 @@ function wallPolygon(wall: WallObject): Feature<Polygon> {
 }
 
 function isRectObject(obj: FloorPlanObject): obj is RectangleObject {
-  return obj.type === 'rack' || obj.type === 'shelf';
+  return obj.type === 'rack' || obj.type === 'shelf' || obj.type === 'stairs' || obj.type === 'elevator';
 }
 
 function isPolygonRoom(obj: FloorPlanObject): obj is PolygonRoomObject {
