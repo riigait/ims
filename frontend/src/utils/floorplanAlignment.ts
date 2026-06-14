@@ -1,4 +1,5 @@
 import type { FloorPlanObject, WallObject } from '@/types/floorplan';
+import { extractOutdoorWall } from '@/utils/floorplanGeometry';
 
 export interface FloorAlignmentTransform {
   floorId: string;
@@ -41,14 +42,23 @@ export function transformElement(
   element: FloorPlanObject,
   transform: FloorAlignmentTransform,
 ): FloorPlanObject {
-  if (element.meta?.alignmentApplied) return element;
+  const finalizedWall = element.type === 'wall' && (
+    element.isFinalizedPerimeter === true
+    || element.wallType === 'finalized_building_perimeter'
+    || element.meta?.isFinalizedPerimeter === true
+  );
+  const sourceOutdoorWall = element.type === 'wall'
+    && !finalizedWall
+    && (element.wallType === 'floor_original_outdoor' || element.id.includes('-ow-'));
 
   const meta = {
     ...element.meta,
     sourceFloorId: transform.floorId,
     alignmentApplied: true,
     alignmentTransformId: transformId(transform),
+    ...(sourceOutdoorWall ? { wallKind: 'source_floor_outdoor_wall' as const } : {}),
   };
+  if (element.meta?.alignmentApplied) return { ...element, meta };
 
   if (element.type === 'wall') {
     const start = transformPoint({ x: element.startX, y: element.startY }, transform);
@@ -197,4 +207,99 @@ export function transformWall(
   transform: FloorAlignmentTransform,
 ): WallObject {
   return transformElement(wall, transform) as WallObject;
+}
+
+function wallBounds(walls: WallObject[]) {
+  const points = walls.flatMap(wall => [
+    { x: wall.startX, y: wall.startY },
+    { x: wall.endX, y: wall.endY },
+  ]);
+  if (points.length === 0) return null;
+  const minX = Math.min(...points.map(point => point.x));
+  const minY = Math.min(...points.map(point => point.y));
+  const maxX = Math.max(...points.map(point => point.x));
+  const maxY = Math.max(...points.map(point => point.y));
+  return { minX, minY, maxX, maxY };
+}
+
+function boundingBoxPerimeter(sourceOutdoorWalls: WallObject[]) {
+  const bounds = wallBounds(sourceOutdoorWalls);
+  if (!bounds) return [];
+  const { minX, minY, maxX, maxY } = bounds;
+  return [
+    { x1: minX, y1: minY, x2: maxX, y2: minY },
+    { x1: maxX, y1: minY, x2: maxX, y2: maxY },
+    { x1: maxX, y1: maxY, x2: minX, y2: maxY },
+    { x1: minX, y1: maxY, x2: minX, y2: minY },
+  ];
+}
+
+export function buildFinalizedPerimeterWalls(sourceOutdoorWalls: WallObject[]) {
+  if (sourceOutdoorWalls.length === 0) return [];
+  const extracted = extractOutdoorWall({
+    walls: sourceOutdoorWalls.map(wall => ({
+      id: wall.id,
+      x1: wall.startX,
+      y1: wall.startY,
+      x2: wall.endX,
+      y2: wall.endY,
+    })),
+  }).outerSegments;
+  const extractedWalls = extracted.map((segment, index): WallObject => ({
+    id: `extracted-final-wall-${index}`,
+    type: 'wall',
+    startX: segment.x1,
+    startY: segment.y1,
+    endX: segment.x2,
+    endY: segment.y2,
+    thickness: 8,
+  }));
+  const sourceBounds = wallBounds(sourceOutdoorWalls);
+  const extractedBounds = wallBounds(extractedWalls);
+  const extractedCoversSource = sourceBounds && extractedBounds
+    && extractedBounds.minX <= sourceBounds.minX
+    && extractedBounds.minY <= sourceBounds.minY
+    && extractedBounds.maxX >= sourceBounds.maxX
+    && extractedBounds.maxY >= sourceBounds.maxY;
+  const perimeter = extractedCoversSource ? extracted : boundingBoxPerimeter(sourceOutdoorWalls);
+  return perimeter.map((segment, index): WallObject => ({
+    id: `final-shared-ow-${index}`,
+    type: 'wall',
+    startX: segment.x1,
+    startY: segment.y1,
+    endX: segment.x2,
+    endY: segment.y2,
+    wallType: 'finalized_building_perimeter',
+    isFinalizedPerimeter: true,
+    thickness: 8,
+    color: '#111827',
+    layer: 1,
+    meta: {
+      wallKind: 'finalized_shared_perimeter',
+      isFinalizedPerimeter: true,
+      generatedBy: 'finalize_floorplan',
+      alignmentApplied: true,
+      alignmentTransformId: 'shared-finalized-perimeter',
+    },
+  }));
+}
+
+export function finalizeFloorplanElements(
+  elements: FloorPlanObject[],
+  transform: FloorAlignmentTransform,
+  finalizedPerimeterWalls: WallObject[],
+) {
+  const sourceObjects = elements.filter(element => !(element.type === 'wall' && (
+    element.wallType === 'finalized_building_perimeter'
+    || element.isFinalizedPerimeter === true
+    || element.meta?.isFinalizedPerimeter === true
+  )));
+  const transformedObjects = transformFloorplanElements(sourceObjects, transform);
+
+  return {
+    sourceObjects,
+    transformedObjects,
+    finalWalls: finalizedPerimeterWalls,
+    objects: [...transformedObjects, ...finalizedPerimeterWalls],
+  };
 }

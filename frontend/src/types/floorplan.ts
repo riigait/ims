@@ -13,6 +13,9 @@ export interface BaseFloorPlanObject {
     sourceFloorId?: string;
     alignmentApplied?: boolean;
     alignmentTransformId?: string;
+    wallKind?: 'source_floor_outdoor_wall' | 'finalized_shared_perimeter';
+    isFinalizedPerimeter?: boolean;
+    generatedBy?: 'finalize_floorplan';
   };
 }
 

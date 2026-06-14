@@ -17,6 +17,8 @@ import { A4_PAGE_HEIGHT, A4_PAGE_WIDTH } from '@/utils/floorplanGrid';
 import { extractOutdoorWall } from '@/utils/floorplanGeometry';
 import {
   alignmentTransformForFloor,
+  buildFinalizedPerimeterWalls,
+  finalizeFloorplanElements,
   transformElement,
   transformFloorplanElements,
   transformWall,
@@ -238,12 +240,18 @@ function outdoorWallsFor(plan: FloorPlan): WallObject[] {
       x2: wall.endX,
       y2: wall.endY,
     }));
-  // Explicit outdoor walls (auto-generated `-ow-` perimeters, finalized
-  // perimeters) are the authoritative footprint — interior zone polygons must
-  // not override them. Polygon-derived outlines remain the path for manual
-  // plans whose drawn rooms ARE the footprint.
-  const explicitOutdoor = objects
-    .filter((obj): obj is WallObject => obj.type === 'wall' && isOutdoorWallObject(obj))
+  // Preserve source-floor outdoor walls as the authoritative footprint.
+  // Finalized shared walls are only a fallback for older finalized plans.
+  const sourceOutdoor = objects.filter((obj): obj is WallObject =>
+    obj.type === 'wall'
+    && obj.wallType === 'floor_original_outdoor'
+    && obj.isFinalizedPerimeter !== true
+    && obj.meta?.isFinalizedPerimeter !== true
+  );
+  const explicitOutdoorObjects = sourceOutdoor.length >= 3
+    ? sourceOutdoor
+    : objects.filter((obj): obj is WallObject => obj.type === 'wall' && isOutdoorWallObject(obj));
+  const explicitOutdoor = explicitOutdoorObjects
     .map(wall => ({
       id: wall.id,
       x1: wall.startX,
@@ -1404,35 +1412,44 @@ export default function FloorPlans() {
     if (mergePreviewPlans.length === 0) return;
     const aligned = alignOutdoorWallsToSharedCoordinateSystem(mergePreviewPlans);
     if (aligned.entries.length === 0) return;
+    const sourceOutdoorWalls = aligned.entries.flatMap(entry => {
+      const transform = alignmentTransformForFloor(entry.plan.id, entry.dx, entry.dy);
+      return outdoorWallsFor(entry.plan).map(wall => transformWall(wall, transform));
+    });
+    const finalizedPerimeterWalls = buildFinalizedPerimeterWalls(sourceOutdoorWalls);
+    if (sourceOutdoorWalls.length === 0 || finalizedPerimeterWalls.length === 0) {
+      setMergeError('Finalize failed: no visible shared perimeter could be generated from source outdoor walls.');
+      return;
+    }
 
-    // Union shell: one true exterior loop from ALL floors' aligned raw outlines
-    // (dx/dy baked in, never grid-snapped — slanted drawn edges are preserved
-    // exactly), applied to every floor.
     try {
       setFinalizing(true);
       const updatedPlans = await Promise.all(aligned.entries.map(async (entry) => {
         if (entry.plan.isApproved) return entry.plan; // skip already-finalized floors
         const alignmentData = alignmentDataFor(entry);
         const transform = alignmentTransformForFloor(entry.plan.id, entry.dx, entry.dy);
-        const sourceObjects = (entry.plan.objects ?? []).filter(obj => !(obj.type === 'wall' && (
-          (obj as WallObject).wallType === 'finalized_building_perimeter' ||
-          (obj as WallObject).isFinalizedPerimeter === true
-        )));
-        const transformedObjects = transformFloorplanElements(sourceObjects, transform);
-        const validation = validateFloorAlignment(sourceObjects, transformedObjects);
+        const finalized = finalizeFloorplanElements(
+          entry.plan.objects ?? [],
+          transform,
+          finalizedPerimeterWalls,
+        );
+        const validation = validateFloorAlignment(finalized.sourceObjects, finalized.transformedObjects);
         console.table([{ floorId: entry.plan.id, transform, ...validation }]);
         if (!validation.valid) throw new Error(`Invalid finalized floor data for ${entry.plan.id}`);
-
-        const finalWalls: WallObject[] = entry.rawWalls.map((wall, i) => ({
-          ...wall,
-          id: `floor${entry.floorNumber}-final-ow-${i}`,
-          wallType: 'finalized_building_perimeter' as const,
-          isFinalizedPerimeter: true,
-          thickness: 8,
-          color: '#1e293b',
-          layer: 1,
-        }));
-        const objects = [...transformedObjects, ...finalWalls];
+        const objects = finalized.objects;
+        console.table([{
+          floorId: entry.plan.id,
+          totalElements: objects.length,
+          sourceOutdoorWalls: sourceOutdoorWalls.length,
+          finalizedPerimeterWalls: finalized.finalWalls.length,
+          allOutdoorWalls: objects.filter(obj => obj.type === 'wall' && (
+            obj.wallType === 'floor_original_outdoor' || obj.wallType === 'finalized_building_perimeter'
+          )).length,
+          oldFinalizedPerimeterRemoved: (entry.plan.objects ?? []).length - finalized.sourceObjects.length,
+        }]);
+        if (finalized.finalWalls.length === 0) {
+          throw new Error(`Finalize failed: no shared perimeter walls for ${entry.plan.id}`);
+        }
 
         await floorPlansApi.update(entry.plan.id, {
           name: entry.plan.name,
@@ -2487,6 +2504,10 @@ export default function FloorPlans() {
       {mergePreviewPlans.length > 0 && (() => {
         const aligned = alignOutdoorWallsToSharedCoordinateSystem(mergePreviewPlans);
         const bounds = previewFitBounds(aligned.entries, showInteriorObjects, aligned.previewBounds);
+        const finalizedPerimeterPreview = buildFinalizedPerimeterWalls(aligned.entries.flatMap(entry => {
+          const transform = alignmentTransformForFloor(entry.plan.id, entry.dx, entry.dy);
+          return outdoorWallsFor(entry.plan).map(wall => transformWall(wall, transform));
+        }));
         const pad = 80;
         const viewBox = `${bounds.minX - pad} ${bounds.minY - pad} ${Math.max(1, bounds.maxX - bounds.minX + pad * 2)} ${Math.max(1, bounds.maxY - bounds.minY + pad * 2)}`;
         const totalWalls = aligned.totalWalls;
@@ -2523,7 +2544,7 @@ export default function FloorPlans() {
                         ? 'bg-slate-800 text-white border-slate-800'
                         : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'
                     }`}
-                    title="Preview each floor with its shared-core alignment"
+                    title="Preview the shared finalized perimeter"
                   >
                     <Layers size={15} />
                     Finalize Floorplan
@@ -2702,6 +2723,24 @@ export default function FloorPlans() {
                       })}
                     </g>
 
+                    {showFinalizePreview && (
+                      <g>
+                        {finalizedPerimeterPreview.map(wall => (
+                          <line
+                            key={wall.id}
+                            x1={wall.startX}
+                            y1={wall.startY}
+                            x2={wall.endX}
+                            y2={wall.endY}
+                            stroke="#f8fafc"
+                            strokeWidth={8}
+                            strokeLinecap="square"
+                            opacity={1}
+                          />
+                        ))}
+                      </g>
+                    )}
+
                     {/* Interior objects overlay */}
                     {showInteriorObjects && aligned.entries.map((entry, planIndex) => {
                       const color = MERGE_COLORS[planIndex % MERGE_COLORS.length];
@@ -2826,10 +2865,10 @@ export default function FloorPlans() {
                           <Layers size={13} /> Finalize Floorplan
                         </p>
                         <p className="text-[11px] text-[var(--text-muted)] leading-relaxed">
-                          The preview shows each floor after applying its single shared-core alignment transform.
+                          The strong white outline is the shared finalized perimeter generated from the aligned source outdoor walls.
                         </p>
                         <p className="text-[11px] text-[var(--text-muted)] leading-relaxed mt-1.5">
-                          Applying this preserves every room and object, then adds each floor's own aligned perimeter.
+                          Applying this preserves every room, object, and source outdoor wall, then adds the visible shared perimeter.
                         </p>
                       </div>
                       <div className="rounded border border-amber-200 bg-amber-50 px-2.5 py-2 text-[11px] text-amber-800">
