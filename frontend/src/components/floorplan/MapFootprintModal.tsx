@@ -6,6 +6,8 @@ import { floorPlansApi, mapApi } from '@/services/api';
 import type { BuildingFootprint } from '@/types/floorplan';
 import { buildFootprintResult } from '@/utils/mapFootprintMath';
 
+const CLOSE_RADIUS_PX = 14;
+
 type MapSearchResult = { name: string; lat: number; lng: number; type: string | null };
 
 type Phase =
@@ -99,20 +101,64 @@ export default function MapFootprintModal({
   const [applyError, setApplyError] = useState('');
   const [statusMsg, setStatusMsg] = useState('');
   const [isError, setIsError] = useState(false);
+  const [cursorPx, setCursorPx] = useState<{ x: number; y: number } | null>(null);
 
   const isDrawMode = phase.name === 'drawing';
   const isApplying = phase.name === 'applying';
   const footprint = phase.name === 'footprint_selected' ? phase.footprint : null;
 
-  // ── Map click: add vertex ─────────────────────────────────────────────────
+  // ── Pixel position of the first drawn point (for close-indicator) ─────────
+  const firstPointPx = useCallback((): { x: number; y: number } | null => {
+    if (drawnCoords.length === 0 || !mapRef.current) return null;
+    const [lng, lat] = drawnCoords[0];
+    const pt = mapRef.current.project([lng, lat]);
+    return { x: pt.x, y: pt.y };
+  }, [drawnCoords]);
+
+  const tryClosePath = useCallback((coords: [number, number][]) => {
+    try {
+      const fp = buildFootprintResult(coords, 'drawn');
+      setPhase({ name: 'footprint_selected', footprint: fp });
+      setCursorPx(null);
+      setStatusMsg('');
+      setIsError(false);
+    } catch (err: unknown) {
+      setStatusMsg(err instanceof Error ? err.message : 'Invalid polygon.');
+      setIsError(true);
+    }
+  }, []);
+
+  // ── Map click: add vertex or close path ───────────────────────────────────
   const handleMapClick = useCallback((e: MapLayerMouseEvent) => {
     if (!isDrawMode) return;
-    setDrawnCoords(prev => [...prev, [e.lngLat.lng, e.lngLat.lat]]);
-    setStatusMsg('');
-    setIsError(false);
+    const newCoord: [number, number] = [e.lngLat.lng, e.lngLat.lat];
+    const clickPx = e.point;
+    setDrawnCoords(prev => {
+      if (prev.length >= 3 && mapRef.current) {
+        const fp0 = mapRef.current.project(prev[0]);
+        const dx = clickPx.x - fp0.x, dy = clickPx.y - fp0.y;
+        if (Math.sqrt(dx * dx + dy * dy) <= CLOSE_RADIUS_PX) {
+          tryClosePath(prev);
+          return prev;
+        }
+      }
+      setStatusMsg('');
+      setIsError(false);
+      return [...prev, newCoord];
+    });
+  }, [isDrawMode, tryClosePath]);
+
+  // ── Mouse move: track cursor pixel position for SVG overlay ───────────────
+  const handleMapMouseMove = useCallback((e: MapLayerMouseEvent) => {
+    if (!isDrawMode) return;
+    setCursorPx({ x: e.point.x, y: e.point.y });
   }, [isDrawMode]);
 
-  // ── Double-click: close polygon ───────────────────────────────────────────
+  const handleMapMouseLeave = useCallback((_e: MapLayerMouseEvent) => {
+    setCursorPx(null);
+  }, []);
+
+  // ── Double-click: close polygon (fallback) ────────────────────────────────
   const handleMapDblClick = useCallback((e: MapLayerMouseEvent) => {
     if (!isDrawMode) return;
     e.preventDefault();
@@ -121,20 +167,13 @@ export default function MapFootprintModal({
       setIsError(true);
       return;
     }
-    try {
-      const fp = buildFootprintResult(drawnCoords, 'drawn');
-      setPhase({ name: 'footprint_selected', footprint: fp });
-      setStatusMsg('');
-      setIsError(false);
-    } catch (err: unknown) {
-      setStatusMsg(err instanceof Error ? err.message : 'Invalid polygon.');
-      setIsError(true);
-    }
-  }, [isDrawMode, drawnCoords]);
+    tryClosePath(drawnCoords);
+  }, [isDrawMode, drawnCoords, tryClosePath]);
 
   const handleClear = () => {
     setPhase({ name: 'idle' });
     setDrawnCoords([]);
+    setCursorPx(null);
     setStatusMsg('');
     setIsError(false);
     setApplyError('');
@@ -143,6 +182,7 @@ export default function MapFootprintModal({
   const startDrawing = () => {
     setPhase({ name: 'drawing' });
     setDrawnCoords([]);
+    setCursorPx(null);
     setStatusMsg('');
     setIsError(false);
   };
@@ -237,12 +277,22 @@ export default function MapFootprintModal({
   const drawnData   = drawnFC(drawnCoords);
   const footprintData = footprint ? polygonFC(footprint.coordinates) : EMPTY_FC;
 
+  // ── Near-close detection for status + SVG overlay ────────────────────────
+  const fp0px = isDrawMode && drawnCoords.length >= 3 ? firstPointPx() : null;
+  const nearClose = (() => {
+    if (!fp0px || !cursorPx) return false;
+    const dx = cursorPx.x - fp0px.x, dy = cursorPx.y - fp0px.y;
+    return Math.sqrt(dx * dx + dy * dy) <= CLOSE_RADIUS_PX;
+  })();
+
   // ── Status text ───────────────────────────────────────────────────────────
   let displayStatus = statusMsg;
   if (!displayStatus) {
     if (isDrawMode) {
-      const pts = drawnCoords.length > 0 ? ` · ${drawnCoords.length} pts` : '';
-      displayStatus = `Click to add points · Double-click to close${pts}`;
+      if (drawnCoords.length === 0) displayStatus = 'Click to place the first point';
+      else if (nearClose) displayStatus = 'Click to close the path';
+      else if (drawnCoords.length >= 3) displayStatus = 'Click to add a point — click the first point to close';
+      else displayStatus = 'Click to add the next point';
     } else if (phase.name === 'idle') {
       displayStatus = 'Click "Draw Outline" to start tracing the building boundary';
     }
@@ -256,8 +306,18 @@ export default function MapFootprintModal({
         initialViewState={{ longitude: 120.9842, latitude: 14.5995, zoom: 17 }}
         style={{ width: '100%', height: '100%', position: 'absolute', inset: 0 }}
         mapStyle={MAP_STYLE}
+        onLoad={() => {
+          const map = mapRef.current?.getMap();
+          if (!map) return;
+          try {
+            map.setPaintProperty('building-3d', 'fill-extrusion-base', ['coalesce', ['get', 'render_min_height'], 0]);
+            map.setPaintProperty('building-3d', 'fill-extrusion-height', ['coalesce', ['get', 'render_height'], 0]);
+          } catch { /* layer may not exist at low zoom */ }
+        }}
         onClick={handleMapClick}
         onDblClick={handleMapDblClick}
+        onMouseMove={handleMapMouseMove}
+        onMouseOut={handleMapMouseLeave}
         cursor={isDrawMode ? 'crosshair' : 'grab'}
         doubleClickZoom={false}
       >
@@ -279,6 +339,65 @@ export default function MapFootprintModal({
             paint={{ 'line-color': '#2563eb', 'line-width': 3 }} />
         </Source>
       </Map>
+
+      {/* ── SVG drawing overlay: start/close indicators + vertex dots ──────── */}
+      {isDrawMode && drawnCoords.length > 0 && (
+        <svg className="absolute inset-0 w-full h-full pointer-events-none z-[200]" style={{ overflow: 'visible' }}>
+          {(() => {
+            const allPx = drawnCoords.map(([lng, lat]) => mapRef.current?.project([lng, lat]) ?? null);
+            if (allPx.some(p => p === null)) return null;
+            const pts = allPx as { x: number; y: number }[];
+            const fp = pts[0];
+            const last = pts[pts.length - 1];
+            const cur = cursorPx;
+            const STROKE = '#f59e0b';
+
+            return (
+              <>
+                {/* Preview dashed line from last point to cursor */}
+                {cur && (
+                  <line
+                    x1={last.x} y1={last.y}
+                    x2={nearClose ? fp.x : cur.x} y2={nearClose ? fp.y : cur.y}
+                    stroke={nearClose ? STROKE : '#9ca3af'}
+                    strokeWidth={1.5} strokeDasharray="5 4"
+                  />
+                )}
+                {/* Intermediate vertex dots (skip first) */}
+                {pts.slice(1).map((p, i) => (
+                  <circle key={`v-${i}`} cx={p.x} cy={p.y} r={5} fill="#ffffff" stroke={STROKE} strokeWidth={1.5} />
+                ))}
+                {/* First point glow ring when near-close */}
+                {nearClose && (
+                  <circle cx={fp.x} cy={fp.y} r={CLOSE_RADIUS_PX} stroke="rgba(245,158,11,0.4)" strokeWidth={1.5} fill="none" />
+                )}
+                {/* First point anchor */}
+                <circle
+                  cx={fp.x} cy={fp.y}
+                  r={nearClose ? 8 : 6}
+                  fill={nearClose ? STROKE : '#ffffff'}
+                  stroke={nearClose ? '#ffffff' : STROKE}
+                  strokeWidth={1.5}
+                />
+                {/* "Start line here" label on first point (only before any other points placed, or always) */}
+                {pts.length === 1 && (
+                  <g>
+                    <rect x={fp.x + 10} y={fp.y - 22} width={90} height={18} rx={3} fill="rgba(15,23,42,0.85)" />
+                    <text x={fp.x + 14} y={fp.y - 9} fontSize={11} fill="#ffffff" fontFamily="sans-serif">Start line here</text>
+                  </g>
+                )}
+                {/* "Close line here" label when hovering near first point */}
+                {nearClose && (
+                  <g>
+                    <rect x={fp.x + 12} y={fp.y - 24} width={96} height={18} rx={3} fill="rgba(15,23,42,0.85)" />
+                    <text x={fp.x + 16} y={fp.y - 11} fontSize={11} fill="#ffffff" fontFamily="sans-serif">Close line here</text>
+                  </g>
+                )}
+              </>
+            );
+          })()}
+        </svg>
+      )}
 
       {/* ── Floating top bar ─────────────────────────────────────────────── */}
       <div className="absolute top-3 left-3 right-3 z-[400] flex gap-2 pointer-events-none">

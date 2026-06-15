@@ -99,6 +99,43 @@ const FloorLayer = memo(function FloorLayer({
   );
 });
 
+type Extents = { minX: number; minY: number; maxX: number; maxY: number };
+
+function expandByPoints(ext: Extents, pts: number[]): void {
+  for (let i = 0; i < pts.length; i += 2) {
+    if (pts[i]     < ext.minX) ext.minX = pts[i];
+    if (pts[i + 1] < ext.minY) ext.minY = pts[i + 1];
+    if (pts[i]     > ext.maxX) ext.maxX = pts[i];
+    if (pts[i + 1] > ext.maxY) ext.maxY = pts[i + 1];
+  }
+}
+
+function expandByRect(ext: Extents, el: FloorplanElement): void {
+  const x = (el as { x?: number }).x ?? 0;
+  const y = (el as { y?: number }).y ?? 0;
+  const w = (el as { width?: number }).width ?? 0;
+  const h = (el as { height?: number }).height ?? 0;
+  if (x     < ext.minX) ext.minX = x;
+  if (y     < ext.minY) ext.minY = y;
+  if (x + w > ext.maxX) ext.maxX = x + w;
+  if (y + h > ext.maxY) ext.maxY = y + h;
+}
+
+function computeContentBounds(
+  elements: FloorplanElement[],
+  fallbackW: number,
+  fallbackH: number,
+): { x: number; y: number; w: number; h: number } {
+  const ext: Extents = { minX: Infinity, minY: Infinity, maxX: -Infinity, maxY: -Infinity };
+  for (const el of elements) {
+    const pts = (el as { points?: number[] }).points;
+    if (pts && pts.length >= 2) expandByPoints(ext, pts);
+    else expandByRect(ext, el);
+  }
+  if (!Number.isFinite(ext.minX)) return { x: 0, y: 0, w: fallbackW, h: fallbackH };
+  return { x: ext.minX, y: ext.minY, w: Math.max(1, ext.maxX - ext.minX), h: Math.max(1, ext.maxY - ext.minY) };
+}
+
 function SelectionLayer({
   element,
   offsetX,
@@ -171,10 +208,15 @@ export default function TopDown25DFloorplanView({
   }, [data.elements]);
 
   const pad = 48;
-  const fitScale = Math.min((width - pad * 2) / Math.max(1, data.width), (height - pad * 2) / Math.max(1, data.height));
+  const contentBounds = useMemo(
+    () => computeContentBounds(data.elements, data.width, data.height),
+    [data.elements, data.width, data.height],
+  );
+
+  const fitScale = Math.min((width - pad * 2) / contentBounds.w, (height - pad * 2) / contentBounds.h);
   const scale = fitScale * zoom;
-  const offsetX = (width - data.width * scale) / 2;
-  const offsetY = (height - data.height * scale) / 2;
+  const offsetX = (width - contentBounds.w * scale) / 2 - contentBounds.x * scale;
+  const offsetY = (height - contentBounds.h * scale) / 2 - contentBounds.y * scale;
   const theme = getTopDown25DTheme(isDark);
 
   const handleHover = useCallback((id: string | null) => setHoveredId(id), []);
