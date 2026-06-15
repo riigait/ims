@@ -2051,8 +2051,10 @@ router.put('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
     if (!canManageFloorPlan(req, existing.departmentId)) {
       return res.status(403).json({ error: 'Access denied' });
     }
-    // Allow writing isApproved=true (finalize), but block any write once already finalized
-    if (existing.isApproved && req.body.isApproved !== false) {
+    // Allow writing isApproved=true (finalize), but block writes once already finalized
+    // unless the caller is an admin or superadmin.
+    const callerIsAdmin = req.userRole === 'admin' || req.userRole === 'superadmin';
+    if (existing.isApproved && req.body.isApproved !== false && !callerIsAdmin) {
       return res.status(403).json({ error: 'This floor plan is finalized and cannot be modified.' });
     }
 

@@ -42,5 +42,23 @@ Express, React, Vite, Prisma for Multi-department inventory tracking with role-b
 
 ---
 
-**Last Updated**: 2026-06-07
+## Context / Compact Rule
+
+Claude Code auto-compact is controlled via settings.json:
+
+- `CLAUDE_CODE_AUTO_COMPACT_WINDOW=200000` — standard context target is 200K tokens
+- `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=75` — auto-compact triggers at ~75% usage (~150K tokens used), leaving ~50K safety space
+
+Rules:
+- Do not claim the default auto-compact percentage is known unless verified from docs.
+- Manual `/compact` is not percentage-based — it compresses the full history.
+- Automatic compact can be percentage-controlled via `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE`.
+- Before long coding work, check context with `/status`.
+- When context is high, compact with a focused summary preserving: current goal, files changed, bugs found, decisions made, test results, pending TODOs.
+
+**Recommended threshold: 75%** (not 50% — compacting at 100K is too early for long IMS sessions).
+
+---
+
+**Last Updated**: 2026-06-15
 **Optimized with**: [Claude Token Optimizer](https://github.com/nadimtuhin/claude-token-optimizer)

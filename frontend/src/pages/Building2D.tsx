@@ -34,15 +34,18 @@ const START_X         = 60;
 const START_Y         = 40;
 
 // ─── isometric constants ──────────────────────────────────────────────────────
+// ISO_TH/ISO_TW ratio controls camera elevation angle.
+// Lower ratio = flatter footprint = lower eye position = more side faces visible.
 const ISO_TW           = 2.8;
 const ISO_TH           = 1.4;
+const ISO_Z_SCALE      = 1.6;
 const ISO_FLOOR_SEP    = 90;    // gap between floors in All mode
 const ISO_BUILDING_SEP = 520;
 const ISO_PLAN_SIZE    = 480;   // iso footprint side in screen px
 // Screen px produced by one full plan-dimension along an iso footprint edge.
 const ISO_EDGE_SCALE   = Math.hypot(ISO_PLAN_SIZE * ISO_TW / 2, ISO_PLAN_SIZE * ISO_TH / 2);
 const MIN_OBJ_EDGE_PX  = 16;    // minimum projected edge for racks/shelves
-const ISO_WALL_H       = 28;    // extruded wall face height in px
+const ISO_WALL_H       = 28;
 
 // ─── iso visual style constants ───────────────────────────────────────────────
 const ISO_STYLE = {
@@ -50,18 +53,22 @@ const ISO_STYLE = {
   ghostFloorAlpha:     0.20,
   idleFloorAlpha:      0.45,    // all-mode, nothing hovered
   outdoorWallH:        42,
-  indoorWallH:         10,      // half-height — objects clearly visible above partitions
-  frontWallH:          52,      // all outer walls same height — Matterport dollhouse style
-  frontWallAlpha:      0.72,    // front/left slightly transparent for depth perception
+  indoorWallH:         36,
+  indoorWallAlpha:     0.50,
+  frontWallH:          52,
+  frontWallAlpha:      0.72,
   sideWallH:           52,
   sideWallAlpha:       0.82,
-  backWallH:           52,      // all outer walls full height, roof removed
+  backWallH:           52,
   backWallAlpha:       0.95,
 } as const;
 
-const ISO_SLAB_H = 7;          // floor plinth thickness in screen px
+const ISO_SLAB_H = 7;
 const ISO_HOVER_LIFT = 6;      // hovered floor raises by this many px
 
+function isoZ(value: number): number {
+  return value * ISO_Z_SCALE;
+}
 
 // ── Material model: one light from the upper-left ─────────────────────────────
 // Faces are derived from each object's own editor color so the iso view
@@ -104,7 +111,12 @@ function hexToRgba(hex: string, alpha: number): string {
  * so any winding order works. Each quad carries a shading hint: edges that
  * also face right read as the dark side of the light model.
  */
+// pts = projected screen coords of the footprint polygon (already at base height).
+// h   = pixel height to extrude UPWARD (screen -Y direction).
+// Returns only viewer-facing quads, determined by centroid normal culling.
+// Each quad: [x1,y1, x2,y2, x2,y2-h, x1,y1-h] — base edge at bottom, top edge raised by h.
 function slabSideQuads(pts: number[], h: number): Array<{ quad: number[]; dark: boolean }> {
+  const screenH = isoZ(h);
   const n = pts.length / 2;
   if (n < 3) return [];
   let cx = 0; let cy = 0;
@@ -116,13 +128,17 @@ function slabSideQuads(pts: number[], h: number): Array<{ quad: number[]; dark: 
     const j = (i + 1) % n;
     const x1 = pts[2 * i]; const y1 = pts[2 * i + 1];
     const x2 = pts[2 * j]; const y2 = pts[2 * j + 1];
+    // Outward normal of this edge in screen space
     let nx = y2 - y1;
-    let ny = x1 - x2;
+    let ny = -(x2 - x1);
     const mx = (x1 + x2) / 2; const my = (y1 + y2) / 2;
     if (nx * (mx - cx) + ny * (my - cy) < 0) { nx = -nx; ny = -ny; }
-    if (ny <= 0.05) continue; // faces up/away from the viewer
+    // Only keep edges whose outward normal points downward in screen space
+    // (i.e. visible to the isometric viewer from above-left)
+    if (ny <= 0.05) continue;
     quads.push({
-      quad: [x1, y1, x2, y2, x2, y2 + h, x1, y1 + h],
+      // Extrude upward: top edge is y - h
+      quad: [x1, y1, x2, y2, x2, y2 - screenH, x1, y1 - screenH],
       dark: nx >= 0,
     });
   }
@@ -249,17 +265,32 @@ function toIso(wx: number, wy: number, planW: number, planH: number): [number, n
   ];
 }
 
-/** Convert a rectangle's four corners to a flat iso point array offset to canvas position. */
-function rectToIsoPts(rect: IsoRect, size: PlanSize, origin: IsoOrigin): number[] {
+/** Convert a rectangle's four corners to iso screen points.
+ *  rotationRad rotates corners around (pivotX, pivotY) — use the parent object
+ *  center so sub-rects stay attached to the rotated parent footprint. */
+function rectToIsoPts(
+  rect: IsoRect, size: PlanSize, origin: IsoOrigin,
+  rotationRad = 0, pivotX?: number, pivotY?: number,
+): number[] {
   const { x, y, w, h } = rect;
   const { planW, planH } = size;
-  return [
+  const pcx = pivotX ?? x + w / 2;
+  const pcy = pivotY ?? y + h / 2;
+  const corners: [number, number][] = [
     [x,     y    ],
     [x + w, y    ],
     [x + w, y + h],
     [x,     y + h],
-  ].flatMap(([cx, cy]) => {
-    const [ix, iy] = toIso(cx, cy, planW, planH);
+  ];
+  return corners.flatMap(([px, py]) => {
+    let rx = px, ry = py;
+    if (rotationRad) {
+      const cos = Math.cos(rotationRad), sin = Math.sin(rotationRad);
+      const dx = px - pcx, dy = py - pcy;
+      rx = pcx + dx * cos - dy * sin;
+      ry = pcy + dx * sin + dy * cos;
+    }
+    const [ix, iy] = toIso(rx, ry, planW, planH);
     return [origin.originX + ix, origin.originY + iy];
   });
 }
@@ -490,15 +521,30 @@ interface ObjStyle {
   zH: number;                           // extruded height in screen px
 }
 const OBJ_STYLE: Record<string, ObjStyle> = {
-  room:     { topFill:'#1e3a5f', topStroke:'#3b82f6', sideFill:'#0f2040', sideAlt:'#0a1830', zH: 0   },
-  rack:     { topFill:'#14532d', topStroke:'#22c55e', sideFill:'#0a3018', sideAlt:'#071f10', zH: 44  },
-  shelf:    { topFill:'#3b1f0a', topStroke:'#f97316', sideFill:'#221108', sideAlt:'#180c06', zH: 28  },
-  stairs:   { topFill:'#2d2006', topStroke:'#d97706', sideFill:'#1a1204', sideAlt:'#100c02', zH: 42  },
-  elevator: { topFill:'#1a0d2e', topStroke:'#a78bfa', sideFill:'#0f0820', sideAlt:'#080412', zH: 54  },
+  room:           { topFill:'#1e3a5f', topStroke:'#3b82f6', sideFill:'#0f2040', sideAlt:'#0a1830', zH: 0   },
+  rack:           { topFill:'#14532d', topStroke:'#22c55e', sideFill:'#0a3018', sideAlt:'#071f10', zH: 44  },
+  shelf:          { topFill:'#3b1f0a', topStroke:'#f97316', sideFill:'#221108', sideAlt:'#180c06', zH: 28  },
+  stairs:         { topFill:'#2d2006', topStroke:'#d97706', sideFill:'#1a1204', sideAlt:'#100c02', zH: 42  },
+  elevator:       { topFill:'#1a0d2e', topStroke:'#a78bfa', sideFill:'#0f0820', sideAlt:'#080412', zH: 54  },
+  'work-surface': { topFill:'#2c1a08', topStroke:'#b09870', sideFill:'#1a1006', sideAlt:'#100a04', zH: 14  },
+  chair:          { topFill:'#0e2030', topStroke:'#7090b0', sideFill:'#081420', sideAlt:'#040c14', zH: 20  },
+  cabinet:        { topFill:'#1c1a12', topStroke:'#a09880', sideFill:'#100e08', sideAlt:'#080604', zH: 36  },
+  drawer:         { topFill:'#1e1a10', topStroke:'#b0a890', sideFill:'#121008', sideAlt:'#080604', zH: 30  },
+  locker:         { topFill:'#0e1c10', topStroke:'#70a880', sideFill:'#081008', sideAlt:'#040804', zH: 52  },
+  'storage-box':  { topFill:'#1c1410', topStroke:'#906858', sideFill:'#100c08', sideAlt:'#080604', zH: 22  },
+  bin:            { topFill:'#121a1c', topStroke:'#809098', sideFill:'#0a1010', sideAlt:'#040808', zH: 18  },
+  pallet:         { topFill:'#1e1408', topStroke:'#906840', sideFill:'#100c04', sideAlt:'#080602', zH: 8   },
+  bathroom:       { topFill:'#0a1820', topStroke:'#38bdf8', sideFill:'#061014', sideAlt:'#040c10', zH: 28  },
+  human:          { topFill:'#2c1e14', topStroke:'#c09070', sideFill:'#1a1208', sideAlt:'#100c06', zH: 32  },
 };
 
-// ── Depth key: sum of back-left corner coords (iso painter's sort) ────────────
+// ── Depth keys for iso painter's sort ────────────────────────────────────────
 function depthKey(x: number, y: number) { return x + y; }
+const OBJECT_DEPTH_BASE = 1_000_000;
+const INDOOR_WALL_DEPTH = Number.MAX_SAFE_INTEGER - 2;
+const CEILING_SHELF_H = 12;
+const CEILING_SHELF_CLEARANCE_PX = 5;
+const CEILING_SHELF_LIFT = ISO_STYLE.backWallH - CEILING_SHELF_H - (CEILING_SHELF_CLEARANCE_PX / ISO_Z_SCALE);
 
 function pointToWallDistance(
   x: number,
@@ -522,35 +568,39 @@ function openingIsAttachedToWall(
   );
 }
 
-// ── Build left/right extruded face pts for a rect object ─────────────────────
+// ── Build all four extruded side faces for a rect object ─────────────────────
 function extrudedFaces(
   rx: number, ry: number, rw: number, rh: number,
   planW: number, planH: number, ox: number, oy: number,
   zH: number,
-): { left: number[]; right: number[] } {
+  rotationRad = 0,
+  pivotX?: number, pivotY?: number,
+): { left: number[]; right: number[]; backLeft: number[]; backRight: number[] } {
+  const ccx = pivotX ?? rx + rw / 2, ccy = pivotY ?? ry + rh / 2;
+  const rotPt = (px: number, py: number): [number, number] => {
+    if (!rotationRad) return [px, py];
+    const cos = Math.cos(rotationRad), sin = Math.sin(rotationRad);
+    const dx = px - ccx, dy = py - ccy;
+    return [ccx + dx * cos - dy * sin, ccy + dx * sin + dy * cos];
+  };
   const isoCorner = ([cx, cy]: [number,number]): Pt => {
     const [ix, iy] = toIso(cx, cy, planW, planH);
     return [ox + ix, oy + iy];
   };
-  const tr = isoCorner([rx + rw, ry     ]);
-  const br = isoCorner([rx + rw, ry + rh]);
-  const bl = isoCorner([rx,      ry + rh]);
+  const tl = isoCorner(rotPt(rx,      ry     ));
+  const tr = isoCorner(rotPt(rx + rw, ry     ));
+  const br = isoCorner(rotPt(rx + rw, ry + rh));
+  const bl = isoCorner(rotPt(rx,      ry + rh));
 
-  // Left face: bl → br (front-left edge) rising from the floor to the lifted top
-  const left = [
-    bl[0], bl[1],
-    br[0], br[1],
-    br[0], br[1] - zH,
-    bl[0], bl[1] - zH,
+  const face = (a: Pt, b: Pt): number[] => [
+    a[0], a[1], b[0], b[1], b[0], b[1] - isoZ(zH), a[0], a[1] - isoZ(zH),
   ];
-  // Right face: br → tr (front-right edge) rising from the floor to the lifted top
-  const right = [
-    br[0], br[1],
-    tr[0], tr[1],
-    tr[0], tr[1] - zH,
-    br[0], br[1] - zH,
-  ];
-  return { left, right };
+  return {
+    left:      face(bl, br),   // front-left  (viewer-facing, lighter)
+    right:     face(br, tr),   // front-right (viewer-facing, darker)
+    backLeft:  face(tl, bl),   // back-left   (normally hidden)
+    backRight: face(tr, tl),   // back-right  (normally hidden)
+  };
 }
 
 type IsoPresetKind =
@@ -581,6 +631,7 @@ function isoPresetHeight(kind: IsoPresetKind): number {
   if (kind === 'elevator') return 54;
   if (kind === 'rack' || kind === 'locker') return 48;
   if (kind === 'cabinet') return 38;
+  if (kind === 'shelf') return CEILING_SHELF_H;
   if (kind === 'stairs') return 42;
   if (kind === 'restroom') return 30;
   return 34;
@@ -596,7 +647,34 @@ function subIsoRect(rect: IsoRect, x: number, y: number, w: number, h: number): 
 }
 
 function liftIsoPoints(points: number[], height: number): number[] {
-  return points.map((value, index) => index % 2 === 1 ? value - height : value);
+  return points.map((value, index) => index % 2 === 1 ? value - isoZ(height) : value);
+}
+
+function isoPresetBaseLift(kind: IsoPresetKind): number {
+  return kind === 'shelf' ? CEILING_SHELF_LIFT : 0;
+}
+
+function isoPrismSilhouette(footprint: number[], height: number): number[] {
+  const points: Pt[] = [];
+  for (let index = 0; index < footprint.length; index += 2) {
+    points.push([footprint[index], footprint[index + 1]]);
+    points.push([footprint[index], footprint[index + 1] - isoZ(height)]);
+  }
+  points.sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+  const cross = (a: Pt, b: Pt, c: Pt) =>
+    (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]);
+  const half: Pt[] = [];
+  const append = (point: Pt) => {
+    while (half.length >= 2 && cross(half.at(-2)!, half.at(-1)!, point) <= 0) half.pop();
+    half.push(point);
+  };
+  points.forEach(append);
+  half.pop();
+  const lower = [...half];
+  half.length = 0;
+  points.reverse().forEach(append);
+  half.pop();
+  return [...lower, ...half].flatMap(point => point);
 }
 
 interface IsoPrismProps {
@@ -607,38 +685,43 @@ interface IsoPrismProps {
   readonly height: number;
   readonly baseLift?: number;
   readonly opacity?: number;
+  readonly rotation?: number;
+  readonly pivotX?: number;
+  readonly pivotY?: number;
 }
 
-function IsoPrism({ rect, size, origin, base, height, baseLift = 0, opacity = 1 }: IsoPrismProps) {
-  const floor = rectToIsoPts(rect, size, origin);
+function IsoPrism({ rect, size, origin, base, height, baseLift = 0, opacity = 1, rotation = 0, pivotX, pivotY }: IsoPrismProps) {
+  const floor = rectToIsoPts(rect, size, origin, rotation, pivotX, pivotY);
   const liftedBase = liftIsoPoints(floor, baseLift);
   const top = liftIsoPoints(floor, baseLift + height);
-  const faces = extrudedFaces(
-    rect.x, rect.y, rect.w, rect.h,
-    size.planW, size.planH, origin.originX, origin.originY, height,
-  );
-  const left = liftIsoPoints(faces.left, baseLift);
-  const right = liftIsoPoints(faces.right, baseLift);
+  // Use the baseLift-raised footprint as the base of the side extrusion.
+  // slabSideQuads culls by centroid normal so it always returns only the
+  // viewer-facing sides, regardless of the object's rotation.
+  const sides = slabSideQuads(liftedBase, height);
   return (
     <Group opacity={opacity} listening={false}>
       {baseLift > 0 && (
         <Line closed points={liftedBase} fill={shade(base, 0.7)} stroke={shade(base, 0.75)} strokeWidth={0.3} />
       )}
-      <Line closed points={left} fill={shade(base, 0.38)} stroke={shade(base, 0.68)} strokeWidth={0.45} />
-      <Line closed points={right} fill={shade(base, 0.56)} stroke={shade(base, 0.72)} strokeWidth={0.45} />
+      {sides.map(({ quad, dark }, i) => (
+        <Line key={i} closed points={quad}
+          fill={dark ? shade(base, 0.56) : shade(base, 0.38)}
+          stroke={dark ? shade(base, 0.72) : shade(base, 0.68)}
+          strokeWidth={0.45} listening={false} />
+      ))}
       <Line closed points={top} fill={tint(base, 0.22)} stroke={tint(base, 0.42)} strokeWidth={0.7} />
     </Group>
   );
 }
 
-function isoFrontEdge(rect: IsoRect, size: PlanSize, origin: IsoOrigin, lift: number): number[] {
-  const pts = rectToIsoPts(rect, size, origin);
-  return [pts[6], pts[7] - lift, pts[4], pts[5] - lift, pts[2], pts[3] - lift];
+function isoFrontEdge(rect: IsoRect, size: PlanSize, origin: IsoOrigin, lift: number, rotation = 0, pivotX?: number, pivotY?: number): number[] {
+  const pts = rectToIsoPts(rect, size, origin, rotation, pivotX, pivotY);
+  return [pts[6], pts[7] - isoZ(lift), pts[4], pts[5] - isoZ(lift), pts[2], pts[3] - isoZ(lift)];
 }
 
-function isoFaceCenter(rect: IsoRect, size: PlanSize, origin: IsoOrigin, lift: number): Pt {
-  const pts = rectToIsoPts(rect, size, origin);
-  return [(pts[6] + pts[4]) / 2, (pts[7] + pts[5]) / 2 - lift];
+function isoFaceCenter(rect: IsoRect, size: PlanSize, origin: IsoOrigin, lift: number, rotation = 0, pivotX?: number, pivotY?: number): Pt {
+  const pts = rectToIsoPts(rect, size, origin, rotation, pivotX, pivotY);
+  return [(pts[6] + pts[4]) / 2, (pts[7] + pts[5]) / 2 - isoZ(lift)];
 }
 
 interface IsoObjectShapeProps {
@@ -653,41 +736,114 @@ interface IsoObjectShapeProps {
 
 function IsoObjectShape({ planId, object, rect, size, origin, base, hovered }: IsoObjectShapeProps) {
   const kind = isoPresetKind(object);
-  const footprint = rectToIsoPts(rect, size, origin);
+  const rot = object.rotation ?? 0;
+  // All sub-rects rotate around the parent object center, not their own center.
+  const pvX = rect.x + rect.w / 2;
+  const pvY = rect.y + rect.h / 2;
+  const footprint = rectToIsoPts(rect, size, origin, rot, pvX, pvY);
   const contact = [footprint[6], footprint[7], footprint[4], footprint[5], footprint[2], footprint[3]];
+  const hoverFootprint = liftIsoPoints(footprint, isoPresetBaseLift(kind));
+  const hoverOutline = isoPrismSilhouette(hoverFootprint, isoPresetHeight(kind));
   const details = tint(base, 0.55);
   const darkDetails = shade(base, 0.72);
 
   const solid = (height: number, bands = 0, split = false) => (
     <>
-      <IsoPrism rect={rect} size={size} origin={origin} base={base} height={height} />
+      <IsoPrism rect={rect} size={size} origin={origin} base={base} height={height} rotation={rot} pivotX={pvX} pivotY={pvY} />
       {Array.from({ length: bands }, (_, index) => (
-        <Line key={`band-${index}`} points={isoFrontEdge(rect, size, origin, height * ((index + 1) / (bands + 1)))}
+        <Line key={`band-${index}`} points={isoFrontEdge(rect, size, origin, height * ((index + 1) / (bands + 1)), rot, pvX, pvY)}
           stroke={details} strokeWidth={0.55} opacity={0.75} />
       ))}
       {split && (() => {
-        const front = isoFrontEdge(rect, size, origin, height * 0.5);
+        const front = isoFrontEdge(rect, size, origin, height * 0.5, rot, pvX, pvY);
         const x = (front[0] + front[2]) / 2;
         const y = (front[1] + front[3]) / 2;
-        return <Line points={[x, y + height * 0.45, x, y - height * 0.45]} stroke={details} strokeWidth={0.6} opacity={0.8} />;
+        return <Line points={[x, y + isoZ(height * 0.45), x, y - isoZ(height * 0.45)]} stroke={details} strokeWidth={0.6} opacity={0.8} />;
       })()}
     </>
   );
 
   let shape: React.ReactNode;
-  if (kind === 'shelf') {
+  if (kind === 'rack') {
+    const rackH = 48;
+    const postColor = '#4c79b8';
+    const beamColor = '#5b86c3';
+    const deckColor = '#d9dde2';
+    const braceColor = '#3f69a6';
     const posts = [
-      subIsoRect(rect, 0.03, 0.03, 0.1, 0.1), subIsoRect(rect, 0.87, 0.03, 0.1, 0.1),
-      subIsoRect(rect, 0.03, 0.87, 0.1, 0.1), subIsoRect(rect, 0.87, 0.87, 0.1, 0.1),
+      subIsoRect(rect, 0.02, 0.02, 0.08, 0.12), subIsoRect(rect, 0.90, 0.02, 0.08, 0.12),
+      subIsoRect(rect, 0.02, 0.86, 0.08, 0.12), subIsoRect(rect, 0.90, 0.86, 0.08, 0.12),
     ];
+    const shelfLevels = [4, 17, 30, 43];
+    const rackParts: Array<{ key: string; rect: IsoRect; base: string; height: number; baseLift: number }> = [];
+    posts.forEach((post, index) => {
+      rackParts.push({ key: `rack-post-${index}`, rect: post, base: postColor, height: rackH, baseLift: 0 });
+    });
+    shelfLevels.forEach((level, index) => {
+      rackParts.push(
+        { key: `rack-deck-${index}`, rect: subIsoRect(rect, 0.09, 0.13, 0.82, 0.72), base: deckColor, height: 3, baseLift: level },
+        { key: `rack-front-beam-${index}`, rect: subIsoRect(rect, 0.02, 0.84, 0.96, 0.10), base: beamColor, height: 3, baseLift: level + 3 },
+        { key: `rack-back-beam-${index}`, rect: subIsoRect(rect, 0.02, 0.06, 0.96, 0.10), base: beamColor, height: 3, baseLift: level + 3 },
+        { key: `rack-left-beam-${index}`, rect: subIsoRect(rect, 0.02, 0.06, 0.08, 0.88), base: beamColor, height: 3, baseLift: level + 3 },
+        { key: `rack-right-beam-${index}`, rect: subIsoRect(rect, 0.90, 0.06, 0.08, 0.88), base: beamColor, height: 3, baseLift: level + 3 },
+      );
+    });
+    const rackPoint = (x: number, y: number, lift: number): Pt => {
+      const worldX = rect.x + rect.w * x;
+      const worldY = rect.y + rect.h * y;
+      const cos = Math.cos(rot);
+      const sin = Math.sin(rot);
+      const dx = worldX - pvX;
+      const dy = worldY - pvY;
+      const point = isoPoint(pvX + dx * cos - dy * sin, pvY + dx * sin + dy * cos, size, origin);
+      return [point[0], point[1] - isoZ(lift)];
+    };
+    const braces = [0.06, 0.94].flatMap((x, sideIndex) => {
+      const lowFront = rackPoint(x, 0.84, 7);
+      const highBack = rackPoint(x, 0.16, 31);
+      const lowBack = rackPoint(x, 0.16, 7);
+      const highFront = rackPoint(x, 0.84, 31);
+      return [
+        { key: `rack-brace-${sideIndex}-a`, points: [...lowFront, ...highBack] },
+        { key: `rack-brace-${sideIndex}-b`, points: [...lowBack, ...highFront] },
+      ];
+    });
+    const rackShapes = [
+      ...rackParts.map(part => {
+        const points = rectToIsoPts(part.rect, size, origin, rot, pvX, pvY);
+        return {
+          key: part.key,
+          depth: (points[1] + points[3] + points[5] + points[7]) / 4 - isoZ(part.baseLift),
+          node: <IsoPrism rect={part.rect} size={size} origin={origin}
+            base={part.base} height={part.height} baseLift={part.baseLift}
+            rotation={rot} pivotX={pvX} pivotY={pvY} />,
+        };
+      }),
+      ...braces.map(brace => ({
+        key: brace.key,
+        depth: (brace.points[1] + brace.points[3]) / 2,
+        node: <Line points={brace.points} stroke={braceColor} strokeWidth={2.5}
+          lineCap="round" listening={false} />,
+      })),
+    ].sort((a, b) => a.depth - b.depth);
     shape = <>
-      {[4, 18, 32].map(z => (
-        <IsoPrism key={`shelf-${z}`} rect={subIsoRect(rect, 0.02, 0.02, 0.96, 0.96)}
-          size={size} origin={origin} base={base} height={3} baseLift={z} />
+      {rackShapes.map(part => (
+        <Group key={part.key} listening={false}>{part.node}</Group>
       ))}
-      {posts.map((post, index) => (
-        <IsoPrism key={`post-${index}`} rect={post} size={size} origin={origin} base={shade(base, 0.18)} height={38} />
+    </>;
+  } else if (kind === 'shelf') {
+    const shelfLift = isoPresetBaseLift(kind);
+    const supportH = 8;
+    const boardH = CEILING_SHELF_H - supportH;
+    shape = <>
+      {[0.16, 0.76].map((x, index) => (
+        <IsoPrism key={`shelf-support-${index}`} rect={subIsoRect(rect, x, 0.16, 0.08, 0.56)}
+          size={size} origin={origin} base={shade(base, 0.30)}
+          height={supportH} baseLift={shelfLift} rotation={rot} pivotX={pvX} pivotY={pvY} />
       ))}
+      <IsoPrism rect={subIsoRect(rect, 0.02, 0.08, 0.96, 0.72)}
+        size={size} origin={origin} base={tint(base, 0.10)} height={boardH} baseLift={shelfLift + supportH}
+        rotation={rot} pivotX={pvX} pivotY={pvY} />
     </>;
   } else if (kind === 'work-surface') {
     const legs = [
@@ -695,8 +851,8 @@ function IsoObjectShape({ planId, object, rect, size, origin, base, hovered }: I
       subIsoRect(rect, 0.05, 0.83, 0.09, 0.12), subIsoRect(rect, 0.86, 0.83, 0.09, 0.12),
     ];
     shape = <>
-      {legs.map((leg, index) => <IsoPrism key={`leg-${index}`} rect={leg} size={size} origin={origin} base={shade(base, 0.25)} height={25} />)}
-      <IsoPrism rect={rect} size={size} origin={origin} base={base} height={4} baseLift={25} />
+      {legs.map((leg, index) => <IsoPrism key={`leg-${index}`} rect={leg} size={size} origin={origin} base={shade(base, 0.25)} height={25} rotation={rot} pivotX={pvX} pivotY={pvY} />)}
+      <IsoPrism rect={rect} size={size} origin={origin} base={base} height={4} baseLift={25} rotation={rot} pivotX={pvX} pivotY={pvY} />
     </>;
   } else if (kind === 'chair') {
     const legs = [
@@ -704,52 +860,217 @@ function IsoObjectShape({ planId, object, rect, size, origin, base, hovered }: I
       subIsoRect(rect, 0.12, 0.77, 0.11, 0.11), subIsoRect(rect, 0.77, 0.77, 0.11, 0.11),
     ];
     shape = <>
-      {legs.map((leg, index) => <IsoPrism key={`chair-leg-${index}`} rect={leg} size={size} origin={origin} base={shade(base, 0.28)} height={13} />)}
-      <IsoPrism rect={subIsoRect(rect, 0.08, 0.08, 0.84, 0.84)} size={size} origin={origin} base={base} height={4} baseLift={13} />
-      <IsoPrism rect={subIsoRect(rect, 0.08, 0.05, 0.84, 0.14)} size={size} origin={origin} base={base} height={20} baseLift={17} />
+      {legs.map((leg, index) => <IsoPrism key={`chair-leg-${index}`} rect={leg} size={size} origin={origin} base={shade(base, 0.28)} height={13} rotation={rot} pivotX={pvX} pivotY={pvY} />)}
+      <IsoPrism rect={subIsoRect(rect, 0.08, 0.08, 0.84, 0.84)} size={size} origin={origin} base={base} height={4} baseLift={13} rotation={rot} pivotX={pvX} pivotY={pvY} />
+      <IsoPrism rect={subIsoRect(rect, 0.08, 0.05, 0.84, 0.14)} size={size} origin={origin} base={shade(base, 0.08)} height={20} baseLift={17} rotation={rot} pivotX={pvX} pivotY={pvY} />
     </>;
   } else if (kind === 'pallet') {
     shape = <>
       {[0.02, 0.26, 0.5, 0.74].map((x, index) => (
         <IsoPrism key={`pallet-${index}`} rect={subIsoRect(rect, x, 0.03, 0.2, 0.94)}
-          size={size} origin={origin} base={base} height={6} />
+          size={size} origin={origin} base={base} height={6} rotation={rot} pivotX={pvX} pivotY={pvY} />
       ))}
     </>;
   } else if (kind === 'stairs') {
-    const stairPts = rectToIsoPts(rect, size, origin);
-    const railColor = tint(base, 0.65);
+    // 2.5D isometric stair symbol.
+    // Geometry: base slab + per-step tread top face + short riser face (prev→current height).
+    // All points are rotated in 2D plan space first, then projected to iso.
+    // Riser bottomZ = previousStepZ, riser topZ = currentStepZ — never down to floorZ.
+    const BASE_H      = 6;    // base slab thickness
+    const TOTAL_RISE  = 20;   // total stair height above base
+    const STEPS       = 8;
+    const RAIL_H      = 18;   // railing height above top step
+    const stepRise    = TOTAL_RISE / STEPS;
+    const riserColor  = shade(base, 0.30);
+    const sideColor   = shade(base, 0.42);
+    const railColor   = tint(base, 0.72);
+    const railDark    = shade(railColor, 0.22);
+    const { planW, planH } = size;
+    const { originX, originY } = origin;
+
+    // Rotate a plan-space world point around stair center, project to iso screen at height z.
+    // z is subtracted from screen Y (higher z = higher on screen).
+    const rp = (wx: number, wy: number, z = 0): [number, number] => {
+      let rx = wx, ry = wy;
+      if (rot) {
+        const cos = Math.cos(rot), sin = Math.sin(rot);
+        const dx = wx - pvX, dy = wy - pvY;
+        rx = pvX + dx * cos - dy * sin;
+        ry = pvY + dx * sin + dy * cos;
+      }
+      const [ix, iy] = toIso(rx, ry, planW, planH);
+      return [originX + ix, originY + iy - isoZ(z)];
+    };
+
+    // The stair "up" direction is always the top edge of the rect in plan space (rect.y).
+    // Arrow in the editor points up = toward rect.y = high end of stair.
+    // Steps ascend from bottom (rect.y+rect.h, step 0 = lowest) to top (rect.y, step N = highest).
+    // Slices go along plan-Y: slice i spans [i/STEPS .. (i+1)/STEPS] of rect.h from the top.
+    // Step height: slice 0 (near rect.y, the top/high end) gets the tallest z,
+    //              slice STEPS-1 (near rect.y+rect.h, the bottom/low end) gets the shortest z.
+    // rp() rotates the point in plan space before iso projection, so rotation is handled there.
+
+    const stairNodes: React.ReactNode[] = [];
+
+    // ── base slab side faces ──────────────────────────────────────────────────
+    const basePts = [
+      rp(rect.x,          rect.y         ),
+      rp(rect.x + rect.w, rect.y         ),
+      rp(rect.x + rect.w, rect.y + rect.h),
+      rp(rect.x,          rect.y + rect.h),
+    ];
+    const flatBasePoly = basePts.flatMap(([x, y]) => [x, y]);
+    slabSideQuads(flatBasePoly, BASE_H).forEach(({ quad, dark }, qi) => {
+      stairNodes.push(
+        <Line key={`base-side-${qi}`} closed points={quad}
+          fill={dark ? shade(sideColor, 0.15) : sideColor}
+          stroke={shade(base, 0.65)} strokeWidth={0.4} listening={false} />
+      );
+    });
+
+    // ── side cheek panels (stepped stringer profile) ─────────────────────────
+    // Each side panel traces the stepped top profile from high end → low end,
+    // then closes straight down to the floor and back. This fills the hollow side.
+    // Left side at rect.x, right side at rect.x+rect.w.
+    const buildSideCheek = (wx: number): number[] => {
+      const pts: number[] = [];
+      // Start at high end (rect.y), base level
+      pts.push(...rp(wx, rect.y, BASE_H));
+      // Walk down the stepped profile from high to low
+      for (let i = 0; i < STEPS; i++) {
+        const currZ = BASE_H + (STEPS - i) * stepRise;
+        const prevZ = BASE_H + (STEPS - i - 1) * stepRise;
+        const wy0 = rect.y + rect.h * (i / STEPS);
+        const wy1 = rect.y + rect.h * ((i + 1) / STEPS);
+        // Top of this step tread at the near edge (wy0)
+        pts.push(...rp(wx, wy0, currZ));
+        // Bottom of this step tread = top of riser at wy1 (still at currZ)
+        pts.push(...rp(wx, wy1, currZ));
+        // Drop to prevZ at wy1 (riser face)
+        if (i < STEPS - 1) pts.push(...rp(wx, wy1, prevZ));
+      }
+      // Close down to floor at low end then back along floor to high end
+      pts.push(...rp(wx, rect.y + rect.h, 0));
+      pts.push(...rp(wx, rect.y, 0));
+      return pts;
+    };
+
+    const leftCheek  = buildSideCheek(rect.x);
+    const rightCheek = buildSideCheek(rect.x + rect.w);
+
+    // Bottom end cap: vertical face at the low entry end (rect.y+rect.h), floor to BASE_H
+    const [bcL0, bcL1] = rp(rect.x,          rect.y + rect.h, 0);
+    const [bcR0, bcR1] = rp(rect.x + rect.w, rect.y + rect.h, 0);
+    const [bcLt0, bcLt1] = rp(rect.x,          rect.y + rect.h, BASE_H);
+    const [bcRt0, bcRt1] = rp(rect.x + rect.w, rect.y + rect.h, BASE_H);
+    stairNodes.push(
+      <Line key="end-cap" closed
+        points={[bcL0, bcL1, bcR0, bcR1, bcRt0, bcRt1, bcLt0, bcLt1]}
+        fill={shade(sideColor, 0.20)} stroke={shade(base, 0.65)} strokeWidth={0.5} listening={false} />
+    );
+
+    // Back end cap: vertical face at the high end (rect.y), floor to full stair height
+    const topZ = BASE_H + TOTAL_RISE;
+    const [bkL0, bkL1] = rp(rect.x,          rect.y, 0);
+    const [bkR0, bkR1] = rp(rect.x + rect.w, rect.y, 0);
+    const [bkLt0, bkLt1] = rp(rect.x,          rect.y, topZ);
+    const [bkRt0, bkRt1] = rp(rect.x + rect.w, rect.y, topZ);
+    stairNodes.push(
+      <Line key="back-cap" closed
+        points={[bkL0, bkL1, bkR0, bkR1, bkRt0, bkRt1, bkLt0, bkLt1]}
+        fill={shade(sideColor, 0.30)} stroke={shade(base, 0.65)} strokeWidth={0.5} listening={false} />
+    );
+
+    stairNodes.push(
+      <Line key="cheek-left" closed points={leftCheek}
+        fill={sideColor} stroke={shade(base, 0.65)} strokeWidth={0.5} listening={false} />,
+      <Line key="cheek-right" closed points={rightCheek}
+        fill={shade(sideColor, 0.18)} stroke={shade(base, 0.65)} strokeWidth={0.5} listening={false} />,
+    );
+
+    // ── per-step tread + riser ────────────────────────────────────────────────
+    // Slice i is at plan-Y fraction i/STEPS from the top (rect.y).
+    // Step index 0 = topmost slice = highest z (high end of stair, where arrow points).
+    // Step index STEPS-1 = bottommost slice = lowest z (entry/low end).
+    for (let i = 0; i < STEPS; i++) {
+      const tFrac0 = i / STEPS;           // top of this slice (closer to rect.y)
+      const tFrac1 = (i + 1) / STEPS;     // bottom of this slice
+
+      // z: slice 0 = tallest (TOTAL_RISE), slice STEPS-1 = shortest (one stepRise)
+      const currZ = BASE_H + (STEPS - i) * stepRise;
+      const prevZ = BASE_H + (STEPS - i - 1) * stepRise;
+
+      const wy0 = rect.y + rect.h * tFrac0;
+      const wy1 = rect.y + rect.h * tFrac1;
+      const lx0 = rect.x, lx1 = rect.x + rect.w;
+
+      // Tread top face at currZ
+      const [TL0, TL1] = rp(lx0, wy0, currZ);
+      const [TR0, TR1] = rp(lx1, wy0, currZ);
+      const [BR0, BR1] = rp(lx1, wy1, currZ);
+      const [BL0, BL1] = rp(lx0, wy1, currZ);
+      stairNodes.push(
+        <Line key={`tread-${i}`} closed
+          points={[TL0, TL1, TR0, TR1, BR0, BR1, BL0, BL1]}
+          fill={tint(base, 0.18)} stroke={tint(base, 0.36)} strokeWidth={0.6} listening={false} />
+      );
+
+      // Short riser at the bottom edge of this tread (wy1), from prevZ to currZ.
+      const [RL0, RL1]   = rp(lx0, wy1, prevZ);
+      const [RR0, RR1]   = rp(lx1, wy1, prevZ);
+      const [RR0t, RR1t] = rp(lx1, wy1, currZ);
+      const [RL0t, RL1t] = rp(lx0, wy1, currZ);
+      if (RL1 > RL1t || RR1 > RR1t) {
+        stairNodes.push(
+          <Line key={`riser-${i}`} closed
+            points={[RL0, RL1, RR0, RR1, RR0t, RR1t, RL0t, RL1t]}
+            fill={riserColor} stroke={shade(base, 0.65)} strokeWidth={0.4} listening={false} />
+        );
+      }
+    }
+
+    // ── railings: slope from low end (rect.y+rect.h) up to high end (rect.y) ──
+    // t=0 → rect.y+rect.h (entry, lowest), t=1 → rect.y (top, highest).
+    // stepZAt maps t to the z height at that position along the run.
+    const stepZAt = (t: number): number => BASE_H + t * TOTAL_RISE;
+
+    const railL: number[] = [];
+    const railR: number[] = [];
+    const postNodes: React.ReactNode[] = [];
+    [0, 0.25, 0.5, 0.75, 1].forEach((t, idx) => {
+      // t=0 = bottom/low (rect.y+rect.h), t=1 = top/high (rect.y)
+      const wy    = rect.y + rect.h * (1 - t);
+      const stepZ = stepZAt(t);
+      const [lx, ly] = rp(rect.x,          wy, stepZ);
+      const [rx, ry] = rp(rect.x + rect.w,  wy, stepZ);
+      railL.push(lx, ly - isoZ(RAIL_H));
+      railR.push(rx, ry - isoZ(RAIL_H));
+      postNodes.push(
+        <Group key={`post-${idx}`} listening={false}>
+          <Line points={[lx, ly, lx, ly - isoZ(RAIL_H)]} stroke={railColor} strokeWidth={1} opacity={0.8} />
+          <Line points={[rx, ry, rx, ry - isoZ(RAIL_H)]} stroke={railDark}  strokeWidth={1} opacity={0.8} />
+        </Group>
+      );
+    });
+
     shape = <>
-      {Array.from({ length: 6 }, (_, index) => (
-        <IsoPrism key={`step-${index}`} rect={subIsoRect(rect, index / 6, 0.06, 1 / 6, 0.88)}
-          size={size} origin={origin} base={base} height={(index + 1) * 6} />
-      ))}
-      <Line points={[stairPts[6], stairPts[7] - 9, stairPts[0], stairPts[1] - 43]}
-        stroke={railColor} strokeWidth={1.5} lineCap="round" />
-      <Line points={[stairPts[4], stairPts[5] - 9, stairPts[2], stairPts[3] - 43]}
-        stroke={shade(railColor, 0.2)} strokeWidth={1.5} lineCap="round" />
-      {[0, 0.5, 1].map((t, index) => {
-        const lx = stairPts[6] + (stairPts[0] - stairPts[6]) * t;
-        const ly = stairPts[7] + (stairPts[1] - stairPts[7]) * t - (9 + 34 * t);
-        const rx = stairPts[4] + (stairPts[2] - stairPts[4]) * t;
-        const ry = stairPts[5] + (stairPts[3] - stairPts[5]) * t - (9 + 34 * t);
-        return <Group key={`rail-post-${index}`}>
-          <Line points={[lx, ly + 11, lx, ly]} stroke={railColor} strokeWidth={1} />
-          <Line points={[rx, ry + 11, rx, ry]} stroke={shade(railColor, 0.2)} strokeWidth={1} />
-        </Group>;
-      })}
+      {stairNodes}
+      <Line points={railL} stroke={railColor} strokeWidth={2} lineCap="round" lineJoin="round" opacity={0.92} listening={false} />
+      <Line points={railR} stroke={railDark}  strokeWidth={2} lineCap="round" lineJoin="round" opacity={0.92} listening={false} />
+      {postNodes}
     </>;
   } else if (kind === 'storage-box') {
     shape = <>
-      <IsoPrism rect={rect} size={size} origin={origin} base={base} height={20} />
-      <IsoPrism rect={subIsoRect(rect, -0.03, -0.03, 1.06, 1.06)} size={size} origin={origin} base={tint(base, 0.08)} height={4} baseLift={20} />
-      <Line points={isoFrontEdge(subIsoRect(rect, 0.18, 0.18, 0.64, 0.64), size, origin, 24)}
+      <IsoPrism rect={rect} size={size} origin={origin} base={base} height={20} rotation={rot} pivotX={pvX} pivotY={pvY} />
+      <IsoPrism rect={subIsoRect(rect, -0.03, -0.03, 1.06, 1.06)} size={size} origin={origin} base={tint(base, 0.08)} height={4} baseLift={20} rotation={rot} pivotX={pvX} pivotY={pvY} />
+      <Line points={isoFrontEdge(subIsoRect(rect, 0.18, 0.18, 0.64, 0.64), size, origin, 24, rot, pvX, pvY)}
         stroke={details} strokeWidth={0.7} opacity={0.65} />
     </>;
   } else if (kind === 'bin') {
     shape = <>
-      <IsoPrism rect={subIsoRect(rect, 0.08, 0.08, 0.84, 0.84)} size={size} origin={origin} base={base} height={25} />
-      <IsoPrism rect={rect} size={size} origin={origin} base={tint(base, 0.1)} height={3} baseLift={25} />
-      <Line closed points={liftIsoPoints(rectToIsoPts(subIsoRect(rect, 0.2, 0.2, 0.6, 0.6), size, origin), 28)}
+      <IsoPrism rect={subIsoRect(rect, 0.08, 0.08, 0.84, 0.84)} size={size} origin={origin} base={base} height={25} rotation={rot} pivotX={pvX} pivotY={pvY} />
+      <IsoPrism rect={rect} size={size} origin={origin} base={tint(base, 0.1)} height={3} baseLift={25} rotation={rot} pivotX={pvX} pivotY={pvY} />
+      <Line closed points={liftIsoPoints(rectToIsoPts(subIsoRect(rect, 0.2, 0.2, 0.6, 0.6), size, origin, rot, pvX, pvY), 28)}
         fill={shade(base, 0.75)} stroke={details} strokeWidth={0.5} />
     </>;
   } else if (kind === 'drawer') {
@@ -757,53 +1078,133 @@ function IsoObjectShape({ planId, object, rect, size, origin, base, hovered }: I
   } else if (kind === 'locker') {
     shape = solid(47, 2, true);
   } else if (kind === 'cabinet') {
-    shape = solid(37, 0, true);
+    const CAB_H = 40;
+    const KICK_H = 4;
+    const cabinetTop = liftIsoPoints(footprint, CAB_H);
+    const corners = Array.from({ length: 4 }, (_, index): Pt => [
+      footprint[index * 2],
+      footprint[index * 2 + 1],
+    ]);
+    const sideFills = [
+      shade(base, 0.30),
+      shade(base, 0.42),
+      tint(base, 0.10),
+      shade(base, 0.20),
+    ];
+    const cabinetSides = corners.map((from, index) => {
+      const to = corners[(index + 1) % corners.length];
+      return {
+        depth: (from[1] + to[1]) / 2,
+        fill: sideFills[index],
+        points: [
+          from[0], from[1],
+          to[0], to[1],
+          to[0], to[1] - isoZ(CAB_H),
+          from[0], from[1] - isoZ(CAB_H),
+        ],
+      };
+    }).sort((a, b) => a.depth - b.depth);
+
+    // Project details from the local +Y cabinet front after rotating in plan space.
+    const frontPoint = (xFraction: number, z: number): Pt => {
+      const wx = rect.x + rect.w * xFraction;
+      const wy = rect.y + rect.h;
+      const cos = Math.cos(rot);
+      const sin = Math.sin(rot);
+      const dx = wx - pvX;
+      const dy = wy - pvY;
+      const [ix, iy] = toIso(
+        pvX + dx * cos - dy * sin,
+        pvY + dx * sin + dy * cos,
+        size.planW,
+        size.planH,
+      );
+      return [origin.originX + ix, origin.originY + iy - isoZ(z)];
+    };
+    const frontQuad = (x0: number, x1: number, z0: number, z1: number): number[] => [
+      ...frontPoint(x0, z0),
+      ...frontPoint(x1, z0),
+      ...frontPoint(x1, z1),
+      ...frontPoint(x0, z1),
+    ];
+    const frontRight = corners[2];
+    const frontLeft = corners[3];
+    const frontVisible = frontRight[0] - frontLeft[0] > 0.05;
+    const panelBottom = KICK_H + 2;
+    const panelTop = CAB_H - 3;
+    const handleBottom = CAB_H * 0.40;
+    const handleTop = CAB_H * 0.58;
+
+    shape = <>
+      {cabinetSides.map((side, index) => (
+        <Line key={`cabinet-side-${index}`} closed points={side.points}
+          fill={side.fill} stroke={shade(base, 0.58)} strokeWidth={0.55} listening={false} />
+      ))}
+      <Line closed points={cabinetTop}
+        fill={tint(base, 0.24)} stroke={tint(base, 0.48)} strokeWidth={0.8} listening={false} />
+      {frontVisible && <>
+        <Line closed points={frontQuad(0.05, 0.95, 0, KICK_H)}
+          fill={shade(base, 0.30)} stroke={shade(base, 0.48)} strokeWidth={0.45} listening={false} />
+        <Line closed points={frontQuad(0.06, 0.49, panelBottom, panelTop)}
+          fill={tint(base, 0.20)} stroke={tint(base, 0.46)} strokeWidth={0.75} listening={false} />
+        <Line closed points={frontQuad(0.51, 0.94, panelBottom, panelTop)}
+          fill={tint(base, 0.20)} stroke={tint(base, 0.46)} strokeWidth={0.75} listening={false} />
+        <Line points={[...frontPoint(0.5, panelBottom), ...frontPoint(0.5, panelTop)]}
+          stroke={shade(base, 0.34)} strokeWidth={0.7} listening={false} />
+        <Line points={[...frontPoint(0.45, handleBottom), ...frontPoint(0.45, handleTop)]}
+          stroke={shade(base, 0.60)} strokeWidth={1.8} lineCap="round" listening={false} />
+        <Line points={[...frontPoint(0.55, handleBottom), ...frontPoint(0.55, handleTop)]}
+          stroke={shade(base, 0.60)} strokeWidth={1.8} lineCap="round" listening={false} />
+      </>}
+    </>;
   } else if (kind === 'elevator') {
-    const faces = extrudedFaces(rect.x, rect.y, rect.w, rect.h, size.planW, size.planH, origin.originX, origin.originY, 52);
+    const faces = extrudedFaces(rect.x, rect.y, rect.w, rect.h, size.planW, size.planH, origin.originX, origin.originY, 52, rot, pvX, pvY);
     const face = faces.left;
     const ax = face[0] + (face[2] - face[0]) * 0.17;
     const ay = face[1] + (face[3] - face[1]) * 0.17;
     const bx = face[0] + (face[2] - face[0]) * 0.83;
     const by = face[1] + (face[3] - face[1]) * 0.83;
-    const doorPanel = [ax, ay - 3, bx, by - 3, bx, by - 44, ax, ay - 44];
+    const doorPanel = [ax, ay - isoZ(3), bx, by - isoZ(3), bx, by - isoZ(44), ax, ay - isoZ(44)];
     const panelX = face[0] + (face[2] - face[0]) * 0.92;
-    const panelY = face[1] + (face[3] - face[1]) * 0.92 - 25;
+    const panelY = face[1] + (face[3] - face[1]) * 0.92 - isoZ(25);
     shape = <>
-      <IsoPrism rect={rect} size={size} origin={origin} base={base} height={52} />
+      <IsoPrism rect={rect} size={size} origin={origin} base={base} height={52} rotation={rot} pivotX={pvX} pivotY={pvY} />
       <Line closed points={doorPanel} fill="#07111f" stroke={details} strokeWidth={1.2} />
-      <Line points={[(ax + bx) / 2, (ay + by) / 2 - 3, (ax + bx) / 2, (ay + by) / 2 - 44]}
+      <Line points={[(ax + bx) / 2, (ay + by) / 2 - isoZ(3), (ax + bx) / 2, (ay + by) / 2 - isoZ(44)]}
         stroke={details} strokeWidth={0.8} />
-      <Line points={[ax, ay - 44, bx, by - 44]} stroke={tint(base, 0.7)} strokeWidth={1.6} />
+      <Line points={[ax, ay - isoZ(44), bx, by - isoZ(44)]} stroke={tint(base, 0.7)} strokeWidth={1.6} />
       <Circle x={panelX} y={panelY} radius={2.2} fill="#22c55e" stroke="#bbf7d0" strokeWidth={0.5} />
       <Circle x={panelX} y={panelY + 7} radius={1.5} fill="#60a5fa" stroke="#bfdbfe" strokeWidth={0.4} />
     </>;
   } else if (kind === 'restroom') {
     const fixture = subIsoRect(rect, 0.57, 0.58, 0.18, 0.2);
-    const fixtureCenter = isoFaceCenter(fixture, size, origin, 9);
+    const fixtureCenter = isoFaceCenter(fixture, size, origin, 9, rot, pvX, pvY);
     shape = <>
-      <IsoPrism rect={subIsoRect(rect, 0, 0, 1, 0.09)} size={size} origin={origin} base={base} height={30} />
-      <IsoPrism rect={subIsoRect(rect, 0, 0.09, 0.09, 0.91)} size={size} origin={origin} base={base} height={30} />
-      <IsoPrism rect={subIsoRect(rect, 0.91, 0.09, 0.09, 0.91)} size={size} origin={origin} base={base} height={30} />
-      <IsoPrism rect={subIsoRect(rect, 0.45, 0.1, 0.07, 0.62)} size={size} origin={origin} base={shade(base, 0.08)} height={22} />
-      <IsoPrism rect={fixture} size={size} origin={origin} base="#e2e8f0" height={8} />
+      <IsoPrism rect={subIsoRect(rect, 0, 0, 1, 0.09)} size={size} origin={origin} base={base} height={30} rotation={rot} pivotX={pvX} pivotY={pvY} />
+      <IsoPrism rect={subIsoRect(rect, 0, 0.09, 0.09, 0.91)} size={size} origin={origin} base={base} height={30} rotation={rot} pivotX={pvX} pivotY={pvY} />
+      <IsoPrism rect={subIsoRect(rect, 0.91, 0.09, 0.09, 0.91)} size={size} origin={origin} base={base} height={30} rotation={rot} pivotX={pvX} pivotY={pvY} />
+      <IsoPrism rect={subIsoRect(rect, 0.45, 0.1, 0.07, 0.62)} size={size} origin={origin} base={shade(base, 0.08)} height={22} rotation={rot} pivotX={pvX} pivotY={pvY} />
+      <IsoPrism rect={fixture} size={size} origin={origin} base="#e2e8f0" height={8} rotation={rot} pivotX={pvX} pivotY={pvY} />
       <Circle x={fixtureCenter[0]} y={fixtureCenter[1] - 2} radius={3.2} fill="#f8fafc" stroke="#94a3b8" strokeWidth={0.6} />
       <Text x={fixtureCenter[0] - 12} y={fixtureCenter[1] - 28} width={24} align="center" text="WC"
         fontSize={7} fontStyle="bold" fill={details} />
     </>;
   } else {
-    shape = solid(kind === 'rack' ? 48 : 30, kind === 'rack' ? 5 : 2);
+    shape = solid(30, 2);
   }
 
   return (
     <Group key={`obj-${planId}-${object.id}`} listening={false}>
       {hovered && (
-        <Line closed points={footprint} stroke="#67e8f9" strokeWidth={5} opacity={0.32} lineJoin="round" />
+        <Line closed points={hoverOutline} stroke="#67e8f9" strokeWidth={5} opacity={0.32} lineJoin="round" />
       )}
-      <Line points={contact} stroke="rgba(2,6,14,0.55)" strokeWidth={2.2} lineCap="round" lineJoin="round" />
+      {kind !== 'shelf' && (
+        <Line points={contact} stroke="rgba(2,6,14,0.55)" strokeWidth={2.2} lineCap="round" lineJoin="round" />
+      )}
       {shape}
-      {(kind === 'drawer' || kind === 'rack') && (
+      {kind === 'drawer' && (
         <Circle {...(() => {
-          const p = isoFaceCenter(rect, size, origin, kind === 'rack' ? 24 : 17);
+          const p = isoFaceCenter(rect, size, origin, 17, rot, pvX, pvY);
           return { x: p[0], y: p[1] };
         })()} radius={1.2} fill={darkDetails} />
       )}
@@ -835,30 +1236,33 @@ function IsoOpeningShape({
 
   if (object.type === 'entrance') {
     const h = 30;
+    const screenH = isoZ(h);
     return (
       <Group key={`opening-${planId}-${object.id}`} listening={false}>
-        <Line points={[p1[0], p1[1], p1[0], p1[1] - h]} stroke={shade(color, 0.2)} strokeWidth={3} lineCap="round" />
-        <Line points={[p2[0], p2[1], p2[0], p2[1] - h]} stroke={shade(color, 0.45)} strokeWidth={3} lineCap="round" />
-        <Line points={[p1[0], p1[1] - h, p2[0], p2[1] - h]} stroke={tint(color, 0.35)} strokeWidth={4} lineCap="round" />
+        <Line points={[p1[0], p1[1], p1[0], p1[1] - screenH]} stroke={shade(color, 0.2)} strokeWidth={3} lineCap="round" />
+        <Line points={[p2[0], p2[1], p2[0], p2[1] - screenH]} stroke={shade(color, 0.45)} strokeWidth={3} lineCap="round" />
+        <Line points={[p1[0], p1[1] - screenH, p2[0], p2[1] - screenH]} stroke={tint(color, 0.35)} strokeWidth={4} lineCap="round" />
       </Group>
     );
   }
 
   const h = object.type === 'window' ? 20 : 31;
   const lift = object.type === 'window' ? 9 : 0;
-  const panel = [p1[0], p1[1] - lift, p2[0], p2[1] - lift, p2[0], p2[1] - lift - h, p1[0], p1[1] - lift - h];
+  const screenH = isoZ(h);
+  const screenLift = isoZ(lift);
+  const panel = [p1[0], p1[1] - screenLift, p2[0], p2[1] - screenLift, p2[0], p2[1] - screenLift - screenH, p1[0], p1[1] - screenLift - screenH];
   return (
     <Group key={`opening-${planId}-${object.id}`} listening={false}>
       <Line closed points={panel} fill={hexToRgba(color, object.type === 'window' ? 0.35 : 0.88)}
         stroke={tint(color, 0.38)} strokeWidth={1.2} />
       {object.type === 'window' ? (
         <>
-          <Line points={[p1[0], p1[1] - lift - h / 2, p2[0], p2[1] - lift - h / 2]} stroke={tint(color, 0.5)} strokeWidth={0.8} />
-          <Line points={[p1[0], p1[1] - lift, p1[0], p1[1] - lift - h]} stroke={tint(color, 0.55)} strokeWidth={1.4} />
-          <Line points={[p2[0], p2[1] - lift, p2[0], p2[1] - lift - h]} stroke={shade(color, 0.3)} strokeWidth={1.4} />
+          <Line points={[p1[0], p1[1] - screenLift - screenH / 2, p2[0], p2[1] - screenLift - screenH / 2]} stroke={tint(color, 0.5)} strokeWidth={0.8} />
+          <Line points={[p1[0], p1[1] - screenLift, p1[0], p1[1] - screenLift - screenH]} stroke={tint(color, 0.55)} strokeWidth={1.4} />
+          <Line points={[p2[0], p2[1] - screenLift, p2[0], p2[1] - screenLift - screenH]} stroke={shade(color, 0.3)} strokeWidth={1.4} />
         </>
       ) : (
-        <Circle x={p2[0] * 0.7 + p1[0] * 0.3} y={(p2[1] * 0.7 + p1[1] * 0.3) - h * 0.48}
+          <Circle x={p2[0] * 0.7 + p1[0] * 0.3} y={(p2[1] * 0.7 + p1[1] * 0.3) - screenH * 0.48}
           radius={1.2} fill="#f8fafc" />
       )}
     </Group>
@@ -868,12 +1272,12 @@ function IsoOpeningShape({
 // ── Cutaway height for a wall segment ─────────────────────────────────────────
 // Matterport-style dollhouse: all 4 outer walls full height, roof removed.
 // Interior visible from above via isometric angle — no wall cutaway needed.
-// Indoor partition walls are half-height so objects read clearly over them.
+// Indoor partition walls rise above windows but stay transparent for visibility.
 function wallCutawayH(
   _startX: number, _startY: number, _endX: number, _endY: number,
   _planW: number, _planH: number, isOuter: boolean,
 ): { h: number; alpha: number } {
-  if (!isOuter) return { h: ISO_STYLE.indoorWallH, alpha: 0.50 };
+  if (!isOuter) return { h: ISO_STYLE.indoorWallH, alpha: ISO_STYLE.indoorWallAlpha };
   return { h: ISO_STYLE.backWallH, alpha: ISO_STYLE.backWallAlpha };
 }
 
@@ -997,20 +1401,21 @@ function buildIsoFloorNodes(
     const [x1, y1] = toIso(w.startX, w.startY, planW, planH);
     const [x2, y2] = toIso(w.endX,   w.endY,   planW, planH);
     const { h, alpha } = wallCutawayH(w.startX, w.startY, w.endX, w.endY, planW, planH, false);
+    const screenH = isoZ(h);
     const thick = Math.max(1, (w.thickness ?? 8) / planW * ISO_PLAN_SIZE * 0.3);
 
     // Extruded wall ribbon: quad from the two base points lifted by h
     const sx = ox + x1; const sy = oy + y1;
     const ex = ox + x2; const ey = oy + y2;
     queue.push({
-      depth: depthKey(w.startX + w.endX, w.startY + w.endY) / 2,
+      depth: INDOOR_WALL_DEPTH,
       node: (
         <Group key={`iwall-${plan.id}-${w.id}`} listening={false}>
           <Line closed
-            points={[sx, sy, ex, ey, ex, ey - h, sx, sy - h]}
+            points={[sx, sy, ex, ey, ex, ey - screenH, sx, sy - screenH]}
             fill="#243049" stroke="#3a4a6b" strokeWidth={0.5} opacity={alpha}
           />
-          <Line points={[sx, sy - h, ex, ey - h]}
+          <Line points={[sx, sy - screenH, ex, ey - screenH]}
             stroke="#6d83ad" strokeWidth={thick * 0.6} opacity={alpha * 0.8} lineCap="round"
           />
         </Group>
@@ -1018,11 +1423,16 @@ function buildIsoFloorNodes(
     });
   }
 
-  // Racks, shelves, stairs, and elevators — extruded volumes
+  // All furniture/object tools — extruded volumes
+  const ISO_OBJECT_TYPES = new Set([
+    'rack', 'shelf', 'stairs', 'elevator',
+    'work-surface', 'chair', 'cabinet', 'drawer', 'locker',
+    'storage-box', 'bin', 'pallet', 'bathroom', 'human',
+  ]);
   for (const obj of objects) {
-    if (obj.type !== 'rack' && obj.type !== 'shelf' && obj.type !== 'stairs' && obj.type !== 'elevator') continue;
+    if (!ISO_OBJECT_TYPES.has(obj.type)) continue;
     const rect = obj as RectangleObject;
-    const style = OBJ_STYLE[rect.type];
+    const style = OBJ_STYLE[rect.type] ?? OBJ_STYLE['rack'];
     // Boost sub-legible footprints: every projected edge renders at least
     // MIN_OBJ_EDGE_PX so thin objects read as boxes instead of slivers.
     // Inflated around center; the real object data is untouched.
@@ -1039,15 +1449,14 @@ function buildIsoFloorNodes(
     const base = rect.color && parseHex(rect.color) ? rect.color : style.topStroke;
     const kind = isoPresetKind(rect);
     const hovered = ctx.hoveredObjectId === rect.id;
+    const rot = rect.rotation ?? 0;
+    const cx = drawX + drawW / 2, cy = drawY + drawH / 2;
+    const projectedFootprint = rectToIsoPts(drawRect, size, origin, rot, cx, cy);
     if (isInventoryIsoObject(rect)) {
-      const basePts = rectToIsoPts(drawRect, size, origin);
-      const topPts = liftIsoPoints(basePts, isoPresetHeight(kind));
+      const hitFootprint = liftIsoPoints(projectedFootprint, isoPresetBaseLift(kind));
       objectHits.push(
         <Line key={`object-hit-${plan.id}-${rect.id}`} closed
-          points={[
-            topPts[0], topPts[1], topPts[2], topPts[3], topPts[4], topPts[5],
-            basePts[4], basePts[5], basePts[6], basePts[7], topPts[6], topPts[7],
-          ]}
+          points={isoPrismSilhouette(hitFootprint, isoPresetHeight(kind))}
           fill="rgba(0,0,0,0.001)" stroke="transparent" strokeWidth={0}
           perfectDrawEnabled={false}
           onMouseEnter={() => ctx.onObjectHover(rect.id)}
@@ -1058,14 +1467,11 @@ function buildIsoFloorNodes(
     }
     // Contact shadow along the base front edges (bl → br → tr)
 
-    // Depth from centroid so objects at the same grid position sort correctly.
-    // Stairs/elevator/restroom are circulation cores — push them behind inventory
-    // objects at the same depth so racks/shelves always render in front of them.
-    const cx = rect.x + rect.width  / 2;
-    const cy = rect.y + rect.height / 2;
-    const isCirculation = ['stairs', 'elevator', 'restroom'].includes(kind);
+    // The lowest projected footprint point is nearest to the isometric camera.
+    // Sorting on screen Y handles rotation and non-square plan dimensions.
+    const frontScreenY = Math.max(...projectedFootprint.filter((_, index) => index % 2 === 1));
     queue.push({
-      depth: depthKey(cx, cy) - (isCirculation ? 500 : 0),
+      depth: OBJECT_DEPTH_BASE + frontScreenY,
       node: (
         <IsoObjectShape key={`obj-${plan.id}-${rect.id}`} planId={plan.id} object={rect}
           rect={drawRect} size={size} origin={origin} base={base} hovered={hovered} />
@@ -1081,6 +1487,7 @@ function buildIsoFloorNodes(
     const sx = ox + x1; const sy = oy + y1;
     const ex = ox + x2; const ey = oy + y2;
     const h = cutaway.h;
+    const screenH = isoZ(h);
     const alpha = ctx.isoMode === 'all' ? Math.max(0.72, cutaway.alpha) : cutaway.alpha;
     const wallColor = isFinalized ? '#16336b' : '#1d2737';
     const edgeColor = isFinalized ? '#82b5ff' : '#8b97ab';
@@ -1092,10 +1499,10 @@ function buildIsoFloorNodes(
       node: (
         <Group key={`owall-${plan.id}-${w.id}`} listening={false}>
           <Line closed
-            points={[sx, sy, ex, ey, ex, ey - h, sx, sy - h]}
+            points={[sx, sy, ex, ey, ex, ey - screenH, sx, sy - screenH]}
             fill={wallColor} stroke={edgeColor} strokeWidth={0.6} opacity={alpha}
           />
-          <Line points={[sx, sy - h, ex, ey - h]}
+          <Line points={[sx, sy - screenH, ex, ey - screenH]}
             stroke={edgeColor} strokeWidth={1.2} opacity={alpha * 0.9} lineCap="round"
           />
         </Group>
@@ -1103,13 +1510,19 @@ function buildIsoFloorNodes(
     });
   }
 
-  // Openings are raised vector panels/frames aligned to their wall angle.
+  // Openings use projected screen depth so nearer objects can obstruct them.
   for (const obj of objects) {
     if (obj.type !== 'door' && obj.type !== 'window' && obj.type !== 'entrance') continue;
     const opening = obj as DoorObject | WindowObject | EntranceObject;
     if (!openingIsAttachedToWall(opening, allWallObjs)) continue;
+    const angle = opening.angle ?? 0;
+    const dx = Math.cos(angle) * opening.width / 2;
+    const dy = Math.sin(angle) * opening.width / 2;
+    const [, y1] = toIso(opening.x - dx, opening.y - dy, planW, planH);
+    const [, y2] = toIso(opening.x + dx, opening.y + dy, planW, planH);
+    const frontScreenY = oy + Math.max(y1, y2);
     queue.push({
-      depth: depthKey(opening.x, opening.y) + 2,
+      depth: OBJECT_DEPTH_BASE + frontScreenY,
       node: (
         <IsoOpeningShape key={`opening-${plan.id}-${obj.id}`} planId={plan.id}
           object={opening} size={size} origin={origin} />
@@ -1214,7 +1627,7 @@ function buildIsoFloorNodes(
     : (floorAlpha >= 0.7 ? (isHovered ? '#0f172a' : '#334155') : '#64748b');
 
   const slabSides = slabSideQuads(topFacePts, ISO_SLAB_H);
-  const shadowPts = topFacePts.map((v, i) => (i % 2 === 1 ? v + ISO_SLAB_H + 4 : v));
+  const shadowPts = topFacePts.map((v, i) => (i % 2 === 1 ? v + isoZ(ISO_SLAB_H) + 4 : v));
   const chipW = isFinalized ? 44 : 28;
 
   const visual = (
@@ -1345,7 +1758,7 @@ function buildIsoBuilding(
 
   // Building label — centred on the bottom tip of the iso diamond
   // Bottom tip screen position: origin + toIso(planW, planH) = (0, +ISO_PLAN_SIZE*ISO_TH/2)
-  const bottomTipY = baseY + (ISO_PLAN_SIZE * ISO_TH) / 2 + ISO_SLAB_H + 10;
+  const bottomTipY = baseY + (ISO_PLAN_SIZE * ISO_TH) / 2 + isoZ(ISO_SLAB_H) + 10;
   visuals.push(
     <Text key={`ibl-${bld.key}`} listening={false}
       x={bOffX - 90} y={bottomTipY}
@@ -1419,10 +1832,17 @@ export default function Building2D() {
         // floor number from the "(Auto|Manual) - … - Building N - Floor M - …"
         // name pattern, like the FloorPlans merge flow does.
         const m = p.name.match(/^((?:Auto|Manual) - .+ - Building \d+) - Floor (\d+) - /);
-        if (!m) continue;
-        key = `name:${m[1]}`;
-        label = m[1].replace(/^(?:Auto|Manual) - /, '');
-        plan = { ...p, floorNumber: p.floorNumber ?? Number(m[2]) };
+        if (m) {
+          key = `name:${m[1]}`;
+          label = m[1].replace(/^(?:Auto|Manual) - /, '');
+          plan = { ...p, floorNumber: p.floorNumber ?? Number(m[2]) };
+        } else {
+          // Standalone plan — only show if finalized
+          if (!p.isApproved) continue;
+          key = `standalone:${p.id}`;
+          label = p.name;
+          plan = { ...p, floorNumber: 1 };
+        }
       }
       const entry = map.get(key) ?? {
         label: label ?? `Building ${key.replace(/^dept-[^-]+-building-/, '')}`,
@@ -1798,10 +2218,23 @@ export default function Building2D() {
             y: obj.y - (drawH - obj.height) / 2,
             w: drawW, h: drawH,
           };
-          const footprint = rectToIsoPts(drawRect, sharedSize, { originX: centerX, originY: oy });
+          const kind = isoPresetKind(obj);
+          const rot = obj.rotation ?? 0;
+          const pivotX = drawRect.x + drawRect.w / 2;
+          const pivotY = drawRect.y + drawRect.h / 2;
+          const footprint = rectToIsoPts(
+            drawRect,
+            sharedSize,
+            { originX: centerX, originY: oy },
+            rot,
+            pivotX,
+            pivotY,
+          );
+          const liftedFootprint = liftIsoPoints(footprint, isoPresetBaseLift(kind));
+          const outline = isoPrismSilhouette(liftedFootprint, isoPresetHeight(kind));
           nodes.push(
             <Line key={`hover-obj-${plan.id}-${obj.id}`} listening={false}
-              closed points={footprint} stroke="#67e8f9" strokeWidth={5} opacity={0.32} lineJoin="round"
+              closed points={outline} stroke="#67e8f9" strokeWidth={5} opacity={0.32} lineJoin="round"
             />
           );
         }

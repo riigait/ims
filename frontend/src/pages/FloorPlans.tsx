@@ -765,6 +765,7 @@ export default function FloorPlans() {
   const [mergeError, setMergeError] = useState<string | null>(null);
   const [showFinalizePreview, setShowFinalizePreview] = useState(false);
   const [finalizing, setFinalizing] = useState(false);
+  const [confirmingFinalizeId, setConfirmingFinalizeId] = useState<string | null>(null);
   const [showObjectsPanel, setShowObjectsPanel] = useState(false);
   const [objectsPanelFloorId, setObjectsPanelFloorId] = useState<string | null>(null);
   const [previewMode, setPreviewMode] = useState<'none' | 'all' | 'structural' | 'final'>('none');
@@ -1253,11 +1254,11 @@ export default function FloorPlans() {
     }
 
     const siblings = floorPlans
-      .filter(candidate => getBuildingInfo(candidate.name)?.key === info.key && !candidate.isApproved)
+      .filter(candidate => getBuildingInfo(candidate.name)?.key === info.key)
       .sort((a, b) => (getBuildingInfo(a.name)?.floorNumber ?? 0) - (getBuildingInfo(b.name)?.floorNumber ?? 0));
 
     if (siblings.length === 0) {
-      setMergeError('All floors in this building are finalized and cannot be merged.');
+      setMergeError('No floors found for this building.');
       return;
     }
 
@@ -1482,6 +1483,39 @@ export default function FloorPlans() {
     }
   };
 
+  const finalizeStandalonePlan = async (plan: FloorPlan) => {
+    setConfirmingFinalizeId(null);
+    const outdoorWalls = outdoorWallsFor(plan);
+    const objects = plan.objects ?? [];
+    // Use own outdoor walls as the perimeter source (no alignment needed)
+    const finalizedPerimeterWalls = buildFinalizedPerimeterWalls(outdoorWalls);
+    if (finalizedPerimeterWalls.length === 0) {
+      alert('Finalize failed: no outdoor walls found. Draw the building outline first.');
+      return;
+    }
+    try {
+      setFinalizing(true);
+      const identity = alignmentTransformForFloor(plan.id, 0, 0);
+      const finalized = finalizeFloorplanElements(objects, identity, finalizedPerimeterWalls);
+      await floorPlansApi.update(plan.id, {
+        name: plan.name,
+        width: plan.width,
+        height: plan.height,
+        scale: plan.scale,
+        locationId: plan.locationId,
+        objects: finalized.objects,
+        isApproved: true,
+        isAligned: false,
+        alignmentData: undefined,
+      });
+      applyUpdatedPlans([{ ...plan, objects: finalized.objects, isApproved: true }]);
+    } catch {
+      alert('Failed to finalize floor plan.');
+    } finally {
+      setFinalizing(false);
+    }
+  };
+
   // Rules preview for selected templates
   const selectedRules = [...new Set(autoGenerateFloorTemplates)].map(t => ({ name: t, rules: TEMPLATE_RULES_PREVIEW[t] })).filter(r => r.rules);
 
@@ -1582,7 +1616,7 @@ export default function FloorPlans() {
             <div>
               <p className="text-sm font-semibold text-[var(--text)]">Select a building to merge its floors</p>
               <p className="text-xs text-[var(--text-muted)] mt-1">
-                Selecting one floor automatically selects all sibling floors in the same building. Works with both auto-generated and manually added floors. Indoor objects are excluded from the preview.
+                Selecting one floor automatically selects all sibling floors in the same building. Already-finalized floors are included in the preview but will be skipped during finalize — only unfinalized floors get updated.
               </p>
               {mergeError && <p className="text-xs text-red-600 mt-2">{mergeError}</p>}
             </div>
@@ -2206,11 +2240,12 @@ export default function FloorPlans() {
             const buildingInfo = getBuildingInfo(plan.name);
             const mergeSelected = mergeSelectedIds.includes(plan.id);
             const isAligned = alignedPlanIds.includes(plan.id);
-            const mergeDisabled = mergeMode && (isApproved || !buildingInfo || (mergeBuildingKey !== null && mergeBuildingKey !== buildingInfo.key));
+            // standalone (no buildingInfo) or wrong building = disabled; finalized building floors stay selectable
+            const mergeDisabled = mergeMode && (!buildingInfo || (mergeBuildingKey !== null && mergeBuildingKey !== buildingInfo.key));
 
             return (
               <div key={plan.id}
-                onClick={() => mergeMode ? (isApproved ? undefined : selectBuildingForMerge(plan)) : navigate(`/floor-plans/${plan.id}/edit`)}
+                onClick={() => mergeMode ? selectBuildingForMerge(plan) : navigate(`/floor-plans/${plan.id}/edit`)}
                 className={`aspect-square bg-[var(--surface)] rounded-lg shadow hover:shadow-lg transition cursor-pointer group flex flex-col ${
                   hasLocation ? 'ring-2 ring-[var(--primary)]' : ''
                 } ${isApproved ? 'ring-2 ring-blue-400' : ''} ${mergeSelected ? 'ring-2 ring-[var(--primary)]' : ''} ${mergeDisabled ? 'opacity-45' : ''}`}>
@@ -2220,11 +2255,21 @@ export default function FloorPlans() {
                     highlightLocationId={locationId ?? undefined}
                     onVisible={() => handlePlanVisible(plan.id)} />
 
-                  {mergeMode && !isApproved && (
+                  {mergeMode && (
                     <span className={`absolute top-1 left-1 text-[10px] font-bold px-1.5 py-0.5 rounded border ${
-                      mergeSelected ? 'bg-[var(--primary)] text-white border-[var(--primary)]' : 'bg-white/90 text-slate-700 border-slate-300'
+                      mergeSelected
+                        ? isApproved
+                          ? 'bg-blue-500 text-white border-blue-500'
+                          : 'bg-[var(--primary)] text-white border-[var(--primary)]'
+                        : 'bg-white/90 text-slate-700 border-slate-300'
                     }`}>
-                      {mergeSelected ? 'Selected' : buildingInfo ? `Floor ${buildingInfo.floorNumber}${buildingInfo.source === 'manual' ? ' (M)' : ''}` : 'Not mergeable'}
+                      {mergeSelected
+                        ? isApproved
+                          ? `Floor ${buildingInfo?.floorNumber ?? ''} · Already finalized`
+                          : 'Selected'
+                        : buildingInfo
+                          ? `Floor ${buildingInfo.floorNumber}${buildingInfo.source === 'manual' ? ' (M)' : ''}`
+                          : 'Not mergeable'}
                     </span>
                   )}
 
@@ -2329,6 +2374,19 @@ export default function FloorPlans() {
                           )}
                         </div>
                       </div>
+                    ) : confirmingFinalizeId === plan.id ? (
+                      <div className="flex gap-1" onClick={e => e.stopPropagation()}>
+                        <span className="text-xs text-[var(--text-muted)] flex-1 leading-tight">Finalize?</span>
+                        <button onClick={() => finalizeStandalonePlan(plan)}
+                          disabled={finalizing}
+                          className="px-1 py-0.5 bg-blue-600 text-white text-xs rounded hover:bg-blue-700 disabled:opacity-50">
+                          Yes
+                        </button>
+                        <button onClick={() => setConfirmingFinalizeId(null)}
+                          className="px-1 py-0.5 bg-[var(--surface-2)] text-xs rounded hover:bg-[var(--border)]">
+                          No
+                        </button>
+                      </div>
                     ) : (
                       <div className="flex gap-1">
                         <button
@@ -2336,6 +2394,14 @@ export default function FloorPlans() {
                           className="flex-1 px-1 py-0.5 bg-[var(--primary)] text-white text-xs rounded hover:bg-[var(--primary-hover)]">
                           Edit
                         </button>
+                        {!isApproved && !buildingInfo && (
+                          <button
+                            onClick={e => { e.stopPropagation(); setConfirmingFinalizeId(plan.id); }}
+                            className="px-1 py-0.5 bg-blue-50 text-blue-700 text-xs rounded hover:bg-blue-100"
+                            title="Finalize this standalone floor plan">
+                            <Lock size={10} />
+                          </button>
+                        )}
                         <button onClick={e => { e.stopPropagation(); setConfirmingDeleteId(plan.id); }}
                           className="px-1 py-0.5 bg-red-50 text-red-600 text-xs rounded hover:bg-red-100">
                           <Trash2 size={12} />
@@ -2399,12 +2465,12 @@ export default function FloorPlans() {
                   const buildingInfo = getBuildingInfo(plan.name);
                   const mergeSelected = mergeSelectedIds.includes(plan.id);
                   const isAligned = alignedPlanIds.includes(plan.id);
-                  const mergeDisabled = mergeMode && (isApproved || !buildingInfo || (mergeBuildingKey !== null && mergeBuildingKey !== buildingInfo.key));
+                  const mergeDisabled = mergeMode && (!buildingInfo || (mergeBuildingKey !== null && mergeBuildingKey !== buildingInfo.key));
 
                   return (
                     <tr key={plan.id} className={`hover:bg-[var(--surface-2)] transition-colors ${mergeSelected ? 'bg-[var(--surface-2)]' : ''} ${mergeDisabled ? 'opacity-45' : ''}`}>
                       <td className="px-4 py-2 text-[var(--text)] font-medium cursor-pointer hover:text-[var(--primary)]"
-                        onClick={() => mergeMode ? (isApproved ? undefined : selectBuildingForMerge(plan)) : navigate(`/floor-plans/${plan.id}/edit`)}>
+                        onClick={() => mergeMode ? selectBuildingForMerge(plan) : navigate(`/floor-plans/${plan.id}/edit`)}>
                         <div className="flex items-center gap-1.5">
                           {mergeMode && (
                             <input
@@ -2418,6 +2484,9 @@ export default function FloorPlans() {
                           {plan.name}
                           {isAligned && <span className="rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700">Aligned</span>}
                           {isApproved && <Lock size={13} className="text-blue-600 flex-shrink-0" />}
+                          {isApproved && mergeMode && mergeSelected && (
+                            <span className="rounded bg-blue-100 px-1.5 py-0.5 text-[10px] font-semibold text-blue-700">Already finalized — will be skipped</span>
+                          )}
                           {isTemplate && <BookmarkCheck size={13} className="text-purple-500 flex-shrink-0" />}
                         </div>
                       </td>
@@ -2461,6 +2530,15 @@ export default function FloorPlans() {
                               <button onClick={() => setConfirmingDeleteSiblingsId(null)}
                                 className="text-[var(--text-muted)] text-xs hover:text-[var(--text)] font-medium">No</button>
                             </span>
+                          ) : confirmingFinalizeId === plan.id ? (
+                            <span className="inline-flex gap-2 items-center">
+                              <span className="text-xs text-[var(--text-muted)]">Finalize?</span>
+                              <button onClick={() => finalizeStandalonePlan(plan)}
+                                disabled={finalizing}
+                                className="text-blue-600 text-xs hover:text-blue-800 font-medium disabled:opacity-50">Yes</button>
+                              <button onClick={() => setConfirmingFinalizeId(null)}
+                                className="text-[var(--text-muted)] text-xs hover:text-[var(--text)] font-medium">No</button>
+                            </span>
                           ) : (
                             <span className="inline-flex gap-2 items-center">
                               {canRegeneratePlan && (
@@ -2470,6 +2548,14 @@ export default function FloorPlans() {
                                   className="text-[var(--text-muted)] hover:text-[var(--text)] disabled:opacity-50"
                                   title={regenerateTitleList}>
                                   <RefreshCw size={16} className={isRegenerating ? 'animate-spin' : ''} />
+                                </button>
+                              )}
+                              {!isApproved && !buildingInfo && (
+                                <button
+                                  onClick={() => setConfirmingFinalizeId(plan.id)}
+                                  className="text-blue-600 hover:text-blue-800"
+                                  title="Finalize this standalone floor plan">
+                                  <Lock size={16} />
                                 </button>
                               )}
                               <button
@@ -2886,18 +2972,37 @@ export default function FloorPlans() {
                           Applying this preserves every room, object, and source outdoor wall, then adds the visible shared perimeter.
                         </p>
                       </div>
-                      <div className="rounded border border-amber-200 bg-amber-50 px-2.5 py-2 text-[11px] text-amber-800">
-                        This action removes old finalized perimeter walls before adding the new perimeter, but keeps each floor's own outdoor walls.
-                      </div>
-                      <button
-                        type="button"
-                        onClick={applyFinalizedPerimeter}
-                        disabled={finalizing}
-                        className="w-full flex items-center justify-center gap-1.5 px-3 py-2 rounded bg-slate-800 text-white text-sm font-medium hover:bg-slate-900 disabled:opacity-60 disabled:cursor-not-allowed"
-                      >
-                        <Layers size={14} />
-                        {finalizing ? 'Applying...' : `Apply to ${aligned.entries.length} Floor${aligned.entries.length === 1 ? '' : 's'}`}
-                      </button>
+                      {(() => {
+                        const pendingCount = aligned.entries.filter(e => !e.plan.isApproved).length;
+                        const allFinalized = pendingCount === 0;
+                        return (
+                          <>
+                            {allFinalized ? (
+                              <div className="rounded border border-blue-200 bg-blue-50 px-2.5 py-2 text-[11px] text-blue-800">
+                                All selected floors are already finalized. Nothing to apply.
+                              </div>
+                            ) : (
+                              <>
+                                <div className="rounded border border-amber-200 bg-amber-50 px-2.5 py-2 text-[11px] text-amber-800">
+                                  This action removes old finalized perimeter walls before adding the new perimeter, but keeps each floor's own outdoor walls.
+                                  {aligned.entries.some(e => e.plan.isApproved) && (
+                                    <span className="block mt-1 font-medium">Already-finalized floors in the selection will be skipped.</span>
+                                  )}
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={applyFinalizedPerimeter}
+                                  disabled={finalizing}
+                                  className="w-full flex items-center justify-center gap-1.5 px-3 py-2 rounded bg-slate-800 text-white text-sm font-medium hover:bg-slate-900 disabled:opacity-60 disabled:cursor-not-allowed"
+                                >
+                                  <Layers size={14} />
+                                  {finalizing ? 'Applying...' : `Apply to ${pendingCount} Floor${pendingCount === 1 ? '' : 's'}`}
+                                </button>
+                              </>
+                            )}
+                          </>
+                        );
+                      })()}
                       <button
                         type="button"
                         onClick={() => setShowFinalizePreview(false)}

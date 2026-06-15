@@ -489,6 +489,11 @@ function renderStairs(el: FloorplanElement, _sketch: boolean): React.ReactNode {
   const { x, y, width: w, height: h } = el;
   const fill = el.style?.fill ?? '#fef3c7';
   const steps = Math.max(3, Math.floor(h / 20));
+  const cx = x + w / 2;
+  const arrowLen = Math.min(h * 0.38, w * 0.38, 22);
+  const headSize = Math.max(3, arrowLen * 0.32);
+  const tipY  = y + h * 0.18;
+  const tailY = tipY + arrowLen;
   return (
     <Group key={el.id} listening={false}>
       <Rect x={x} y={y} width={w} height={h} fill={fill} stroke="#b45309" strokeWidth={1.5} />
@@ -496,7 +501,9 @@ function renderStairs(el: FloorplanElement, _sketch: boolean): React.ReactNode {
         const yy = y + ((i + 1) / steps) * h;
         return <Line key={i} points={[x + w * 0.15, yy, x + w * 0.85, yy]} stroke="#b45309" strokeWidth={1} />;
       })}
-      <Line points={[x + w * 0.5, y + 4, x + w * 0.5, y + h - 4]} stroke="#b45309" strokeWidth={0.8} opacity={0.4} />
+      <Line points={[cx, tailY, cx, tipY]} stroke="#92400e" strokeWidth={2} lineCap="round" opacity={0.85} listening={false} />
+      <Line points={[cx - headSize, tipY + headSize, cx, tipY, cx + headSize, tipY + headSize]}
+        stroke="#92400e" strokeWidth={2} lineCap="round" lineJoin="round" opacity={0.85} listening={false} />
     </Group>
   );
 }

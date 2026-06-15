@@ -32,16 +32,16 @@ export type SmartGuide =
   | { type: 'horizontal'; y: number };
 
 export const DEFAULT_OBJECT_SIZES = {
-  room:           { width: 300, height: 200 },
+  room:           { width: 400, height: 300 },
   wall:           { width: 120, height: WALL_THICKNESS },
   door:           { width: 80,  height: WALL_THICKNESS },
   window:         { width: 90,  height: WALL_THICKNESS },
   entrance:       { width: 120, height: WALL_THICKNESS },
   shelf:          { width: 90,  height: 30 },
-  rack:           { width: 90,  height: 40 },
-  restroom:       { width: 150, height: 150 },
-  stairs:         { width: 120, height: 240 },
-  elevator:       { width: 110, height: 140 },
+  rack:           { width: 120, height: 60 },
+  restroom:       { width: 180, height: 180 },
+  stairs:         { width: 120, height: 300 },
+  elevator:       { width: 160, height: 150 },
   column:         { width: 30,  height: 30 },
   'work-surface': { width: 160, height: 80 },
   chair:          { width: 50,  height: 50 },

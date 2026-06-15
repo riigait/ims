@@ -176,7 +176,8 @@ export default function FloorPlanEditor() {
   } = useFloorPlanStore();
 
   const isFinalized = !!currentFloorPlan?.isApproved;
-  const isReadOnly = user.role === 'staff' || isFinalized;
+  const isAdmin = user.role === 'superadmin' || user.role === 'admin';
+  const isReadOnly = user.role === 'staff' || (isFinalized && !isAdmin);
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -3166,6 +3167,53 @@ export default function FloorPlanEditor() {
     const fontSize = Math.min(10, Math.max(7, rect.height / 5));
     const labelY = showIcon ? iconY + iconSize + 2 : rectCy - fontSize / 2;
 
+    // Stair symbol: step bands + arrow, consistent with bird's-eye view.
+    if (typeKey === 'stairs') {
+      const sx = rect.x, sy = rect.y, sw = rect.width, sh = rect.height;
+      const scx = sx + sw / 2;
+      const steps = Math.max(3, Math.min(8, Math.floor(sh / 14)));
+      const arrowLen   = Math.min(sh * 0.38, sw * 0.38, 22);
+      const headSize   = Math.max(3, arrowLen * 0.32);
+      const tipY       = sy + sh * 0.18;
+      const tailY      = tipY + arrowLen;
+      const arrowColor = isSelected ? '#1e40af' : '#92400e';
+      const strokeCol  = isSelected ? '#2563eb' : '#b45309';
+      return (
+        <Group key={obj.id}>
+          <Group x={rectCx} y={rectCy} offsetX={rectCx} offsetY={rectCy} rotation={(rect.rotation ?? 0) * 180 / Math.PI}>
+            {/* Step bands */}
+            {Array.from({ length: steps }, (_, i) => {
+              const yy = sy + (i / steps) * sh;
+              const bh = sh / steps;
+              const bright = 1 - (i / Math.max(steps - 1, 1)) * 0.35;
+              const r = Math.round(240 * bright), g = Math.round(200 * bright), b = Math.round(120 * bright);
+              return <KonvaRect key={i} x={sx} y={yy} width={sw} height={bh} fill={`rgb(${r},${g},${b})`} strokeEnabled={false} />;
+            })}
+            {/* Tread lines */}
+            {Array.from({ length: steps - 1 }, (_, i) => {
+              const yy = sy + ((i + 1) / steps) * sh;
+              return <Line key={i} points={[sx + sw * 0.05, yy, sx + sw * 0.95, yy]} stroke={strokeCol} strokeWidth={1} opacity={0.6} />;
+            })}
+            {/* Border */}
+            <KonvaRect x={sx} y={sy} width={sw} height={sh} fill="transparent" stroke={strokeCol} strokeWidth={isSelected ? 2.5 : 1.5} />
+            {/* Up arrow */}
+            <Line points={[scx, tailY, scx, tipY]} stroke={arrowColor} strokeWidth={2} lineCap="round" opacity={0.9} />
+            <Line points={[scx - headSize, tipY + headSize, scx, tipY, scx + headSize, tipY + headSize]}
+              stroke={arrowColor} strokeWidth={2} lineCap="round" lineJoin="round" opacity={0.9} />
+            {/* Label */}
+            {sh >= 28 && (
+              <KonvaText x={sx + 2} y={sy + sh - fontSize - 3} width={Math.max(10, sw - 4)}
+                text="Stairs" align="center" fontSize={fontSize} fill={arrowColor} />
+            )}
+            {linkedId && sw > 30 && sh > 20 && (
+              <Circle x={sx + sw - 9} y={sy + 9} radius={5} fill={colors.badge} />
+            )}
+          </Group>
+          {isSelected && !isFixedFloorObject(obj) && renderResizeHandles(rect)}
+        </Group>
+      );
+    }
+
     return (
       <Group key={obj.id}>
       <Group x={rectCx} y={rectCy} offsetX={rectCx} offsetY={rectCy} rotation={(rect.rotation ?? 0) * 180 / Math.PI}>
@@ -3604,7 +3652,13 @@ export default function FloorPlanEditor() {
             </button>
           </div>
         )}
-        {isFinalized && (
+        {isFinalized && isAdmin && (
+          <span className="text-xs font-medium text-amber-800 bg-amber-50 border border-amber-300 px-3 py-2 rounded-lg flex items-center gap-1.5">
+            <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+            Finalized — admin editable
+          </span>
+        )}
+        {isFinalized && !isAdmin && (
           <span className="text-xs font-medium text-blue-800 bg-blue-100 border border-blue-300 px-3 py-2 rounded-lg flex items-center gap-1.5">
             <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
             Finalized — view only
@@ -4207,15 +4261,15 @@ export default function FloorPlanEditor() {
 
                 {/* Rect: width + height (rack / shelf only) */}
                 {(selectedObject.type === 'rack' || selectedObject.type === 'shelf') && (() => {
-                  const rect = selectedObject as RectangleObject;
-                  const ppm = currentFloorPlan?.scale?.pixelsPerMeter ?? 50;
+                   const rect = selectedObject as RectangleObject;
+                   const ppm = currentFloorPlan?.scale?.pixelsPerMeter ?? 50;
                   const planW = currentFloorPlan?.width || 800;
                   const planH = currentFloorPlan?.height || 600;
                   const wm = (rect.width / ppm).toFixed(1);
                   const hm = (rect.height / ppm).toFixed(1);
-                  const wFrac = rect.width / planW;
-                  const hFrac = rect.height / planH;
-                  const minFrac = Math.min(wFrac, hFrac);
+                   const wFrac = rect.width / planW;
+                   const hFrac = rect.height / planH;
+                   const minFrac = Math.min(wFrac, hFrac);
                   // Mirrors Building2D's iso projection (480px footprint, 2.8:1.4
                   // tile): a plan-dimension fraction projects to ≈ frac × 751 px.
                   // Below ~16px the iso view auto-boosts the footprint, so nothing
@@ -4248,9 +4302,9 @@ export default function FloorPlanEditor() {
                       </div>
                     </div>
                     <div className="px-2.5 py-2 rounded bg-[var(--surface-2)] border border-[var(--border)] text-xs space-y-0.5">
-                      <div className="text-[var(--text-muted)]">
-                        Real size: <span className="font-semibold text-[var(--text)]">{wm} m × {hm} m</span>
-                      </div>
+                       <div className="text-[var(--text-muted)]">
+                         Real size: <span className="font-semibold text-[var(--text)]">{wm} m × {hm} m</span>
+                       </div>
                       <div className={`font-medium ${visColor}`}>{visLabel}</div>
                     </div>
                     <div>
