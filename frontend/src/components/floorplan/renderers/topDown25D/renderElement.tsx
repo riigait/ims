@@ -69,8 +69,9 @@ export function renderTopDown25DElement(element: FloorplanElement, isDark = fals
     case 'room': result = renderRoom(element, isDark); break;
     case 'outdoor_wall':
     case 'indoor_wall': result = renderWall(element, isDark); break;
-    case 'door': result = renderDoor(element, isDark); break;
-    case 'window': result = renderWindow(element, isDark); break;
+    // door/window embed their own rotation about their center — skip withRotation below
+    case 'door': return renderDoor(element, isDark);
+    case 'window': return renderWindow(element, isDark);
     case 'bed': result = renderBed(element); break;
     case 'sofa': result = renderSofa(element); break;
     case 'rug': result = renderRug(element); break;

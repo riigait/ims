@@ -41,14 +41,18 @@ export function renderWall(element: FloorplanElement, isDark = false) {
 
 export function renderDoor(element: FloorplanElement, isDark = false) {
   const theme = getTopDown25DTheme(isDark);
-  const radius = Math.max(element.width, element.height);
+  const half = element.width / 2;
+  const swingRight = element.swingDirection !== 'left';
   return (
-    <Group x={element.x} y={element.y} listening={false}>
-      <Line points={[0, 0, radius, 0]} stroke={theme.doorPanel} strokeWidth={4} lineCap="round" />
+    <Group x={element.x} y={element.y} rotation={element.rotation ?? 0} listening={false}>
+      <Line points={[-half, 0, half, 0]} stroke={theme.doorPanel} strokeWidth={4} lineCap="round" />
       <Arc
-        innerRadius={radius - 1}
-        outerRadius={radius}
+        x={swingRight ? -half : half}
+        y={0}
+        innerRadius={half - 1}
+        outerRadius={half}
         angle={90}
+        rotation={swingRight ? 0 : 90}
         stroke={theme.doorArc}
         strokeWidth={1}
         opacity={0.7}
@@ -59,14 +63,15 @@ export function renderDoor(element: FloorplanElement, isDark = false) {
 
 export function renderWindow(element: FloorplanElement, isDark = false) {
   const theme = getTopDown25DTheme(isDark);
+  const half = element.width / 2;
   const thickness = Math.max(8, element.height);
   return (
-    <Group x={element.x} y={element.y} listening={false}>
-      <Rect width={element.width} height={thickness} fill={theme.windowFill} />
+    <Group x={element.x} y={element.y} rotation={element.rotation ?? 0} listening={false}>
+      <Rect x={-half} y={-thickness / 2} width={element.width} height={thickness} fill={theme.windowFill} />
       {[0.25, 0.5, 0.75].map((fraction) => (
         <Line
           key={`${element.id}-${fraction}`}
-          points={[0, thickness * fraction, element.width, thickness * fraction]}
+          points={[-half, -thickness / 2 + thickness * fraction, half, -thickness / 2 + thickness * fraction]}
           stroke={fraction === 0.5 ? theme.windowMain : theme.windowDetail}
           strokeWidth={fraction === 0.5 ? 1.6 : 1}
         />
