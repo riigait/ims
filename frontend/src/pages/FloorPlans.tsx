@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Plus, Trash2, MapPin, LayoutGrid, List, Edit, Sparkles, X, XCircle, RefreshCw, BookmarkCheck, ChevronDown, ChevronUp, Info, AlertTriangle, Layers, Lock, Map as MapIcon, Eye } from 'lucide-react';
 import BirdsEyeFloorplanRenderer from '@/components/floorplan/BirdsEyeFloorplanRenderer';
+import FloorPlanSketch25DView from '@/components/floorplan/FloorPlanSketch25DView';
 import { cozyBirdsEyeDemoFloorplan } from '@/types/birdsEye';
 import { floorPlanToBevData } from '@/utils/floorplanBevAdapter';
 import MapFootprintModal from '@/components/floorplan/MapFootprintModal';
@@ -729,7 +730,7 @@ export default function FloorPlans() {
   const [statusFilter, setStatusFilter] = useState<'all' | 'new' | 'unaligned' | 'aligned' | 'finalized'>('all');
   const [viewMode, setViewMode] = useState<'grid' | 'list' | 'birds-eye'>('grid');
   const [bevSelectedPlanId, setBevSelectedPlanId] = useState<string | 'demo' | null>('demo');
-  const [bevViewStyle, setBevViewStyle] = useState<'technical' | 'sketch'>('sketch');
+  const [bevViewStyle, setBevViewStyle] = useState<'technical' | 'sketch' | 'sketch25d'>('sketch');
   const [confirmingDeleteId, setConfirmingDeleteId] = useState<string | null>(null);
   const [confirmingDeleteSiblingsId, setConfirmingDeleteSiblingsId] = useState<string | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
@@ -2103,6 +2104,12 @@ export default function FloorPlans() {
                   Sketch
                 </button>
                 <button
+                  onClick={() => setBevViewStyle('sketch25d')}
+                  className={`flex-1 py-1.5 text-xs font-medium border-l border-[var(--border)] ${bevViewStyle === 'sketch25d' ? 'bg-[var(--primary)] text-white' : 'text-[var(--text-muted)] hover:bg-[var(--surface-2)]'}`}
+                >
+                  2.5D
+                </button>
+                <button
                   onClick={() => setBevViewStyle('technical')}
                   className={`flex-1 py-1.5 text-xs font-medium border-l border-[var(--border)] ${bevViewStyle === 'technical' ? 'bg-[var(--primary)] text-white' : 'text-[var(--text-muted)] hover:bg-[var(--surface-2)]'}`}
                 >
@@ -2130,14 +2137,34 @@ export default function FloorPlans() {
 
             {/* Renderer */}
             <div className="flex-1 min-w-0 bg-[var(--surface)] flex items-center justify-center overflow-hidden">
-              {bevData.elements.length === 0 ? (
+              {bevViewStyle === 'sketch25d' ? (() => {
+                const sketch25DObjects: FloorPlanObject[] = bevSelectedPlanId === 'demo' || !activePlan
+                  ? []
+                  : (activePlan.objects ?? []);
+                if (sketch25DObjects.length === 0) {
+                  return (
+                    <p className="text-sm text-[var(--text-muted)]">
+                      {bevSelectedPlanId === 'demo'
+                        ? 'Select a floor plan from the list to see the 2.5D sketch view.'
+                        : 'No floor plan data to display.'}
+                    </p>
+                  );
+                }
+                return (
+                  <FloorPlanSketch25DView
+                    objects={sketch25DObjects}
+                    planWidth={activePlan?.width}
+                    planHeight={activePlan?.height}
+                  />
+                );
+              })() : bevData.elements.length === 0 ? (
                 <p className="text-sm text-[var(--text-muted)]">
                   No floor plan data to display. Select a plan with objects loaded.
                 </p>
               ) : (
                 <BirdsEyeFloorplanRenderer
                   data={bevData}
-                  viewStyle={bevViewStyle}
+                  viewStyle={bevViewStyle as 'technical' | 'sketch'}
                 />
               )}
             </div>
