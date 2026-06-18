@@ -635,15 +635,6 @@ interface IsoCtx {
   labelFontSize: number;
   onHover:      HoverHandler;
   onHoverEnd:   () => void;
-  onObjectHover: (planId: string, objectId: string) => void;
-  onObjectHoverEnd: () => void;
-  // Dragging: starts a drag candidate for an inventory object. floorOx/floorOy
-  // are the floor's iso origin (already known at the call site), needed to
-  // convert pointer screen coords back into this floor's plan space.
-  onObjectPointerDown: (
-    plan: FloorPlan, rect: RectangleObject, floorOx: number, floorOy: number,
-    e: Konva.KonvaEventObject<MouseEvent>,
-  ) => void;
 }
 
 // ── Object visual config ──────────────────────────────────────────────────────
@@ -859,6 +850,22 @@ function isoPrismSilhouette(footprint: number[], height: number): number[] {
   points.reverse().forEach(append);
   half.pop();
   return [...lower, ...half].flatMap(point => point);
+}
+
+// Standard ray-casting point-in-polygon test against a flat [x0,y0,x1,y1,...]
+// points array (the same silhouette data used to draw the object), so the
+// manual hover/click scan (handleStageMouseMove/handleStageMouseUp) tests
+// hits against exactly what's on screen — mirrors pointInElementHitBox in
+// the Top-Down 2.5D view's TopDown25DFloorplanView.tsx.
+function pointInIsoPolygon(px: number, py: number, points: number[]): boolean {
+  let inside = false;
+  const count = points.length / 2;
+  for (let i = 0, j = count - 1; i < count; j = i++) {
+    const xi = points[i * 2], yi = points[i * 2 + 1];
+    const xj = points[j * 2], yj = points[j * 2 + 1];
+    if ((yi > py) !== (yj > py) && px < ((xj - xi) * (py - yi)) / (yj - yi) + xi) inside = !inside;
+  }
+  return inside;
 }
 
 interface IsoPrismProps {
@@ -1596,12 +1603,24 @@ type RQ = {
   // physical separation — e.g. a tall rack's top reaching over a low cabinet
   // beside it — before falling back to type priority/left-bias/depth.
   zTopScreen?: number; zBaseScreen?: number;
-  // Manual per-object stacking override — the object's index within
-  // plan.objects, exactly like the 2D editor's Bring to Front/Send to
-  // Back/Move Forward/Move Backward (floorPlanStore.ts). Wins over every
-  // automatic tie-break except hover, since the user explicitly chose it
-  // via the layer-order buttons.
-  arrayIndex?: number;
+  // Set only when the user explicitly used the layer-order buttons on this
+  // specific object (persisted as isoManualOrder). Undefined for every
+  // object that was never manually reordered, so the automatic
+  // height/priority/depth tiers below stay authoritative for them — this
+  // must NOT be the object's raw array position, or every pair of touching
+  // objects would resolve by array order instead of physics, which silently
+  // breaks hover/click for whichever one loses that comparison.
+  manualOrder?: number;
+  // Present only on furniture hit entries — lets the Stage-level manual
+  // hover/click scan reuse this exact sorted list instead of recomputing a
+  // second, separately-sorted hit-test (the previous source of hover/click
+  // disagreement). points is the same projected silhouette used to draw
+  // the object, so "what you see" and "what gets hit" can never diverge.
+  // Mirrors the 2.5D view: ONE function (the manual scan) resolves both
+  // hover and click, instead of relying on Konva's native per-shape
+  // mouseenter/mouseleave (unreliable for many overlapping rotated
+  // polygons) for hover while click goes through Konva's hit-graph.
+  hitTarget?: { plan: FloorPlan; rect: RectangleObject; floorOx: number; floorOy: number; points: number[] };
 };
 
 type IsoSortable = Omit<RQ, 'node'>;
@@ -1617,13 +1636,15 @@ function compareIsoRenderEntries(a: IsoSortable, b: IsoSortable): number {
   const colliding = a.visualBox && b.visualBox && aabbOverlap(a.visualBox, b.visualBox, 0);
   if (colliding) {
     if (a.hovered !== b.hovered) return a.hovered ? 1 : -1;
-    // Manual override wins over every automatic rule below — the user
-    // explicitly chose this object's stacking via the layer-order buttons,
-    // so it shouldn't be second-guessed by height/priority/depth
-    // heuristics. Later array index = drawn later = in front, exactly like
-    // the 2D editor's Bring to Front/Send to Back convention.
-    if (a.arrayIndex !== undefined && b.arrayIndex !== undefined && a.arrayIndex !== b.arrayIndex) {
-      return a.arrayIndex - b.arrayIndex;
+    // A manual layer-order choice on EITHER object wins outright — an
+    // object the user never reordered (manualOrder undefined) is treated as
+    // "behind" any object that was explicitly brought forward, and vice
+    // versa for Send to Back. Only fires when at least one side actually
+    // has a manual order; two untouched objects fall through unaffected.
+    if (a.manualOrder !== undefined || b.manualOrder !== undefined) {
+      const ao = a.manualOrder ?? -Infinity;
+      const bo = b.manualOrder ?? -Infinity;
+      if (ao !== bo) return ao - bo;
     }
     // Physical height separation beats type/left-bias/depth tie-breaks: if
     // one object's extrusion sits entirely above or below the other's on
@@ -1646,7 +1667,7 @@ function compareIsoRenderEntries(a: IsoSortable, b: IsoSortable): number {
   return a.depth - b.depth;
 }
 
-interface IsoFloorResult { visual: React.ReactNode; hit: React.ReactNode; }
+interface IsoFloorResult { visual: React.ReactNode; hitTargets: NonNullable<RQ['hitTarget']>[]; }
 
 function buildIsoFloorNodes(
   plan: FloorPlan,
@@ -1867,30 +1888,26 @@ function buildIsoFloorNodes(
     // top = highest point after extrusion. Smaller screen-y is higher up.
     const zBaseScreen = Math.max(...liftedFootprint.filter((_, index) => index % 2 === 1));
     const zTopScreen = Math.min(...silhouette.filter((_, index) => index % 2 === 1));
+    const manualOrder = rect.isoManualOrder;
 
     // Every iso object type is hit-testable now (drag + layer-order
     // selection apply uniformly, including chairs/stairs/elevators/
-    // restroom/human).
+    // restroom/human). No Konva listeners here — hover and click are both
+    // resolved by the Stage-level manual scan in handleStageMouseMove/
+    // handleStageMouseUp, against this exact sorted entry list, so they can
+    // never disagree about which object is "at" a point.
     objectHitEntries.push({
       depth, leftBiasKind, leftBiasScreenX, visualBox, renderPriority, hovered, zTopScreen, zBaseScreen,
-      arrayIndex: objArrayIndex,
+      manualOrder,
       id: rect.id,
-      node: (
-        <Line key={`object-hit-${plan.id}-${rect.id}`} closed
-          points={silhouette}
-          fill="rgba(0,0,0,0.001)" stroke="transparent" strokeWidth={0}
-          perfectDrawEnabled={false}
-          onMouseDown={e => ctx.onObjectPointerDown(plan, rect, ox, oy, e)}
-          onMouseEnter={() => ctx.onObjectHover(plan.id, rect.id)}
-          onMouseLeave={() => ctx.onObjectHoverEnd()}
-        />
-      ),
+      hitTarget: { plan, rect, floorOx: ox, floorOy: oy, points: silhouette },
+      node: null,
     });
     // Contact shadow along the base front edges (bl → br → tr)
 
     queue.push({
       depth, leftBiasKind, leftBiasScreenX, visualBox, renderPriority, hovered, zTopScreen, zBaseScreen,
-      arrayIndex: objArrayIndex,
+      manualOrder,
       id: rect.id,
       node: (
         <IsoObjectShape key={`obj-${plan.id}-${rect.id}`} planId={plan.id} object={rect}
@@ -2080,7 +2097,6 @@ function buildIsoFloorNodes(
   // draws in front is also the one that receives hover/click.
   queue.sort(compareIsoRenderEntries);
   objectHitEntries.sort(compareIsoRenderEntries);
-  const objectHits = objectHitEntries.map(entry => entry.node);
 
   // ── Assemble visual + hit nodes separately ────────────────────────────────
   const labelColor = ctx.isDark
@@ -2150,26 +2166,21 @@ function buildIsoFloorNodes(
     </Group>
   );
 
-  // Invisible hit polygon — full rectangular footprint, always same size per
-  // floor. Clicking the bare floor (not an object) is a no-op: the
-  // isometric view no longer redirects anywhere on click — Edit mode
-  // selection/drag/layer-order is the only way to interact with objects.
-  const hit = (
-    <Group key={`floor-hit-${plan.id}`}>
-      <Line closed points={footprintPts}
-        fill="rgba(0,0,0,0.001)" stroke="transparent" strokeWidth={0}
-        perfectDrawEnabled={false}
-      />
-      {objectHits}
-    </Group>
-  );
+  // Sorted, front-to-back-resolved hit targets for this floor's furniture —
+  // consumed by the Stage-level manual scan (getIsoObjectAtPoint) for BOTH
+  // hover and click, mirroring the Top-Down 2.5D view's proven single-scan
+  // architecture instead of relying on Konva's native per-shape hover
+  // events (unreliable across many overlapping rotated polygons).
+  const hitTargets = objectHitEntries
+    .map(entry => entry.hitTarget)
+    .filter((t): t is NonNullable<RQ['hitTarget']> => t !== undefined);
 
-  return { visual, hit };
+  return { visual, hitTargets };
 }
 
 interface IsoBuildingNodes {
   visuals: React.ReactNode[];
-  hits: React.ReactNode[];    // hit shapes — rendered in reverse order in hit layer
+  hitTargets: NonNullable<RQ['hitTarget']>[];
 }
 
 function buildIsoBuilding(
@@ -2196,7 +2207,7 @@ function buildIsoBuilding(
   const sharedSize = frame.size;
 
   const visuals: React.ReactNode[] = [];
-  const hits: React.ReactNode[] = [];
+  const hitTargets: NonNullable<RQ['hitTarget']>[] = [];
 
   for (const plan of sorted) {
     const fn = plan.floorNumber ?? 1;
@@ -2214,9 +2225,9 @@ function buildIsoBuilding(
       showObjects = true;
     }
 
-    const { visual, hit } = buildIsoFloorNodes(plan, origin.originX, origin.originY, ctx, floorAlpha, showObjects, sharedSize);
+    const { visual, hitTargets: floorHitTargets } = buildIsoFloorNodes(plan, origin.originX, origin.originY, ctx, floorAlpha, showObjects, sharedSize);
     visuals.push(visual);
-    hits.push(hit);
+    hitTargets.push(...floorHitTargets);
   }
 
   // Building label — centred on the bottom tip of the iso diamond
@@ -2231,7 +2242,7 @@ function buildIsoBuilding(
     />
   );
 
-  return { visuals, hits };
+  return { visuals, hitTargets };
 }
 
 
@@ -2275,6 +2286,8 @@ export default function Building2D() {
   // Selected object in Edit mode — drives the small Front/Back/Auto control.
   // Click-to-select only (drag still repositions); cleared on edit-mode exit.
   const [selectedIsoObject, setSelectedIsoObject] = useState<IsoObjectHover | null>(null);
+  // Free-typed value for the layer-jump number input in the Edit-mode popup.
+  const [layerJumpInput, setLayerJumpInput] = useState('');
   const [scale, setScale]             = useState(1);
   const [stageSize, setStageSize]     = useState({ w: 800, h: 600 });
   const [isoFloorFilter, setIsoFloorFilter] = useState<number | null>(null); // null = all
@@ -2358,13 +2371,6 @@ export default function Building2D() {
     setHoveredId(null);
     setHoveredFloor(null);
     document.body.style.cursor = 'default';
-  }, []);
-
-  const handleObjectHover = useCallback((planId: string, objectId: string) => {
-    setHoveredObject(prev =>
-      prev?.planId === planId && prev?.objectId === objectId ? prev : { planId, objectId }
-    );
-    document.body.style.cursor = 'pointer';
   }, []);
 
   const handleObjectHoverEnd = useCallback(() => {
@@ -2662,16 +2668,70 @@ export default function Building2D() {
 
   const DRAG_THRESHOLD_PX = 5;
 
-  const handleObjectPointerDown = useCallback((
-    plan: FloorPlan, rect: RectangleObject, floorOx: number, floorOy: number,
-    e: Konva.KonvaEventObject<MouseEvent>,
-  ) => {
+  const isoStaticResult = useMemo(() => {
+    const staticCtx: IsoCtx = {
+      hoveredId: null, hoveredFloor: null, hoveredObjectId: null,
+      isoMode, isDark, labelFontSize,
+      onHover: handleHover, onHoverEnd: handleHoverEnd,
+    };
+
+    const allVisuals: React.ReactNode[] = [];
+    let allHitTargets: NonNullable<RQ['hitTarget']>[] = [];
+
+    if (focusedIsoBuilding) {
+      const { visuals, hitTargets } = buildIsoBuilding(
+        focusedIsoBuilding, 0, 1, centerX, baseY, staticCtx, isoFloorFilter
+      );
+      allVisuals.push(...visuals);
+      allHitTargets = hitTargets;
+    }
+
+    // Front-most object should be checked FIRST by the manual point scan —
+    // hitTargets came out sorted back-to-front (same order they're drawn),
+    // so reverse for hit-testing, matching the 2.5D view's hitElements.
+    allHitTargets.reverse();
+    return { allVisuals, allHitTargets };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusedIsoBuilding, isoMode, isDark, labelFontSize, centerX, baseY, isoFloorFilter,
+      handleHover, handleHoverEnd]);
+
+  // stage.getPointerPosition() returns RAW container-pixel coordinates —
+  // it does NOT divide out the Stage's own scaleX/scaleY/x/y (the zoom/pan
+  // transform applied via <Stage scaleX={scale} ...>). The silhouette
+  // points used for hit-testing are in pre-scale Stage-local units, so at
+  // any zoom other than 1.0 a raw pointer position no longer lines up with
+  // them — this was the exact cause of hover drifting off objects when
+  // zoomed. getRelativePointerPosition() applies the Stage's own inverse
+  // transform first, matching Konva's documented approach for this case.
+  const getIsoStagePoint = useCallback((stage: Konva.Stage | null) => {
+    return stage?.getRelativePointerPosition() ?? null;
+  }, []);
+
+  // Single source of truth for "what object is at this Stage-local point",
+  // used by BOTH hover and click/drag-start below — mirrors the Top-Down
+  // 2.5D view's getElementAtPoint, which is exactly why that view's hover
+  // never disagrees with its click. isoStaticResult.allHitTargets is
+  // already sorted front-to-back (reversed from draw order) so the first
+  // match is the visually front-most object.
+  const getIsoObjectAtPoint = useCallback((x: number, y: number) => {
+    for (const target of isoStaticResult.allHitTargets) {
+      if (pointInIsoPolygon(x, y, target.points)) return target;
+    }
+    return null;
+  }, [isoStaticResult]);
+
+  const handleStageMouseDown = useCallback((e: Konva.KonvaEventObject<MouseEvent>) => {
+    if (viewMode !== 'isometric') return;
+    const stage = e.target.getStage();
+    const pos = getIsoStagePoint(stage);
+    if (!pos) return;
+    const target = getIsoObjectAtPoint(pos.x, pos.y);
+    if (!target) return;
+
+    const { plan, rect, floorOx, floorOy } = target;
     const canSelect = isoEditMode && !isPlanReadOnly(plan);
     const canDrag = canSelect && isoMode === 'single';
     if (canDrag) e.cancelBubble = true; // stop the Stage's own pan-drag from also starting
-    const stage = e.target.getStage();
-    const pos = stage?.getPointerPosition();
-    if (!pos) return;
     const size = isoSharedSize ?? { planW: 800, planH: 600 };
     const [cursorWx, cursorWy] = fromIso(pos.x - floorOx, pos.y - floorOy, size.planW, size.planH);
     const objectCenterX = rect.x + rect.width / 2;
@@ -2685,19 +2745,25 @@ export default function Building2D() {
       canDrag,
       canSelect,
     };
-  }, [isoEditMode, isoMode, isoSharedSize, isPlanReadOnly]);
+  }, [viewMode, getIsoStagePoint, getIsoObjectAtPoint, isoEditMode, isoMode, isoSharedSize, isPlanReadOnly]);
 
-  // Hover is driven entirely by the hit-line's own onMouseEnter/onMouseLeave
-  // (wired in buildIsoFloorNodes via ctx.onObjectHover/onObjectHoverEnd) —
-  // the exact same Konva shape that receives the click, so hover and click
-  // can never disagree about which object is "at" a point. This handler
-  // only needs to drive the drag-in-progress preview now.
   const handleStageMouseMove = useCallback((e: Konva.KonvaEventObject<MouseEvent>) => {
     const stage = e.target.getStage();
     const candidate = dragCandidateRef.current;
-    if (!candidate || !candidate.canDrag) return;
-    const pos = stage?.getPointerPosition();
-    if (!pos) return;
+    const pos = getIsoStagePoint(stage);
+
+    // Hover: same manual scan as click, run on every move while not
+    // mid-drag, so hover and click can never point at different objects.
+    if (viewMode === 'isometric' && !candidate?.isDragging) {
+      const target = pos ? getIsoObjectAtPoint(pos.x, pos.y) : null;
+      const nextHover = target ? { planId: target.plan.id, objectId: target.rect.id } : null;
+      setHoveredObject(prev =>
+        prev?.planId === nextHover?.planId && prev?.objectId === nextHover?.objectId ? prev : nextHover
+      );
+      document.body.style.cursor = target ? 'pointer' : 'default';
+    }
+
+    if (!candidate || !candidate.canDrag || !pos) return;
 
     if (!candidate.isDragging) {
       const dx = pos.x - candidate.startScreenX;
@@ -2721,7 +2787,7 @@ export default function Building2D() {
       wx: newCenterX - candidate.rect.width / 2,
       wy: newCenterY - candidate.rect.height / 2,
     });
-  }, [isoSharedSize]);
+  }, [viewMode, getIsoStagePoint, getIsoObjectAtPoint, isoSharedSize]);
 
   const handleStageMouseUp = useCallback(() => {
     const candidate = dragCandidateRef.current;
@@ -2739,6 +2805,7 @@ export default function Building2D() {
             ? null // clicking the already-selected object again deselects it
             : { planId: candidate.plan.id, objectId: candidate.rect.id }
         );
+        setLayerJumpInput('');
       }
       dragCandidateRef.current = null;
       setIsObjectDragActive(false);
@@ -2787,7 +2854,12 @@ export default function Building2D() {
       if (idx === -1) return plan;
       const reordered = reorder(previousObjects, idx);
       if (!reordered) return plan; // already at that end — no-op
-      const updatedPlan = { ...plan, objects: reordered };
+      // Stamp isoManualOrder on every object in its NEW array position, so
+      // the isometric depth-sort comparator's manual-override tier matches
+      // this exact reorder — using only the moved object's own index would
+      // leave its previous neighbors' relative order ambiguous against it.
+      const stamped = reordered.map((o, i) => ({ ...o, isoManualOrder: i }));
+      const updatedPlan = { ...plan, objects: stamped };
       floorPlansApi.update(planId, { ...updatedPlan }).catch(() => {
         setAllPlans(p => p.map(pl => pl.id === planId ? { ...pl, objects: previousObjects } : pl));
         setDragError('Failed to save the stacking change — change reverted.');
@@ -2833,32 +2905,17 @@ export default function Building2D() {
     });
   }, [reorderIsoObject]);
 
-  const isoStaticResult = useMemo(() => {
-    const staticCtx: IsoCtx = {
-      hoveredId: null, hoveredFloor: null, hoveredObjectId: null,
-      isoMode, isDark, labelFontSize,
-      onHover: handleHover, onHoverEnd: handleHoverEnd,
-      onObjectHover: handleObjectHover, onObjectHoverEnd: handleObjectHoverEnd,
-      onObjectPointerDown: handleObjectPointerDown,
-    };
-
-    const allVisuals: React.ReactNode[] = [];
-    const allHits: React.ReactNode[] = [];
-
-    if (focusedIsoBuilding) {
-      const { visuals, hits } = buildIsoBuilding(
-        focusedIsoBuilding, 0, 1, centerX, baseY, staticCtx, isoFloorFilter
-      );
-      allVisuals.push(...visuals);
-      allHits.push(...hits);
-    }
-
-    allHits.reverse();
-    return { allVisuals, allHits };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [focusedIsoBuilding, isoMode, isDark, labelFontSize, centerX, baseY, isoFloorFilter,
-      handleHover, handleHoverEnd, handleObjectHover, handleObjectHoverEnd,
-      handleObjectPointerDown]);
+  // Jump straight to a 1-based layer position (the popup's numeric input),
+  // instead of clicking Forward/Backward repeatedly.
+  const handleMoveToLayer = useCallback((planId: string, objectId: string, targetLayer1Based: number) => {
+    reorderIsoObject(planId, objectId, (objs, idx) => {
+      const targetIdx = Math.max(0, Math.min(objs.length - 1, Math.round(targetLayer1Based) - 1));
+      if (targetIdx === idx) return null;
+      const reordered = [...objs];
+      reordered.splice(targetIdx, 0, reordered.splice(idx, 1)[0]);
+      return reordered;
+    });
+  }, [reorderIsoObject]);
 
   // Hover overlay — lightweight: just a lifted floor highlight and object glow.
   // Recomputes on hover change but touches nothing in the static geometry.
@@ -2973,11 +3030,10 @@ export default function Building2D() {
           {isoHoverOverlay}
         </Layer>
       )}
-      {/* Hit layer — invisible polygons only, always on top */}
-      <Layer>
-        {isoStaticResult.allHits}
-      </Layer>
-      {/* Drag preview — above the hit layer so it occludes the stale original */}
+      {/* No separate hit layer — hover/click are resolved by a manual scan
+          against isoStaticResult.allHitTargets (see handleStageMouseMove/
+          handleStageMouseUp), mirroring the Top-Down 2.5D view. */}
+      {/* Drag preview — above the static layer so it occludes the stale original */}
       {dragPreviewNode && (
         <Layer listening={false}>
           {dragPreviewNode}
@@ -3085,7 +3141,7 @@ export default function Building2D() {
           {/* Edit toggle — isometric only; enables dragging objects to reposition them */}
           {viewMode === 'isometric' && (
             <button
-              onClick={() => { setIsoEditMode(v => !v); setSelectedIsoObject(null); }}
+              onClick={() => { setIsoEditMode(v => !v); setSelectedIsoObject(null); setLayerJumpInput(''); }}
               title={isoEditMode ? 'Exit edit mode' : 'Edit mode: drag objects to reposition them'}
               className={`px-3 py-1.5 rounded border text-xs font-medium flex items-center gap-1.5 ${isoEditMode ? 'bg-[var(--primary)] text-white border-[var(--primary)]' : 'border-[var(--border)] text-[var(--text-muted)] hover:bg-[var(--surface-2)]'}`}
             >
@@ -3239,10 +3295,49 @@ export default function Building2D() {
                   <span className="text-[9px]">Front</span>
                 </button>
               </div>
+              <div className="flex items-center gap-1 border-l border-[var(--border)] pl-2">
+                <input
+                  type="number"
+                  min={1}
+                  max={total}
+                  placeholder={`${index + 1}`}
+                  value={layerJumpInput}
+                  onChange={e => setLayerJumpInput(e.target.value)}
+                  onKeyDown={e => {
+                    if (e.key !== 'Enter') return;
+                    const n = parseInt(layerJumpInput, 10);
+                    if (Number.isFinite(n)) handleMoveToLayer(selectedPlan.id, selectedRect.id, n);
+                    setLayerJumpInput('');
+                  }}
+                  title={`Jump to layer (1-${total})`}
+                  className="w-12 px-1.5 py-1 border border-[var(--border)] rounded text-[var(--text)] bg-[var(--surface)]"
+                />
+                <button
+                  className="px-2 py-1 border border-[var(--border)] rounded text-[var(--text-muted)] hover:bg-[var(--surface-2)] disabled:opacity-30 disabled:cursor-not-allowed"
+                  title="Go to layer"
+                  disabled={!layerJumpInput}
+                  onClick={() => {
+                    const n = parseInt(layerJumpInput, 10);
+                    if (Number.isFinite(n)) handleMoveToLayer(selectedPlan.id, selectedRect.id, n);
+                    setLayerJumpInput('');
+                  }}
+                >
+                  Go
+                </button>
+                {[20, 50, 100].filter(n => n <= total).map(n => (
+                  <button key={n}
+                    className="px-1.5 py-1 border border-[var(--border)] rounded text-[var(--text-muted)] hover:bg-[var(--surface-2)]"
+                    title={`Jump to layer ${n}`}
+                    onClick={() => handleMoveToLayer(selectedPlan.id, selectedRect.id, n)}
+                  >
+                    {n}
+                  </button>
+                ))}
+              </div>
               <button
                 className="text-[var(--text-muted)] hover:text-[var(--text)] px-1"
                 title="Deselect"
-                onClick={() => setSelectedIsoObject(null)}
+                onClick={() => { setSelectedIsoObject(null); setLayerJumpInput(''); }}
               >
                 ✕
               </button>
@@ -3275,6 +3370,7 @@ export default function Building2D() {
             scaleX={scale}
             scaleY={scale}
             draggable={!isObjectDragActive}
+            onMouseDown={handleStageMouseDown}
             onMouseMove={handleStageMouseMove}
             onMouseUp={handleStageMouseUp}
             onMouseLeave={() => {

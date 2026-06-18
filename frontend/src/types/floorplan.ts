@@ -18,6 +18,14 @@ export interface BaseFloorPlanObject {
   notes?: string;
   linkedLocationId?: string;
   groupId?: string;
+  /**
+   * Set only when the user explicitly uses the isometric view's layer-order
+   * buttons (Bring to Front/Send to Back/etc). Higher = drawn later = more
+   * "front". Unset objects are never compared on this field — they fall
+   * through to the automatic depth/height/priority sort, which must stay
+   * authoritative for every object the user never manually reordered.
+   */
+  isoManualOrder?: number;
   meta?: {
     sourceFloorId?: string;
     alignmentApplied?: boolean;
