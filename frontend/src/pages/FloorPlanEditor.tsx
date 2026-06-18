@@ -53,6 +53,11 @@ const STATUS_COLORS: Record<StockStatus, { fill: string; stroke: string; badge: 
   unlinked: { fill: 'rgba(209,213,219,0.2)',  stroke: '#9ca3af', badge: '#9ca3af' },
 };
 
+const HOVER_HITBOX_STROKE = '#38bdf8';
+const HOVER_HITBOX_FILL = 'rgba(14, 165, 233, 0.10)';
+const DELETE_HOVER_HITBOX_STROKE = '#fb923c';
+const DELETE_HOVER_HITBOX_FILL = 'rgba(251, 146, 60, 0.12)';
+
 function getDoorClearanceBounds(door: DoorObject | EntranceObject) {
   const halfWidth = door.width / 2;
   const halfDepth = 46;
@@ -235,6 +240,7 @@ export default function FloorPlanEditor() {
   const [isSelectingRect, setIsSelectingRect] = useState(false);
   const [selectRectStart, setSelectRectStart] = useState<{ x: number; y: number } | null>(null);
   const [selectRectEnd, setSelectRectEnd] = useState<{ x: number; y: number } | null>(null);
+  const [hoveredObjectId, setHoveredObjectId] = useState<string | null>(null);
 
   // Wall merge mode
   const [wallMergeMode, setWallMergeMode] = useState(false);
@@ -272,6 +278,12 @@ export default function FloorPlanEditor() {
     };
     init();
   }, [id]);
+
+  useEffect(() => {
+    if (editorState.tool !== 'select' && editorState.tool !== 'delete') {
+      setHoveredObjectId(null);
+    }
+  }, [editorState.tool]);
 
   useEffect(() => {
     if (!currentFloorPlan?.objects) return;
@@ -2028,6 +2040,7 @@ export default function FloorPlanEditor() {
       e.preventDefault();
       hasUserPannedRef.current = true;
       (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+      setHoveredObjectId(null);
       setIsPanning(true);
       setPanStart({ x: e.clientX, y: e.clientY, panX: editorState.panX, panY: editorState.panY });
       return;
@@ -2035,6 +2048,7 @@ export default function FloorPlanEditor() {
 
     const pos = canvasToWorld(e.clientX, e.clientY);
     setSmartGuides([]);
+    setHoveredObjectId(null);
 
     // For read-only mode, only allow viewing objects (no editing)
     if (isReadOnly) {
@@ -2289,10 +2303,23 @@ export default function FloorPlanEditor() {
       const dx = e.clientX - panStart.x;
       const dy = e.clientY - panStart.y;
       setPan(panStart.panX + dx, panStart.panY + dy);
+      setHoveredObjectId(null);
       return;
     }
 
     const pos = canvasToWorld(e.clientX, e.clientY);
+    const shouldTrackObjectHover = (editorState.tool === 'select' || editorState.tool === 'delete')
+      && !isPanning
+      && !isDragging
+      && !isResizing
+      && !isRotating
+      && !isGroupRotating
+      && !wallEndpointDragging
+      && !isSelectingRect
+      && !wallMergeMode
+      && !startPos;
+
+    setHoveredObjectId(shouldTrackObjectHover ? getObjectAtPoint(pos.x, pos.y) : null);
 
     // No dragging/resizing in read-only mode
     if (isReadOnly) {
@@ -2758,6 +2785,7 @@ export default function FloorPlanEditor() {
     if (isDragging) return 'cursor-grabbing';
     if (editorState.tool === 'select' && resizeHandle === 'rotate') return 'cursor-crosshair';
     if (editorState.tool === 'select' && resizeHandle) return getResizeCursor();
+    if (editorState.tool === 'select' && hoveredObjectId) return 'cursor-pointer';
     if (editorState.tool === 'select') return 'cursor-default';
     if (editorState.tool === 'delete') return 'cursor-pointer';
     return 'cursor-crosshair';
@@ -3256,6 +3284,153 @@ export default function FloorPlanEditor() {
         )}
       </Group>
       {isSelected && !isFixedFloorObject(obj) && renderResizeHandles(rect)}
+      </Group>
+    );
+  };
+
+  const renderHoverHitbox = () => {
+    if (!currentFloorPlan || !hoveredObjectId) return null;
+    if (isDragging || isResizing || isRotating || isGroupRotating || wallEndpointDragging || isSelectingRect) return null;
+
+    const obj = currentFloorPlan.objects.find(o => o.id === hoveredObjectId);
+    if (!obj) return null;
+    if (editorState.tool !== 'delete' && selectedObjectIds.includes(obj.id)) return null;
+
+    const stroke = editorState.tool === 'delete' ? DELETE_HOVER_HITBOX_STROKE : HOVER_HITBOX_STROKE;
+    const fill = editorState.tool === 'delete' ? DELETE_HOVER_HITBOX_FILL : HOVER_HITBOX_FILL;
+    const outlineProps = {
+      stroke,
+      strokeWidth: 2,
+      dash: [6, 4],
+      shadowColor: stroke,
+      shadowBlur: 8,
+      shadowOpacity: 0.28,
+    };
+
+    if (obj.type === 'wall') {
+      const wall = obj as WallObject;
+      return (
+        <Group key={`hover-hitbox-${obj.id}`} listening={false}>
+          <Line
+            points={[wall.startX, wall.startY, wall.endX, wall.endY]}
+            stroke={stroke}
+            strokeWidth={wall.thickness + 10}
+            opacity={0.14}
+            lineCap="round"
+          />
+          <Line
+            points={[wall.startX, wall.startY, wall.endX, wall.endY]}
+            {...outlineProps}
+            lineCap="round"
+          />
+        </Group>
+      );
+    }
+
+    if (obj.type === 'room') {
+      const room = obj as PolygonRoomObject;
+      return (
+        <Line
+          key={`hover-hitbox-${obj.id}`}
+          points={room.points}
+          closed
+          fill={fill}
+          {...outlineProps}
+          listening={false}
+        />
+      );
+    }
+
+    if (obj.type === 'label') {
+      const label = obj as LabelObject;
+      const textWidth = Math.max(12, label.text.length * (label.fontSize * 0.6));
+      return (
+        <KonvaRect
+          key={`hover-hitbox-${obj.id}`}
+          x={label.x - 5}
+          y={label.y - label.fontSize}
+          width={textWidth + 5}
+          height={label.fontSize + 5}
+          fill={fill}
+          cornerRadius={3}
+          {...outlineProps}
+          listening={false}
+        />
+      );
+    }
+
+    if (obj.type === 'door' || obj.type === 'window') {
+      const opening = obj as DoorObject | WindowObject;
+      const tolerance = Math.max(20, opening.width / 2 + 10);
+      return (
+        <Circle
+          key={`hover-hitbox-${obj.id}`}
+          x={opening.x}
+          y={opening.y}
+          radius={tolerance}
+          fill={fill}
+          {...outlineProps}
+          listening={false}
+        />
+      );
+    }
+
+    if (obj.type === 'entrance') {
+      const entrance = obj as EntranceObject;
+      const tolerance = Math.max(25, entrance.width / 2 + 15);
+      return (
+        <Circle
+          key={`hover-hitbox-${obj.id}`}
+          x={entrance.x}
+          y={entrance.y}
+          radius={tolerance}
+          fill={fill}
+          {...outlineProps}
+          listening={false}
+        />
+      );
+    }
+
+    if (obj.type === 'marker') {
+      const marker = obj as InventoryMarkerObject;
+      return (
+        <KonvaRect
+          key={`hover-hitbox-${obj.id}`}
+          x={marker.x - 10}
+          y={marker.y - 10}
+          width={20}
+          height={20}
+          fill={fill}
+          cornerRadius={10}
+          {...outlineProps}
+          listening={false}
+        />
+      );
+    }
+
+    const rect = obj as RectangleObject;
+    const pad = 4;
+    const rectCx = rect.x + rect.width / 2;
+    const rectCy = rect.y + rect.height / 2;
+    return (
+      <Group
+        key={`hover-hitbox-${obj.id}`}
+        x={rectCx}
+        y={rectCy}
+        offsetX={rectCx}
+        offsetY={rectCy}
+        rotation={deg(rect.rotation ?? 0)}
+        listening={false}
+      >
+        <KonvaRect
+          x={rect.x - pad}
+          y={rect.y - pad}
+          width={rect.width + pad * 2}
+          height={rect.height + pad * 2}
+          fill={fill}
+          cornerRadius={4}
+          {...outlineProps}
+        />
       </Group>
     );
   };
@@ -3763,6 +3938,7 @@ export default function FloorPlanEditor() {
             onAuxClick={e => e.preventDefault()}
             onContextMenu={e => e.preventDefault()}
             onPointerLeave={(e) => {
+              setHoveredObjectId(null);
               try { (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId); } catch { /* ignore */ }
               // Keep wall chain alive when cursor leaves canvas — only clear preview line
               if (!isDragging && editorState.tool !== 'wall') { setStartPos(null); setCurrentMousePos(null); }
@@ -3807,6 +3983,7 @@ export default function FloorPlanEditor() {
                 <Group>
                   {renderAnchorFloorGhosts()}
                   {currentFloorPlan.objects.map(renderKonvaObject)}
+                  {renderHoverHitbox()}
                   {renderGroupBounds()}
                   {renderLivePreview()}
                   {renderCentreLines()}
