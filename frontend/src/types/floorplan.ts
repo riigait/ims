@@ -1,5 +1,14 @@
 // Floor Plan Types
-export type FloorPlanObjectType = 'wall' | 'room' | 'rack' | 'shelf' | 'stairs' | 'elevator' | 'label' | 'door' | 'window' | 'entrance' | 'marker';
+export type FloorPlanObjectType =
+  | 'wall' | 'room'
+  | 'rack' | 'shelf' | 'stairs' | 'elevator'
+  | 'work-surface' | 'chair' | 'cabinet' | 'drawer' | 'locker' | 'storage-box' | 'bin' | 'pallet' | 'bathroom' | 'human'
+  | 'label' | 'door' | 'window' | 'entrance' | 'marker';
+
+/** Real distinct rectangle types — each is its own stored type, not a guessed label on a rack/shelf. */
+export type RectangleObjectType =
+  | 'rack' | 'shelf' | 'stairs' | 'elevator'
+  | 'work-surface' | 'chair' | 'cabinet' | 'drawer' | 'locker' | 'storage-box' | 'bin' | 'pallet' | 'bathroom' | 'human';
 
 export interface BaseFloorPlanObject {
   id: string;
@@ -41,7 +50,7 @@ export interface PolygonRoomObject extends BaseFloorPlanObject {
 }
 
 export interface RectangleObject extends BaseFloorPlanObject {
-  type: 'rack' | 'shelf' | 'stairs' | 'elevator';
+  type: RectangleObjectType;
   x: number;
   y: number;
   width: number;

@@ -11,7 +11,7 @@ import {
 } from 'lucide-react';
 import { floorPlansApi, locationsApi, productsApi } from '@/services/api';
 import { useFloorPlanStore } from '@/services/floorPlanStore';
-import { FloorPlanObject, WallObject, PolygonRoomObject, RectangleObject, LabelObject, DoorObject, WindowObject, EntranceObject, InventoryMarkerObject } from '@/types/floorplan';
+import { FloorPlanObject, WallObject, PolygonRoomObject, RectangleObject, RectangleObjectType, LabelObject, DoorObject, WindowObject, EntranceObject, InventoryMarkerObject } from '@/types/floorplan';
 import type { FloorplanValidationResult } from '@/utils/floorplanValidation';
 import {
   DEFAULT_OBJECT_SIZES,
@@ -119,6 +119,24 @@ const DEFAULT_RECT_FILL: Record<string, string> = {
 };
 
 const RECT_DRAWING_TOOLS = ['room', 'rack', 'shelf', 'work-surface', 'chair', 'cabinet', 'drawer', 'locker', 'storage-box', 'bin', 'pallet', 'stairs', 'elevator', 'bathroom', 'human'];
+// Storage-capable rect types: support width/height editing, the rotation
+// handle, and linking to an inventory location. Excludes chair/human
+// (not storage) and stairs/elevator/bathroom (fixed building structures).
+const STORAGE_RECT_TYPES = new Set([
+  'rack', 'shelf', 'work-surface', 'cabinet', 'drawer', 'locker', 'storage-box', 'bin', 'pallet',
+]);
+function isStorageRectObject(object: { type: string }): boolean {
+  return STORAGE_RECT_TYPES.has(object.type);
+}
+// Every rect-shaped object type (drag/resize/rotate geometry applies to all
+// of these, regardless of storage capability above).
+const RECTANGLE_OBJECT_TYPES = new Set<RectangleObjectType>([
+  'rack', 'shelf', 'stairs', 'elevator',
+  'work-surface', 'chair', 'cabinet', 'drawer', 'locker', 'storage-box', 'bin', 'pallet', 'bathroom', 'human',
+]);
+function isRectObject(object: { type: string }): boolean {
+  return RECTANGLE_OBJECT_TYPES.has(object.type as RectangleObjectType);
+}
 // Clicking within this distance of the first room-path point closes the polygon.
 const ROOM_CLOSE_RADIUS = 14;
 // Tools that are placed at a fixed default size (single click) rather than drag-to-draw
@@ -136,20 +154,6 @@ const ROOM_PRESET_LABELS: Record<string, string> = {
   bin:            'Bin',
   pallet:         'Pallet',
   human:          'Human (scale ref)',
-};
-// Which base type (rack | shelf) each tool should create in the data model
-const STORAGE_BASE_TYPE: Record<string, 'rack' | 'shelf'> = {
-  rack:           'rack',
-  shelf:          'shelf',
-  'work-surface': 'shelf',
-  chair:          'shelf',
-  cabinet:        'shelf',
-  drawer:         'shelf',
-  locker:         'shelf',
-  'storage-box':  'shelf',
-  bin:            'shelf',
-  pallet:         'rack',
-  human:          'shelf',
 };
 
 
@@ -396,8 +400,8 @@ export default function FloorPlanEditor() {
         pastedState.selectedObjectIds.forEach(objectId => {
           const object = pastedState.currentFloorPlan?.objects.find(item => item.id === objectId);
           if (!object) return;
-          const constrained = object.type === 'rack' || object.type === 'shelf'
-            ? constrainRectObject(object, false)
+          const constrained = isRectObject(object)
+            ? constrainRectObject(object as RectangleObject, false)
             : constrainObjectsToPage([object], false)[0];
           updateObject(objectId, constrained);
         });
@@ -498,8 +502,8 @@ export default function FloorPlanEditor() {
           if (!member || isFixedFloorObject(member)) return;
 
           const moved = moveObjectByDelta(member, deltaX, deltaY, !e.altKey);
-          const constrained = moved.type === 'rack' || moved.type === 'shelf'
-            ? constrainRectObject(moved, false)
+          const constrained = isRectObject(moved)
+            ? constrainRectObject(moved as RectangleObject, false)
             : constrainObjectsToPage([moved], false)[0];
           updateObject(memberId, constrained);
           didMove = true;
@@ -1012,7 +1016,7 @@ export default function FloorPlanEditor() {
           minX = Math.min(minX, pts[i]); maxX = Math.max(maxX, pts[i]);
           minY = Math.min(minY, pts[i + 1]); maxY = Math.max(maxY, pts[i + 1]);
         }
-      } else if (obj.type === 'rack' || obj.type === 'shelf') {
+      } else if (isRectObject(obj)) {
         const r = obj as RectangleObject;
         minX = Math.min(minX, r.x);
         minY = Math.min(minY, r.y);
@@ -1061,7 +1065,7 @@ export default function FloorPlanEditor() {
     let { minX, minY, maxX, maxY } = base;
     for (const obj of objects) {
       const r = obj as RectangleObject;
-      if ((obj.type === 'rack' || obj.type === 'shelf') && r.rotation) {
+      if (isRectObject(obj) && r.rotation) {
         const cx = r.x + r.width / 2, cy = r.y + r.height / 2;
         const cos = Math.cos(r.rotation), sin = Math.sin(r.rotation);
         const corners: [number, number][] = [
@@ -1608,7 +1612,7 @@ export default function FloorPlanEditor() {
       } else if (obj.type === 'room') {
         const pts = (obj as PolygonRoomObject).points;
         if (pointInPolygon(x, y, pts)) return obj.id;
-      } else if (obj.type === 'rack' || obj.type === 'shelf') {
+      } else if (isRectObject(obj)) {
         const r = obj as RectangleObject;
         const rot = r.rotation ?? 0;
         if (rot === 0) {
@@ -1820,8 +1824,8 @@ export default function FloorPlanEditor() {
 
   function addGridObject(object: FloorPlanObject, snap = true): void {
     const normalized = normalizeObject(object, snap);
-    if (normalized.type === 'rack' || normalized.type === 'shelf') {
-      addObject(constrainRectObject(normalized, false));
+    if (isRectObject(normalized)) {
+      addObject(constrainRectObject(normalized as RectangleObject, false));
     } else {
       addObject(constrainObjectsToPage([normalized], false)[0]);
     }
@@ -1931,7 +1935,7 @@ export default function FloorPlanEditor() {
   };
 
   const getResizeHandleAtPoint = (x: number, y: number, obj: FloorPlanObject | null): string | null => {
-    if (!obj || !(obj.type === 'rack' || obj.type === 'shelf')) return null;
+    if (!obj || !isRectObject(obj)) return null;
     const rect = obj as RectangleObject;
     const [lx, ly] = getRectLocalPoint(x, y, rect);
     const handles: Record<string, [number, number]> = {
@@ -1965,7 +1969,7 @@ export default function FloorPlanEditor() {
 
   const getRotateHandleAtPoint = (x: number, y: number, obj: FloorPlanObject | null): boolean => {
     if (!obj) return false;
-    if (obj.type === 'rack' || obj.type === 'shelf') {
+    if (isRectObject(obj)) {
       const rect = obj as RectangleObject;
       const [rhx, rhy] = getRotateHandlePos(rect);
       return Math.sqrt((x - rhx) ** 2 + (y - rhy) ** 2) <= RESIZE_HANDLE_SIZE + 4;
@@ -2009,7 +2013,7 @@ export default function FloorPlanEditor() {
     const selectedObj = editorState.selectedObjectId
       ? currentFloorPlan?.objects.find(o => o.id === editorState.selectedObjectId)
       : null;
-    const rot = (selectedObj && (selectedObj.type === 'rack' || selectedObj.type === 'shelf'))
+    const rot = (selectedObj && isRectObject(selectedObj))
       ? ((selectedObj as RectangleObject).rotation ?? 0)
       : 0;
     // Base angle for each handle in the unrotated object (degrees, 0=east, CW)
@@ -2163,7 +2167,7 @@ export default function FloorPlanEditor() {
       } else {
         // Check for rotation handle
         const onRotateHandle = !isFixedFloorObject(currentSelectedObj) && getRotateHandleAtPoint(pos.x, pos.y, currentSelectedObj ?? null);
-        if (onRotateHandle && currentSelectedObj && (currentSelectedObj.type === 'rack' || currentSelectedObj.type === 'shelf')) {
+        if (onRotateHandle && currentSelectedObj && isRectObject(currentSelectedObj)) {
           (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
           const snap = currentSelectedObj as RectangleObject;
           const cx = snap.x + snap.width / 2, cy = snap.y + snap.height / 2;
@@ -2391,7 +2395,7 @@ export default function FloorPlanEditor() {
     // Handle rotate
     else if (isRotating && rotateSnapshot && editorState.selectedObjectId) {
       const snap = rotateSnapshot;
-      if (snap.type === 'rack' || snap.type === 'shelf') {
+      if (isRectObject(snap)) {
         const rectSnap = snap as RectangleObject;
         const cx = rectSnap.x + rectSnap.width / 2;
         const cy = rectSnap.y + rectSnap.height / 2;
@@ -2683,7 +2687,7 @@ export default function FloorPlanEditor() {
             const pts = (obj as PolygonRoomObject).points;
             const b = polygonBounds(pts);
             return b.x >= minX && b.x + b.width <= maxX && b.y >= minY && b.y + b.height <= maxY;
-          } else if (obj.type === 'rack' || obj.type === 'shelf') {
+          } else if (isRectObject(obj)) {
             const r = obj as RectangleObject;
             return r.x >= minX && r.x + r.width <= maxX && r.y >= minY && r.y + r.height <= maxY;
           } else if (obj.type === 'label') {
@@ -2727,19 +2731,18 @@ export default function FloorPlanEditor() {
         // Wall segments are finalized on each click (pointer-down); nothing to do on pointer-up
       } else if (RECT_DRAWING_TOOLS.filter(t => t !== 'room').includes(editorState.tool)) {
         const presetLabel = ROOM_PRESET_LABELS[editorState.tool];
-        const tool = editorState.tool;
+        const tool = editorState.tool as RectangleObjectType;
         const isRackShelf = tool === 'rack' || tool === 'shelf';
-        const baseType: 'rack' | 'shelf' = STORAGE_BASE_TYPE[tool] ?? 'rack';
         const rawX = Math.min(startPos.x, snappedPos.x);
         const rawY = Math.min(startPos.y, snappedPos.y);
         const drawnWidth = snapToGrid(Math.abs(snappedPos.x - startPos.x));
         const drawnHeight = snapToGrid(Math.abs(snappedPos.y - startPos.y));
-        let object = createFloorplanObject(baseType, snapToGrid(rawX), snapToGrid(rawY), !e.altKey) as RectangleObject;
+        let object = createFloorplanObject(tool, snapToGrid(rawX), snapToGrid(rawY), !e.altKey) as RectangleObject;
         if (drawnWidth >= GRID_SIZE && drawnHeight >= GRID_SIZE) {
           object = { ...object, width: drawnWidth, height: drawnHeight };
         } else if (!presetLabel && canvasRef.current && isRackShelf) {
           object = createObjectAtPointer(
-            baseType,
+            tool,
             e.clientX,
             e.clientY,
             canvasRef.current.getBoundingClientRect(),
@@ -2892,7 +2895,7 @@ export default function FloorPlanEditor() {
         }
         return { id: obj.id, updates: { points: rotatedPts } };
       }
-      if (obj.type === 'rack' || obj.type === 'shelf') {
+      if (isRectObject(obj)) {
         const r = obj as RectangleObject;
         const objCx = r.x + r.width / 2, objCy = r.y + r.height / 2;
         const [ncx, ncy] = rotatePoint(objCx, objCy, center.x, center.y, delta);
@@ -3216,10 +3219,13 @@ export default function FloorPlanEditor() {
     const rectCx = rect.x + rect.width / 2;
     const rectCy = rect.y + rect.height / 2;
 
-    // Determine icon key: explicit label overrides, then id-prefix match, then type fallback
+    // obj.type is the real, authoritative kind now (pallet/cabinet/drawer/etc.
+    // are their own stored types, not guessed from the label). The
+    // label/id-matching fallback below only fires for old, not-yet-migrated
+    // data that still has type:'rack'/'shelf' with a descriptive label.
     const typeKey = (() => {
+      if (obj.type !== 'rack' && obj.type !== 'shelf') return obj.type;
       const lbl = (obj.label ?? '').toLowerCase();
-      // Explicit label → key map for preset objects whose label differs from the icon key
       if (lbl === 'stairs')       return 'stairs';
       if (lbl === 'elevator')     return 'elevator';
       if (lbl === 'restroom')     return 'bathroom';
@@ -3231,12 +3237,11 @@ export default function FloorPlanEditor() {
       if (lbl === 'storage box')  return 'storage-box';
       if (lbl === 'bin')          return 'bin';
       if (lbl === 'pallet')       return 'pallet';
-      // id prefix match (rack_..., shelf_..., cabinet_..., etc.)
       const id = obj.id.toLowerCase();
       for (const key of Object.keys(OBJECT_ICON_PATH)) {
         if (id.startsWith(key + '_')) return key;
       }
-      return obj.type; // 'rack' or 'shelf' fallback
+      return obj.type;
     })();
     const iconPath = OBJECT_ICON_PATH[typeKey];
     // Icon fits inside the object: max 16px, scaled down for small objects
@@ -4498,8 +4503,8 @@ export default function FloorPlanEditor() {
                   </div>;
                 })()}
 
-                {/* Rect: width + height (rack / shelf only) */}
-                {(selectedObject.type === 'rack' || selectedObject.type === 'shelf') && (() => {
+                {/* Rect: width + height (storage-capable types only) */}
+                {isStorageRectObject(selectedObject) && (() => {
                    const rect = selectedObject as RectangleObject;
                    const ppm = currentFloorPlan?.scale?.pixelsPerMeter ?? 50;
                   const planW = currentFloorPlan?.width || 800;
@@ -4582,7 +4587,7 @@ export default function FloorPlanEditor() {
                 )}
 
                 {/* Location link */}
-                {(selectedObject.type === 'room' || selectedObject.type === 'rack' || selectedObject.type === 'shelf') && (
+                {(selectedObject.type === 'room' || isStorageRectObject(selectedObject)) && (
                   <div>
                     <label className="block text-xs font-medium text-[var(--text-muted)] mb-1">Linked Location</label>
                     {isReadOnly ? (

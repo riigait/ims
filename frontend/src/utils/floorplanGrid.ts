@@ -3,12 +3,23 @@ import type {
   EntranceObject,
   FloorPlanObject,
   FloorPlanObjectType,
+  InventoryMarkerObject,
   LabelObject,
   PolygonRoomObject,
   RectangleObject,
+  RectangleObjectType,
   WallObject,
   WindowObject,
 } from '@/types/floorplan';
+
+const RECTANGLE_OBJECT_TYPES = new Set<RectangleObjectType>([
+  'rack', 'shelf', 'stairs', 'elevator',
+  'work-surface', 'chair', 'cabinet', 'drawer', 'locker', 'storage-box', 'bin', 'pallet', 'bathroom', 'human',
+]);
+
+function isRectangleObject(object: FloorPlanObject): object is RectangleObject {
+  return RECTANGLE_OBJECT_TYPES.has(object.type as RectangleObjectType);
+}
 
 // Scale: 1 m = 100 SVG units. Grid cell = 10 cm.
 export const GRID_SIZE = 10;
@@ -39,7 +50,8 @@ export const DEFAULT_OBJECT_SIZES = {
   entrance:       { width: 120, height: WALL_THICKNESS },
   shelf:          { width: 90,  height: 30 },
   rack:           { width: 120, height: 60 },
-  restroom:       { width: 180, height: 180 },
+  restroom:       { width: 180, height: 180 }, // legacy key, kept for old lookups; bathroom below is the real type
+  bathroom:       { width: 180, height: 180 },
   stairs:         { width: 120, height: 300 },
   elevator:       { width: 160, height: 150 },
   column:         { width: 30,  height: 30 },
@@ -167,7 +179,7 @@ export function applySmartGuides(
 }
 
 export function createObjectAtPointer(
-  type: 'rack' | 'shelf',
+  type: RectangleObjectType,
   clientX: number,
   clientY: number,
   canvasRect: DOMRect,
@@ -212,7 +224,7 @@ export function normalizeObject<T extends FloorPlanObject>(object: T, snap = tru
     } as T;
   }
 
-  if (object.type === 'rack' || object.type === 'shelf' || object.type === 'stairs' || object.type === 'elevator') {
+  if (isRectangleObject(object)) {
     const rotation = object.rotation ?? 0;
     if (snap && rotation !== 0) {
       // Snap the visual center to the grid so edges of rotated objects land on grid lines
@@ -280,11 +292,12 @@ export function createFloorplanObject(type: FloorPlanObjectType, x: number, y: n
     return { id, type, points: [snapToGrid(x), snapToGrid(y)], color: '#e0e0e0' };
   }
 
-  if (type === 'rack' || type === 'shelf' || type === 'stairs' || type === 'elevator') {
-    const size = DEFAULT_OBJECT_SIZES[type];
+  if (RECTANGLE_OBJECT_TYPES.has(type as RectangleObjectType)) {
+    const rectType = type as RectangleObjectType;
+    const size = DEFAULT_OBJECT_SIZES[rectType];
     return normalizeObject({
       id,
-      type,
+      type: rectType,
       x,
       y,
       width: size.width,
@@ -344,7 +357,9 @@ export function createFloorplanObject(type: FloorPlanObjectType, x: number, y: n
     } satisfies LabelObject, snap);
   }
 
-  return normalizeObject({ id, type, x, y }, snap);
+  // Only 'marker' can reach here — every other FloorPlanObjectType has its
+  // own branch above.
+  return normalizeObject({ id, type: 'marker', x, y } satisfies InventoryMarkerObject, snap);
 }
 
 /**

@@ -6,6 +6,12 @@ const MARGIN = 12;
 const WINDOW_W = 140;
 const WINDOW_H = 18;
 
+// Storage-capable rect types — can carry linkedLocationId, mirrors
+// FloorPlanEditor.tsx's STORAGE_RECT_TYPES.
+const STORAGE_RECT_TYPES = new Set([
+  'rack', 'shelf', 'work-surface', 'cabinet', 'drawer', 'locker', 'storage-box', 'bin', 'pallet',
+]);
+
 // ── door-blocked fix ────────────────────────────────────────────────────────
 
 interface Zone { left: number; right: number; top: number; bottom: number }
@@ -110,7 +116,7 @@ function addMissingRoomWindows(fixed: FloorPlanObject[]): number {
 
 function fixOverlappingObjects(fixed: FloorPlanObject[]): number {
   const furniture = fixed.filter(
-    o => (o.type === 'rack' || o.type === 'shelf') && (o as any).linkedLocationId,
+    o => STORAGE_RECT_TYPES.has(o.type) && (o as any).linkedLocationId,
   );
   let count = 0;
 

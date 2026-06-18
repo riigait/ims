@@ -15,7 +15,7 @@ import type {
   WallObject,
   WindowObject,
 } from '@/types/floorplan';
-import { Lock, Building2, RefreshCw, ZoomIn, ZoomOut, Maximize2, Layers, Box, ChevronLeft, ChevronRight, Pencil } from 'lucide-react';
+import { Lock, Building2, RefreshCw, ZoomIn, ZoomOut, Maximize2, Layers, Box, ChevronLeft, ChevronRight, Pencil, ChevronsDown, ChevronDown, ChevronUp, ChevronsUp } from 'lucide-react';
 import { extractOutdoorWall } from '@/utils/floorplanGeometry';
 import { useTheme } from '@/contexts/ThemeContext';
 import TopDown25DFloorplanView from '@/components/floorplan/TopDown25DFloorplanView';
@@ -624,7 +624,6 @@ function ElevationFloorBand({
 
 // ─── iso open-floorplan renderer ─────────────────────────────────────────────
 type HoverHandler = (plan: FloorPlan, e: Konva.KonvaEventObject<MouseEvent>) => void;
-type NavHandler   = (id: string) => void;
 
 
 interface IsoCtx {
@@ -636,9 +635,8 @@ interface IsoCtx {
   labelFontSize: number;
   onHover:      HoverHandler;
   onHoverEnd:   () => void;
-  onObjectHover: (id: string) => void;
+  onObjectHover: (planId: string, objectId: string) => void;
   onObjectHoverEnd: () => void;
-  onNavigate:   NavHandler;
   // Dragging: starts a drag candidate for an inventory object. floorOx/floorOy
   // are the floor's iso origin (already known at the call site), needed to
   // convert pointer screen coords back into this floor's plan space.
@@ -694,13 +692,21 @@ function pointToWallDistance(
   return Math.hypot(x - (wall.startX + t * dx), y - (wall.startY + t * dy));
 }
 
-function openingIsAttachedToWall(
+/** The wall an opening sits closest to (nearest within attach tolerance), or null. */
+function findAttachedWall(
   opening: DoorObject | WindowObject | EntranceObject,
   walls: import('@/types/floorplan').WallObject[],
-): boolean {
-  return walls.some(wall =>
-    pointToWallDistance(opening.x, opening.y, wall) <= Math.max(20, (wall.thickness ?? 8) * 2)
-  );
+): import('@/types/floorplan').WallObject | null {
+  let best: import('@/types/floorplan').WallObject | null = null;
+  let bestDist = Infinity;
+  for (const wall of walls) {
+    const dist = pointToWallDistance(opening.x, opening.y, wall);
+    if (dist <= Math.max(20, (wall.thickness ?? 8) * 2) && dist < bestDist) {
+      best = wall;
+      bestDist = dist;
+    }
+  }
+  return best;
 }
 
 // ── Build all four extruded side faces for a rect object ─────────────────────
@@ -743,7 +749,14 @@ type IsoPresetKind =
   | 'locker' | 'storage-box' | 'bin' | 'pallet' | 'stairs' | 'elevator' | 'restroom'
   | 'human';
 
+// rect.type is the real, authoritative kind now (pallet/cabinet/drawer/etc.
+// are their own stored types). The regex-on-label fallback below only fires
+// for old, not-yet-migrated data that still has type:'rack'/'shelf' with a
+// descriptive label.
 function isoPresetKind(rect: RectangleObject): IsoPresetKind {
+  if (rect.type === 'bathroom') return 'restroom';
+  if (rect.type !== 'rack' && rect.type !== 'shelf') return rect.type as IsoPresetKind;
+
   const name = `${rect.label ?? ''} ${rect.id}`.toLowerCase();
   if (/work surface|table/.test(name)) return 'work-surface';
   if (/chair/.test(name)) return 'chair';
@@ -756,12 +769,8 @@ function isoPresetKind(rect: RectangleObject): IsoPresetKind {
   if (/stair/.test(name)) return 'stairs';
   if (/elevator|lift/.test(name)) return 'elevator';
   if (/restroom|bathroom|toilet/.test(name)) return 'restroom';
-  if (/human|person|staff|figure/.test(name) || (rect.type as string) === 'human') return 'human';
+  if (/human|person|staff|figure/.test(name)) return 'human';
   return rect.type as IsoPresetKind;
-}
-
-function isInventoryIsoObject(rect: RectangleObject): boolean {
-  return !['chair', 'stairs', 'elevator', 'restroom', 'human'].includes(isoPresetKind(rect));
 }
 
 const ISO_RENDERABLE_OBJECT_TYPES = new Set([
@@ -850,17 +859,6 @@ function isoPrismSilhouette(footprint: number[], height: number): number[] {
   points.reverse().forEach(append);
   half.pop();
   return [...lower, ...half].flatMap(point => point);
-}
-
-function pointInIsoPolygon(px: number, py: number, points: number[]): boolean {
-  let inside = false;
-  const count = points.length / 2;
-  for (let i = 0, j = count - 1; i < count; j = i++) {
-    const xi = points[i * 2], yi = points[i * 2 + 1];
-    const xj = points[j * 2], yj = points[j * 2 + 1];
-    if ((yi > py) !== (yj > py) && px < ((xj - xi) * (py - yi)) / (yj - yi) + xi) inside = !inside;
-  }
-  return inside;
 }
 
 interface IsoPrismProps {
@@ -1452,12 +1450,15 @@ function isoPoint(x: number, y: number, size: PlanSize, origin: IsoOrigin): Pt {
 }
 
 function IsoOpeningShape({
-  planId, object, size, origin,
+  planId, object, size, origin, frontFactor,
 }: {
   readonly planId: string;
   readonly object: DoorObject | WindowObject | EntranceObject;
   readonly size: PlanSize;
   readonly origin: IsoOrigin;
+  // 0 = back/NE-facing wall (recede, let interior objects emphasize), 1 =
+  // near/SE-facing wall (pop forward like a real home window). Windows only.
+  readonly frontFactor?: number;
 }) {
   const angle = object.angle ?? 0;
   const dx = Math.cos(angle) * object.width / 2;
@@ -1467,6 +1468,16 @@ function IsoOpeningShape({
   const color = object.color && parseHex(object.color)
     ? object.color
     : object.type === 'window' ? '#38bdf8' : object.type === 'entrance' ? '#10b981' : '#8b5e3c';
+  // Back windows: faded glass, dim frame — recedes behind interior objects.
+  // Front windows: bright glass, strong frame highlight — pops forward.
+  // Smoothstep contrast curve (continuous, monotonic) pushes mid-range
+  // values toward the extremes so the back/front split actually reads
+  // instead of sitting at an indistinct middle value.
+  const rawFront = object.type === 'window' ? frontFactor ?? 0.5 : 0.5;
+  const windowFront = rawFront * rawFront * (3 - 2 * rawFront);
+  const windowFillAlpha = object.type === 'window' ? 0.08 + windowFront * 0.62 : 0.88;
+  const windowGlow = object.type === 'window' ? tint(color, 0.05 + windowFront * 0.65) : tint(color, 0.38);
+  const windowStrokeWidth = object.type === 'window' ? 0.4 + windowFront * 1.8 : 1.2;
 
   if (object.type === 'entrance') {
     const h = 30;
@@ -1487,13 +1498,13 @@ function IsoOpeningShape({
   const panel = [p1[0], p1[1] - screenLift, p2[0], p2[1] - screenLift, p2[0], p2[1] - screenLift - screenH, p1[0], p1[1] - screenLift - screenH];
   return (
     <Group key={`opening-${planId}-${object.id}`} listening={false}>
-      <Line closed points={panel} fill={hexToRgba(color, object.type === 'window' ? 0.35 : 0.88)}
-        stroke={tint(color, 0.38)} strokeWidth={1.2} />
+      <Line closed points={panel} fill={hexToRgba(color, windowFillAlpha)}
+        stroke={windowGlow} strokeWidth={windowStrokeWidth} />
       {object.type === 'window' ? (
         <>
-          <Line points={[p1[0], p1[1] - screenLift - screenH / 2, p2[0], p2[1] - screenLift - screenH / 2]} stroke={tint(color, 0.5)} strokeWidth={0.8} />
-          <Line points={[p1[0], p1[1] - screenLift, p1[0], p1[1] - screenLift - screenH]} stroke={tint(color, 0.55)} strokeWidth={1.4} />
-          <Line points={[p2[0], p2[1] - screenLift, p2[0], p2[1] - screenLift - screenH]} stroke={shade(color, 0.3)} strokeWidth={1.4} />
+          <Line points={[p1[0], p1[1] - screenLift - screenH / 2, p2[0], p2[1] - screenLift - screenH / 2]} stroke={tint(color, 0.3 + windowFront * 0.3)} strokeWidth={0.6 + windowFront * 0.4} />
+          <Line points={[p1[0], p1[1] - screenLift, p1[0], p1[1] - screenLift - screenH]} stroke={tint(color, 0.35 + windowFront * 0.3)} strokeWidth={1.0 + windowFront * 0.8} />
+          <Line points={[p2[0], p2[1] - screenLift, p2[0], p2[1] - screenLift - screenH]} stroke={shade(color, 0.5 - windowFront * 0.3)} strokeWidth={1.0 + windowFront * 0.8} />
         </>
       ) : (
           <Circle x={p2[0] * 0.7 + p1[0] * 0.3} y={(p2[1] * 0.7 + p1[1] * 0.3) - screenH * 0.48}
@@ -1580,27 +1591,48 @@ type RQ = {
   depth: number; node: React.ReactNode;
   leftBiasKind?: LeftBiasKind; leftBiasScreenX?: number;
   id?: string; visualBox?: AABB; renderPriority?: number; hovered?: boolean;
+  // Screen-space vertical extent of the object's extrusion (smaller y = higher
+  // up). Lets two overlapping objects at different heights resolve by actual
+  // physical separation — e.g. a tall rack's top reaching over a low cabinet
+  // beside it — before falling back to type priority/left-bias/depth.
+  zTopScreen?: number; zBaseScreen?: number;
+  // Manual per-object stacking override — the object's index within
+  // plan.objects, exactly like the 2D editor's Bring to Front/Send to
+  // Back/Move Forward/Move Backward (floorPlanStore.ts). Wins over every
+  // automatic tie-break except hover, since the user explicitly chose it
+  // via the layer-order buttons.
+  arrayIndex?: number;
 };
 
 type IsoSortable = Omit<RQ, 'node'>;
-
-type IsoObjectHitTarget = IsoSortable & {
-  plan: FloorPlan;
-  rect: RectangleObject;
-  floorOx: number;
-  floorOy: number;
-  points: number[];
-  floorOrder: number;
-};
 
 // Shared comparator used for BOTH the visual render queue and the object
 // hit-test list, so the entry that draws in front is also the one that
 // receives hover/click — otherwise Konva resolves overlapping clicks by
 // raw array order, which can silently disagree with the visual stacking.
 function compareIsoRenderEntries(a: IsoSortable, b: IsoSortable): number {
-  const colliding = a.visualBox && b.visualBox && aabbOverlap(a.visualBox, b.visualBox, 4);
+  // No padding: only an actual silhouette overlap (even a sliver at the
+  // tip/corner) should trigger front/behind resolution. A near-miss with a
+  // few px gap between two boxes must NOT trigger it.
+  const colliding = a.visualBox && b.visualBox && aabbOverlap(a.visualBox, b.visualBox, 0);
   if (colliding) {
     if (a.hovered !== b.hovered) return a.hovered ? 1 : -1;
+    // Manual override wins over every automatic rule below — the user
+    // explicitly chose this object's stacking via the layer-order buttons,
+    // so it shouldn't be second-guessed by height/priority/depth
+    // heuristics. Later array index = drawn later = in front, exactly like
+    // the 2D editor's Bring to Front/Send to Back convention.
+    if (a.arrayIndex !== undefined && b.arrayIndex !== undefined && a.arrayIndex !== b.arrayIndex) {
+      return a.arrayIndex - b.arrayIndex;
+    }
+    // Physical height separation beats type/left-bias/depth tie-breaks: if
+    // one object's extrusion sits entirely above or below the other's on
+    // screen, that vertical gap is real and should decide front/behind.
+    if (a.zTopScreen !== undefined && a.zBaseScreen !== undefined
+      && b.zTopScreen !== undefined && b.zBaseScreen !== undefined) {
+      if (a.zBaseScreen <= b.zTopScreen) return 1; // a sits above b's top — a in front
+      if (b.zBaseScreen <= a.zTopScreen) return -1; // b sits above a's top — b in front
+    }
     if (a.renderPriority !== undefined && b.renderPriority !== undefined
       && a.renderPriority !== b.renderPriority) {
       return a.renderPriority - b.renderPriority;
@@ -1783,7 +1815,8 @@ function buildIsoFloorNodes(
     }
   }
 
-  for (const obj of objects) {
+  for (let objArrayIndex = 0; objArrayIndex < objects.length; objArrayIndex++) {
+    const obj = objects[objArrayIndex];
     if (!ISO_OBJECT_TYPES.has(obj.type)) continue;
     const rect = obj as RectangleObject;
     const style = OBJ_STYLE[rect.type] ?? OBJ_STYLE['rack'];
@@ -1830,25 +1863,34 @@ function buildIsoFloorNodes(
     const depth = OBJECT_DEPTH_BASE + frontScreenY;
     const visualBox = aabbFromPoints(silhouette);
     const renderPriority = isoRenderPriority(kind);
+    // Base = lowest point of the lifted footprint (closest to the floor);
+    // top = highest point after extrusion. Smaller screen-y is higher up.
+    const zBaseScreen = Math.max(...liftedFootprint.filter((_, index) => index % 2 === 1));
+    const zTopScreen = Math.min(...silhouette.filter((_, index) => index % 2 === 1));
 
-    if (isInventoryIsoObject(rect)) {
-      objectHitEntries.push({
-        depth, leftBiasKind, leftBiasScreenX, visualBox, renderPriority, hovered,
-        id: rect.id,
-        node: (
-          <Line key={`object-hit-${plan.id}-${rect.id}`} closed
-            points={silhouette}
-            fill="rgba(0,0,0,0.001)" stroke="transparent" strokeWidth={0}
-            perfectDrawEnabled={false}
-            onMouseDown={e => ctx.onObjectPointerDown(plan, rect, ox, oy, e)}
-          />
-        ),
-      });
-    }
+    // Every iso object type is hit-testable now (drag + layer-order
+    // selection apply uniformly, including chairs/stairs/elevators/
+    // restroom/human).
+    objectHitEntries.push({
+      depth, leftBiasKind, leftBiasScreenX, visualBox, renderPriority, hovered, zTopScreen, zBaseScreen,
+      arrayIndex: objArrayIndex,
+      id: rect.id,
+      node: (
+        <Line key={`object-hit-${plan.id}-${rect.id}`} closed
+          points={silhouette}
+          fill="rgba(0,0,0,0.001)" stroke="transparent" strokeWidth={0}
+          perfectDrawEnabled={false}
+          onMouseDown={e => ctx.onObjectPointerDown(plan, rect, ox, oy, e)}
+          onMouseEnter={() => ctx.onObjectHover(plan.id, rect.id)}
+          onMouseLeave={() => ctx.onObjectHoverEnd()}
+        />
+      ),
+    });
     // Contact shadow along the base front edges (bl → br → tr)
 
     queue.push({
-      depth, leftBiasKind, leftBiasScreenX, visualBox, renderPriority, hovered,
+      depth, leftBiasKind, leftBiasScreenX, visualBox, renderPriority, hovered, zTopScreen, zBaseScreen,
+      arrayIndex: objArrayIndex,
       id: rect.id,
       node: (
         <IsoObjectShape key={`obj-${plan.id}-${rect.id}`} planId={plan.id} object={rect}
@@ -1893,13 +1935,25 @@ function buildIsoFloorNodes(
   for (const obj of objects) {
     if (obj.type !== 'door' && obj.type !== 'window' && obj.type !== 'entrance') continue;
     const opening = obj as DoorObject | WindowObject | EntranceObject;
-    if (!openingIsAttachedToWall(opening, allWallObjs)) continue;
+    const attachedWall = findAttachedWall(opening, allWallObjs);
+    if (!attachedWall) continue;
     const angle = opening.angle ?? 0;
     const dx = Math.cos(angle) * opening.width / 2;
     const dy = Math.sin(angle) * opening.width / 2;
     const [x1, y1] = toIso(opening.x - dx, opening.y - dy, planW, planH);
     const [x2, y2] = toIso(opening.x + dx, opening.y + dy, planW, planH);
     const frontScreenY = oy + Math.max(y1, y2);
+    // Classify by the WALL's own orientation/midpoint, not the opening's own
+    // position — an opening near the end of a long back wall must still
+    // read as "back wall", not be skewed toward "front" by its own X offset.
+    // A wall running mostly along X (small startY≈endY, e.g. north/south
+    // perimeter) faces north (back/NE) when its Y is small, or south
+    // (front/SE) when its Y is large. A wall running mostly along Y (east/
+    // west perimeter) faces by the same logic on its X. Project the wall's
+    // midpoint the same way and read back/front off normalized plan-Y (the
+    // axis toIso actually uses for north/south depth), not raw screen pixels.
+    const wallMidY = (attachedWall.startY + attachedWall.endY) / 2;
+    const windowFrontFactor = Math.min(1, Math.max(0, wallMidY / (planH || 1)));
     const screenH = isoZ(opening.type === 'window' ? 20 : opening.type === 'entrance' ? 30 : 31);
     const screenLift = isoZ(opening.type === 'window' ? 9 : 0);
     const p1: Pt = [ox + x1, oy + y1];
@@ -1910,13 +1964,23 @@ function buildIsoFloorNodes(
       p2[0], p2[1] - screenLift - screenH,
       p1[0], p1[1] - screenLift - screenH,
     ]);
+    // SE (near/front) windows must draw in front of BOTH outdoor and indoor
+    // walls — push past INDOOR_WALL_DEPTH. NE (back) windows must stay
+    // behind indoor walls only — they keep the normal object-tier depth,
+    // which already sits above the outdoor wall's depth so they still show
+    // against the outdoor wall they're mounted on.
+    const isFrontFacingWindow = opening.type === 'window' && windowFrontFactor >= 0.5;
+    const openingDepth = isFrontFacingWindow
+      ? INDOOR_WALL_DEPTH + 1 + frontScreenY
+      : OBJECT_DEPTH_BASE + frontScreenY;
     queue.push({
-      depth: OBJECT_DEPTH_BASE + frontScreenY,
+      depth: openingDepth,
       visualBox,
+      zTopScreen: visualBox.minY, zBaseScreen: visualBox.maxY,
       renderPriority: isRestroomOpening(opening, objects) ? isoRenderPriority('restroom') : undefined,
       node: (
         <IsoOpeningShape key={`opening-${plan.id}-${obj.id}`} planId={plan.id}
-          object={opening} size={size} origin={origin} />
+          object={opening} size={size} origin={origin} frontFactor={windowFrontFactor} />
       ),
     });
   }
@@ -2086,13 +2150,15 @@ function buildIsoFloorNodes(
     </Group>
   );
 
-  // Invisible hit polygon — full rectangular footprint, always same size per floor
+  // Invisible hit polygon — full rectangular footprint, always same size per
+  // floor. Clicking the bare floor (not an object) is a no-op: the
+  // isometric view no longer redirects anywhere on click — Edit mode
+  // selection/drag/layer-order is the only way to interact with objects.
   const hit = (
     <Group key={`floor-hit-${plan.id}`}>
       <Line closed points={footprintPts}
         fill="rgba(0,0,0,0.001)" stroke="transparent" strokeWidth={0}
         perfectDrawEnabled={false}
-        onClick={() => ctx.onNavigate(plan.id)}
       />
       {objectHits}
     </Group>
@@ -2206,6 +2272,9 @@ export default function Building2D() {
   const [hoveredId, setHoveredId]     = useState<string | null>(null);
   const [, setHoveredFloor] = useState<number | null>(null);
   const [hoveredObject, setHoveredObject] = useState<IsoObjectHover | null>(null);
+  // Selected object in Edit mode — drives the small Front/Back/Auto control.
+  // Click-to-select only (drag still repositions); cleared on edit-mode exit.
+  const [selectedIsoObject, setSelectedIsoObject] = useState<IsoObjectHover | null>(null);
   const [scale, setScale]             = useState(1);
   const [stageSize, setStageSize]     = useState({ w: 800, h: 600 });
   const [isoFloorFilter, setIsoFloorFilter] = useState<number | null>(null); // null = all
@@ -2291,8 +2360,10 @@ export default function Building2D() {
     document.body.style.cursor = 'default';
   }, []);
 
-  const handleObjectHover = useCallback((id: string) => {
-    setHoveredObject(prev => prev?.objectId === id ? prev : { planId: '', objectId: id });
+  const handleObjectHover = useCallback((planId: string, objectId: string) => {
+    setHoveredObject(prev =>
+      prev?.planId === planId && prev?.objectId === objectId ? prev : { planId, objectId }
+    );
     document.body.style.cursor = 'pointer';
   }, []);
 
@@ -2566,72 +2637,6 @@ export default function Building2D() {
   const baseY   = stageSize.h * 0.72;
   const isoMode: 'single' | 'all' = isoFloorFilter !== null ? 'single' : 'all';
 
-  const isoObjectHitTargets = useMemo<IsoObjectHitTarget[]>(() => {
-    if (!focusedIsoBuilding || isoFloorFilter === null) return [];
-    const frame = isoSharedFrame ?? buildIsoFrame(focusedIsoBuilding.floors);
-    const size = frame.size;
-    const targets: IsoObjectHitTarget[] = [];
-    const filtered = focusedIsoBuilding.floors.filter(plan => (plan.floorNumber ?? 1) === isoFloorFilter);
-    const floors = [...filtered].sort((a, b) => (a.floorNumber ?? 1) - (b.floorNumber ?? 1));
-
-    floors.forEach((plan, floorOrder) => {
-      const fn = plan.floorNumber ?? 1;
-      const baseFloorOy = baseY - (fn - 1) * ISO_FLOOR_SEP;
-      const origin = isoFloorOrigin(plan, centerX, baseFloorOy, frame);
-      const floorOx = origin.originX;
-      const floorOy = origin.originY;
-
-      for (const object of plan.objects ?? []) {
-        if (!ISO_RENDERABLE_OBJECT_TYPES.has(object.type)) continue;
-        const rect = object as RectangleObject;
-        if (!isInventoryIsoObject(rect)) continue;
-        const minW = (MIN_OBJ_EDGE_PX / ISO_EDGE_SCALE) * size.planW;
-        const minH = (MIN_OBJ_EDGE_PX / ISO_EDGE_SCALE) * size.planH;
-        const drawW = Math.max(rect.width, minW);
-        const drawH = Math.max(rect.height, minH);
-        const drawRect = {
-          x: rect.x - (drawW - rect.width) / 2,
-          y: rect.y - (drawH - rect.height) / 2,
-          w: drawW,
-          h: drawH,
-        };
-        const kind = isoPresetKind(rect);
-        const rot = rect.rotation ?? 0;
-        const cx = drawRect.x + drawRect.w / 2;
-        const cy = drawRect.y + drawRect.h / 2;
-        const projectedFootprint = rectToIsoPts(drawRect, size, origin, rot, cx, cy);
-        const liftedFootprint = liftIsoPoints(projectedFootprint, isoPresetBaseLift(kind));
-        const points = isoPrismSilhouette(liftedFootprint, isoPresetHeight(kind, size));
-        const frontScreenY = Math.max(...projectedFootprint.filter((_, index) => index % 2 === 1));
-        const leftBiasKind: LeftBiasKind | undefined =
-          kind === 'shelf' || kind === 'work-surface' ? kind : undefined;
-        const leftBiasScreenX = leftBiasKind
-          ? Math.min(...projectedFootprint.filter((_, index) => index % 2 === 0))
-          : undefined;
-
-        targets.push({
-          plan,
-          rect,
-          floorOx,
-          floorOy,
-          points,
-          floorOrder,
-          depth: OBJECT_DEPTH_BASE + frontScreenY,
-          leftBiasKind,
-          leftBiasScreenX,
-          visualBox: aabbFromPoints(points),
-          renderPriority: isoRenderPriority(kind),
-          hovered: hoveredObject?.planId === plan.id && hoveredObject.objectId === rect.id,
-          id: rect.id,
-        });
-      }
-    });
-
-    return targets
-      .sort((a, b) => a.floorOrder - b.floorOrder || compareIsoRenderEntries(a, b))
-      .reverse();
-  }, [focusedIsoBuilding, isoSharedFrame, isoFloorFilter, centerX, baseY, hoveredObject]);
-
   // ── Object dragging (isometric, single-floor mode only) ──────────────────
   // dragPreview drives a lightweight overlay layer only — never written into
   // allPlans mid-drag, so the expensive isoStaticResult memo never rebuilds
@@ -2651,7 +2656,8 @@ export default function Building2D() {
     grabOffsetX: number; // initial object-center plan-x minus initial cursor plan-x
     grabOffsetY: number;
     isDragging: boolean;
-    canDrag: boolean; // false for read-only plans — click-to-navigate still works, drag does not
+    canDrag: boolean; // false for read-only plans, or "All floors" mode — drag needs single-floor mode
+    canSelect: boolean; // Edit mode + not read-only; allowed in "All floors" mode too (selection only, no drag)
   } | null>(null);
 
   const DRAG_THRESHOLD_PX = 5;
@@ -2660,7 +2666,8 @@ export default function Building2D() {
     plan: FloorPlan, rect: RectangleObject, floorOx: number, floorOy: number,
     e: Konva.KonvaEventObject<MouseEvent>,
   ) => {
-    const canDrag = isoEditMode && isoMode === 'single' && !isPlanReadOnly(plan);
+    const canSelect = isoEditMode && !isPlanReadOnly(plan);
+    const canDrag = canSelect && isoMode === 'single';
     if (canDrag) e.cancelBubble = true; // stop the Stage's own pan-drag from also starting
     const stage = e.target.getStage();
     const pos = stage?.getPointerPosition();
@@ -2676,36 +2683,18 @@ export default function Building2D() {
       grabOffsetY: objectCenterY - cursorWy,
       isDragging: false,
       canDrag,
+      canSelect,
     };
   }, [isoEditMode, isoMode, isoSharedSize, isPlanReadOnly]);
 
-  const getIsoStagePoint = useCallback((stage: Konva.Stage | null) => {
-    const pointer = stage?.getPointerPosition();
-    if (!stage || !pointer) return null;
-    return stage.getAbsoluteTransform().copy().invert().point(pointer);
-  }, []);
-
-  const getIsoObjectAtPoint = useCallback((x: number, y: number) => {
-    for (const target of isoObjectHitTargets) {
-      if (pointInIsoPolygon(x, y, target.points)) return target;
-    }
-    return null;
-  }, [isoObjectHitTargets]);
-
+  // Hover is driven entirely by the hit-line's own onMouseEnter/onMouseLeave
+  // (wired in buildIsoFloorNodes via ctx.onObjectHover/onObjectHoverEnd) —
+  // the exact same Konva shape that receives the click, so hover and click
+  // can never disagree about which object is "at" a point. This handler
+  // only needs to drive the drag-in-progress preview now.
   const handleStageMouseMove = useCallback((e: Konva.KonvaEventObject<MouseEvent>) => {
     const stage = e.target.getStage();
-    const stagePoint = viewMode === 'isometric' ? getIsoStagePoint(stage) : null;
-    const hoveredTarget = stagePoint ? getIsoObjectAtPoint(stagePoint.x, stagePoint.y) : null;
     const candidate = dragCandidateRef.current;
-    if (viewMode === 'isometric' && !candidate?.isDragging) {
-      const nextHover = hoveredTarget
-        ? { planId: hoveredTarget.plan.id, objectId: hoveredTarget.rect.id }
-        : null;
-      setHoveredObject(prev =>
-        prev?.planId === nextHover?.planId && prev?.objectId === nextHover?.objectId ? prev : nextHover
-      );
-      document.body.style.cursor = hoveredTarget ? 'pointer' : 'default';
-    }
     if (!candidate || !candidate.canDrag) return;
     const pos = stage?.getPointerPosition();
     if (!pos) return;
@@ -2732,14 +2721,25 @@ export default function Building2D() {
       wx: newCenterX - candidate.rect.width / 2,
       wy: newCenterY - candidate.rect.height / 2,
     });
-  }, [getIsoObjectAtPoint, getIsoStagePoint, isoSharedSize, viewMode]);
+  }, [isoSharedSize]);
 
   const handleStageMouseUp = useCallback(() => {
     const candidate = dragCandidateRef.current;
     if (!candidate) return;
     if (!candidate.isDragging) {
-      // Plain click on an object (never exceeded drag threshold) — no-op.
-      // Objects are repositioned by dragging only; they no longer navigate.
+      // Plain click on an object (never exceeded drag threshold). Objects
+      // are repositioned by dragging only — a plain click never navigates —
+      // but in Edit mode it selects the object so its Front/Back/Auto
+      // stacking control can be shown. Selection is allowed in "All floors"
+      // mode too (just not dragging) — canSelect omits the single-floor
+      // restriction that canDrag has.
+      if (candidate.canSelect) {
+        setSelectedIsoObject(prev =>
+          prev?.planId === candidate.plan.id && prev?.objectId === candidate.rect.id
+            ? null // clicking the already-selected object again deselects it
+            : { planId: candidate.plan.id, objectId: candidate.rect.id }
+        );
+      }
       dragCandidateRef.current = null;
       setIsObjectDragActive(false);
       setDragPreview(null);
@@ -2772,11 +2772,72 @@ export default function Building2D() {
     });
   }, [dragPreview]);
 
+  // Manual layer-order override (Edit mode selection control) — same
+  // array-reorder convention as the 2D editor's Bring to Front/Send to
+  // Back/Move Forward/Move Backward (floorPlanStore.ts), applied to
+  // plan.objects directly and auto-saved with one PUT per change, mirroring
+  // the drag commit above.
+  const reorderIsoObject = useCallback((
+    planId: string, objectId: string, reorder: (objs: FloorPlanObject[], idx: number) => FloorPlanObject[] | null,
+  ) => {
+    setAllPlans(prev => prev.map(plan => {
+      if (plan.id !== planId) return plan;
+      const previousObjects = plan.objects ?? [];
+      const idx = previousObjects.findIndex(o => o.id === objectId);
+      if (idx === -1) return plan;
+      const reordered = reorder(previousObjects, idx);
+      if (!reordered) return plan; // already at that end — no-op
+      const updatedPlan = { ...plan, objects: reordered };
+      floorPlansApi.update(planId, { ...updatedPlan }).catch(() => {
+        setAllPlans(p => p.map(pl => pl.id === planId ? { ...pl, objects: previousObjects } : pl));
+        setDragError('Failed to save the stacking change — change reverted.');
+        setTimeout(() => setDragError(null), 4000);
+      });
+      return updatedPlan;
+    }));
+  }, []);
+
+  const handleBringToFront = useCallback((planId: string, objectId: string) => {
+    reorderIsoObject(planId, objectId, (objs, idx) => {
+      if (idx === objs.length - 1) return null;
+      const reordered = [...objs];
+      reordered.push(reordered.splice(idx, 1)[0]);
+      return reordered;
+    });
+  }, [reorderIsoObject]);
+
+  const handleSendToBack = useCallback((planId: string, objectId: string) => {
+    reorderIsoObject(planId, objectId, (objs, idx) => {
+      if (idx <= 0) return null;
+      const reordered = [...objs];
+      reordered.unshift(reordered.splice(idx, 1)[0]);
+      return reordered;
+    });
+  }, [reorderIsoObject]);
+
+  const handleMoveForward = useCallback((planId: string, objectId: string) => {
+    reorderIsoObject(planId, objectId, (objs, idx) => {
+      if (idx === objs.length - 1) return null;
+      const reordered = [...objs];
+      [reordered[idx], reordered[idx + 1]] = [reordered[idx + 1], reordered[idx]];
+      return reordered;
+    });
+  }, [reorderIsoObject]);
+
+  const handleMoveBackward = useCallback((planId: string, objectId: string) => {
+    reorderIsoObject(planId, objectId, (objs, idx) => {
+      if (idx <= 0) return null;
+      const reordered = [...objs];
+      [reordered[idx], reordered[idx - 1]] = [reordered[idx - 1], reordered[idx]];
+      return reordered;
+    });
+  }, [reorderIsoObject]);
+
   const isoStaticResult = useMemo(() => {
     const staticCtx: IsoCtx = {
       hoveredId: null, hoveredFloor: null, hoveredObjectId: null,
       isoMode, isDark, labelFontSize,
-      onHover: handleHover, onHoverEnd: handleHoverEnd, onNavigate: handleNavigate,
+      onHover: handleHover, onHoverEnd: handleHoverEnd,
       onObjectHover: handleObjectHover, onObjectHoverEnd: handleObjectHoverEnd,
       onObjectPointerDown: handleObjectPointerDown,
     };
@@ -2796,7 +2857,7 @@ export default function Building2D() {
     return { allVisuals, allHits };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [focusedIsoBuilding, isoMode, isDark, labelFontSize, centerX, baseY, isoFloorFilter,
-      handleHover, handleHoverEnd, handleNavigate, handleObjectHover, handleObjectHoverEnd,
+      handleHover, handleHoverEnd, handleObjectHover, handleObjectHoverEnd,
       handleObjectPointerDown]);
 
   // Hover overlay — lightweight: just a lifted floor highlight and object glow.
@@ -2832,7 +2893,7 @@ export default function Building2D() {
       // Object hover glow
       if (hoveredObject?.planId === plan.id) {
         const obj = (plan.objects ?? []).find(o => o.id === hoveredObject.objectId) as RectangleObject | undefined;
-        if (obj && ISO_RENDERABLE_OBJECT_TYPES.has(obj.type) && isInventoryIsoObject(obj)) {
+        if (obj && ISO_RENDERABLE_OBJECT_TYPES.has(obj.type)) {
           const { planW, planH } = sharedSize;
           const minW = (MIN_OBJ_EDGE_PX / ISO_EDGE_SCALE) * planW;
           const minH = (MIN_OBJ_EDGE_PX / ISO_EDGE_SCALE) * planH;
@@ -3024,7 +3085,7 @@ export default function Building2D() {
           {/* Edit toggle — isometric only; enables dragging objects to reposition them */}
           {viewMode === 'isometric' && (
             <button
-              onClick={() => setIsoEditMode(v => !v)}
+              onClick={() => { setIsoEditMode(v => !v); setSelectedIsoObject(null); }}
               title={isoEditMode ? 'Exit edit mode' : 'Edit mode: drag objects to reposition them'}
               className={`px-3 py-1.5 rounded border text-xs font-medium flex items-center gap-1.5 ${isoEditMode ? 'bg-[var(--primary)] text-white border-[var(--primary)]' : 'border-[var(--border)] text-[var(--text-muted)] hover:bg-[var(--surface-2)]'}`}
             >
@@ -3141,6 +3202,53 @@ export default function Building2D() {
             {dragError}
           </div>
         )}
+
+        {viewMode === 'isometric' && isoEditMode && selectedIsoObject && (() => {
+          const selectedPlan = allPlans.find(p => p.id === selectedIsoObject.planId);
+          const selectedRect = selectedPlan?.objects?.find(
+            o => o.id === selectedIsoObject.objectId
+          ) as RectangleObject | undefined;
+          if (!selectedPlan || !selectedRect) return null;
+          const objs = selectedPlan.objects ?? [];
+          const total = objs.length;
+          const index = objs.findIndex(o => o.id === selectedRect.id);
+          const isBack = index === 0;
+          const isFront = index === total - 1;
+          const layerLabel = isBack ? 'Back layer' : isFront ? 'Front layer' : `Layer ${index + 1} of ${total}`;
+          const btnClass = "flex flex-col items-center gap-0.5 px-2 py-1 border border-[var(--border)] rounded text-[var(--text-muted)] hover:bg-[var(--surface-2)] disabled:opacity-30 disabled:cursor-not-allowed";
+          return (
+            <div className="absolute top-3 left-1/2 -translate-x-1/2 z-20 flex items-center gap-2 px-2 py-1.5 rounded border border-[var(--border)] bg-[var(--surface)] shadow-lg text-xs">
+              <span className="text-[var(--text-muted)] pl-1 whitespace-nowrap">
+                {selectedRect.label || selectedRect.type} <span className="opacity-70">({layerLabel})</span>
+              </span>
+              <div className="grid grid-cols-4 gap-1">
+                <button onClick={() => handleSendToBack(selectedPlan.id, selectedRect.id)} disabled={isBack} title="Send to Back" className={btnClass}>
+                  <ChevronsDown size={13} />
+                  <span className="text-[9px]">Back</span>
+                </button>
+                <button onClick={() => handleMoveBackward(selectedPlan.id, selectedRect.id)} disabled={isBack} title="Move Backward" className={btnClass}>
+                  <ChevronDown size={13} />
+                  <span className="text-[9px]">Backward</span>
+                </button>
+                <button onClick={() => handleMoveForward(selectedPlan.id, selectedRect.id)} disabled={isFront} title="Move Forward" className={btnClass}>
+                  <ChevronUp size={13} />
+                  <span className="text-[9px]">Forward</span>
+                </button>
+                <button onClick={() => handleBringToFront(selectedPlan.id, selectedRect.id)} disabled={isFront} title="Bring to Front" className={btnClass}>
+                  <ChevronsUp size={13} />
+                  <span className="text-[9px]">Front</span>
+                </button>
+              </div>
+              <button
+                className="text-[var(--text-muted)] hover:text-[var(--text)] px-1"
+                title="Deselect"
+                onClick={() => setSelectedIsoObject(null)}
+              >
+                ✕
+              </button>
+            </div>
+          );
+        })()}
 
         {viewMode === 'topDown25D' && topDownData ? (
           <TopDown25DFloorplanView

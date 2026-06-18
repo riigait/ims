@@ -34,11 +34,15 @@ const ALL_RECT_TYPES = new Set([
   'storage-box', 'bin', 'pallet', 'bathroom', 'human',
 ]);
 
+// rack/shelf deliberately excluded: those are also the legacy storage types
+// for not-yet-migrated old data, so they must fall through to the
+// label/id-matching patterns below to recover their real kind (pallet,
+// cabinet, etc.) instead of being trusted as literally "rack"/"shelf".
 const TYPE_MAP: Partial<Record<string, FloorplanElementType>> = {
   stairs: 'stairs', elevator: 'elevator', bathroom: 'restroom',
   chair: 'chair', 'work-surface': 'table', cabinet: 'cabinet',
   drawer: 'drawer', locker: 'locker', 'storage-box': 'storage_box',
-  bin: 'bin', pallet: 'pallet', rack: 'rack', shelf: 'shelf',
+  bin: 'bin', pallet: 'pallet',
   human: 'chair',
 };
 
@@ -60,7 +64,8 @@ function topDown25DType(type: string, label?: string, id = ''): FloorplanElement
   const direct = TYPE_MAP[type];
   if (direct) return direct;
   const name = `${label ?? ''} ${id}`.toLowerCase();
-  return LABEL_PATTERNS.find(([re]) => re.test(name))?.[1] ?? 'rack';
+  const fallback = type === 'shelf' ? 'shelf' : 'rack';
+  return LABEL_PATTERNS.find(([re]) => re.test(name))?.[1] ?? fallback;
 }
 
 // Type predicate so ALL_RECT_TYPES.has() narrows to RectangleObject in the caller

@@ -2,8 +2,13 @@ import booleanContains from '@turf/boolean-contains';
 import booleanIntersects from '@turf/boolean-intersects';
 import { bboxPolygon } from '@turf/turf';
 import { Feature, Polygon } from 'geojson';
-import { DoorObject, EntranceObject, FloorPlanObject, PolygonRoomObject, RectangleObject, WallObject } from '@/types/floorplan';
+import { DoorObject, EntranceObject, FloorPlanObject, PolygonRoomObject, RectangleObject, RectangleObjectType, WallObject } from '@/types/floorplan';
 import { polygonBounds } from '@/utils/floorplanGrid';
+
+const RECTANGLE_OBJECT_TYPES = new Set<RectangleObjectType>([
+  'rack', 'shelf', 'stairs', 'elevator',
+  'work-surface', 'chair', 'cabinet', 'drawer', 'locker', 'storage-box', 'bin', 'pallet', 'bathroom', 'human',
+]);
 
 export type FloorplanValidationError =
   | 'object_outside_room'
@@ -54,7 +59,7 @@ function wallPolygon(wall: WallObject): Feature<Polygon> {
 }
 
 function isRectObject(obj: FloorPlanObject): obj is RectangleObject {
-  return obj.type === 'rack' || obj.type === 'shelf' || obj.type === 'stairs' || obj.type === 'elevator';
+  return RECTANGLE_OBJECT_TYPES.has(obj.type as RectangleObjectType);
 }
 
 function isPolygonRoom(obj: FloorPlanObject): obj is PolygonRoomObject {

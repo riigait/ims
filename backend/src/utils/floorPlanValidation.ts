@@ -46,8 +46,14 @@ const EDGE_TOLERANCE = 20;
 const DOOR_CLEARANCE_DEPTH = 92;
 const FIX_MARGIN = 12;
 
+// Every rect-shaped furniture/fixture type — mirrors frontend RectangleObjectType.
+const RECT_OBJECT_TYPES = new Set([
+  'rack', 'shelf', 'stairs', 'elevator',
+  'work-surface', 'chair', 'cabinet', 'drawer', 'locker', 'storage-box', 'bin', 'pallet', 'bathroom', 'human',
+]);
+
 const isRect = (object: FloorPlanObject): object is FloorPlanObject & Rect =>
-  (object.type === 'rack' || object.type === 'shelf' || object.type === 'stairs' || object.type === 'elevator')
+  RECT_OBJECT_TYPES.has(object.type)
   && [object.x, object.y, object.width, object.height].every(Number.isFinite);
 
 const isPolygonRoom = (object: FloorPlanObject): object is FloorPlanObject & { points: number[] } =>

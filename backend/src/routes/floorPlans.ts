@@ -34,6 +34,13 @@ const isFixedFloorObject = (o: FloorPlanObject) =>
   o.id.includes('reserved-stairs') || o.id.includes('reserved-elevator') || isRestroomObject(o);
 const isOutdoorWallObject = (object: FloorPlanObject) => object.type === 'wall' && object.id.includes('-ow-');
 
+// Every rect-shaped furniture/fixture type — mirrors frontend RectangleObjectType.
+const RECT_OBJECT_TYPES = new Set([
+  'rack', 'shelf', 'stairs', 'elevator',
+  'work-surface', 'chair', 'cabinet', 'drawer', 'locker', 'storage-box', 'bin', 'pallet', 'bathroom', 'human',
+]);
+const isRectObject = (object: FloorPlanObject) => RECT_OBJECT_TYPES.has(object.type);
+
 function deriveBuildingMetadata(name: string, departmentId: string | null) {
   const match = name.match(/ - Building (\d+) - Floor (\d+) - /);
   if (!match) return { buildingKey: null, floorNumber: null };
@@ -496,7 +503,7 @@ function fitIndoorObjectsInsideOutdoorWalls(objects: FloorPlanObject[]): FloorPl
   const scaledH = sourceHeight * scale;
 
   const rectangles = indoorObjects.filter((object) =>
-    (object.type === 'room' || object.type === 'rack' || object.type === 'shelf')
+    (object.type === 'room' || isRectObject(object))
     && !isFixedVerticalAccess(object));
   // offsetX/Y is the target-space coordinate of the scaled content's top-left corner.
   const transformFits = (ox: number, oy: number) => rectangles.every((object) => {
@@ -709,8 +716,7 @@ function resolveMovableObjectOverlapsWithFixed(objects: FloorPlanObject[], fixed
   const isMovableZone = (o: FloorPlanObject) =>
     o.type === 'room' && !isOW(o) && !isFixedFloorObject(o) && !o.linkedLocationId;
   const blockerObjects = fixedObjects.filter((object) =>
-    object.type === 'room' || object.type === 'rack' || object.type === 'shelf' ||
-    object.type === 'stairs' || object.type === 'elevator' || object.type === 'bathroom');
+    object.type === 'room' || isRectObject(object));
   const movable = objects.filter(isMovableZone).map((object) => ({ ...object }));
   if (movable.length === 0 || blockerObjects.length === 0) return objects;
 
@@ -828,8 +834,7 @@ function hasMovableFixedOverlap(objects: FloorPlanObject[], fixedObjects: FloorP
   const rooms = objects.filter((object) =>
     object.type === 'room' && !isOW(object) && !isFixedFloorObject(object) && !object.linkedLocationId);
   const blockers = fixedObjects.filter((object) =>
-    object.type === 'room' || object.type === 'rack' || object.type === 'shelf' ||
-    object.type === 'stairs' || object.type === 'elevator' || object.type === 'bathroom');
+    object.type === 'room' || isRectObject(object));
   return rooms.some((room) => blockers.some((blocker) => rectsOverlap(objectBounds(room), objectBounds(blocker))));
 }
 
