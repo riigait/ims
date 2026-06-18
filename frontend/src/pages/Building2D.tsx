@@ -7,9 +7,12 @@ import type {
   DoorObject,
   EntranceObject,
   FloorPlan,
+  FloorPlanObject,
   InventoryMarkerObject,
   LabelObject,
+  PolygonRoomObject,
   RectangleObject,
+  WallObject,
   WindowObject,
 } from '@/types/floorplan';
 import { Lock, Building2, RefreshCw, ZoomIn, ZoomOut, Maximize2, Layers, Box, ChevronLeft, ChevronRight, Pencil } from 'lucide-react';
@@ -329,7 +332,7 @@ function planCorners(planW: number, planH: number, ox: number, oy: number): [num
 type Pt = [number, number];
 
 function chainWallsToPolygon(
-  walls: import('@/types/floorplan').WallObject[],
+  walls: WallObject[],
   planW: number, planH: number,
   ox: number, oy: number,
 ): number[] | null {
@@ -347,6 +350,112 @@ function chainWallsToPolygon(
     const [x, y] = toIso(point.x, point.y, planW, planH);
     return [ox + x, oy + y];
   });
+}
+
+interface IsoBounds { minX: number; minY: number; maxX: number; maxY: number; }
+interface IsoFrame { size: PlanSize; boundsByPlanId: Map<string, IsoBounds>; }
+
+const ISO_FRAME_MARGIN = 40;
+
+function isoDelta(dx: number, dy: number, planW: number, planH: number): Pt {
+  const safeW = planW > 0 ? planW : 800;
+  const safeH = planH > 0 ? planH : 600;
+  const halfW = ISO_PLAN_SIZE * ISO_TW / 2;
+  const halfH = ISO_PLAN_SIZE * ISO_TH / 2;
+  return [
+    (dx / safeW - dy / safeH) * halfW,
+    (dx / safeW + dy / safeH) * halfH,
+  ];
+}
+
+function expandIsoBounds(bounds: IsoBounds, x: number, y: number): void {
+  bounds.minX = Math.min(bounds.minX, x);
+  bounds.minY = Math.min(bounds.minY, y);
+  bounds.maxX = Math.max(bounds.maxX, x);
+  bounds.maxY = Math.max(bounds.maxY, y);
+}
+
+function newIsoBounds(): IsoBounds {
+  return { minX: Infinity, minY: Infinity, maxX: -Infinity, maxY: -Infinity };
+}
+
+function finishIsoBounds(bounds: IsoBounds): IsoBounds | null {
+  return bounds.minX < Infinity ? bounds : null;
+}
+
+function boundsFromWalls(walls: WallObject[]): IsoBounds | null {
+  if (walls.length === 0) return null;
+  const bounds = newIsoBounds();
+  for (const wall of walls) {
+    expandIsoBounds(bounds, wall.startX, wall.startY);
+    expandIsoBounds(bounds, wall.endX, wall.endY);
+  }
+  return finishIsoBounds(bounds);
+}
+
+function boundsFromObjects(objects: FloorPlanObject[]): IsoBounds | null {
+  const bounds = newIsoBounds();
+  for (const object of objects) {
+    if (object.type === 'wall') {
+      expandIsoBounds(bounds, object.startX, object.startY);
+      expandIsoBounds(bounds, object.endX, object.endY);
+    } else if (object.type === 'room') {
+      const room = object as PolygonRoomObject;
+      for (let i = 0; i < room.points.length; i += 2) expandIsoBounds(bounds, room.points[i], room.points[i + 1]);
+    } else if ('x' in object && 'y' in object && 'width' in object
+      && typeof object.x === 'number' && typeof object.y === 'number' && typeof object.width === 'number') {
+      const height = 'height' in object && typeof object.height === 'number' ? object.height : 30;
+      expandIsoBounds(bounds, object.x, object.y);
+      expandIsoBounds(bounds, object.x + object.width, object.y + height);
+    }
+  }
+  return finishIsoBounds(bounds);
+}
+
+function isoAnchorBounds(plan: FloorPlan): IsoBounds | null {
+  const objects = plan.objects ?? [];
+  const walls = objects.filter((object): object is WallObject => object.type === 'wall');
+  const finalPerim = walls.filter(wall =>
+    wall.wallType === 'finalized_building_perimeter' || wall.isFinalizedPerimeter === true
+  );
+  const ownOutdoor = walls.filter(wall => wall.wallType === 'floor_original_outdoor');
+  return boundsFromWalls(finalPerim)
+    ?? boundsFromWalls(ownOutdoor)
+    ?? boundsFromObjects(objects);
+}
+
+function buildIsoFrame(floors: FloorPlan[]): IsoFrame {
+  const boundsByPlanId = new Map<string, IsoBounds>();
+  let maxWidth = 800;
+  let maxHeight = 600;
+
+  for (const plan of floors) {
+    maxWidth = Math.max(maxWidth, (plan.width ?? 0) > 0 ? plan.width : 800);
+    maxHeight = Math.max(maxHeight, (plan.height ?? 0) > 0 ? plan.height : 600);
+
+    const bounds = isoAnchorBounds(plan);
+    if (!bounds) continue;
+    boundsByPlanId.set(plan.id, bounds);
+    maxWidth = Math.max(maxWidth, bounds.maxX - bounds.minX + ISO_FRAME_MARGIN * 2);
+    maxHeight = Math.max(maxHeight, bounds.maxY - bounds.minY + ISO_FRAME_MARGIN * 2);
+  }
+
+  return { size: { planW: maxWidth, planH: maxHeight }, boundsByPlanId };
+}
+
+function isoFloorOrigin(plan: FloorPlan, ox: number, oy: number, frame: IsoFrame): IsoOrigin {
+  const bounds = frame.boundsByPlanId.get(plan.id);
+  if (!bounds) return { originX: ox, originY: oy };
+
+  const boundsCenterX = (bounds.minX + bounds.maxX) / 2;
+  const boundsCenterY = (bounds.minY + bounds.maxY) / 2;
+  const [shiftX, shiftY] = isoDelta(
+    frame.size.planW / 2 - boundsCenterX,
+    frame.size.planH / 2 - boundsCenterY,
+    frame.size.planW,
+    frame.size.planH,
+  );
+  return { originX: ox + shiftX, originY: oy + shiftY };
 }
 
 // ─── window sub-components (keep nesting ≤ 4 levels) ─────────────────────────
@@ -2014,12 +2123,11 @@ function buildIsoBuilding(
     : bld.floors.filter(p => (p.floorNumber ?? 1) === floorFilter);
   const sorted = [...filtered].sort((a, b) => (a.floorNumber ?? 1) - (b.floorNumber ?? 1));
 
-  // All floors in a building must share the same coordinate space so objects
-  // line up vertically in the stacked iso view.
-  const sharedSize: PlanSize = {
-    planW: Math.max(...bld.floors.map(p => (p.width  ?? 0) > 0 ? p.width!  : 800), 800),
-    planH: Math.max(...bld.floors.map(p => (p.height ?? 0) > 0 ? p.height! : 600), 600),
-  };
+  // All floors in a building share a render frame, then each floor is
+  // translated by its finalized perimeter/content bounds so crop shifts do not
+  // move the dollhouse position.
+  const frame = buildIsoFrame(bld.floors);
+  const sharedSize = frame.size;
 
   const visuals: React.ReactNode[] = [];
   const hits: React.ReactNode[] = [];
@@ -2027,6 +2135,7 @@ function buildIsoBuilding(
   for (const plan of sorted) {
     const fn = plan.floorNumber ?? 1;
     const oy = baseY - (fn - 1) * ISO_FLOOR_SEP;
+    const origin = isoFloorOrigin(plan, bOffX, oy, frame);
 
     let floorAlpha: number;
     let showObjects: boolean;
@@ -2039,7 +2148,7 @@ function buildIsoBuilding(
       showObjects = true;
     }
 
-    const { visual, hit } = buildIsoFloorNodes(plan, bOffX, oy, ctx, floorAlpha, showObjects, sharedSize);
+    const { visual, hit } = buildIsoFloorNodes(plan, origin.originX, origin.originY, ctx, floorAlpha, showObjects, sharedSize);
     visuals.push(visual);
     hits.push(hit);
   }
@@ -2240,15 +2349,13 @@ export default function Building2D() {
     [topDownPlan],
   );
 
-  // Precompute shared iso size and wall polygon points per floor so the render
-  // path never recomputes them on hover/tooltip state changes.
-  const isoSharedSize = useMemo<PlanSize | null>(() => {
-    if (!focusedIsoBuilding) return null;
-    return {
-      planW: Math.max(...focusedIsoBuilding.floors.map(p => (p.width  ?? 0) > 0 ? p.width!  : 800), 800),
-      planH: Math.max(...focusedIsoBuilding.floors.map(p => (p.height ?? 0) > 0 ? p.height! : 600), 600),
-    };
-  }, [focusedIsoBuilding]);
+  // Precompute the shared iso frame per building so finalized crop shifts do
+  // not change the dollhouse position for individual floors.
+  const isoSharedFrame = useMemo<IsoFrame | null>(
+    () => focusedIsoBuilding ? buildIsoFrame(focusedIsoBuilding.floors) : null,
+    [focusedIsoBuilding],
+  );
+  const isoSharedSize = isoSharedFrame?.size ?? null;
 
   // Cache chainWallsToPolygon results keyed by plan id.
   // Origin is (0,0) — callers add the real ox/oy offset when using the points.
@@ -2461,16 +2568,18 @@ export default function Building2D() {
 
   const isoObjectHitTargets = useMemo<IsoObjectHitTarget[]>(() => {
     if (!focusedIsoBuilding || isoFloorFilter === null) return [];
-    const size = isoSharedSize ?? { planW: 800, planH: 600 };
+    const frame = isoSharedFrame ?? buildIsoFrame(focusedIsoBuilding.floors);
+    const size = frame.size;
     const targets: IsoObjectHitTarget[] = [];
     const filtered = focusedIsoBuilding.floors.filter(plan => (plan.floorNumber ?? 1) === isoFloorFilter);
     const floors = [...filtered].sort((a, b) => (a.floorNumber ?? 1) - (b.floorNumber ?? 1));
 
     floors.forEach((plan, floorOrder) => {
       const fn = plan.floorNumber ?? 1;
-      const floorOx = centerX;
-      const floorOy = baseY - (fn - 1) * ISO_FLOOR_SEP;
-      const origin = { originX: floorOx, originY: floorOy };
+      const baseFloorOy = baseY - (fn - 1) * ISO_FLOOR_SEP;
+      const origin = isoFloorOrigin(plan, centerX, baseFloorOy, frame);
+      const floorOx = origin.originX;
+      const floorOy = origin.originY;
 
       for (const object of plan.objects ?? []) {
         if (!ISO_RENDERABLE_OBJECT_TYPES.has(object.type)) continue;
@@ -2521,7 +2630,7 @@ export default function Building2D() {
     return targets
       .sort((a, b) => a.floorOrder - b.floorOrder || compareIsoRenderEntries(a, b))
       .reverse();
-  }, [focusedIsoBuilding, isoSharedSize, isoFloorFilter, centerX, baseY, hoveredObject]);
+  }, [focusedIsoBuilding, isoSharedFrame, isoFloorFilter, centerX, baseY, hoveredObject]);
 
   // ── Object dragging (isometric, single-floor mode only) ──────────────────
   // dragPreview drives a lightweight overlay layer only — never written into
@@ -2695,21 +2804,22 @@ export default function Building2D() {
   const isoHoverOverlay = useMemo(() => {
     if (!focusedIsoBuilding || (!hoveredId && !hoveredObject)) return null;
 
-    const sharedSize = isoSharedSize ?? { planW: 800, planH: 600 };
+    const frame = isoSharedFrame ?? buildIsoFrame(focusedIsoBuilding.floors);
+    const sharedSize = frame.size;
     const nodes: React.ReactNode[] = [];
 
     for (const plan of focusedIsoBuilding.floors) {
       if (isoFloorFilter !== null && (plan.floorNumber ?? 1) !== isoFloorFilter) continue;
       const fn = plan.floorNumber ?? 1;
       const oy = baseY - (fn - 1) * ISO_FLOOR_SEP;
+      const origin = isoFloorOrigin(plan, centerX, oy, frame);
 
       // Floor lift highlight
       if (hoveredId === plan.id && isoMode === 'single') {
         const cachedPts = isoWallPolyCache.get(plan.id);
-        const origin = { originX: centerX, originY: oy };
         const topFacePts = cachedPts
-          ? cachedPts.map((v, i) => i % 2 === 0 ? v + centerX : v + oy)
-          : planCorners(sharedSize.planW, sharedSize.planH, centerX, oy).flatMap(([x, y]) => [x, y]);
+          ? cachedPts.map((v, i) => i % 2 === 0 ? v + origin.originX : v + origin.originY)
+          : planCorners(sharedSize.planW, sharedSize.planH, origin.originX, origin.originY).flatMap(([x, y]) => [x, y]);
         nodes.push(
           <Group key={`hover-floor-${plan.id}`} listening={false} y={-ISO_HOVER_LIFT}>
             <Line closed points={topFacePts}
@@ -2717,7 +2827,6 @@ export default function Building2D() {
             />
           </Group>
         );
-        void origin; // used via topFacePts
       }
 
       // Object hover glow
@@ -2741,7 +2850,7 @@ export default function Building2D() {
           const footprint = rectToIsoPts(
             drawRect,
             sharedSize,
-            { originX: centerX, originY: oy },
+            origin,
             rot,
             pivotX,
             pivotY,
@@ -2759,7 +2868,7 @@ export default function Building2D() {
 
     return nodes.length > 0 ? nodes : null;
   }, [focusedIsoBuilding, hoveredId, hoveredObject, isoMode, isoFloorFilter,
-      baseY, centerX, isoSharedSize, isoWallPolyCache]);
+      baseY, centerX, isoSharedFrame, isoWallPolyCache]);
 
   // Drag preview — lightweight, redraws on every drag-move only. Drawn above
   // the hit layer so it visually occludes the stale original at its old
@@ -2773,13 +2882,15 @@ export default function Building2D() {
 
     const fn = plan.floorNumber ?? 1;
     const oy = baseY - (fn - 1) * ISO_FLOOR_SEP;
-    const size = isoSharedSize ?? { planW: 800, planH: 600 };
+    const frame = isoSharedFrame ?? buildIsoFrame(focusedIsoBuilding.floors);
+    const size = frame.size;
+    const origin = isoFloorOrigin(plan, centerX, oy, frame);
     const drawRect = { x: dragPreview.wx, y: dragPreview.wy, w: obj.width, h: obj.height };
     const kind = isoPresetKind(obj);
     const rot = obj.rotation ?? 0;
     const pivotX = drawRect.x + drawRect.w / 2;
     const pivotY = drawRect.y + drawRect.h / 2;
-    const footprint = rectToIsoPts(drawRect, size, { originX: centerX, originY: oy }, rot, pivotX, pivotY);
+    const footprint = rectToIsoPts(drawRect, size, origin, rot, pivotX, pivotY);
     const liftedFootprint = liftIsoPoints(footprint, isoPresetBaseLift(kind));
     const outline = isoPrismSilhouette(liftedFootprint, isoPresetHeight(kind, size));
     return (
@@ -2787,7 +2898,7 @@ export default function Building2D() {
         closed points={outline} stroke="#22c55e" strokeWidth={2} fill="rgba(34,197,94,0.18)" lineJoin="round"
       />
     );
-  }, [dragPreview, focusedIsoBuilding, baseY, centerX, isoSharedSize]);
+  }, [dragPreview, focusedIsoBuilding, baseY, centerX, isoSharedFrame]);
 
   const renderIsometric = () => (
     <>

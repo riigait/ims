@@ -14,7 +14,14 @@ import Pagination from '@/components/Pagination';
 import { ALL_DEPARTMENTS_ID } from '@/constants/app';
 import { validateFloorplanObjects } from '@/utils/floorplanValidation';
 import { applyAutoFixes } from '@/utils/floorplanFixer';
-import { A4_PAGE_HEIGHT, A4_PAGE_WIDTH } from '@/utils/floorplanGrid';
+import {
+  A4_PAGE_HEIGHT,
+  A4_PAGE_WIDTH,
+  cropDimensionsForBounds,
+  cropFloorPlanToContent,
+  getContentBounds,
+  shiftFloorPlanObject,
+} from '@/utils/floorplanGrid';
 import { extractOutdoorWall } from '@/utils/floorplanGeometry';
 import {
   alignmentTransformForFloor,
@@ -1432,8 +1439,12 @@ export default function FloorPlans() {
 
     try {
       setFinalizing(true);
-      const updatedPlans = await Promise.all(aligned.entries.map(async (entry) => {
-        if (entry.plan.isApproved) return entry.plan; // skip already-finalized floors
+
+      // Finalize every floor's elements first (still in the shared aligned
+      // coordinate space), so a single shared crop box can be computed across
+      // all of them before any floor is persisted — keeps floors aligned.
+      const perFloor = aligned.entries.map(entry => {
+        if (entry.plan.isApproved) return { entry, skip: true as const };
         const alignmentData = alignmentDataFor(entry);
         const transform = alignmentTransformForFloor(entry.plan.id, entry.dx, entry.dy);
         const finalized = finalizeFloorplanElements(
@@ -1444,33 +1455,50 @@ export default function FloorPlans() {
         const validation = validateFloorAlignment(finalized.sourceObjects, finalized.transformedObjects);
         console.table([{ floorId: entry.plan.id, transform, ...validation }]);
         if (!validation.valid) throw new Error(`Invalid finalized floor data for ${entry.plan.id}`);
-        const objects = finalized.objects;
+        if (finalized.finalWalls.length === 0) {
+          throw new Error(`Finalize failed: no shared perimeter walls for ${entry.plan.id}`);
+        }
         console.table([{
           floorId: entry.plan.id,
-          totalElements: objects.length,
+          totalElements: finalized.objects.length,
           sourceOutdoorWalls: sourceOutdoorWalls.length,
           finalizedPerimeterWalls: finalized.finalWalls.length,
-          allOutdoorWalls: objects.filter(obj => obj.type === 'wall' && (
+          allOutdoorWalls: finalized.objects.filter(obj => obj.type === 'wall' && (
             obj.wallType === 'floor_original_outdoor' || obj.wallType === 'finalized_building_perimeter'
           )).length,
           oldFinalizedPerimeterRemoved: (entry.plan.objects ?? []).length - finalized.sourceObjects.length,
         }]);
-        if (finalized.finalWalls.length === 0) {
-          throw new Error(`Finalize failed: no shared perimeter walls for ${entry.plan.id}`);
-        }
+        return { entry, skip: false as const, alignmentData, objects: finalized.objects };
+      });
 
-        await floorPlansApi.update(entry.plan.id, {
-          name: entry.plan.name,
-          width: entry.plan.width,
-          height: entry.plan.height,
-          scale: entry.plan.scale,
-          locationId: entry.plan.locationId,
+      // Shared crop box (+margin) across every finalized floor's content, so
+      // all floors get the same width/height/shift and stay coordinate-aligned.
+      const toFinalize = perFloor.filter(p => !p.skip) as Array<{ entry: typeof aligned.entries[number]; skip: false; alignmentData: ReturnType<typeof alignmentDataFor>; objects: FloorPlanObject[] }>;
+      const sharedBounds = getContentBounds(toFinalize.flatMap(p => p.objects));
+      const sharedWidth = Math.max(...toFinalize.map(p => p.entry.plan.width), A4_PAGE_WIDTH);
+      const sharedHeight = Math.max(...toFinalize.map(p => p.entry.plan.height), A4_PAGE_HEIGHT);
+      const sharedCrop = sharedBounds ? cropDimensionsForBounds(sharedWidth, sharedHeight, sharedBounds) : null;
+
+      const updatedPlans = await Promise.all(perFloor.map(async (p) => {
+        if (p.skip) return p.entry.plan;
+        const width = sharedCrop?.width ?? p.entry.plan.width;
+        const height = sharedCrop?.height ?? p.entry.plan.height;
+        const objects = sharedCrop
+          ? p.objects.map(object => shiftFloorPlanObject(object, sharedCrop.shiftX, sharedCrop.shiftY))
+          : p.objects;
+
+        await floorPlansApi.update(p.entry.plan.id, {
+          name: p.entry.plan.name,
+          width,
+          height,
+          scale: p.entry.plan.scale,
+          locationId: p.entry.plan.locationId,
           objects,
           isApproved: true,
           isAligned: true,
-          alignmentData,
+          alignmentData: p.alignmentData,
         });
-        return { ...entry.plan, objects, isApproved: true, isAligned: true, alignmentData };
+        return { ...p.entry.plan, width, height, objects, isApproved: true, isAligned: true, alignmentData: p.alignmentData };
       }));
 
       applyUpdatedPlans(updatedPlans);
@@ -1497,18 +1525,24 @@ export default function FloorPlans() {
       setFinalizing(true);
       const identity = alignmentTransformForFloor(plan.id, 0, 0);
       const finalized = finalizeFloorplanElements(objects, identity, finalizedPerimeterWalls);
+      // Tighten the saved page to the finalized content so the floor plan
+      // reads clearly instead of sitting small on an oversized default page.
+      const crop = cropFloorPlanToContent(plan.width, plan.height, finalized.objects);
+      const width = crop?.width ?? plan.width;
+      const height = crop?.height ?? plan.height;
+      const finalObjects = crop?.objects ?? finalized.objects;
       await floorPlansApi.update(plan.id, {
         name: plan.name,
-        width: plan.width,
-        height: plan.height,
+        width,
+        height,
         scale: plan.scale,
         locationId: plan.locationId,
-        objects: finalized.objects,
+        objects: finalObjects,
         isApproved: true,
         isAligned: false,
         alignmentData: undefined,
       });
-      applyUpdatedPlans([{ ...plan, objects: finalized.objects, isApproved: true }]);
+      applyUpdatedPlans([{ ...plan, width, height, objects: finalObjects, isApproved: true }]);
     } catch {
       alert('Failed to finalize floor plan.');
     } finally {

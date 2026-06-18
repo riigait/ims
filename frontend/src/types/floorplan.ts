@@ -85,7 +85,7 @@ export interface EntranceObject extends BaseFloorPlanObject {
   y: number;
   width: number;
   angle: number;
-  style: 'single' | 'double' | 'archway';
+  style: 'single' | 'double' | 'archway' | 'stairway';
   color?: string;
 }
 

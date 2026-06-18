@@ -1498,6 +1498,40 @@ export default function FloorPlanEditor() {
       ctx.moveTo(-entrance.width / 2 + 5, 0);
       ctx.lineTo(entrance.width / 2 - 5, 0);
       ctx.stroke();
+    } else if (entrance.style === 'stairway') {
+      const halfWidth = entrance.width / 2;
+      const steps = 5;
+      const startX = -halfWidth + 8;
+      const endX = halfWidth - 8;
+      const stepW = (endX - startX) / steps;
+      const stepH = 16 / steps;
+      let x = startX;
+      let y = 8;
+
+      ctx.setLineDash([]);
+      ctx.beginPath();
+      ctx.moveTo(-halfWidth, -8);
+      ctx.lineTo(-halfWidth, 8);
+      ctx.moveTo(halfWidth, -8);
+      ctx.lineTo(halfWidth, 8);
+      ctx.stroke();
+
+      ctx.lineWidth = isSelected ? 2.2 : 1.8;
+      ctx.beginPath();
+      ctx.moveTo(x, y);
+      for (let i = 0; i < steps; i++) {
+        x += stepW;
+        ctx.lineTo(x, y);
+        y -= stepH;
+        ctx.lineTo(x, y);
+      }
+      ctx.stroke();
+
+      ctx.lineWidth = isSelected ? 2 : 1.5;
+      ctx.beginPath();
+      ctx.moveTo(startX, -9);
+      ctx.lineTo(endX, -9);
+      ctx.stroke();
     }
 
     ctx.setLineDash([]);
@@ -3076,13 +3110,37 @@ export default function FloorPlanEditor() {
     if (obj.type === 'entrance') {
       const entrance = obj as EntranceObject;
       const [erhx, erhy] = isSelected ? getAngleObjRotateHandlePos(entrance) : [0, 0];
+      const entranceColor = isSelected ? '#2563eb' : (entrance.color ?? '#10b981');
+      const halfWidth = entrance.width / 2;
+      const stairStartX = -halfWidth + 8;
+      const stairEndX = halfWidth - 8;
+      const stairStepCount = 5;
+      const stairStepW = (stairEndX - stairStartX) / stairStepCount;
+      const stairStepH = 16 / stairStepCount;
+      const stairStepPoints: number[] = [stairStartX, 8];
+      for (let i = 0; i < stairStepCount; i++) {
+        const lastX = stairStepPoints[stairStepPoints.length - 2];
+        const lastY = stairStepPoints[stairStepPoints.length - 1];
+        stairStepPoints.push(lastX + stairStepW, lastY, lastX + stairStepW, lastY - stairStepH);
+      }
       return (
         <Group key={obj.id}>
           <Group x={entrance.x} y={entrance.y} rotation={deg(entrance.angle)}>
             {!isSelected && <KonvaRect x={-entrance.width / 2 - 3} y={-12} width={entrance.width + 6} height={24} fill="rgba(16, 185, 129, 0.08)" />}
-            <Line points={[-entrance.width / 2, 0, entrance.width / 2, 0]} stroke={isSelected ? '#2563eb' : (entrance.color ?? '#10b981')} strokeWidth={isSelected ? 2.5 : 2} dash={entrance.style === 'archway' ? [4, 3] : [3, 3]} />
-            <Line points={[-entrance.width / 2, -8, -entrance.width / 2, 8]} stroke={isSelected ? '#2563eb' : (entrance.color ?? '#10b981')} strokeWidth={2} />
-            <Line points={[entrance.width / 2, -8, entrance.width / 2, 8]} stroke={isSelected ? '#2563eb' : (entrance.color ?? '#10b981')} strokeWidth={2} />
+            {entrance.style === 'stairway' ? (
+              <>
+                <Line points={[-halfWidth, -8, -halfWidth, 8]} stroke={entranceColor} strokeWidth={2} />
+                <Line points={[halfWidth, -8, halfWidth, 8]} stroke={entranceColor} strokeWidth={2} />
+                <Line points={stairStepPoints} stroke={entranceColor} strokeWidth={isSelected ? 2.2 : 1.8} lineJoin="round" />
+                <Line points={[stairStartX, -9, stairEndX, -9]} stroke={entranceColor} strokeWidth={isSelected ? 2 : 1.5} />
+              </>
+            ) : (
+              <>
+                <Line points={[-halfWidth, 0, halfWidth, 0]} stroke={entranceColor} strokeWidth={isSelected ? 2.5 : 2} dash={entrance.style === 'archway' ? [4, 3] : [3, 3]} />
+                <Line points={[-halfWidth, -8, -halfWidth, 8]} stroke={entranceColor} strokeWidth={2} />
+                <Line points={[halfWidth, -8, halfWidth, 8]} stroke={entranceColor} strokeWidth={2} />
+              </>
+            )}
             {isSelected && <KonvaRect x={-entrance.width / 2 - 4} y={-13} width={entrance.width + 8} height={26} stroke="#2563eb" dash={[4, 4]} />}
           </Group>
           {isSelected && (() => {
@@ -4358,7 +4416,7 @@ export default function FloorPlanEditor() {
                     </div>
                     <div>
                       <label className="block text-xs font-medium text-[var(--text-muted)] mb-1">Entrance Style</label>
-                      <div className="flex gap-2">
+                      <div className="grid grid-cols-2 gap-2">
                         <button onClick={() => updateObject(selectedObject.id, { style: 'single' })}
                           className={`flex-1 px-2 py-1.5 rounded text-sm font-medium ${entrance.style === 'single' ? 'bg-[var(--primary)] text-white' : 'bg-[var(--surface-2)] text-[var(--text)]'}`}>
                           Single
@@ -4370,6 +4428,10 @@ export default function FloorPlanEditor() {
                         <button onClick={() => updateObject(selectedObject.id, { style: 'archway' })}
                           className={`flex-1 px-2 py-1.5 rounded text-sm font-medium ${entrance.style === 'archway' ? 'bg-[var(--primary)] text-white' : 'bg-[var(--surface-2)] text-[var(--text)]'}`}>
                           Archway
+                        </button>
+                        <button onClick={() => updateObject(selectedObject.id, { style: 'stairway' })}
+                          className={`flex-1 px-2 py-1.5 rounded text-sm font-medium ${entrance.style === 'stairway' ? 'bg-[var(--primary)] text-white' : 'bg-[var(--surface-2)] text-[var(--text)]'}`}>
+                          Stairway
                         </button>
                       </div>
                     </div>

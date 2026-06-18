@@ -422,6 +422,115 @@ export function polygonBounds(points: number[]): { x: number; y: number; width: 
   return { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
 }
 
+export interface ContentBounds { minX: number; minY: number; maxX: number; maxY: number; }
+
+type MutableBounds = { minX: number; minY: number; maxX: number; maxY: number; };
+
+function growBounds(b: MutableBounds, x: number, y: number): void {
+  b.minX = Math.min(b.minX, x); b.maxX = Math.max(b.maxX, x);
+  b.minY = Math.min(b.minY, y); b.maxY = Math.max(b.maxY, y);
+}
+
+function growBoundsForRect(b: MutableBounds, rect: RectangleObject): void {
+  if (!rect.rotation) {
+    growBounds(b, rect.x, rect.y);
+    growBounds(b, rect.x + rect.width, rect.y + rect.height);
+    return;
+  }
+  const cx = rect.x + rect.width / 2, cy = rect.y + rect.height / 2;
+  const cos = Math.cos(rect.rotation), sin = Math.sin(rect.rotation);
+  const corners: [number, number][] = [
+    [-rect.width / 2, -rect.height / 2], [rect.width / 2, -rect.height / 2],
+    [rect.width / 2, rect.height / 2], [-rect.width / 2, rect.height / 2],
+  ];
+  for (const [dx, dy] of corners) {
+    growBounds(b, cx + dx * cos - dy * sin, cy + dx * sin + dy * cos);
+  }
+}
+
+function growBoundsForObject(b: MutableBounds, obj: FloorPlanObject): void {
+  if (obj.type === 'wall') {
+    growBounds(b, obj.startX, obj.startY);
+    growBounds(b, obj.endX, obj.endY);
+  } else if (obj.type === 'room') {
+    for (let i = 0; i < obj.points.length; i += 2) growBounds(b, obj.points[i], obj.points[i + 1]);
+  } else if (obj.type === 'rack' || obj.type === 'shelf' || obj.type === 'stairs' || obj.type === 'elevator') {
+    growBoundsForRect(b, obj);
+  } else if (obj.type === 'label') {
+    const w = obj.text.length * (obj.fontSize * 0.6);
+    growBounds(b, obj.x - 5, obj.y - obj.fontSize);
+    growBounds(b, obj.x + w, obj.y + 5);
+  } else if (obj.type === 'door' || obj.type === 'window' || obj.type === 'entrance') {
+    growBounds(b, obj.x - obj.width / 2 - 5, obj.y - 15);
+    growBounds(b, obj.x + obj.width / 2 + 5, obj.y + 15);
+  } else if (obj.type === 'marker') {
+    growBounds(b, obj.x - 10, obj.y - 10);
+    growBounds(b, obj.x + 10, obj.y + 15);
+  }
+}
+
+/**
+ * Bounding box of a set of floor plan objects, mirrored from the editor's
+ * getGroupBounds so manual "crop to content" and auto-crop-on-finalize agree
+ * on the same box.
+ */
+export function getContentBounds(objects: FloorPlanObject[]): ContentBounds | null {
+  if (objects.length === 0) return null;
+  const b: MutableBounds = { minX: Infinity, minY: Infinity, maxX: -Infinity, maxY: -Infinity };
+  for (const obj of objects) growBoundsForObject(b, obj);
+  return b.minX < Infinity ? b : null;
+}
+
+/** Margin (world units) kept around content when baking an auto-crop. */
+export const AUTO_CROP_MARGIN = 40;
+
+export interface CropDimensions { width: number; height: number; shiftX: number; shiftY: number; }
+export interface CropResult extends CropDimensions { objects: FloorPlanObject[]; }
+
+/**
+ * Crop dimensions (+margin) for a known content bounding box, snapped to the
+ * grid. Returns null when the existing width/height/shift already match
+ * (nothing to crop). Shared by the single-floor and multi-floor crop paths so
+ * every floor that crops together agrees on the same box.
+ */
+export function cropDimensionsForBounds(
+  width: number, height: number, bounds: ContentBounds, margin = AUTO_CROP_MARGIN,
+): CropDimensions | null {
+  const shiftX = snapToGrid(bounds.minX - margin);
+  const shiftY = snapToGrid(bounds.minY - margin);
+  const newWidth = Math.max(GRID_SIZE, snapToGrid(bounds.maxX - shiftX + margin));
+  const newHeight = Math.max(GRID_SIZE, snapToGrid(bounds.maxY - shiftY + margin));
+  if (newWidth === width && newHeight === height && !shiftX && !shiftY) return null;
+  return { width: newWidth, height: newHeight, shiftX: -shiftX, shiftY: -shiftY };
+}
+
+/** Translate a single floor plan object by (dx, dy), unsnapped (for baking an already-snapped crop shift). */
+export function shiftFloorPlanObject<T extends FloorPlanObject>(object: T, dx: number, dy: number): T {
+  if (object.type === 'wall') return moveObjectWithGrid(object, object.startX + dx, object.startY + dy, false);
+  if (object.type === 'room') return moveObjectWithGrid(object, object.points[0] + dx, object.points[1] + dy, false);
+  return moveObjectWithGrid(object, (object as unknown as { x: number }).x + dx, (object as unknown as { y: number }).y + dy, false);
+}
+
+/**
+ * Pure version of the editor's destructive cropToContent: trims width/height
+ * to the content box (+margin) and shifts every object to match. Returns null
+ * when there is nothing to crop (no objects, or already tight).
+ */
+export function cropFloorPlanToContent(
+  width: number, height: number, objects: FloorPlanObject[], margin = AUTO_CROP_MARGIN,
+): CropResult | null {
+  if (objects.length === 0) return null;
+  const bounds = getContentBounds(objects);
+  if (!bounds) return null;
+  const crop = cropDimensionsForBounds(width, height, bounds, margin);
+  if (!crop) return null;
+
+  const shifted = (crop.shiftX || crop.shiftY)
+    ? objects.map(object => shiftFloorPlanObject(object, crop.shiftX, crop.shiftY))
+    : objects;
+  return { ...crop, objects: shifted };
+}
+
 /**
  * Auto-generated and pre-polygon plans store rooms as rectangles
  * ({x, y, width, height}); the UI renders rooms from `points` only.
