@@ -12,7 +12,7 @@ import type {
   RectangleObject,
   WindowObject,
 } from '@/types/floorplan';
-import { Lock, Building2, RefreshCw, ZoomIn, ZoomOut, Maximize2, Layers, Box, ChevronRight, Pencil } from 'lucide-react';
+import { Lock, Building2, RefreshCw, ZoomIn, ZoomOut, Maximize2, Layers, Box, ChevronLeft, ChevronRight, Pencil } from 'lucide-react';
 import { extractOutdoorWall } from '@/utils/floorplanGeometry';
 import { useTheme } from '@/contexts/ThemeContext';
 import TopDown25DFloorplanView from '@/components/floorplan/TopDown25DFloorplanView';
@@ -560,6 +560,7 @@ const OBJ_STYLE: Record<string, ObjStyle> = {
   bin:            { topFill:'#121a1c', topStroke:'#809098', sideFill:'#0a1010', sideAlt:'#040808', zUnits: 65  },
   pallet:         { topFill:'#1e1408', topStroke:'#906840', sideFill:'#100c04', sideAlt:'#080602', zUnits: 15  },
   bathroom:       { topFill:'#0a1820', topStroke:'#38bdf8', sideFill:'#061014', sideAlt:'#040c10', zUnits: 220 },
+  restroom:       { topFill:'#0a1820', topStroke:'#38bdf8', sideFill:'#061014', sideAlt:'#040c10', zUnits: 220 },
   human:          { topFill:'#2c1e14', topStroke:'#c09070', sideFill:'#1a1208', sideAlt:'#100c06', zUnits: 170 },
 };
 
@@ -651,23 +652,24 @@ function isoPresetKind(rect: RectangleObject): IsoPresetKind {
 }
 
 function isInventoryIsoObject(rect: RectangleObject): boolean {
-  return !['work-surface', 'chair', 'stairs', 'elevator', 'restroom', 'human'].includes(isoPresetKind(rect));
+  return !['chair', 'stairs', 'elevator', 'restroom', 'human'].includes(isoPresetKind(rect));
 }
 
 const ISO_RENDERABLE_OBJECT_TYPES = new Set([
   'rack', 'shelf', 'stairs', 'elevator',
   'work-surface', 'chair', 'cabinet', 'drawer', 'locker',
-  'storage-box', 'bin', 'pallet', 'bathroom', 'human',
+  'storage-box', 'bin', 'pallet', 'bathroom', 'restroom', 'human',
 ]);
 
 // Type-tier used to resolve which object draws in front when two visually
-// overlap on screen. Circulation fixtures (stairs/elevator/restroom) sit
-// behind movable furniture/storage, which sits behind the human figure.
+// overlap on screen. Restrooms sit behind other objects; wall entries still
+// paint later and can occlude them.
 function isoRenderPriority(kind: IsoPresetKind): number {
   switch (kind) {
+    case 'restroom':
+      return 20;
     case 'stairs':
     case 'elevator':
-    case 'restroom':
       return 30;
     case 'human':
       return 90;
@@ -1432,6 +1434,33 @@ function aabbOverlap(a: AABB, b: AABB, padding = 0): boolean {
   );
 }
 
+function boxContainsPoint(box: { x: number; y: number; width: number; height: number }, x: number, y: number, padding = 0): boolean {
+  return x >= box.x - padding
+    && x <= box.x + box.width + padding
+    && y >= box.y - padding
+    && y <= box.y + box.height + padding;
+}
+
+function isRestroomOpening(opening: DoorObject | WindowObject | EntranceObject, objects: FloorPlan['objects']): boolean {
+  if (opening.type !== 'door') return false;
+  const name = `${opening.label ?? ''} ${opening.id} ${opening.groupId ?? ''}`.toLowerCase();
+  if (/restroom|bathroom|toilet/.test(name)) return true;
+
+  const padding = Math.max(16, opening.width * 0.75);
+  return objects?.some(obj => {
+    const objName = `${obj.label ?? ''} ${obj.id} ${obj.groupId ?? ''} ${obj.type}`.toLowerCase();
+    if (!/restroom|bathroom|toilet/.test(objName)) return false;
+    if (obj.type === 'room') {
+      return boxContainsPoint(polygonBoundsHelper(obj.points), opening.x, opening.y, padding);
+    }
+    if ('height' in obj && typeof obj.height === 'number' && 'width' in obj && typeof obj.width === 'number'
+      && 'x' in obj && typeof obj.x === 'number' && 'y' in obj && typeof obj.y === 'number') {
+      return boxContainsPoint({ x: obj.x, y: obj.y, width: obj.width, height: obj.height }, opening.x, opening.y, padding);
+    }
+    return false;
+  }) ?? false;
+}
+
 // Real floorplan positions are never adjusted to avoid overlap — only the
 // draw order is. Furniture/inventory entries carry enough info (visualBox,
 // renderPriority, hovered, id) to resolve front/behind when two objects
@@ -1616,7 +1645,7 @@ function buildIsoFloorNodes(
   const ISO_OBJECT_TYPES = new Set([
     'rack', 'shelf', 'stairs', 'elevator',
     'work-surface', 'chair', 'cabinet', 'drawer', 'locker',
-    'storage-box', 'bin', 'pallet', 'bathroom', 'human',
+    'storage-box', 'bin', 'pallet', 'bathroom', 'restroom', 'human',
   ]);
 
   // Pre-pass: flag objects whose flat floor footprint visually overlaps
@@ -1664,7 +1693,7 @@ function buildIsoFloorNodes(
     // top lightened, left face mid, right face darkest.
     const base = rect.color && parseHex(rect.color) ? rect.color : style.topStroke;
     const kind = isoPresetKind(rect);
-    const hovered = ctx.hoveredObjectId === rect.id;
+    const hovered = ctx.hoveredObjectId === `${plan.id}:${rect.id}`;
     const rot = rect.rotation ?? 0;
     const cx = drawX + drawW / 2, cy = drawY + drawH / 2;
     const projectedFootprint = rectToIsoPts(drawRect, size, origin, rot, cx, cy);
@@ -1759,11 +1788,23 @@ function buildIsoFloorNodes(
     const angle = opening.angle ?? 0;
     const dx = Math.cos(angle) * opening.width / 2;
     const dy = Math.sin(angle) * opening.width / 2;
-    const [, y1] = toIso(opening.x - dx, opening.y - dy, planW, planH);
-    const [, y2] = toIso(opening.x + dx, opening.y + dy, planW, planH);
+    const [x1, y1] = toIso(opening.x - dx, opening.y - dy, planW, planH);
+    const [x2, y2] = toIso(opening.x + dx, opening.y + dy, planW, planH);
     const frontScreenY = oy + Math.max(y1, y2);
+    const screenH = isoZ(opening.type === 'window' ? 20 : opening.type === 'entrance' ? 30 : 31);
+    const screenLift = isoZ(opening.type === 'window' ? 9 : 0);
+    const p1: Pt = [ox + x1, oy + y1];
+    const p2: Pt = [ox + x2, oy + y2];
+    const visualBox = aabbFromPoints([
+      p1[0], p1[1] - screenLift,
+      p2[0], p2[1] - screenLift,
+      p2[0], p2[1] - screenLift - screenH,
+      p1[0], p1[1] - screenLift - screenH,
+    ]);
     queue.push({
       depth: OBJECT_DEPTH_BASE + frontScreenY,
+      visualBox,
+      renderPriority: isRestroomOpening(opening, objects) ? isoRenderPriority('restroom') : undefined,
       node: (
         <IsoOpeningShape key={`opening-${plan.id}-${obj.id}`} planId={plan.id}
           object={opening} size={size} origin={origin} />
@@ -2025,6 +2066,7 @@ interface BuildingGroup {
   floors: FloorPlan[]; maxFloor: number;
 }
 interface TooltipState { x: number; y: number; plan: FloorPlan; }
+type IsoObjectHover = { planId: string; objectId: string };
 
 // ─── component ────────────────────────────────────────────────────────────────
 export default function Building2D() {
@@ -2054,7 +2096,7 @@ export default function Building2D() {
   const [tooltip, setTooltip]         = useState<TooltipState | null>(null);
   const [hoveredId, setHoveredId]     = useState<string | null>(null);
   const [, setHoveredFloor] = useState<number | null>(null);
-  const [hoveredObjectId, setHoveredObjectId] = useState<string | null>(null);
+  const [hoveredObject, setHoveredObject] = useState<IsoObjectHover | null>(null);
   const [scale, setScale]             = useState(1);
   const [stageSize, setStageSize]     = useState({ w: 800, h: 600 });
   const [isoFloorFilter, setIsoFloorFilter] = useState<number | null>(null); // null = all
@@ -2141,12 +2183,12 @@ export default function Building2D() {
   }, []);
 
   const handleObjectHover = useCallback((id: string) => {
-    setHoveredObjectId(prev => prev === id ? prev : id);
+    setHoveredObject(prev => prev?.objectId === id ? prev : { planId: '', objectId: id });
     document.body.style.cursor = 'pointer';
   }, []);
 
   const handleObjectHoverEnd = useCallback(() => {
-    setHoveredObjectId(null);
+    setHoveredObject(null);
     document.body.style.cursor = 'default';
   }, []);
 
@@ -2161,6 +2203,14 @@ export default function Building2D() {
 
   const showNextIsoBuilding = () => {
     setIsoBuildingIndex(index => buildings.length > 0 ? (index + 1) % buildings.length : 0);
+    setIsoFloorFilter(null);
+    handleHoverEnd();
+    handleObjectHoverEnd();
+    stageRef.current?.position({ x: 0, y: 0 });
+  };
+
+  const showPreviousIsoBuilding = () => {
+    setIsoBuildingIndex(index => buildings.length > 0 ? (index - 1 + buildings.length) % buildings.length : 0);
     setIsoFloorFilter(null);
     handleHoverEnd();
     handleObjectHoverEnd();
@@ -2410,12 +2460,10 @@ export default function Building2D() {
   const isoMode: 'single' | 'all' = isoFloorFilter !== null ? 'single' : 'all';
 
   const isoObjectHitTargets = useMemo<IsoObjectHitTarget[]>(() => {
-    if (!focusedIsoBuilding) return [];
+    if (!focusedIsoBuilding || isoFloorFilter === null) return [];
     const size = isoSharedSize ?? { planW: 800, planH: 600 };
     const targets: IsoObjectHitTarget[] = [];
-    const filtered = isoFloorFilter === null
-      ? focusedIsoBuilding.floors
-      : focusedIsoBuilding.floors.filter(plan => (plan.floorNumber ?? 1) === isoFloorFilter);
+    const filtered = focusedIsoBuilding.floors.filter(plan => (plan.floorNumber ?? 1) === isoFloorFilter);
     const floors = [...filtered].sort((a, b) => (a.floorNumber ?? 1) - (b.floorNumber ?? 1));
 
     floors.forEach((plan, floorOrder) => {
@@ -2464,7 +2512,7 @@ export default function Building2D() {
           leftBiasScreenX,
           visualBox: aabbFromPoints(points),
           renderPriority: isoRenderPriority(kind),
-          hovered: hoveredObjectId === rect.id,
+          hovered: hoveredObject?.planId === plan.id && hoveredObject.objectId === rect.id,
           id: rect.id,
         });
       }
@@ -2473,7 +2521,7 @@ export default function Building2D() {
     return targets
       .sort((a, b) => a.floorOrder - b.floorOrder || compareIsoRenderEntries(a, b))
       .reverse();
-  }, [focusedIsoBuilding, isoSharedSize, isoFloorFilter, centerX, baseY, hoveredObjectId]);
+  }, [focusedIsoBuilding, isoSharedSize, isoFloorFilter, centerX, baseY, hoveredObject]);
 
   // ── Object dragging (isometric, single-floor mode only) ──────────────────
   // dragPreview drives a lightweight overlay layer only — never written into
@@ -2541,8 +2589,12 @@ export default function Building2D() {
     const hoveredTarget = stagePoint ? getIsoObjectAtPoint(stagePoint.x, stagePoint.y) : null;
     const candidate = dragCandidateRef.current;
     if (viewMode === 'isometric' && !candidate?.isDragging) {
-      const nextId = hoveredTarget?.rect.id ?? null;
-      setHoveredObjectId(prev => prev === nextId ? prev : nextId);
+      const nextHover = hoveredTarget
+        ? { planId: hoveredTarget.plan.id, objectId: hoveredTarget.rect.id }
+        : null;
+      setHoveredObject(prev =>
+        prev?.planId === nextHover?.planId && prev?.objectId === nextHover?.objectId ? prev : nextHover
+      );
       document.body.style.cursor = hoveredTarget ? 'pointer' : 'default';
     }
     if (!candidate || !candidate.canDrag) return;
@@ -2555,7 +2607,7 @@ export default function Building2D() {
       if (Math.hypot(dx, dy) < DRAG_THRESHOLD_PX) return;
       candidate.isDragging = true;
       setIsObjectDragActive(true);
-      setHoveredObjectId(null);
+      setHoveredObject(null);
       document.body.style.cursor = 'grabbing';
     }
 
@@ -2641,7 +2693,7 @@ export default function Building2D() {
   // Hover overlay — lightweight: just a lifted floor highlight and object glow.
   // Recomputes on hover change but touches nothing in the static geometry.
   const isoHoverOverlay = useMemo(() => {
-    if (!focusedIsoBuilding || (!hoveredId && !hoveredObjectId)) return null;
+    if (!focusedIsoBuilding || (!hoveredId && !hoveredObject)) return null;
 
     const sharedSize = isoSharedSize ?? { planW: 800, planH: 600 };
     const nodes: React.ReactNode[] = [];
@@ -2669,8 +2721,8 @@ export default function Building2D() {
       }
 
       // Object hover glow
-      if (hoveredObjectId) {
-        const obj = (plan.objects ?? []).find(o => o.id === hoveredObjectId) as RectangleObject | undefined;
+      if (hoveredObject?.planId === plan.id) {
+        const obj = (plan.objects ?? []).find(o => o.id === hoveredObject.objectId) as RectangleObject | undefined;
         if (obj && ISO_RENDERABLE_OBJECT_TYPES.has(obj.type) && isInventoryIsoObject(obj)) {
           const { planW, planH } = sharedSize;
           const minW = (MIN_OBJ_EDGE_PX / ISO_EDGE_SCALE) * planW;
@@ -2706,7 +2758,7 @@ export default function Building2D() {
     }
 
     return nodes.length > 0 ? nodes : null;
-  }, [focusedIsoBuilding, hoveredId, hoveredObjectId, isoMode, isoFloorFilter,
+  }, [focusedIsoBuilding, hoveredId, hoveredObject, isoMode, isoFloorFilter,
       baseY, centerX, isoSharedSize, isoWallPolyCache]);
 
   // Drag preview — lightweight, redraws on every drag-move only. Drawn above
@@ -2823,7 +2875,11 @@ export default function Building2D() {
               {(viewMode === 'isometric' ? allFloorNumbers : finalizedFloorNumbers).map(fn => (
                 <button
                   key={fn}
-                  onClick={() => setIsoFloorFilter(viewMode === 'isometric' && isoFloorFilter === fn ? null : fn)}
+                  onClick={() => {
+                    setIsoFloorFilter(viewMode === 'isometric' && isoFloorFilter === fn ? null : fn);
+                    handleHoverEnd();
+                    handleObjectHoverEnd();
+                  }}
                   className={`px-2.5 py-1.5 font-medium border-l border-[var(--border)] ${(viewMode === 'topDown25D' ? (topDownPlan?.floorNumber ?? 1) === fn : isoFloorFilter === fn) ? 'bg-[var(--primary)] text-white' : 'text-[var(--text-muted)] hover:bg-[var(--surface-2)]'}`}
                 >
                   F{fn}
@@ -2937,14 +2993,24 @@ export default function Building2D() {
       {/* ── Canvas ─────────────────────────────────────────────────────── */}
       <div ref={containerRef} className="flex-1 overflow-hidden relative min-h-0">
         {(viewMode === 'isometric' || viewMode === 'topDown25D') && buildings.length > 1 && (
-          <button
-            onClick={showNextIsoBuilding}
-            aria-label="Show next building"
-            title="Next building"
-            className="group absolute right-6 top-1/2 z-20 flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full border border-blue-400/30 bg-blue-500/15 text-blue-300 shadow-lg shadow-blue-950/40 backdrop-blur-sm outline-none transition-all duration-300 hover:scale-110 hover:border-blue-300/60 hover:bg-blue-500/30 hover:text-white hover:shadow-blue-500/20 active:scale-95 focus-visible:ring-2 focus-visible:ring-blue-400"
-          >
-            <ChevronRight size={21} className="transition-transform duration-300 group-hover:translate-x-0.5" />
-          </button>
+          <>
+            <button
+              onClick={showPreviousIsoBuilding}
+              aria-label="Show previous building"
+              title="Previous building"
+              className="group absolute left-6 top-1/2 z-20 flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full border border-blue-400/30 bg-blue-500/15 text-blue-300 shadow-lg shadow-blue-950/40 backdrop-blur-sm outline-none transition-all duration-300 hover:scale-110 hover:border-blue-300/60 hover:bg-blue-500/30 hover:text-white hover:shadow-blue-500/20 active:scale-95 focus-visible:ring-2 focus-visible:ring-blue-400"
+            >
+              <ChevronLeft size={21} className="transition-transform duration-300 group-hover:-translate-x-0.5" />
+            </button>
+            <button
+              onClick={showNextIsoBuilding}
+              aria-label="Show next building"
+              title="Next building"
+              className="group absolute right-6 top-1/2 z-20 flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full border border-blue-400/30 bg-blue-500/15 text-blue-300 shadow-lg shadow-blue-950/40 backdrop-blur-sm outline-none transition-all duration-300 hover:scale-110 hover:border-blue-300/60 hover:bg-blue-500/30 hover:text-white hover:shadow-blue-500/20 active:scale-95 focus-visible:ring-2 focus-visible:ring-blue-400"
+            >
+              <ChevronRight size={21} className="transition-transform duration-300 group-hover:translate-x-0.5" />
+            </button>
+          </>
         )}
 
         {loading && (
@@ -2993,7 +3059,7 @@ export default function Building2D() {
             onMouseMove={handleStageMouseMove}
             onMouseUp={handleStageMouseUp}
             onMouseLeave={() => {
-              setHoveredObjectId(null);
+              setHoveredObject(null);
               if (!isObjectDragActive) document.body.style.cursor = 'default';
             }}
             onWheel={e => {
