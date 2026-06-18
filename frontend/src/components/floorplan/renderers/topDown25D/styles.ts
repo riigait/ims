@@ -121,6 +121,62 @@ export function getElementCenter(element: FloorplanElement) {
   };
 }
 
+const HIT_PADDING = 3;
+const MIN_HIT_HALF = 4; // guarantees at least an 8px-wide/tall hit box
+
+export interface ElementHitBox {
+  centerX: number;
+  centerY: number;
+  halfWidth: number;
+  halfHeight: number;
+  rotation: number;
+}
+
+/**
+ * Hover/click hit box for an element, in the SAME coordinate convention its
+ * renderer actually draws in — not every element treats (x, y) as top-left.
+ * door/window store (x, y) as their own center and rotate about it directly
+ * (renderDoor/renderWindow), bypassing the top-left + getElementCenter
+ * convention every other element uses (rotated about center via
+ * withRotation). A hit box that doesn't match this per-type convention and
+ * rotation ends up offset from what's actually drawn, so hover silently
+ * fails or only works in a sliver of the visible shape.
+ */
+export function getElementHitBox(element: FloorplanElement): ElementHitBox {
+  if (element.linePoints) {
+    const [x1, y1, x2, y2] = element.linePoints;
+    const length = Math.hypot(x2 - x1, y2 - y1);
+    const strokeWidth = element.style?.strokeWidth ?? (element.type === 'outdoor_wall' ? 24 : 14);
+    return {
+      centerX: (x1 + x2) / 2,
+      centerY: (y1 + y2) / 2,
+      halfWidth: Math.max(MIN_HIT_HALF, length / 2 + HIT_PADDING),
+      halfHeight: Math.max(MIN_HIT_HALF, strokeWidth / 2 + HIT_PADDING),
+      rotation: length > 0 ? Math.atan2(y2 - y1, x2 - x1) * (180 / Math.PI) : 0,
+    };
+  }
+
+  if (element.type === 'door' || element.type === 'window') {
+    const half = element.width / 2;
+    const halfHeight = element.type === 'window'
+      ? Math.max(8, element.height) / 2
+      : half; // door has no explicit height; the swing arc reaches ~half in either perpendicular direction
+    return {
+      centerX: element.x, centerY: element.y,
+      halfWidth: Math.max(MIN_HIT_HALF, half + HIT_PADDING),
+      halfHeight: Math.max(MIN_HIT_HALF, halfHeight + HIT_PADDING),
+      rotation: element.rotation ?? 0,
+    };
+  }
+  const center = getElementCenter(element);
+  return {
+    centerX: center.x, centerY: center.y,
+    halfWidth: Math.max(MIN_HIT_HALF, element.width / 2 + HIT_PADDING),
+    halfHeight: Math.max(MIN_HIT_HALF, element.height / 2 + HIT_PADDING),
+    rotation: element.rotation ?? 0,
+  };
+}
+
 export function getLayer(element: FloorplanElement) {
   if (element.layer) return element.layer;
 

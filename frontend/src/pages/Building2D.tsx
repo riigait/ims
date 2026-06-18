@@ -12,11 +12,12 @@ import type {
   RectangleObject,
   WindowObject,
 } from '@/types/floorplan';
-import { Lock, Building2, RefreshCw, ZoomIn, ZoomOut, Maximize2, Layers, Box, ChevronRight } from 'lucide-react';
+import { Lock, Building2, RefreshCw, ZoomIn, ZoomOut, Maximize2, Layers, Box, ChevronRight, Pencil } from 'lucide-react';
 import { extractOutdoorWall } from '@/utils/floorplanGeometry';
 import { useTheme } from '@/contexts/ThemeContext';
 import TopDown25DFloorplanView from '@/components/floorplan/TopDown25DFloorplanView';
 import { floorPlanToBevData } from '@/utils/floorplanBevAdapter';
+import { moveObjectWithGrid } from '@/utils/floorplanGrid';
 import { IsoHumanFigure, HUMAN_WIDTH_U, HUMAN_DEPTH_U, HUMAN_HEIGHT_U } from '@/components/floorplan/iso/IsoHumanFigure';
 
 // ─── facade constants ─────────────────────────────────────────────────────────
@@ -266,6 +267,22 @@ function toIso(wx: number, wy: number, planW: number, planH: number): [number, n
   ];
 }
 
+/**
+ * Inverse of toIso: given an iso screen offset (already relative to the
+ * floor's own origin), solve for the plan-space point on the floor plane
+ * (z=0) that projects there. Used to convert a drag cursor position back
+ * into plan units; unambiguous since dragging never changes height.
+ */
+function fromIso(screenX: number, screenY: number, planW: number, planH: number): [number, number] {
+  const safeW = planW > 0 ? planW : 800;
+  const safeH = planH > 0 ? planH : 600;
+  const halfW = ISO_PLAN_SIZE * ISO_TW / 2;
+  const halfH = ISO_PLAN_SIZE * ISO_TH / 2;
+  const nx = (screenX / halfW + screenY / halfH) / 2;
+  const ny = (screenY / halfH - screenX / halfW) / 2;
+  return [(nx + 0.5) * safeW, (ny + 0.5) * safeH];
+}
+
 /** Convert a rectangle's four corners to iso screen points.
  *  rotationRad rotates corners around (pivotX, pivotY) — use the parent object
  *  center so sub-rects stay attached to the rotated parent footprint. */
@@ -513,6 +530,13 @@ interface IsoCtx {
   onObjectHover: (id: string) => void;
   onObjectHoverEnd: () => void;
   onNavigate:   NavHandler;
+  // Dragging: starts a drag candidate for an inventory object. floorOx/floorOy
+  // are the floor's iso origin (already known at the call site), needed to
+  // convert pointer screen coords back into this floor's plan space.
+  onObjectPointerDown: (
+    plan: FloorPlan, rect: RectangleObject, floorOx: number, floorOy: number,
+    e: Konva.KonvaEventObject<MouseEvent>,
+  ) => void;
 }
 
 // ── Object visual config ──────────────────────────────────────────────────────
@@ -630,6 +654,28 @@ function isInventoryIsoObject(rect: RectangleObject): boolean {
   return !['work-surface', 'chair', 'stairs', 'elevator', 'restroom', 'human'].includes(isoPresetKind(rect));
 }
 
+const ISO_RENDERABLE_OBJECT_TYPES = new Set([
+  'rack', 'shelf', 'stairs', 'elevator',
+  'work-surface', 'chair', 'cabinet', 'drawer', 'locker',
+  'storage-box', 'bin', 'pallet', 'bathroom', 'human',
+]);
+
+// Type-tier used to resolve which object draws in front when two visually
+// overlap on screen. Circulation fixtures (stairs/elevator/restroom) sit
+// behind movable furniture/storage, which sits behind the human figure.
+function isoRenderPriority(kind: IsoPresetKind): number {
+  switch (kind) {
+    case 'stairs':
+    case 'elevator':
+    case 'restroom':
+      return 30;
+    case 'human':
+      return 90;
+    default: // rack, shelf, work-surface, chair, cabinet, drawer, locker, storage-box, bin, pallet
+      return 40;
+  }
+}
+
 function isoPresetHeight(kind: IsoPresetKind, planSize?: PlanSize): number {
   // Heights in real-world plan units (100u = 1m), matching HUMAN_HEIGHT_U = 170u = 1.70m.
   // shelf uses a fixed pixel height (ceiling-mounted, not floor-to-ceiling).
@@ -695,6 +741,17 @@ function isoPrismSilhouette(footprint: number[], height: number): number[] {
   return [...lower, ...half].flatMap(point => point);
 }
 
+function pointInIsoPolygon(px: number, py: number, points: number[]): boolean {
+  let inside = false;
+  const count = points.length / 2;
+  for (let i = 0, j = count - 1; i < count; j = i++) {
+    const xi = points[i * 2], yi = points[i * 2 + 1];
+    const xj = points[j * 2], yj = points[j * 2 + 1];
+    if ((yi > py) !== (yj > py) && px < ((xj - xi) * (py - yi)) / (yj - yi) + xi) inside = !inside;
+  }
+  return inside;
+}
+
 interface IsoPrismProps {
   readonly rect: IsoRect;
   readonly size: PlanSize;
@@ -750,9 +807,14 @@ interface IsoObjectShapeProps {
   readonly origin: IsoOrigin;
   readonly base: string;
   readonly hovered: boolean;
+  // True when this object's footprint visually overlaps another's. Real
+  // positions are never adjusted for this — it only strengthens the contact
+  // shadow/outline so an intentional-looking overlap doesn't read as a
+  // rendering glitch.
+  readonly colliding?: boolean;
 }
 
-function IsoObjectShape({ planId, object, rect, size, origin, base, hovered }: IsoObjectShapeProps) {
+function IsoObjectShape({ planId, object, rect, size, origin, base, hovered, colliding }: IsoObjectShapeProps) {
   const kind = isoPresetKind(object);
   const rot = object.rotation ?? 0;
   // All sub-rects rotate around the parent object center, not their own center.
@@ -1259,7 +1321,8 @@ function IsoObjectShape({ planId, object, rect, size, origin, base, hovered }: I
         <Line closed points={hoverOutline} stroke="#67e8f9" strokeWidth={5} opacity={0.32} lineJoin="round" />
       )}
       {kind !== 'shelf' && (
-        <Line points={contact} stroke="rgba(2,6,14,0.55)" strokeWidth={2.2} lineCap="round" lineJoin="round" />
+        <Line points={contact} stroke={colliding ? 'rgba(2,6,14,0.78)' : 'rgba(2,6,14,0.55)'}
+          strokeWidth={colliding ? 3 : 2.2} lineCap="round" lineJoin="round" />
       )}
       {shape}
       {kind === 'drawer' && (
@@ -1349,6 +1412,70 @@ function polygonBoundsHelper(pts: number[]) {
   return { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
 }
 
+interface AABB { minX: number; minY: number; maxX: number; maxY: number; }
+
+function aabbFromPoints(pts: number[]): AABB {
+  const xs = pts.filter((_, i) => i % 2 === 0);
+  const ys = pts.filter((_, i) => i % 2 !== 0);
+  return {
+    minX: Math.min(...xs), maxX: Math.max(...xs),
+    minY: Math.min(...ys), maxY: Math.max(...ys),
+  };
+}
+
+function aabbOverlap(a: AABB, b: AABB, padding = 0): boolean {
+  return !(
+    a.maxX + padding < b.minX ||
+    a.minX - padding > b.maxX ||
+    a.maxY + padding < b.minY ||
+    a.minY - padding > b.maxY
+  );
+}
+
+// Real floorplan positions are never adjusted to avoid overlap — only the
+// draw order is. Furniture/inventory entries carry enough info (visualBox,
+// renderPriority, hovered, id) to resolve front/behind when two objects
+// visually overlap on screen; walls/rooms/openings keep sorting on plain
+// depth since they don't need that resolution.
+type LeftBiasKind = 'shelf' | 'work-surface';
+type RQ = {
+  depth: number; node: React.ReactNode;
+  leftBiasKind?: LeftBiasKind; leftBiasScreenX?: number;
+  id?: string; visualBox?: AABB; renderPriority?: number; hovered?: boolean;
+};
+
+type IsoSortable = Omit<RQ, 'node'>;
+
+type IsoObjectHitTarget = IsoSortable & {
+  plan: FloorPlan;
+  rect: RectangleObject;
+  floorOx: number;
+  floorOy: number;
+  points: number[];
+  floorOrder: number;
+};
+
+// Shared comparator used for BOTH the visual render queue and the object
+// hit-test list, so the entry that draws in front is also the one that
+// receives hover/click — otherwise Konva resolves overlapping clicks by
+// raw array order, which can silently disagree with the visual stacking.
+function compareIsoRenderEntries(a: IsoSortable, b: IsoSortable): number {
+  const colliding = a.visualBox && b.visualBox && aabbOverlap(a.visualBox, b.visualBox, 4);
+  if (colliding) {
+    if (a.hovered !== b.hovered) return a.hovered ? 1 : -1;
+    if (a.renderPriority !== undefined && b.renderPriority !== undefined
+      && a.renderPriority !== b.renderPriority) {
+      return a.renderPriority - b.renderPriority;
+    }
+    if (a.leftBiasKind !== undefined && a.leftBiasKind === b.leftBiasKind) {
+      return b.leftBiasScreenX! - a.leftBiasScreenX!; // further right drawn first/behind
+    }
+    if (a.depth !== b.depth) return a.depth - b.depth;
+    if (a.id !== undefined && b.id !== undefined) return a.id < b.id ? -1 : 1;
+  }
+  return a.depth - b.depth;
+}
+
 interface IsoFloorResult { visual: React.ReactNode; hit: React.ReactNode; }
 
 function buildIsoFloorNodes(
@@ -1407,9 +1534,11 @@ function buildIsoFloorNodes(
   const slabTop = isHovered ? tint(slabTopBase, 0.1) : slabTopBase;
 
   // ── Build depth-sorted render queue ──────────────────────────────────────
-  type RQ = { depth: number; node: React.ReactNode };
   const queue: RQ[] = [];
-  const objectHits: React.ReactNode[] = [];
+  // Hit-test entries mirror the visual queue's sort keys so the object that
+  // draws in front is also the one that receives hover/click when two
+  // objects' hit silhouettes overlap (see compareIsoRenderEntries).
+  const objectHitEntries: RQ[] = [];
 
   // Rooms — flat tinted zones derived from each room's own editor color so the
   // iso view mirrors the plan data. Core rooms (stairs/elevator/restroom) get
@@ -1489,6 +1618,33 @@ function buildIsoFloorNodes(
     'work-surface', 'chair', 'cabinet', 'drawer', 'locker',
     'storage-box', 'bin', 'pallet', 'bathroom', 'human',
   ]);
+
+  // Pre-pass: flag objects whose flat floor footprint visually overlaps
+  // another object's, so the renderer can add a small shadow/outline boost
+  // to make an intentional-looking overlap instead of a glitchy one. Real
+  // positions are untouched — this only affects styling.
+  const collidingObjectIds = new Set<string>();
+  {
+    const candidateBoxes: { id: string; box: AABB }[] = [];
+    for (const obj of objects) {
+      if (!ISO_OBJECT_TYPES.has(obj.type)) continue;
+      const rect = obj as RectangleObject;
+      if (isoPresetKind(rect) === 'human') continue;
+      const rot = rect.rotation ?? 0;
+      const cx = rect.x + rect.width / 2, cy = rect.y + rect.height / 2;
+      const pts = rectToIsoPts({ x: rect.x, y: rect.y, w: rect.width, h: rect.height }, size, origin, rot, cx, cy);
+      candidateBoxes.push({ id: rect.id, box: aabbFromPoints(pts) });
+    }
+    for (let i = 0; i < candidateBoxes.length; i++) {
+      for (let j = i + 1; j < candidateBoxes.length; j++) {
+        if (aabbOverlap(candidateBoxes[i].box, candidateBoxes[j].box, 4)) {
+          collidingObjectIds.add(candidateBoxes[i].id);
+          collidingObjectIds.add(candidateBoxes[j].id);
+        }
+      }
+    }
+  }
+
   for (const obj of objects) {
     if (!ISO_OBJECT_TYPES.has(obj.type)) continue;
     const rect = obj as RectangleObject;
@@ -1512,29 +1668,54 @@ function buildIsoFloorNodes(
     const rot = rect.rotation ?? 0;
     const cx = drawX + drawW / 2, cy = drawY + drawH / 2;
     const projectedFootprint = rectToIsoPts(drawRect, size, origin, rot, cx, cy);
-    if (isInventoryIsoObject(rect)) {
-      const hitFootprint = liftIsoPoints(projectedFootprint, isoPresetBaseLift(kind));
-      objectHits.push(
-        <Line key={`object-hit-${plan.id}-${rect.id}`} closed
-          points={isoPrismSilhouette(hitFootprint, isoPresetHeight(kind, size))}
-          fill="rgba(0,0,0,0.001)" stroke="transparent" strokeWidth={0}
-          perfectDrawEnabled={false}
-          onMouseEnter={() => ctx.onObjectHover(rect.id)}
-          onMouseLeave={ctx.onObjectHoverEnd}
-          onClick={() => ctx.onNavigate(plan.id)}
-        />
-      );
-    }
-    // Contact shadow along the base front edges (bl → br → tr)
+    // Full extruded silhouette (base + lifted top), used both for the hit
+    // polygon and for collision detection — collision should reflect the
+    // object's actual on-screen extent, not just its flat floor footprint.
+    const liftedFootprint = liftIsoPoints(projectedFootprint, isoPresetBaseLift(kind));
+    const silhouette = isoPrismSilhouette(liftedFootprint, isoPresetHeight(kind, size));
 
+    // Sort keys computed once, then reused for BOTH the visual queue entry
+    // and the hit-test entry below, so they agree on which object is "in
+    // front" — otherwise the visually-front object isn't always the one
+    // that receives the click when two hit silhouettes overlap.
     // The lowest projected footprint point is nearest to the isometric camera.
     // Sorting on screen Y handles rotation and non-square plan dimensions.
     const frontScreenY = Math.max(...projectedFootprint.filter((_, index) => index % 2 === 1));
+    const leftBiasKind: LeftBiasKind | undefined =
+      kind === 'shelf' || kind === 'work-surface' ? kind : undefined;
+    // Leftmost extent (not the centroid) — a long shelf/table's far end
+    // shouldn't pull its "screen position" rightward when judging which of
+    // two overlapping pieces reads as the left one.
+    const leftBiasScreenX = leftBiasKind
+      ? Math.min(...projectedFootprint.filter((_, index) => index % 2 === 0))
+      : undefined;
+    const depth = OBJECT_DEPTH_BASE + frontScreenY;
+    const visualBox = aabbFromPoints(silhouette);
+    const renderPriority = isoRenderPriority(kind);
+
+    if (isInventoryIsoObject(rect)) {
+      objectHitEntries.push({
+        depth, leftBiasKind, leftBiasScreenX, visualBox, renderPriority, hovered,
+        id: rect.id,
+        node: (
+          <Line key={`object-hit-${plan.id}-${rect.id}`} closed
+            points={silhouette}
+            fill="rgba(0,0,0,0.001)" stroke="transparent" strokeWidth={0}
+            perfectDrawEnabled={false}
+            onMouseDown={e => ctx.onObjectPointerDown(plan, rect, ox, oy, e)}
+          />
+        ),
+      });
+    }
+    // Contact shadow along the base front edges (bl → br → tr)
+
     queue.push({
-      depth: OBJECT_DEPTH_BASE + frontScreenY,
+      depth, leftBiasKind, leftBiasScreenX, visualBox, renderPriority, hovered,
+      id: rect.id,
       node: (
         <IsoObjectShape key={`obj-${plan.id}-${rect.id}`} planId={plan.id} object={rect}
-          rect={drawRect} size={size} origin={origin} base={base} hovered={hovered} />
+          rect={drawRect} size={size} origin={origin} base={base} hovered={hovered}
+          colliding={collidingObjectIds.has(rect.id)} />
       ),
     });
   }
@@ -1678,8 +1859,14 @@ function buildIsoFloorNodes(
     }
   }
 
-  // Sort by depth (back-to-front)
-  queue.sort((a, b) => a.depth - b.depth);
+  // Sort by depth (back-to-front), back-of-screen objects first, front
+  // objects last (so they paint on top). See compareIsoRenderEntries for the
+  // full priority chain used when two objects visually overlap. The hit-test
+  // list below is sorted with the EXACT same comparator so the object that
+  // draws in front is also the one that receives hover/click.
+  queue.sort(compareIsoRenderEntries);
+  objectHitEntries.sort(compareIsoRenderEntries);
+  const objectHits = objectHitEntries.map(entry => entry.node);
 
   // ── Assemble visual + hit nodes separately ────────────────────────────────
   const labelColor = ctx.isDark
@@ -1847,10 +2034,23 @@ export default function Building2D() {
   const containerRef = useRef<HTMLDivElement>(null);
   const stageRef     = useRef<Konva.Stage>(null);
 
+  // Same permission rule as the 2D editor (FloorPlanEditor.tsx): staff are
+  // always read-only; everyone else is read-only on a finalized plan unless
+  // they're an admin. Used to gate object dragging in the isometric view.
+  const user = JSON.parse(localStorage.getItem('user') || '{}');
+  const isAdmin = user.role === 'superadmin' || user.role === 'admin';
+  const isPlanReadOnly = useCallback(
+    (plan: FloorPlan) => user.role === 'staff' || (!!plan.isApproved && !isAdmin),
+    [user.role, isAdmin],
+  );
+
   const [allPlans, setAllPlans]       = useState<FloorPlan[]>([]);
   const [loading, setLoading]         = useState(true);
   const [error, setError]             = useState<string | null>(null);
+  const [dragError, setDragError]     = useState<string | null>(null);
   const [viewMode, setViewMode]       = useState<'elevation' | 'topDown25D' | 'isometric'>('elevation');
+  // Isometric view defaults to read-only; dragging objects is opt-in via the Edit button.
+  const [isoEditMode, setIsoEditMode] = useState(false);
   const [tooltip, setTooltip]         = useState<TooltipState | null>(null);
   const [hoveredId, setHoveredId]     = useState<string | null>(null);
   const [, setHoveredFloor] = useState<number | null>(null);
@@ -2209,12 +2409,215 @@ export default function Building2D() {
   const baseY   = stageSize.h * 0.72;
   const isoMode: 'single' | 'all' = isoFloorFilter !== null ? 'single' : 'all';
 
+  const isoObjectHitTargets = useMemo<IsoObjectHitTarget[]>(() => {
+    if (!focusedIsoBuilding) return [];
+    const size = isoSharedSize ?? { planW: 800, planH: 600 };
+    const targets: IsoObjectHitTarget[] = [];
+    const filtered = isoFloorFilter === null
+      ? focusedIsoBuilding.floors
+      : focusedIsoBuilding.floors.filter(plan => (plan.floorNumber ?? 1) === isoFloorFilter);
+    const floors = [...filtered].sort((a, b) => (a.floorNumber ?? 1) - (b.floorNumber ?? 1));
+
+    floors.forEach((plan, floorOrder) => {
+      const fn = plan.floorNumber ?? 1;
+      const floorOx = centerX;
+      const floorOy = baseY - (fn - 1) * ISO_FLOOR_SEP;
+      const origin = { originX: floorOx, originY: floorOy };
+
+      for (const object of plan.objects ?? []) {
+        if (!ISO_RENDERABLE_OBJECT_TYPES.has(object.type)) continue;
+        const rect = object as RectangleObject;
+        if (!isInventoryIsoObject(rect)) continue;
+        const minW = (MIN_OBJ_EDGE_PX / ISO_EDGE_SCALE) * size.planW;
+        const minH = (MIN_OBJ_EDGE_PX / ISO_EDGE_SCALE) * size.planH;
+        const drawW = Math.max(rect.width, minW);
+        const drawH = Math.max(rect.height, minH);
+        const drawRect = {
+          x: rect.x - (drawW - rect.width) / 2,
+          y: rect.y - (drawH - rect.height) / 2,
+          w: drawW,
+          h: drawH,
+        };
+        const kind = isoPresetKind(rect);
+        const rot = rect.rotation ?? 0;
+        const cx = drawRect.x + drawRect.w / 2;
+        const cy = drawRect.y + drawRect.h / 2;
+        const projectedFootprint = rectToIsoPts(drawRect, size, origin, rot, cx, cy);
+        const liftedFootprint = liftIsoPoints(projectedFootprint, isoPresetBaseLift(kind));
+        const points = isoPrismSilhouette(liftedFootprint, isoPresetHeight(kind, size));
+        const frontScreenY = Math.max(...projectedFootprint.filter((_, index) => index % 2 === 1));
+        const leftBiasKind: LeftBiasKind | undefined =
+          kind === 'shelf' || kind === 'work-surface' ? kind : undefined;
+        const leftBiasScreenX = leftBiasKind
+          ? Math.min(...projectedFootprint.filter((_, index) => index % 2 === 0))
+          : undefined;
+
+        targets.push({
+          plan,
+          rect,
+          floorOx,
+          floorOy,
+          points,
+          floorOrder,
+          depth: OBJECT_DEPTH_BASE + frontScreenY,
+          leftBiasKind,
+          leftBiasScreenX,
+          visualBox: aabbFromPoints(points),
+          renderPriority: isoRenderPriority(kind),
+          hovered: hoveredObjectId === rect.id,
+          id: rect.id,
+        });
+      }
+    });
+
+    return targets
+      .sort((a, b) => a.floorOrder - b.floorOrder || compareIsoRenderEntries(a, b))
+      .reverse();
+  }, [focusedIsoBuilding, isoSharedSize, isoFloorFilter, centerX, baseY, hoveredObjectId]);
+
+  // ── Object dragging (isometric, single-floor mode only) ──────────────────
+  // dragPreview drives a lightweight overlay layer only — never written into
+  // allPlans mid-drag, so the expensive isoStaticResult memo never rebuilds
+  // while the pointer is moving. The candidate ref holds everything needed
+  // to resolve a single drag gesture without forcing re-renders on every
+  // mousemove (only dragPreview triggers a render, intentionally).
+  interface DragPreview { planId: string; objectId: string; wx: number; wy: number; }
+  const [dragPreview, setDragPreview] = useState<DragPreview | null>(null);
+  const [isObjectDragActive, setIsObjectDragActive] = useState(false);
+  const dragCandidateRef = useRef<{
+    plan: FloorPlan;
+    rect: RectangleObject;
+    floorOx: number;
+    floorOy: number;
+    startScreenX: number;
+    startScreenY: number;
+    grabOffsetX: number; // initial object-center plan-x minus initial cursor plan-x
+    grabOffsetY: number;
+    isDragging: boolean;
+    canDrag: boolean; // false for read-only plans — click-to-navigate still works, drag does not
+  } | null>(null);
+
+  const DRAG_THRESHOLD_PX = 5;
+
+  const handleObjectPointerDown = useCallback((
+    plan: FloorPlan, rect: RectangleObject, floorOx: number, floorOy: number,
+    e: Konva.KonvaEventObject<MouseEvent>,
+  ) => {
+    const canDrag = isoEditMode && isoMode === 'single' && !isPlanReadOnly(plan);
+    if (canDrag) e.cancelBubble = true; // stop the Stage's own pan-drag from also starting
+    const stage = e.target.getStage();
+    const pos = stage?.getPointerPosition();
+    if (!pos) return;
+    const size = isoSharedSize ?? { planW: 800, planH: 600 };
+    const [cursorWx, cursorWy] = fromIso(pos.x - floorOx, pos.y - floorOy, size.planW, size.planH);
+    const objectCenterX = rect.x + rect.width / 2;
+    const objectCenterY = rect.y + rect.height / 2;
+    dragCandidateRef.current = {
+      plan, rect, floorOx, floorOy,
+      startScreenX: pos.x, startScreenY: pos.y,
+      grabOffsetX: objectCenterX - cursorWx,
+      grabOffsetY: objectCenterY - cursorWy,
+      isDragging: false,
+      canDrag,
+    };
+  }, [isoEditMode, isoMode, isoSharedSize, isPlanReadOnly]);
+
+  const getIsoStagePoint = useCallback((stage: Konva.Stage | null) => {
+    const pointer = stage?.getPointerPosition();
+    if (!stage || !pointer) return null;
+    return stage.getAbsoluteTransform().copy().invert().point(pointer);
+  }, []);
+
+  const getIsoObjectAtPoint = useCallback((x: number, y: number) => {
+    for (const target of isoObjectHitTargets) {
+      if (pointInIsoPolygon(x, y, target.points)) return target;
+    }
+    return null;
+  }, [isoObjectHitTargets]);
+
+  const handleStageMouseMove = useCallback((e: Konva.KonvaEventObject<MouseEvent>) => {
+    const stage = e.target.getStage();
+    const stagePoint = viewMode === 'isometric' ? getIsoStagePoint(stage) : null;
+    const hoveredTarget = stagePoint ? getIsoObjectAtPoint(stagePoint.x, stagePoint.y) : null;
+    const candidate = dragCandidateRef.current;
+    if (viewMode === 'isometric' && !candidate?.isDragging) {
+      const nextId = hoveredTarget?.rect.id ?? null;
+      setHoveredObjectId(prev => prev === nextId ? prev : nextId);
+      document.body.style.cursor = hoveredTarget ? 'pointer' : 'default';
+    }
+    if (!candidate || !candidate.canDrag) return;
+    const pos = stage?.getPointerPosition();
+    if (!pos) return;
+
+    if (!candidate.isDragging) {
+      const dx = pos.x - candidate.startScreenX;
+      const dy = pos.y - candidate.startScreenY;
+      if (Math.hypot(dx, dy) < DRAG_THRESHOLD_PX) return;
+      candidate.isDragging = true;
+      setIsObjectDragActive(true);
+      setHoveredObjectId(null);
+      document.body.style.cursor = 'grabbing';
+    }
+
+    const size = isoSharedSize ?? { planW: 800, planH: 600 };
+    const [cursorWx, cursorWy] = fromIso(
+      pos.x - candidate.floorOx, pos.y - candidate.floorOy, size.planW, size.planH,
+    );
+    const newCenterX = cursorWx + candidate.grabOffsetX;
+    const newCenterY = cursorWy + candidate.grabOffsetY;
+    setDragPreview({
+      planId: candidate.plan.id,
+      objectId: candidate.rect.id,
+      wx: newCenterX - candidate.rect.width / 2,
+      wy: newCenterY - candidate.rect.height / 2,
+    });
+  }, [getIsoObjectAtPoint, getIsoStagePoint, isoSharedSize, viewMode]);
+
+  const handleStageMouseUp = useCallback(() => {
+    const candidate = dragCandidateRef.current;
+    if (!candidate) return;
+    if (!candidate.isDragging) {
+      // Plain click on an object (never exceeded drag threshold) — no-op.
+      // Objects are repositioned by dragging only; they no longer navigate.
+      dragCandidateRef.current = null;
+      setIsObjectDragActive(false);
+      setDragPreview(null);
+      return;
+    }
+
+    // Completed drag: commit the live preview position into allPlans (one
+    // update, matching moveObjectWithGrid's snap-to-grid + rotation-aware
+    // center-snap behavior), then persist with a single whole-plan PUT —
+    // mirroring the 2D editor's save shape. Roll back on failure.
+    const { plan, rect } = candidate;
+    const finalPreview = dragPreview;
+    dragCandidateRef.current = null;
+    setIsObjectDragActive(false);
+    setDragPreview(null);
+    if (!finalPreview || finalPreview.planId !== plan.id || finalPreview.objectId !== rect.id) return;
+
+    document.body.style.cursor = 'default';
+    const previousObjects = plan.objects ?? [];
+    const movedObject = moveObjectWithGrid(rect, finalPreview.wx, finalPreview.wy, true);
+    const updatedObjects = previousObjects.map(o => o.id === rect.id ? movedObject : o);
+    const updatedPlan = { ...plan, objects: updatedObjects };
+
+    setAllPlans(prev => prev.map(p => p.id === plan.id ? updatedPlan : p));
+
+    floorPlansApi.update(plan.id, { ...updatedPlan }).catch(() => {
+      setAllPlans(prev => prev.map(p => p.id === plan.id ? { ...p, objects: previousObjects } : p));
+      setDragError('Failed to save the new position — change reverted.');
+      setTimeout(() => setDragError(null), 4000);
+    });
+  }, [dragPreview]);
+
   const isoStaticResult = useMemo(() => {
     const staticCtx: IsoCtx = {
       hoveredId: null, hoveredFloor: null, hoveredObjectId: null,
       isoMode, isDark, labelFontSize,
       onHover: handleHover, onHoverEnd: handleHoverEnd, onNavigate: handleNavigate,
       onObjectHover: handleObjectHover, onObjectHoverEnd: handleObjectHoverEnd,
+      onObjectPointerDown: handleObjectPointerDown,
     };
 
     const allVisuals: React.ReactNode[] = [];
@@ -2232,7 +2635,8 @@ export default function Building2D() {
     return { allVisuals, allHits };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [focusedIsoBuilding, isoMode, isDark, labelFontSize, centerX, baseY, isoFloorFilter,
-      handleHover, handleHoverEnd, handleNavigate, handleObjectHover, handleObjectHoverEnd]);
+      handleHover, handleHoverEnd, handleNavigate, handleObjectHover, handleObjectHoverEnd,
+      handleObjectPointerDown]);
 
   // Hover overlay — lightweight: just a lifted floor highlight and object glow.
   // Recomputes on hover change but touches nothing in the static geometry.
@@ -2267,7 +2671,7 @@ export default function Building2D() {
       // Object hover glow
       if (hoveredObjectId) {
         const obj = (plan.objects ?? []).find(o => o.id === hoveredObjectId) as RectangleObject | undefined;
-        if (obj && (obj.type === 'rack' || obj.type === 'shelf')) {
+        if (obj && ISO_RENDERABLE_OBJECT_TYPES.has(obj.type) && isInventoryIsoObject(obj)) {
           const { planW, planH } = sharedSize;
           const minW = (MIN_OBJ_EDGE_PX / ISO_EDGE_SCALE) * planW;
           const minH = (MIN_OBJ_EDGE_PX / ISO_EDGE_SCALE) * planH;
@@ -2305,6 +2709,34 @@ export default function Building2D() {
   }, [focusedIsoBuilding, hoveredId, hoveredObjectId, isoMode, isoFloorFilter,
       baseY, centerX, isoSharedSize, isoWallPolyCache]);
 
+  // Drag preview — lightweight, redraws on every drag-move only. Drawn above
+  // the hit layer so it visually occludes the stale original at its old
+  // position; never touches isoStaticResult so dragging doesn't trigger a
+  // full rebuild of the building's geometry.
+  const dragPreviewNode = useMemo(() => {
+    if (!dragPreview || !focusedIsoBuilding) return null;
+    const plan = focusedIsoBuilding.floors.find(p => p.id === dragPreview.planId);
+    const obj = plan?.objects?.find(o => o.id === dragPreview.objectId) as RectangleObject | undefined;
+    if (!plan || !obj) return null;
+
+    const fn = plan.floorNumber ?? 1;
+    const oy = baseY - (fn - 1) * ISO_FLOOR_SEP;
+    const size = isoSharedSize ?? { planW: 800, planH: 600 };
+    const drawRect = { x: dragPreview.wx, y: dragPreview.wy, w: obj.width, h: obj.height };
+    const kind = isoPresetKind(obj);
+    const rot = obj.rotation ?? 0;
+    const pivotX = drawRect.x + drawRect.w / 2;
+    const pivotY = drawRect.y + drawRect.h / 2;
+    const footprint = rectToIsoPts(drawRect, size, { originX: centerX, originY: oy }, rot, pivotX, pivotY);
+    const liftedFootprint = liftIsoPoints(footprint, isoPresetBaseLift(kind));
+    const outline = isoPrismSilhouette(liftedFootprint, isoPresetHeight(kind, size));
+    return (
+      <Line key={`drag-preview-${dragPreview.planId}-${dragPreview.objectId}`} listening={false}
+        closed points={outline} stroke="#22c55e" strokeWidth={2} fill="rgba(34,197,94,0.18)" lineJoin="round"
+      />
+    );
+  }, [dragPreview, focusedIsoBuilding, baseY, centerX, isoSharedSize]);
+
   const renderIsometric = () => (
     <>
       {/* Static layer — rebuilt only when data/theme changes, not on hover */}
@@ -2321,6 +2753,12 @@ export default function Building2D() {
       <Layer>
         {isoStaticResult.allHits}
       </Layer>
+      {/* Drag preview — above the hit layer so it occludes the stale original */}
+      {dragPreviewNode && (
+        <Layer listening={false}>
+          {dragPreviewNode}
+        </Layer>
+      )}
     </>
   );
 
@@ -2416,6 +2854,17 @@ export default function Building2D() {
             </button>
           </div>
 
+          {/* Edit toggle — isometric only; enables dragging objects to reposition them */}
+          {viewMode === 'isometric' && (
+            <button
+              onClick={() => setIsoEditMode(v => !v)}
+              title={isoEditMode ? 'Exit edit mode' : 'Edit mode: drag objects to reposition them'}
+              className={`px-3 py-1.5 rounded border text-xs font-medium flex items-center gap-1.5 ${isoEditMode ? 'bg-[var(--primary)] text-white border-[var(--primary)]' : 'border-[var(--border)] text-[var(--text-muted)] hover:bg-[var(--surface-2)]'}`}
+            >
+              <Pencil size={12} /> {isoEditMode ? 'Editing' : 'Edit'}
+            </button>
+          )}
+
           {/* Zoom */}
           <div className="flex border border-[var(--border)] rounded overflow-hidden">
             <button onClick={() => zoom(0.15)} className="px-2 py-1.5 hover:bg-[var(--surface-2)] text-[var(--text-muted)]"><ZoomIn size={13} /></button>
@@ -2461,7 +2910,11 @@ export default function Building2D() {
             avg <span className="font-bold">{avgScore}%</span> — {scoreLabel(avgScore)}
           </span>
         )}
-        <span className="ml-auto text-[var(--text-muted)]">Click any floor to open editor · Drag to pan · Scroll to zoom</span>
+        <span className="ml-auto text-[var(--text-muted)]">
+          {viewMode === 'isometric' && isoEditMode
+            ? 'Drag an object to reposition it · Drag empty space to pan · Scroll to zoom'
+            : 'Click any floor to open editor · Drag to pan · Scroll to zoom'}
+        </span>
       </div>
 
       {/* ── Legend ─────────────────────────────────────────────────────── */}
@@ -2506,6 +2959,11 @@ export default function Building2D() {
             <p className="text-red-500 text-sm">{error}</p>
           </div>
         )}
+        {dragError && (
+          <div className="absolute top-3 left-1/2 -translate-x-1/2 z-20 px-3 py-1.5 rounded bg-red-600 text-white text-xs shadow-lg">
+            {dragError}
+          </div>
+        )}
 
         {viewMode === 'topDown25D' && topDownData ? (
           <TopDown25DFloorplanView
@@ -2531,7 +2989,13 @@ export default function Building2D() {
             height={stageSize.h}
             scaleX={scale}
             scaleY={scale}
-            draggable
+            draggable={!isObjectDragActive}
+            onMouseMove={handleStageMouseMove}
+            onMouseUp={handleStageMouseUp}
+            onMouseLeave={() => {
+              setHoveredObjectId(null);
+              if (!isObjectDragActive) document.body.style.cursor = 'default';
+            }}
             onWheel={e => {
               e.evt.preventDefault();
               zoom(e.evt.deltaY > 0 ? -0.08 : 0.08);
