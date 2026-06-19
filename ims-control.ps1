@@ -184,6 +184,11 @@ function Start-IMSApp {
         return
     }
 
+    $graphPath = Join-Path $rootPath 'graphify-out\graph.html'
+    if (Test-Path $graphPath) {
+        Start-Process $graphPath
+    }
+
     Push-Location $rootPath
     try {
         npm run dev
