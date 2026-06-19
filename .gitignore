@@ -53,6 +53,11 @@ $RECYCLE.BIN/
 # Claude Code — only machine-specific files are ignored; Markdown memory is committed
 .claude/settings.local.json
 .claude/generated/
+
+# graphify — machine-local paths/state; graph outputs (graph.json, GRAPH_REPORT.md, etc) stay tracked
+graphify-out/.graphify_python
+graphify-out/.graphify_root
+graphify-out/needs_update
 .claude/sessions/
 CLAUDE.local.md
 
