@@ -355,6 +355,11 @@ function chainWallsToPolygon(
       x2: wall.endX,
       y2: wall.endY,
     })),
+    // Finalized perimeter walls can carry small (~1-10 unit) joint gaps from
+    // upstream endpoint clustering (buildFinalizedPerimeterWalls). The default
+    // tolerance (4) rejects those as unclosed loops and falls back to a blank
+    // rectangle slab — widen it here so the iso view still closes the ring.
+    tolerance: 12,
   });
   if (outerPoints.length < 3) return null;
   return outerPoints.flatMap(point => {
