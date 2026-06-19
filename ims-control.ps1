@@ -184,9 +184,15 @@ function Start-IMSApp {
         return
     }
 
-    $graphPath = Join-Path $rootPath 'graphify-out\graph.html'
+    $graphDir = Join-Path $rootPath 'graphify-out'
+    $graphPath = Join-Path $graphDir 'graph.html'
     if (Test-Path $graphPath) {
-        Start-Process $graphPath
+        $graphPort = 5501
+        if (-not (Get-PortProcess $graphPort)) {
+            Start-Process -FilePath 'npx' -ArgumentList @('serve', $graphDir, '-p', $graphPort) -WindowStyle Hidden
+            Start-Sleep -Seconds 2
+        }
+        Start-Process "http://127.0.0.1:$graphPort/graph.html"
     }
 
     Push-Location $rootPath
