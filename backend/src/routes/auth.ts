@@ -256,7 +256,35 @@ router.get('/me', authMiddleware, async (req: AuthRequest, res: Response, next: 
       initialSetupComplete: user.initialSetupComplete,
       adminDepartments,
       staffDepartments,
+      isoViewSettings: user.isoViewSettings ? JSON.parse(user.isoViewSettings) : null,
     });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Update the current user's isometric view scale preferences — persisted so
+// they follow the user across devices/sessions.
+router.patch('/me/iso-view-settings', authMiddleware, async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const { isoTW, isoTH, isoZScale } = req.body;
+    const isFiniteNumber = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
+    if (!isFiniteNumber(isoTW) || !isFiniteNumber(isoTH) || !isFiniteNumber(isoZScale)) {
+      return res.status(400).json({ error: 'isoTW, isoTH, and isoZScale must all be numbers' });
+    }
+    // Keep the projection within a sane range — well outside this and the
+    // isometric view becomes unreadable or numerically unstable.
+    const inRange = (v: number, min: number, max: number) => v >= min && v <= max;
+    if (!inRange(isoTW, 0.5, 8) || !inRange(isoTH, 0.5, 8) || !inRange(isoZScale, 0.2, 5)) {
+      return res.status(400).json({ error: 'Value out of allowed range' });
+    }
+
+    const isoViewSettings = JSON.stringify({ isoTW, isoTH, isoZScale });
+    await prisma.user.update({
+      where: { id: req.userId },
+      data: { isoViewSettings },
+    });
+    res.json({ isoViewSettings: { isoTW, isoTH, isoZScale } });
   } catch (error) {
     next(error);
   }

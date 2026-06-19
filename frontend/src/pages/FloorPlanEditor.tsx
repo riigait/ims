@@ -3267,6 +3267,11 @@ export default function FloorPlanEditor() {
       const headSize   = Math.max(3, arrowLen * 0.32);
       const tipY       = sy + sh * 0.18;
       const tailY      = tipY + arrowLen;
+      const stairHex = (obj as any).color;
+      const stairRgb: [number, number, number] = (() => {
+        const m = stairHex && /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(stairHex);
+        return m ? [parseInt(m[1], 16), parseInt(m[2], 16), parseInt(m[3], 16)] : [240, 200, 120];
+      })();
       const arrowColor = isSelected ? '#1e40af' : '#92400e';
       const strokeCol  = isSelected ? '#2563eb' : '#b45309';
       return (
@@ -3277,7 +3282,7 @@ export default function FloorPlanEditor() {
               const yy = sy + (i / steps) * sh;
               const bh = sh / steps;
               const bright = 1 - (i / Math.max(steps - 1, 1)) * 0.35;
-              const r = Math.round(240 * bright), g = Math.round(200 * bright), b = Math.round(120 * bright);
+              const r = Math.round(stairRgb[0] * bright), g = Math.round(stairRgb[1] * bright), b = Math.round(stairRgb[2] * bright);
               return <KonvaRect key={i} x={sx} y={yy} width={sw} height={bh} fill={`rgb(${r},${g},${b})`} strokeEnabled={false} />;
             })}
             {/* Tread lines */}
@@ -4105,6 +4110,33 @@ export default function FloorPlanEditor() {
                             })}
                           </div>
                         </div>
+
+                        {/* Color - apply to all selected objects */}
+                        {!isReadOnly && (() => {
+                          const colorableObjs = selectedObjs.filter(o => o && o.type !== 'label' && o.type !== 'marker');
+                          if (colorableObjs.length === 0) return null;
+                          const firstColor = (colorableObjs[0] as any)?.color || '#000000';
+                          const allSameColor = colorableObjs.every(o => (o as any)?.color === firstColor);
+                          return (
+                            <div>
+                              <label className="block text-xs font-medium text-[var(--text-muted)] mb-1">
+                                Color {!allSameColor && <span className="opacity-60">(mixed)</span>}
+                              </label>
+                              <input
+                                type="color"
+                                value={allSameColor ? firstColor : '#000000'}
+                                onChange={e => {
+                                  const batch = colorableObjs
+                                    .filter((o): o is NonNullable<typeof o> => !!o)
+                                    .map(o => ({ id: o.id, updates: { color: e.target.value } }));
+                                  updateObjectsBatch(batch);
+                                  useFloorPlanStore.getState().pushHistory();
+                                }}
+                                className="w-full h-9 border border-[var(--border)] rounded cursor-pointer"
+                              />
+                            </div>
+                          );
+                        })()}
 
                         {/* Layer Order - Universal */}
                         <div>

@@ -75,6 +75,8 @@ export const authApi = {
     api.post('/auth/change-password', { currentPassword, newPassword }),
   resetPassword: (userId: string, newPassword: string) =>
     api.post(`/auth/reset-password/${userId}`, { newPassword }),
+  updateIsoViewSettings: (settings: { isoTW: number; isoTH: number; isoZScale: number }) =>
+    api.patch('/auth/me/iso-view-settings', settings),
 };
 
 // Products

@@ -134,6 +134,7 @@ model User {
   reviewedVerifyRequests     VerifyRequest[]         @relation("verifyReviewedBy")
   failedLoginAttempts        Int                     @default(0)
   lockedUntil                DateTime?
+  isoViewSettings            String?
 
   @@index([role])
   @@index([departmentId])
