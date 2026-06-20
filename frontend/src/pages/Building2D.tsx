@@ -1,5 +1,4 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { Stage, Layer, Rect, Line, Group, Text, Circle } from 'react-konva';
 import Konva from 'konva';
 import { authApi, floorPlansApi } from '@/services/api';
@@ -22,21 +21,8 @@ import TopDown25DFloorplanView from '@/components/floorplan/TopDown25DFloorplanV
 import { floorPlanToBevData } from '@/utils/floorplanBevAdapter';
 import { moveObjectWithGrid } from '@/utils/floorplanGrid';
 import { IsoHumanFigure, HUMAN_WIDTH_U, HUMAN_DEPTH_U, HUMAN_HEIGHT_U } from '@/components/floorplan/iso/IsoHumanFigure';
-
-// ─── facade constants ─────────────────────────────────────────────────────────
-const BUILDING_W      = 220;
-const FLOOR_H         = 90;
-const FLOOR_BORDER    = 6;
-const WINDOW_W        = 36;
-const WINDOW_H        = 50;
-const WINDOW_GAP      = 14;
-const WINDOWS_PER_FLOOR = 4;
-const BUILDING_GAP    = 60;
-const ROOF_H          = 22;
-const GROUND_H        = 18;
-const SHADOW_W        = 12;
-const START_X         = 60;
-const START_Y         = 40;
+import AllDepartmentsBanner from '@/components/AllDepartmentsBanner';
+import { ALL_DEPARTMENTS_ID } from '@/constants/app';
 
 // ─── isometric constants ──────────────────────────────────────────────────────
 // ISO_TH/ISO_TW ratio controls camera elevation angle.
@@ -160,92 +146,6 @@ function slabSideQuads(pts: number[], h: number): Array<{ quad: number[]; dark: 
   }
   return quads;
 }
-
-// ─── stable computed data ─────────────────────────────────────────────────────
-const TOTAL_WIN_W = WINDOWS_PER_FLOOR * WINDOW_W + (WINDOWS_PER_FLOOR - 1) * WINDOW_GAP;
-const WIN_OFFSETS = Array.from({ length: WINDOWS_PER_FLOOR }, (_, i) => i * (WINDOW_W + WINDOW_GAP));
-
-const BG_BUILDINGS = [
-  { id: 'bg-a', x: 20,  w: 40, h: 120 },
-  { id: 'bg-b', x: 70,  w: 30, h: 90  },
-  { id: 'bg-c', x: 110, w: 50, h: 150 },
-  { id: 'bg-d', x: 170, w: 25, h: 80  },
-];
-
-const ROAD_DASHES = Array.from({ length: 12 }, (_, i) => i * 80 + 20);
-
-// ─── outdoor-wall helpers ─────────────────────────────────────────────────────
-interface ScaledWall { x1: number; y1: number; x2: number; y2: number; thickness: number; }
-interface WallBounds { minX: number; minY: number; maxX: number; maxY: number; }
-
-/**
- * Compute the shared bounding box across ALL finalized floors in a building.
- * Pass this to `getOutdoorWalls` so every floor uses the same scale/offset,
- * ensuring the merged-perimeter shape looks identical on each floor band.
- */
-function buildingPerimeterBounds(floors: FloorPlan[]): WallBounds | null {
-  const allWalls = floors.flatMap(plan =>
-    (plan.objects ?? [])
-      .filter(o => o.type === 'wall')
-      .map(o => o as import('@/types/floorplan').WallObject)
-      .filter(w => w.wallType === 'finalized_building_perimeter' || w.isFinalizedPerimeter === true)
-  );
-  if (allWalls.length === 0) return null;
-  const xs = allWalls.flatMap(w => [w.startX, w.endX]);
-  const ys = allWalls.flatMap(w => [w.startY, w.endY]);
-  return {
-    minX: Math.min(...xs), maxX: Math.max(...xs),
-    minY: Math.min(...ys), maxY: Math.max(...ys),
-  };
-}
-
-/**
- * Scale a plan's finalized perimeter walls into the facade cell.
- * `sharedBounds` must be the building-level merged bounds so all floors
- * share the same coordinate system and the shape is consistent per band.
- */
-function getOutdoorWalls(plan: FloorPlan, sharedBounds?: WallBounds | null): ScaledWall[] {
-  const walls = (plan.objects ?? [])
-    .filter(o => o.type === 'wall') as import('@/types/floorplan').WallObject[];
-  const perim = walls.filter(w =>
-    w.wallType === 'finalized_building_perimeter' || w.isFinalizedPerimeter === true
-  );
-  // Fall back to floor_original_outdoor only when no finalized perimeter exists yet
-  const source = perim.length > 0 ? perim : walls.filter(w => w.wallType === 'floor_original_outdoor');
-  if (source.length === 0) return [];
-
-  // Use the building-level shared bounds when available so every floor
-  // is scaled identically; otherwise fall back to this floor's own bounds.
-  const bounds: WallBounds = sharedBounds ?? (() => {
-    const xs = source.flatMap(w => [w.startX, w.endX]);
-    const ys = source.flatMap(w => [w.startY, w.endY]);
-    return { minX: Math.min(...xs), maxX: Math.max(...xs), minY: Math.min(...ys), maxY: Math.max(...ys) };
-  })();
-
-  const rangeX = bounds.maxX - bounds.minX || 1;
-  const rangeY = bounds.maxY - bounds.minY || 1;
-
-  // Scale into the facade cell with padding
-  const pad = 8;
-  const scX = (BUILDING_W - pad * 2) / rangeX;
-  const scY = (FLOOR_H   - pad * 2) / rangeY;
-  const sc  = Math.min(scX, scY);
-
-  // Centre the scaled outline in the cell
-  const scaledW = rangeX * sc;
-  const scaledH = rangeY * sc;
-  const offX = pad + (BUILDING_W - pad * 2 - scaledW) / 2;
-  const offY = pad + (FLOOR_H   - pad * 2 - scaledH) / 2;
-
-  return source.map(w => ({
-    x1: offX + (w.startX - bounds.minX) * sc,
-    y1: offY + (w.startY - bounds.minY) * sc,
-    x2: offX + (w.endX   - bounds.minX) * sc,
-    y2: offY + (w.endY   - bounds.minY) * sc,
-    thickness: Math.max(1, (w.thickness ?? 8) * sc * 0.35),
-  }));
-}
-
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
 function scoreColor(score?: number | null): string {
@@ -473,170 +373,6 @@ function isoFloorOrigin(plan: FloorPlan, ox: number, oy: number, frame: IsoFrame
   );
   return { originX: ox + shiftX, originY: oy + shiftY };
 }
-
-// ─── window sub-components (keep nesting ≤ 4 levels) ─────────────────────────
-interface FloorWindowProps {
-  readonly planId: string; readonly winIndex: number;
-  readonly bx: number; readonly floorTop: number;
-  readonly frameFill: string; readonly glassOpacity: number;
-}
-function FloorWindow({ planId, winIndex, bx, floorTop, frameFill, glassOpacity }: FloorWindowProps) {
-  const winStartX = bx + (BUILDING_W - TOTAL_WIN_W) / 2;
-  const wx = winStartX + WIN_OFFSETS[winIndex];
-  const wy = floorTop + (FLOOR_H - WINDOW_H) / 2;
-  return (
-    <Group key={`win-${planId}-${winIndex}`}>
-      <Rect x={wx - 2} y={wy - 2} width={WINDOW_W + 4} height={WINDOW_H + 4}
-        fill={frameFill} cornerRadius={1} />
-      <Rect x={wx} y={wy} width={WINDOW_W} height={WINDOW_H}
-        fill="#7dd3fc" opacity={glassOpacity} cornerRadius={1} />
-      <Line points={[wx + 3, wy + 4, wx + 10, wy + 14]}
-        stroke="white" strokeWidth={1.5} opacity={0.4} lineCap="round" />
-      <Line points={[wx, wy + WINDOW_H / 2, wx + WINDOW_W, wy + WINDOW_H / 2]}
-        stroke={frameFill} strokeWidth={1.5} opacity={0.6} />
-    </Group>
-  );
-}
-
-interface EmptyWindowProps {
-  readonly buildingKey: string; readonly floor: number; readonly winIndex: number;
-  readonly bx: number; readonly floorTop: number;
-}
-function EmptyWindow({ buildingKey, floor, winIndex, bx, floorTop }: EmptyWindowProps) {
-  const winStartX = bx + (BUILDING_W - TOTAL_WIN_W) / 2;
-  const wx = winStartX + WIN_OFFSETS[winIndex];
-  const wy = floorTop + (FLOOR_H - WINDOW_H) / 2;
-  return (
-    <Group key={`ewin-${buildingKey}-${floor}-${winIndex}`}>
-      <Rect x={wx - 2} y={wy - 2} width={WINDOW_W + 4} height={WINDOW_H + 4}
-        fill="#374151" cornerRadius={1} />
-      <Rect x={wx} y={wy} width={WINDOW_W} height={WINDOW_H}
-        fill="#1e293b" opacity={0.5} cornerRadius={1} />
-    </Group>
-  );
-}
-
-// ─── elevation floor band ─────────────────────────────────────────────────────
-interface ElevationFloorBandProps {
-  readonly plan: FloorPlan;
-  readonly bx: number; readonly floorTop: number;
-  readonly isFinalized: boolean;
-  readonly accentColor: string; readonly frameFill: string;
-  readonly overlayFill: string; readonly overlayOpacity: number;
-  readonly glassOpacity: number;
-  readonly outdoorWalls: ScaledWall[];
-  readonly onHover: (plan: FloorPlan, e: Konva.KonvaEventObject<MouseEvent>) => void;
-  readonly onHoverEnd: () => void;
-  readonly onNavigate: (id: string) => void;
-}
-function ElevationFloorBand({
-  plan, bx, floorTop, isFinalized, accentColor, frameFill,
-  overlayFill, overlayOpacity, glassOpacity, outdoorWalls,
-  onHover, onHoverEnd, onNavigate,
-}: ElevationFloorBandProps) {
-  const fn = plan.floorNumber ?? 1;
-  const score = plan.generationScore;
-  const hasWalls = outdoorWalls.length > 0;
-
-  return (
-    <Group
-      onMouseEnter={e => onHover(plan, e)}
-      onMouseLeave={onHoverEnd}
-      onClick={() => onNavigate(plan.id)}
-    >
-      {/* Floor cell background — darker for finalized-with-walls */}
-      <Rect x={bx} y={floorTop} width={BUILDING_W} height={FLOOR_H}
-        fill={isFinalized && hasWalls ? '#1a2035' : overlayFill}
-        opacity={isFinalized && hasWalls ? 1 : overlayOpacity}
-      />
-
-      {isFinalized && hasWalls ? (
-        /* ── Finalized: draw actual outdoor wall outline ─────────────────── */
-        <Group
-          clipX={bx} clipY={floorTop} clipWidth={BUILDING_W} clipHeight={FLOOR_H}
-        >
-          {/* Faint fill showing floor footprint */}
-          {outdoorWalls.map((w, i) => (
-            <Line key={`fw-${plan.id}-${i}`}
-              points={[bx + w.x1, floorTop + w.y1, bx + w.x2, floorTop + w.y2]}
-              stroke="#3b82f6"
-              strokeWidth={w.thickness}
-              lineCap="round"
-              lineJoin="round"
-              opacity={0.9}
-            />
-          ))}
-          {/* Blue accent glow on the walls */}
-          {outdoorWalls.map((w, i) => (
-            <Line key={`fw-glow-${plan.id}-${i}`}
-              points={[bx + w.x1, floorTop + w.y1, bx + w.x2, floorTop + w.y2]}
-              stroke="#93c5fd"
-              strokeWidth={w.thickness * 0.4}
-              lineCap="round"
-              opacity={0.5}
-            />
-          ))}
-        </Group>
-      ) : (
-        /* ── Non-finalized: generic windows ──────────────────────────────── */
-        <>
-          <Rect x={bx + FLOOR_BORDER} y={floorTop}
-            width={BUILDING_W - FLOOR_BORDER * 2} height={FLOOR_H}
-            fill={overlayFill} opacity={overlayOpacity}
-          />
-          {WIN_OFFSETS.map((_, wi) => (
-            <FloorWindow key={`win-${plan.id}-w${wi}`}
-              planId={plan.id} winIndex={wi}
-              bx={bx} floorTop={floorTop}
-              frameFill={frameFill} glassOpacity={glassOpacity}
-            />
-          ))}
-        </>
-      )}
-
-      {/* Left accent stripe */}
-      <Rect x={bx} y={floorTop} width={5} height={FLOOR_H}
-        fill={accentColor} opacity={0.85}
-      />
-
-      {/* Score bar at bottom */}
-      {score != null && (
-        <Rect x={bx + 5} y={floorTop + FLOOR_H - 3}
-          width={(BUILDING_W - 5) * (score / 100)} height={3}
-          fill={accentColor} opacity={0.55}
-        />
-      )}
-
-      {/* Floor number badge */}
-      <Rect x={bx + 6} y={floorTop + 6} width={20} height={14}
-        fill="#0f172a" cornerRadius={2} opacity={0.9}
-      />
-      <Text x={bx + 6} y={floorTop + 9} width={20} align="center"
-        text={`F${fn}`} fontSize={8} fontStyle="bold" fill="#94a3b8"
-      />
-
-      {/* Score badge */}
-      {score != null && (
-        <>
-          <Rect x={bx + BUILDING_W - 32} y={floorTop + 6} width={26} height={14}
-            fill="#0f172a" cornerRadius={2} opacity={0.9}
-          />
-          <Text x={bx + BUILDING_W - 32} y={floorTop + 9} width={26} align="center"
-            text={`${score}%`} fontSize={8} fontStyle="bold" fill={accentColor}
-          />
-        </>
-      )}
-
-      {/* Finalized lock */}
-      {isFinalized && (
-        <Text x={bx + BUILDING_W - 18} y={floorTop + FLOOR_H - 20}
-          text="🔒" fontSize={11}
-        />
-      )}
-    </Group>
-  );
-}
-
 
 // ─── iso open-floorplan renderer ─────────────────────────────────────────────
 type HoverHandler = (plan: FloorPlan, e: Konva.KonvaEventObject<MouseEvent>) => void;
@@ -1514,8 +1250,8 @@ function IsoOpeningShape({
   const color = object.color && parseHex(object.color)
     ? object.color
     : object.type === 'window' ? '#38bdf8' : object.type === 'entrance' ? '#10b981' : '#8b5e3c';
-  // Doors and windows are always 70% transparent (0.3 fill alpha) and always
-  // frontmost (every corner, see the openings loop) — so the frame
+  // Doors and windows are 30% opaque / 70% transparent (0.3 fill alpha) and
+  // always frontmost (every corner, see the openings loop) — so the frame
   // highlight always uses the bright "front" styling, no per-corner fade.
   const windowFillAlpha = 0.3;
   const windowGlow = object.type === 'window' ? tint(color, 0.7) : tint(color, 0.38);
@@ -2035,8 +1771,14 @@ function buildIsoFloorNodes(
     // objects so they appear embedded in the wall (behind furniture/racks but
     // visible above the outer wall surface). Doors/entrances keep the existing
     // outdoor-wall quadrant rule (NW = always back, else always front).
-    const isAlwaysBack = !isWindow && isOutdoorWall && isNWCorner;
-    const isAlwaysFront = !isWindow && isOutdoorWall && !isAlwaysBack;
+    // Openings rotated to 270° (angle stored in radians, so 3*PI/2) always
+    // render frontmost regardless of quadrant — e.g. a NW-corner door/window
+    // that faces the camera at this rotation must not fall back into the
+    // always-back tier. Still drawn at the existing 0.3 fill alpha (see
+    // IsoOpeningShape) so objects behind it stay visible/hoverable.
+    const isRotated270 = Math.abs(((angle % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI) - (3 * Math.PI) / 2) < 0.01;
+    const isAlwaysBack = !isWindow && isOutdoorWall && isNWCorner && !isRotated270;
+    const isAlwaysFront = isRotated270 || (!isWindow && isOutdoorWall && !isAlwaysBack);
     const screenH = isoZ(isWindow ? 20 : opening.type === 'entrance' ? 30 : 31);
     const screenLift = isoZ(isWindow ? 9 : 0);
     const p1: Pt = [ox + x1, oy + y1];
@@ -2049,10 +1791,11 @@ function buildIsoFloorNodes(
     ]);
     // Windows sit above outdoor walls (depth -99999) but below objects (OBJECT_DEPTH_BASE = 1M).
     // Doors/entrances: always-front at INDOOR_WALL_DEPTH+1, always-back at object tier.
-    const openingDepth = isWindow
-      ? Math.floor(OBJECT_DEPTH_BASE / 2) + frontScreenY
-      : isAlwaysFront
-        ? INDOOR_WALL_DEPTH + 1 + frontScreenY
+    // 270°-rotated openings (doors AND windows) always win the always-front tier.
+    const openingDepth = isAlwaysFront
+      ? INDOOR_WALL_DEPTH + 1 + frontScreenY
+      : isWindow
+        ? Math.floor(OBJECT_DEPTH_BASE / 2) + frontScreenY
         : OBJECT_DEPTH_BASE + frontScreenY;
     const openingPanel = [
       p1[0], p1[1] - screenLift,
@@ -2363,7 +2106,6 @@ type IsoObjectHover = { planId: string; objectId: string };
 
 // ─── component ────────────────────────────────────────────────────────────────
 export default function Building2D() {
-  const navigate     = useNavigate();
   const { theme }    = useTheme();
   const isDark       = theme === 'dark';
   const containerRef = useRef<HTMLDivElement>(null);
@@ -2395,7 +2137,7 @@ export default function Building2D() {
   ISO_TW = isoTW;
   ISO_TH = isoTH;
   ISO_Z_SCALE = isoZScaleState;
-  const [viewMode, setViewMode]       = useState<'elevation' | 'topDown25D' | 'isometric'>('elevation');
+  const [viewMode, setViewMode]       = useState<'topDown25D' | 'isometric'>('topDown25D');
   // Isometric view defaults to read-only; dragging objects is opt-in via the Edit button.
   const [isoEditMode, setIsoEditMode] = useState(false);
   const [tooltip, setTooltip]         = useState<TooltipState | null>(null);
@@ -2412,6 +2154,21 @@ export default function Building2D() {
   // Tracks which iso side panel was opened most recently, so the shared
   // sidebar stack puts the freshest one on top instead of a fixed order.
   const [lastOpenedIsoPanel, setLastOpenedIsoPanel] = useState<'objects' | 'view'>('view');
+  // Objects panel: search/pagination/expanded-detail state. Reset together
+  // whenever the panel closes so reopening it doesn't show a stale page or
+  // search term from a previous floor.
+  const [objectsSearch, setObjectsSearch] = useState('');
+  const [objectsPage, setObjectsPage] = useState(1);
+  const [objectsPageSize, setObjectsPageSize] = useState(20);
+  // Detail popup: which object, and the row's on-screen anchor so the popup
+  // floats beside the clicked row instead of pushing rows down inline.
+  // `top` anchors downward (popup grows below the row); `bottom` anchors
+  // upward (popup grows above the row, used for rows near list bottom).
+  type ObjectDetailPopup = { objectId: string; left: number } & (
+    | { top: number; bottom?: undefined }
+    | { bottom: number; top?: undefined }
+  );
+  const [objectDetailPopup, setObjectDetailPopup] = useState<ObjectDetailPopup | null>(null);
   const [scale, setScale]             = useState(1);
   const [stageSize, setStageSize]     = useState({ w: 800, h: 600 });
   const [isoFloorFilter, setIsoFloorFilter] = useState<number | null>(null); // null = all
@@ -2502,11 +2259,6 @@ export default function Building2D() {
     document.body.style.cursor = 'default';
   }, []);
 
-  const handleNavigate = useCallback((id: string) => {
-    navigate(`/floor-plans/${id}/edit`);
-  }, [navigate]);
-
-  const maxFloors = buildings.length > 0 ? Math.max(...buildings.map(b => b.maxFloor)) : 0;
   const focusedIsoBuilding = buildings.length > 0
     ? buildings[isoBuildingIndex % buildings.length]
     : null;
@@ -2578,186 +2330,6 @@ export default function Building2D() {
     }
     return cache;
   }, [focusedIsoBuilding, isoSharedSize]);
-
-  // ── elevation (front facade) renderer ────────────────────────────────────────
-  const renderElevation = () => {
-    const nodes: React.ReactNode[] = [];
-
-    buildings.forEach((bld, bi) => {
-      const bx = START_X + bi * (BUILDING_W + BUILDING_GAP);
-      const totalFloors = bld.maxFloor;
-      const facadeH = totalFloors * FLOOR_H;
-      const facadeTop = START_Y;
-
-      // Compute the shared perimeter bounds once for all finalized floors in this
-      // building so every floor band uses the same scale — producing one consistent
-      // merged-perimeter shape rather than per-floor independent outlines.
-      const finalizedFloors = bld.floors.filter(p => p.isApproved);
-      const sharedBounds = buildingPerimeterBounds(finalizedFloors);
-
-      nodes.push(
-        <Rect key={`facade-${bld.key}`}
-          x={bx} y={facadeTop} width={BUILDING_W} height={facadeH}
-          fill="#c8cdd6" stroke="#8c9099" strokeWidth={1.5}
-        />,
-        <Rect key={`shadow-r-${bld.key}`}
-          x={bx + BUILDING_W} y={facadeTop + SHADOW_W}
-          width={SHADOW_W} height={facadeH}
-          fill="#8c9099" opacity={0.55}
-        />,
-        <Rect key={`shadow-b-${bld.key}`}
-          x={bx + SHADOW_W} y={facadeTop + facadeH}
-          width={BUILDING_W} height={SHADOW_W}
-          fill="#8c9099" opacity={0.4}
-        />,
-        <Rect key={`ground-${bld.key}`}
-          x={bx - 4} y={facadeTop + facadeH}
-          width={BUILDING_W + 8} height={GROUND_H}
-          fill="#6b7280" stroke="#4b5563" strokeWidth={1}
-        />,
-        <Rect key={`roof-${bld.key}`}
-          x={bx - 2} y={facadeTop - ROOF_H}
-          width={BUILDING_W + 4} height={ROOF_H + 2}
-          fill="#374151" stroke="#1f2937" strokeWidth={1.5}
-        />,
-        <Rect key={`rooftop-${bld.key}`}
-          x={bx + 4} y={facadeTop - ROOF_H - 5}
-          width={BUILDING_W - 8} height={5}
-          fill="#1f2937"
-        />,
-        <Text key={`blabel-${bld.key}`}
-          x={bx} y={facadeTop + facadeH + GROUND_H + 10}
-          width={BUILDING_W} align="center"
-          text={bld.label} fontSize={11} fontStyle="bold" fill="#1e293b"
-        />
-      );
-
-      // Floor dividers
-      for (let f = 1; f < totalFloors; f++) {
-        const lineY = facadeTop + facadeH - f * FLOOR_H;
-        nodes.push(
-          <Line key={`div-${bld.key}-f${f}`}
-            points={[bx, lineY, bx + BUILDING_W, lineY]}
-            stroke="#8c9099" strokeWidth={1} opacity={0.6}
-          />
-        );
-      }
-
-      // Active floor bands
-      bld.floors.forEach(plan => {
-        const fn = plan.floorNumber ?? 1;
-        const floorTop = facadeTop + facadeH - fn * FLOOR_H;
-        const isFinalized = !!plan.isApproved;
-        const isHovered = hoveredId === plan.id;
-        const score = plan.generationScore;
-        const accentColor = isFinalized ? '#3b82f6' : scoreColor(score);
-        const frameFill = isFinalized ? '#1e40af' : '#374151';
-
-        let overlayOpacity: number;
-        if (isHovered) {
-          overlayOpacity = 0.18;
-        } else if (isFinalized) {
-          overlayOpacity = 0.1;
-        } else {
-          overlayOpacity = 0;
-        }
-        const overlayFill = isFinalized ? '#1d4ed8' : '#1e293b';
-        const glassOpacity = isHovered ? 0.95 : 0.78;
-
-        const outdoorWalls = isFinalized ? getOutdoorWalls(plan, sharedBounds) : [];
-
-        nodes.push(
-          <ElevationFloorBand key={`floor-${plan.id}`}
-            plan={plan} bx={bx} floorTop={floorTop}
-            isFinalized={isFinalized}
-            accentColor={accentColor} frameFill={frameFill}
-            overlayFill={overlayFill} overlayOpacity={overlayOpacity}
-            glassOpacity={glassOpacity}
-            outdoorWalls={outdoorWalls}
-            onHover={handleHover}
-            onHoverEnd={handleHoverEnd}
-            onNavigate={handleNavigate}
-          />
-        );
-      });
-
-      // Empty floor stubs
-      for (let f = 1; f <= totalFloors; f++) {
-        if (bld.floors.some(p => p.floorNumber === f)) continue;
-        const floorTop = facadeTop + facadeH - f * FLOOR_H;
-        nodes.push(
-          <Group key={`empty-${bld.key}-f${f}`}>
-            <Rect x={bx + FLOOR_BORDER} y={floorTop}
-              width={BUILDING_W - FLOOR_BORDER * 2} height={FLOOR_H}
-              fill="#111827" opacity={0.45}
-            />
-            {WIN_OFFSETS.map((_, wi) => (
-              <EmptyWindow key={`ewin-${bld.key}-f${f}-w${wi}`}
-                buildingKey={bld.key} floor={f} winIndex={wi}
-                bx={bx} floorTop={floorTop}
-              />
-            ))}
-            <Text x={bx + 8} y={floorTop + FLOOR_H / 2 - 6}
-              text={`F${f} — no plan`} fontSize={9} fill="#374151" fontStyle="italic"
-            />
-          </Group>
-        );
-      }
-
-      // Entrance door
-      const entranceW = 44;
-      const entranceH = 62;
-      const entranceX = bx + BUILDING_W / 2 - entranceW / 2;
-      const entranceY = facadeTop + facadeH - entranceH;
-      nodes.push(
-        <Group key={`entrance-${bld.key}`}>
-          <Rect x={entranceX - 3} y={entranceY - 2}
-            width={entranceW + 6} height={entranceH + 2} fill="#374151" />
-          <Rect x={entranceX} y={entranceY}
-            width={entranceW / 2 - 1} height={entranceH}
-            fill="#7dd3fc" opacity={0.7} cornerRadius={[2, 0, 0, 0]}
-          />
-          <Rect x={entranceX + entranceW / 2 + 1} y={entranceY}
-            width={entranceW / 2 - 1} height={entranceH}
-            fill="#7dd3fc" opacity={0.7} cornerRadius={[0, 2, 0, 0]}
-          />
-          <Line
-            points={[bx + BUILDING_W / 2, entranceY, bx + BUILDING_W / 2, entranceY + entranceH]}
-            stroke="#374151" strokeWidth={2}
-          />
-          <Circle x={entranceX + entranceW / 2 - 4} y={entranceY + entranceH / 2}
-            radius={2.5} fill="#9ca3af" />
-          <Circle x={entranceX + entranceW / 2 + 4} y={entranceY + entranceH / 2}
-            radius={2.5} fill="#9ca3af" />
-          <Line points={[entranceX + 4, entranceY + 8, entranceX + 10, entranceY + 22]}
-            stroke="white" strokeWidth={1.5} opacity={0.35} lineCap="round" />
-        </Group>
-      );
-    });
-
-    // Ground + road
-    const groundY = START_Y + maxFloors * FLOOR_H;
-    const groundW = buildings.length > 0
-      ? (buildings.length - 1) * (BUILDING_W + BUILDING_GAP) + BUILDING_W + START_X * 2
-      : BUILDING_W + START_X * 2;
-
-    nodes.push(
-      <Rect key="sidewalk"
-        x={0} y={groundY + GROUND_H} width={groundW + 80} height={30} fill="#4b5563"
-      />,
-      <Rect key="road"
-        x={0} y={groundY + GROUND_H + 30} width={groundW + 80} height={20} fill="#374151"
-      />,
-      ...ROAD_DASHES.map(dashX => (
-        <Rect key={`dash-x${dashX}`}
-          x={dashX} y={groundY + GROUND_H + 36}
-          width={44} height={4} fill="#6b7280" opacity={0.6}
-        />
-      ))
-    );
-
-    return nodes;
-  };
 
   // ── isometric renderer ───────────────────────────────────────────────────────
   // Static geometry (slabs, walls, rooms, objects) is memoized — only recomputes
@@ -3306,25 +2878,16 @@ export default function Building2D() {
     return Math.round(scored.reduce((s, p) => s + (p.generationScore ?? 0), 0) / scored.length);
   }, [allPlans]);
 
-  const canvasH = START_Y + maxFloors * FLOOR_H + ROOF_H + GROUND_H + 80;
-  const canvasW = START_X + buildings.length * (BUILDING_W + BUILDING_GAP) + 80;
   const hasBuildings = buildings.length > 0;
-
-  const bgStyle = viewMode === 'elevation'
-    ? {
-        fillLinearGradientStartPoint: { x: 0, y: 0 },
-        fillLinearGradientEndPoint: { x: 0, y: canvasH },
-        fillLinearGradientColorStops: isDark
-          ? [0, '#0f172a', 0.6, '#1e293b', 1, '#273549'] as (string | number)[]
-          : [0, '#bfdbfe', 0.6, '#dbeafe', 1, '#e0f2fe'] as (string | number)[],
-      }
-    : undefined;
 
   return (
     <div className="flex flex-col h-full min-h-0 bg-[var(--surface)] text-[var(--text)]">
 
       {/* ── Header ─────────────────────────────────────────────────────── */}
       <div className="flex flex-col gap-2 px-6 py-3 border-b border-[var(--border)] flex-shrink-0">
+        {user.role === 'admin' && localStorage.getItem('currentDepartmentId') === ALL_DEPARTMENTS_ID && (
+          <AllDepartmentsBanner />
+        )}
         <div className="flex items-center gap-3">
           <Building2 size={20} className="text-[var(--primary)]" />
           <div>
@@ -3332,8 +2895,6 @@ export default function Building2D() {
             <p className="text-xs text-[var(--text-muted)]">
               {viewMode === 'topDown25D'
                 ? 'Top-down 2.5D presentation - editable JSON floorplan with depth'
-                : viewMode === 'elevation'
-                ? 'Front elevation — buildings side by side, floors stacked upward'
                 : 'Isometric dollhouse — floor slabs stacked per building'}
             </p>
           </div>
@@ -3371,14 +2932,8 @@ export default function Building2D() {
           {/* View toggle */}
           <div className="flex border border-[var(--border)] rounded overflow-hidden text-xs">
             <button
-              onClick={() => setViewMode('elevation')}
-              className={`px-3 py-1.5 font-medium flex items-center gap-1.5 ${viewMode === 'elevation' ? 'bg-[var(--primary)] text-white' : 'text-[var(--text-muted)] hover:bg-[var(--surface-2)]'}`}
-            >
-              <Layers size={12} /> Elevation
-            </button>
-            <button
               onClick={() => setViewMode('topDown25D')}
-              className={`px-3 py-1.5 font-medium flex items-center gap-1.5 border-l border-[var(--border)] ${viewMode === 'topDown25D' ? 'bg-[var(--primary)] text-white' : 'text-[var(--text-muted)] hover:bg-[var(--surface-2)]'}`}
+              className={`px-3 py-1.5 font-medium flex items-center gap-1.5 ${viewMode === 'topDown25D' ? 'bg-[var(--primary)] text-white' : 'text-[var(--text-muted)] hover:bg-[var(--surface-2)]'}`}
             >
               <Layers size={12} /> Top-Down 2.5D
             </button>
@@ -3395,7 +2950,7 @@ export default function Building2D() {
             <>
               <div className="w-px h-5 bg-[var(--border)]" aria-hidden="true" />
               <button
-                onClick={() => { setIsoEditMode(v => !v); setSelectedIsoObject(null); setLayerJumpInput(''); setIsoObjectListOpen(false); }}
+                onClick={() => { setIsoEditMode(v => !v); setSelectedIsoObject(null); setLayerJumpInput(''); setIsoObjectListOpen(false); setObjectDetailPopup(null); }}
                 title={isoEditMode ? 'Exit edit mode' : 'Edit mode: drag objects to reposition them'}
                 className={`px-3 py-1.5 rounded border text-xs font-medium flex items-center gap-1.5 ${isoEditMode ? 'bg-[var(--primary)] text-white border-[var(--primary)]' : 'border-[var(--border)] text-[var(--text-muted)] hover:bg-[var(--surface-2)]'}`}
               >
@@ -3539,36 +3094,177 @@ export default function Building2D() {
         {viewMode === 'isometric' && (isoObjectListOpen || isoViewOpen) && (() => {
           const objectsPanel = isoEditMode && isoObjectListOpen && topDownPlan && (() => {
             const planId = topDownPlan.id;
-            const objs = (topDownPlan.objects ?? []).filter(o => o.type !== 'wall' && o.type !== 'label' && o.type !== 'marker');
+            // All object types now included (walls/labels/markers used to be
+            // filtered out) so "All Floors" really means every object on
+            // the floor, not just furniture.
+            const allObjs = topDownPlan.objects ?? [];
+            // Walls are excluded from the listed/searchable objects entirely.
+            const listableObjs = allObjs.filter(o => o.type !== 'wall');
+            const query = objectsSearch.trim().toLowerCase();
+            const filtered = query
+              ? listableObjs.filter(o => (o.label || o.type).toLowerCase().includes(query) || o.type.toLowerCase().includes(query))
+              : listableObjs;
+            const totalPages = Math.max(1, Math.ceil(filtered.length / objectsPageSize));
+            const currentPage = Math.min(objectsPage, totalPages);
+            const pageObjs = filtered.slice((currentPage - 1) * objectsPageSize, currentPage * objectsPageSize);
             return (
-              <div key="objects" className="w-56 max-h-[70%] flex flex-col rounded border border-[var(--border)] bg-[var(--surface)] shadow-lg text-xs overflow-hidden">
+              <div key="objects" className="w-72 max-h-[70%] flex flex-col rounded border border-[var(--border)] bg-[var(--surface)] shadow-lg text-xs overflow-hidden">
                 <div className="flex items-center justify-between px-2.5 py-1.5 border-b border-[var(--border)] flex-shrink-0">
-                  <span className="font-medium text-[var(--text)]">Objects ({objs.length})</span>
+                  <span className="font-medium text-[var(--text)]">Objects ({filtered.length})</span>
                   <button
                     className="text-[var(--text-muted)] hover:text-[var(--text)] px-1"
                     title="Close"
-                    onClick={() => setIsoObjectListOpen(false)}
+                    onClick={() => { setIsoObjectListOpen(false); setObjectsSearch(''); setObjectsPage(1); setObjectDetailPopup(null); }}
                   >
                     ✕
                   </button>
                 </div>
+                <div className="px-2.5 py-1.5 border-b border-[var(--border)] flex-shrink-0">
+                  <input
+                    type="text"
+                    value={objectsSearch}
+                    onChange={e => { setObjectsSearch(e.target.value); setObjectsPage(1); }}
+                    placeholder="Search objects…"
+                    className="w-full px-2 py-1 rounded border border-[var(--border)] bg-[var(--surface-2)] text-[var(--text)] text-xs outline-none focus:border-[var(--primary)]"
+                  />
+                </div>
                 <div className="overflow-y-auto flex-1">
-                  {objs.length === 0 && (
-                    <div className="px-2.5 py-3 text-[var(--text-muted)]">No objects on this floor.</div>
+                  {pageObjs.length === 0 && (
+                    <div className="px-2.5 py-3 text-[var(--text-muted)]">
+                      {filtered.length === 0 && allObjs.length > 0 ? 'No objects match.' : 'No objects on this floor.'}
+                    </div>
                   )}
-                  {objs.map(obj => {
+                  {pageObjs.map((obj, idx) => {
                     const isSelected = selectedIsoObject?.planId === planId && selectedIsoObject?.objectId === obj.id;
+                    const isPopupOpen = objectDetailPopup?.objectId === obj.id;
+                    // Last 5 rows in the page open their popup upward (anchored
+                    // to the row's bottom edge growing up) so it doesn't render
+                    // past the bottom of the viewport.
+                    const openUpward = idx >= pageObjs.length - 5;
                     return (
-                      <button
+                      <div
                         key={obj.id}
-                        onClick={() => { setSelectedIsoObject({ planId, objectId: obj.id }); setLayerJumpInput(''); }}
                         className={`w-full text-left px-2.5 py-1.5 border-b border-[var(--border)] last:border-b-0 flex items-center justify-between gap-2 ${isSelected ? 'bg-[var(--primary)] text-white' : 'text-[var(--text)] hover:bg-[var(--surface-2)]'}`}
                       >
-                        <span className="truncate">{obj.label || obj.type}</span>
+                        <button
+                          onClick={() => { setSelectedIsoObject({ planId, objectId: obj.id }); setLayerJumpInput(''); }}
+                          className="flex-1 text-left truncate"
+                        >
+                          {obj.label || obj.type}
+                        </button>
                         <span className={`flex-shrink-0 ${isSelected ? 'opacity-80' : 'opacity-60'}`}>{obj.type}</span>
-                      </button>
+                        <button
+                          onClick={e => {
+                            if (isPopupOpen) { setObjectDetailPopup(null); return; }
+                            const rect = e.currentTarget.getBoundingClientRect();
+                            setObjectDetailPopup(
+                              openUpward
+                                ? { objectId: obj.id, left: rect.left, bottom: window.innerHeight - rect.top }
+                                : { objectId: obj.id, left: rect.left, top: rect.top },
+                            );
+                          }}
+                          title="More details"
+                          className={`flex-shrink-0 px-1 rounded ${isSelected ? 'hover:bg-white/20' : 'hover:bg-[var(--border)]'}`}
+                        >
+                          {isPopupOpen ? (openUpward ? '▴' : '▾') : '▸'}
+                        </button>
+                      </div>
                     );
                   })}
+                </div>
+                {filtered.length > objectsPageSize && (
+                  <div className="flex items-center justify-between gap-2 px-2.5 py-1.5 border-t border-[var(--border)] flex-shrink-0">
+                    <div className="flex items-center gap-1">
+                      <button
+                        onClick={() => setObjectsPage(p => Math.max(1, p - 1))}
+                        disabled={currentPage <= 1}
+                        className="px-1.5 py-0.5 rounded border border-[var(--border)] text-[var(--text-muted)] hover:bg-[var(--surface-2)] disabled:opacity-30"
+                      >
+                        ‹
+                      </button>
+                      <span className="text-[var(--text-muted)]">{currentPage}/{totalPages}</span>
+                      <button
+                        onClick={() => setObjectsPage(p => Math.min(totalPages, p + 1))}
+                        disabled={currentPage >= totalPages}
+                        className="px-1.5 py-0.5 rounded border border-[var(--border)] text-[var(--text-muted)] hover:bg-[var(--surface-2)] disabled:opacity-30"
+                      >
+                        ›
+                      </button>
+                    </div>
+                    <select
+                      value={objectsPageSize}
+                      onChange={e => { setObjectsPageSize(Number(e.target.value)); setObjectsPage(1); }}
+                      className="px-1 py-0.5 rounded border border-[var(--border)] bg-[var(--surface-2)] text-[var(--text)]"
+                    >
+                      <option value={20}>20</option>
+                      <option value={50}>50</option>
+                      <option value={100}>100</option>
+                    </select>
+                  </div>
+                )}
+              </div>
+            );
+          })();
+
+          const objectDetailOverlay = objectDetailPopup && (() => {
+            // Walls never reach this popup (excluded from the list rows that
+            // open it), so narrow the type here rather than re-deriving it.
+            const rawObj = (topDownPlan?.objects ?? []).find(o => o.id === objectDetailPopup.objectId);
+            if (!rawObj || rawObj.type === 'wall') return null;
+            const obj = rawObj;
+            const isOpening = obj.type === 'window' || obj.type === 'door' || obj.type === 'entrance';
+            const walls = (topDownPlan?.objects ?? []).filter((o): o is WallObject => o.type === 'wall');
+            const attachedWall = isOpening
+              ? findAttachedWall(obj as DoorObject | WindowObject | EntranceObject, walls)
+              : null;
+            const toDeg = (rad?: number) => Math.round(((rad ?? 0) * 180 / Math.PI + 360) % 360);
+            // Anchored to the row's button position at click-time. Rows near
+            // the top of the page anchor by `top` (popup grows downward);
+            // rows near the bottom anchor by `bottom` (popup grows upward)
+            // so it never renders past the viewport edge either way.
+            const left = Math.max(8, objectDetailPopup.left - 240);
+            const positionStyle = objectDetailPopup.bottom !== undefined
+              ? { bottom: Math.max(8, objectDetailPopup.bottom - 8), left }
+              : { top: Math.min(objectDetailPopup.top, window.innerHeight - 180), left };
+            return (
+              <div
+                key="detail-popup"
+                className="fixed z-30 w-56 rounded border border-[var(--border)] bg-[var(--surface)] shadow-xl text-xs overflow-hidden animate-detailPopupIn"
+                style={positionStyle}
+              >
+                <div className="flex items-center justify-between px-2.5 py-1.5 border-b border-[var(--border)]">
+                  <span className="font-medium text-[var(--text)] truncate">{obj.label || obj.type}</span>
+                  <button
+                    className="text-[var(--text-muted)] hover:text-[var(--text)] px-1 flex-shrink-0"
+                    title="Close"
+                    onClick={() => setObjectDetailPopup(null)}
+                  >
+                    ✕
+                  </button>
+                </div>
+                <div className="px-2.5 py-2 text-[var(--text-muted)] grid grid-cols-2 gap-x-2 gap-y-1">
+                  {obj.type === 'room' ? (
+                    <>
+                      <span>Points</span><span className="text-[var(--text)]">{obj.points.length / 2}</span>
+                    </>
+                  ) : (
+                    <>
+                      <span>X</span><span className="text-[var(--text)]">{Math.round(obj.x)}</span>
+                      <span>Y</span><span className="text-[var(--text)]">{Math.round(obj.y)}</span>
+                      <span>Width</span><span className="text-[var(--text)]">{'width' in obj ? Math.round(obj.width) : '—'}</span>
+                      <span>Angle</span><span className="text-[var(--text)]">{toDeg((obj as { angle?: number }).angle)}°</span>
+                      {isOpening && (
+                        <>
+                          <span>Wall</span>
+                          <span className="text-[var(--text)] col-span-1">
+                            {attachedWall
+                              ? `(${Math.round(attachedWall.startX)},${Math.round(attachedWall.startY)}) → (${Math.round(attachedWall.endX)},${Math.round(attachedWall.endY)})${attachedWall.wallType === 'floor_original_outdoor' ? ' · outdoor' : ''}`
+                              : '—'}
+                          </span>
+                        </>
+                      )}
+                    </>
+                  )}
                 </div>
               </div>
             );
@@ -3660,9 +3356,12 @@ export default function Building2D() {
             : [viewSettingsPanel, objectsPanel];
 
           return (
-            <div className="absolute top-3 right-3 z-20 flex flex-col gap-2 items-end">
-              {panels}
-            </div>
+            <>
+              <div className="absolute top-3 right-3 z-20 flex flex-col gap-2 items-end">
+                {panels}
+              </div>
+              {objectDetailOverlay}
+            </>
           );
         })()}
 
@@ -3844,29 +3543,9 @@ export default function Building2D() {
               e.evt.preventDefault();
               zoom(e.evt.deltaY > 0 ? -0.08 : 0.08);
             }}
-            style={{ background:
-              viewMode === 'elevation' ? (isDark ? '#0f172a' : '#b8d4f0') :
-              /* isometric */ (isDark ? '#060b14' : '#dde6f0') }}
+            style={{ background: isDark ? '#060b14' : '#dde6f0' }}
           >
-              {viewMode === 'elevation' ? (
-                <Layer>
-                  {/* Sky gradient */}
-                  <Rect x={0} y={0} width={canvasW + 200} height={canvasH + 200}
-                    {...bgStyle}
-                  />
-                  {/* Background city silhouette */}
-                  {BG_BUILDINGS.map(b => (
-                    <Rect key={b.id}
-                      x={b.x} y={START_Y + maxFloors * FLOOR_H - b.h + 10}
-                      width={b.w} height={b.h}
-                      fill="#93c5fd" opacity={0.25}
-                    />
-                  ))}
-                  {renderElevation()}
-                </Layer>
-              ) : (
-                renderIsometric()
-              )}
+              {renderIsometric()}
           </Stage>
         ) : (
           !loading && !error && (

@@ -69,7 +69,11 @@ export default function DepartmentSwitcher({ isOpen, onOpenChange }: DepartmentS
     <div className="relative">
       <button
         onClick={() => onOpenChange(!isOpen)}
-        className="h-16 px-2 rounded hover:bg-blue-500 transition text-sm flex items-center gap-1 bg-blue-700"
+        className={`h-16 px-2 rounded hover:bg-blue-500 transition text-sm flex items-center gap-1 ${
+          currentDeptId === ALL_DEPARTMENTS_ID
+            ? 'bg-amber-600 ring-2 ring-amber-400 ring-inset'
+            : 'bg-blue-700'
+        }`}
       >
         <Building2 size={14} />
         <span className="truncate max-w-xs">{currentDeptName || 'Select Department'}</span>

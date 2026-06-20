@@ -11,6 +11,7 @@ import { floorPlansApi, departmentsApi } from '@/services/api';
 import { FloorPlan, FloorPlanObject, PolygonRoomObject, RectangleObject, WallObject } from '@/types/floorplan';
 import FloorPlanThumbnail from '@/components/floorplan/FloorPlanThumbnail';
 import Pagination from '@/components/Pagination';
+import AllDepartmentsBanner from '@/components/AllDepartmentsBanner';
 import { ALL_DEPARTMENTS_ID } from '@/constants/app';
 import { validateFloorplanObjects } from '@/utils/floorplanValidation';
 import { applyAutoFixes } from '@/utils/floorplanFixer';
@@ -1565,6 +1566,7 @@ export default function FloorPlans() {
   return (
     <>
       <div className="space-y-6">
+      {user.role === 'admin' && currentDepartmentId === ALL_DEPARTMENTS_ID && <AllDepartmentsBanner />}
       <div className="flex justify-between items-center">
         <div>
           <h1 className="text-3xl font-bold text-[var(--text)]">Floor Plans</h1>
