@@ -171,6 +171,12 @@ function Start-IMSApp {
         Pop-Location
     }
 
+    $graphPath = Join-Path $rootPath 'graphify-out\graph.html'
+    if (Test-Path $graphPath) {
+        $graphUri = "vscode://ms-vscode.live-server/start?file=$([uri]::EscapeDataString($graphPath))"
+        Start-Process $graphUri
+    }
+
     $backendPid = Get-PortProcess $backendPort
     $frontendPid = Get-PortProcess $frontendPort
 
@@ -182,17 +188,6 @@ function Start-IMSApp {
 
     if (-not (Test-IMSApp)) {
         return
-    }
-
-    $graphDir = Join-Path $rootPath 'graphify-out'
-    $graphPath = Join-Path $graphDir 'graph.html'
-    if (Test-Path $graphPath) {
-        $graphPort = 5501
-        if (-not (Get-PortProcess $graphPort)) {
-            Start-Process -FilePath 'npx' -ArgumentList @('serve', $graphDir, '-p', $graphPort) -WindowStyle Hidden
-            Start-Sleep -Seconds 2
-        }
-        Start-Process "http://127.0.0.1:$graphPort/graph.html"
     }
 
     Push-Location $rootPath

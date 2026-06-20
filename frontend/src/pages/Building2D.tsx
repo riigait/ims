@@ -1657,11 +1657,12 @@ function compareIsoRenderEntries(a: IsoSortable, b: IsoSortable): number {
     if (aAbsolute !== bAbsolute) return aAbsolute - bAbsolute;
 
     if (a.hovered !== b.hovered) return a.hovered ? 1 : -1;
-    // A manual layer-order choice on EITHER object wins outright — an
-    // object the user never reordered (manualOrder undefined) is treated as
-    // "behind" any object that was explicitly brought forward, and vice
-    // versa for Send to Back. Only fires when at least one side actually
-    // has a manual order; two untouched objects fall through unaffected.
+    // Every object in a plan gets a manualOrder stamp (= its array index) as
+    // soon as ANY object on that floor is reordered once — see
+    // reorderIsoObject, which restamps the whole array so indices stay
+    // mutually consistent. So once a floor has had one manual reorder, this
+    // branch decides every collision on it by array position; floors never
+    // touched fall through to physical depth below as before.
     if (a.manualOrder !== undefined || b.manualOrder !== undefined) {
       const ao = a.manualOrder ?? -Infinity;
       const bo = b.manualOrder ?? -Infinity;
@@ -2408,6 +2409,9 @@ export default function Building2D() {
   const [layerJumpInput, setLayerJumpInput] = useState('');
   // Whether the "all objects in this floor" list popup is open (Edit mode only).
   const [isoObjectListOpen, setIsoObjectListOpen] = useState(false);
+  // Tracks which iso side panel was opened most recently, so the shared
+  // sidebar stack puts the freshest one on top instead of a fixed order.
+  const [lastOpenedIsoPanel, setLastOpenedIsoPanel] = useState<'objects' | 'view'>('view');
   const [scale, setScale]             = useState(1);
   const [stageSize, setStageSize]     = useState({ w: 800, h: 600 });
   const [isoFloorFilter, setIsoFloorFilter] = useState<number | null>(null); // null = all
@@ -2989,15 +2993,15 @@ export default function Building2D() {
       }
       const reordered = reorder(previousObjects, idx);
       if (!reordered) return plan; // already at that end — no-op
-      // Stamp isoManualOrder on ONLY the moved object, at its new array
-      // index. Every other object keeps whatever isoManualOrder it already
-      // had (usually none) — stamping the whole plan here would give every
-      // untouched object a manual order too, making the comparator's
-      // manual-override tier resolve ALL of their future overlaps by raw
-      // array position instead of physical depth, which looks like
-      // unrelated objects "following" each other's reorder.
-      const newIdx = reordered.findIndex(o => o.id === objectId);
-      const stamped = reordered.map((o, i) => i === newIdx ? { ...o, isoManualOrder: i } : o);
+      // Stamp isoManualOrder = array index on EVERY object, not just the one
+      // moved. Index-only-on-the-moved-object left untouched objects holding
+      // stale indices from earlier reorders (or none at all), so the
+      // comparator's manual-order tier compared numbers that no longer
+      // reflected a single consistent ordering — front/back flickered
+      // depending on which pair Array.sort happened to compare first.
+      // Stamping the whole array keeps every manualOrder in sync with the
+      // current array position, so comparisons are always consistent.
+      const stamped = reordered.map((o, i) => ({ ...o, isoManualOrder: i }));
       const updatedPlan = { ...plan, objects: stamped };
       floorPlansApi.update(planId, { ...updatedPlan }).catch(() => {
         setAllPlans(p => p.map(pl => pl.id === planId ? { ...pl, objects: previousObjects } : pl));
@@ -3320,7 +3324,7 @@ export default function Building2D() {
     <div className="flex flex-col h-full min-h-0 bg-[var(--surface)] text-[var(--text)]">
 
       {/* ── Header ─────────────────────────────────────────────────────── */}
-      <div className="flex items-center justify-between px-6 py-3 border-b border-[var(--border)] flex-shrink-0">
+      <div className="flex flex-col gap-2 px-6 py-3 border-b border-[var(--border)] flex-shrink-0">
         <div className="flex items-center gap-3">
           <Building2 size={20} className="text-[var(--primary)]" />
           <div>
@@ -3335,7 +3339,7 @@ export default function Building2D() {
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           {/* Floor filter — isometric only */}
           {(viewMode === 'isometric' || viewMode === 'topDown25D') &&
             (viewMode === 'isometric' ? allFloorNumbers : finalizedFloorNumbers).length > 1 && (
@@ -3388,13 +3392,16 @@ export default function Building2D() {
 
           {/* Edit toggle — isometric only; enables dragging objects to reposition them */}
           {viewMode === 'isometric' && (
-            <button
-              onClick={() => { setIsoEditMode(v => !v); setSelectedIsoObject(null); setLayerJumpInput(''); setIsoObjectListOpen(false); }}
-              title={isoEditMode ? 'Exit edit mode' : 'Edit mode: drag objects to reposition them'}
-              className={`px-3 py-1.5 rounded border text-xs font-medium flex items-center gap-1.5 ${isoEditMode ? 'bg-[var(--primary)] text-white border-[var(--primary)]' : 'border-[var(--border)] text-[var(--text-muted)] hover:bg-[var(--surface-2)]'}`}
-            >
-              <Pencil size={12} /> {isoEditMode ? 'Editing' : 'Edit'}
-            </button>
+            <>
+              <div className="w-px h-5 bg-[var(--border)]" aria-hidden="true" />
+              <button
+                onClick={() => { setIsoEditMode(v => !v); setSelectedIsoObject(null); setLayerJumpInput(''); setIsoObjectListOpen(false); }}
+                title={isoEditMode ? 'Exit edit mode' : 'Edit mode: drag objects to reposition them'}
+                className={`px-3 py-1.5 rounded border text-xs font-medium flex items-center gap-1.5 ${isoEditMode ? 'bg-[var(--primary)] text-white border-[var(--primary)]' : 'border-[var(--border)] text-[var(--text-muted)] hover:bg-[var(--surface-2)]'}`}
+              >
+                <Pencil size={12} /> {isoEditMode ? 'Editing' : 'Edit'}
+              </button>
+            </>
           )}
 
           {/* Object list — lists every object in the focused finalized floor;
@@ -3402,7 +3409,7 @@ export default function Building2D() {
               as clicking it directly on the canvas). */}
           {viewMode === 'isometric' && isoEditMode && topDownPlan && (
             <button
-              onClick={() => setIsoObjectListOpen(v => !v)}
+              onClick={() => { setIsoObjectListOpen(v => !v); setLastOpenedIsoPanel('objects'); }}
               title="List all objects in this floor"
               className={`px-3 py-1.5 rounded border text-xs font-medium flex items-center gap-1.5 ${isoObjectListOpen ? 'bg-[var(--primary)] text-white border-[var(--primary)]' : 'border-[var(--border)] text-[var(--text-muted)] hover:bg-[var(--surface-2)]'}`}
             >
@@ -3413,7 +3420,7 @@ export default function Building2D() {
           {/* Iso View Settings — adjust the projection's width/height/depth scale */}
           {viewMode === 'isometric' && (
             <button
-              onClick={() => setIsoViewOpen(v => !v)}
+              onClick={() => { setIsoViewOpen(v => !v); setLastOpenedIsoPanel('view'); }}
               title="Isometric view settings"
               className={`px-3 py-1.5 rounded border text-xs font-medium flex items-center gap-1.5 ${isoViewOpen ? 'bg-[var(--primary)] text-white border-[var(--primary)]' : 'border-[var(--border)] text-[var(--text-muted)] hover:bg-[var(--surface-2)]'}`}
             >
@@ -3422,6 +3429,7 @@ export default function Building2D() {
           )}
 
           {/* Zoom */}
+          <div className="w-px h-5 bg-[var(--border)]" aria-hidden="true" />
           <div className="flex border border-[var(--border)] rounded overflow-hidden">
             <button onClick={() => zoom(0.15)} className="px-2 py-1.5 hover:bg-[var(--surface-2)] text-[var(--text-muted)]"><ZoomIn size={13} /></button>
             <button onClick={() => zoom(-0.15)} className="px-2 py-1.5 hover:bg-[var(--surface-2)] text-[var(--text-muted)] border-x border-[var(--border)]"><ZoomOut size={13} /></button>
@@ -3449,8 +3457,8 @@ export default function Building2D() {
         </div>
       </div>
 
-      {/* ── Stats ──────────────────────────────────────────────────────── */}
-      <div className="flex gap-6 px-6 py-2 border-b border-[var(--border)] bg-[var(--surface-2)] flex-shrink-0 text-xs items-center">
+      {/* ── Stats + Legend ─────────────────────────────────────────────── */}
+      <div className="flex flex-wrap gap-x-6 gap-y-1 px-6 py-2 border-b border-[var(--border)] bg-[var(--surface-2)] flex-shrink-0 text-xs items-center">
         <span className="text-[var(--text-muted)]">
           <span className="font-bold text-[var(--text)]">{buildings.length}</span> building{buildings.length === 1 ? '' : 's'}
         </span>
@@ -3466,15 +3474,7 @@ export default function Building2D() {
             avg <span className="font-bold">{avgScore}%</span> — {scoreLabel(avgScore)}
           </span>
         )}
-        <span className="ml-auto text-[var(--text-muted)]">
-          {viewMode === 'isometric' && isoEditMode
-            ? 'Drag an object to reposition it · Drag empty space to pan · Scroll to zoom'
-            : 'Click any floor to open editor · Drag to pan · Scroll to zoom'}
-        </span>
-      </div>
-
-      {/* ── Legend ─────────────────────────────────────────────────────── */}
-      <div className="flex gap-4 px-6 py-1.5 border-b border-[var(--border)] flex-shrink-0 text-xs text-[var(--text-muted)]">
+        <span className="w-px h-3.5 bg-[var(--border)]" aria-hidden="true" />
         {[
           { color: '#22c55e', label: '≥95 Excellent' },
           { color: '#84cc16', label: '≥80 Good' },
@@ -3483,11 +3483,16 @@ export default function Building2D() {
           { color: '#3b82f6', label: 'Finalized' },
           { color: '#64748b', label: 'No score' },
         ].map(({ color, label }) => (
-          <span key={label} className="flex items-center gap-1.5">
+          <span key={label} className="flex items-center gap-1.5 text-[var(--text-muted)]">
             <span className="inline-block w-2 h-2 rounded-sm flex-shrink-0" style={{ background: color }} />
             {label}
           </span>
         ))}
+        <span className="ml-auto text-[var(--text-muted)]">
+          {viewMode === 'isometric' && isoEditMode
+            ? 'Drag an object to reposition it · Drag empty space to pan · Scroll to zoom'
+            : 'Click any floor to open editor · Drag to pan · Scroll to zoom'}
+        </span>
       </div>
 
       {/* ── Canvas ─────────────────────────────────────────────────────── */}
@@ -3531,123 +3536,135 @@ export default function Building2D() {
           </div>
         )}
 
-        {viewMode === 'isometric' && isoEditMode && isoObjectListOpen && topDownPlan && (() => {
-          const planId = topDownPlan.id;
-          const objs = (topDownPlan.objects ?? []).filter(o => o.type !== 'wall' && o.type !== 'label' && o.type !== 'marker');
-          return (
-            <div className="absolute top-3 right-3 z-20 w-56 max-h-[70%] flex flex-col rounded border border-[var(--border)] bg-[var(--surface)] shadow-lg text-xs overflow-hidden">
-              <div className="flex items-center justify-between px-2.5 py-1.5 border-b border-[var(--border)] flex-shrink-0">
-                <span className="font-medium text-[var(--text)]">Objects ({objs.length})</span>
+        {viewMode === 'isometric' && (isoObjectListOpen || isoViewOpen) && (() => {
+          const objectsPanel = isoEditMode && isoObjectListOpen && topDownPlan && (() => {
+            const planId = topDownPlan.id;
+            const objs = (topDownPlan.objects ?? []).filter(o => o.type !== 'wall' && o.type !== 'label' && o.type !== 'marker');
+            return (
+              <div key="objects" className="w-56 max-h-[70%] flex flex-col rounded border border-[var(--border)] bg-[var(--surface)] shadow-lg text-xs overflow-hidden">
+                <div className="flex items-center justify-between px-2.5 py-1.5 border-b border-[var(--border)] flex-shrink-0">
+                  <span className="font-medium text-[var(--text)]">Objects ({objs.length})</span>
+                  <button
+                    className="text-[var(--text-muted)] hover:text-[var(--text)] px-1"
+                    title="Close"
+                    onClick={() => setIsoObjectListOpen(false)}
+                  >
+                    ✕
+                  </button>
+                </div>
+                <div className="overflow-y-auto flex-1">
+                  {objs.length === 0 && (
+                    <div className="px-2.5 py-3 text-[var(--text-muted)]">No objects on this floor.</div>
+                  )}
+                  {objs.map(obj => {
+                    const isSelected = selectedIsoObject?.planId === planId && selectedIsoObject?.objectId === obj.id;
+                    return (
+                      <button
+                        key={obj.id}
+                        onClick={() => { setSelectedIsoObject({ planId, objectId: obj.id }); setLayerJumpInput(''); }}
+                        className={`w-full text-left px-2.5 py-1.5 border-b border-[var(--border)] last:border-b-0 flex items-center justify-between gap-2 ${isSelected ? 'bg-[var(--primary)] text-white' : 'text-[var(--text)] hover:bg-[var(--surface-2)]'}`}
+                      >
+                        <span className="truncate">{obj.label || obj.type}</span>
+                        <span className={`flex-shrink-0 ${isSelected ? 'opacity-80' : 'opacity-60'}`}>{obj.type}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })();
+
+          const viewSettingsPanel = isoViewOpen && (
+            <div key="view" className="w-60 rounded border border-[var(--border)] bg-[var(--surface)] shadow-lg text-xs overflow-hidden">
+              <div className="flex items-center justify-between px-2.5 py-1.5 border-b border-[var(--border)]">
+                <span className="font-medium text-[var(--text)]">Iso View Settings</span>
                 <button
                   className="text-[var(--text-muted)] hover:text-[var(--text)] px-1"
                   title="Close"
-                  onClick={() => setIsoObjectListOpen(false)}
+                  onClick={() => setIsoViewOpen(false)}
                 >
                   ✕
                 </button>
               </div>
-              <div className="overflow-y-auto flex-1">
-                {objs.length === 0 && (
-                  <div className="px-2.5 py-3 text-[var(--text-muted)]">No objects on this floor.</div>
-                )}
-                {objs.map(obj => {
-                  const isSelected = selectedIsoObject?.planId === planId && selectedIsoObject?.objectId === obj.id;
+              <div className="px-2.5 py-2.5 flex flex-col gap-2.5">
+                {/* Presets */}
+                {(() => {
+                  const presets = [
+                    { label: 'Main',      tw: 3.2, th: 1.3, z: 1.6 },
+                    { label: 'Dollhouse', tw: 3.2, th: 1.4, z: 1.6 },
+                    { label: 'Miniature', tw: 2.7, th: 0.65, z: 1.3 },
+                    { label: '2.5D',      tw: 2.8, th: 0.55, z: 1.2 },
+                  ];
                   return (
-                    <button
-                      key={obj.id}
-                      onClick={() => { setSelectedIsoObject({ planId, objectId: obj.id }); setLayerJumpInput(''); }}
-                      className={`w-full text-left px-2.5 py-1.5 border-b border-[var(--border)] last:border-b-0 flex items-center justify-between gap-2 ${isSelected ? 'bg-[var(--primary)] text-white' : 'text-[var(--text)] hover:bg-[var(--surface-2)]'}`}
-                    >
-                      <span className="truncate">{obj.label || obj.type}</span>
-                      <span className={`flex-shrink-0 ${isSelected ? 'opacity-80' : 'opacity-60'}`}>{obj.type}</span>
-                    </button>
+                    <div className="grid grid-cols-2 gap-1">
+                      {presets.map(p => {
+                        const active = isoTW === p.tw && isoTH === p.th && isoZScaleState === p.z;
+                        return (
+                          <button
+                            key={p.label}
+                            onClick={() => { setIsoTW(p.tw); setIsoTH(p.th); setIsoZScaleState(p.z); }}
+                            className={`px-1.5 py-1 rounded border text-xs font-medium transition-colors ${active ? 'bg-[var(--primary)] text-white border-[var(--primary)]' : 'border-[var(--border)] text-[var(--text-muted)] hover:bg-[var(--surface-2)]'}`}
+                          >
+                            {p.label}
+                          </button>
+                        );
+                      })}
+                    </div>
                   );
-                })}
+                })()}
+                {([
+                  { key: 'isoTW' as const, label: 'Width', value: isoTW, setter: setIsoTW, min: 0.5, max: 8, step: 0.1 },
+                  { key: 'isoTH' as const, label: 'Height', value: isoTH, setter: setIsoTH, min: 0.5, max: 8, step: 0.1 },
+                  { key: 'isoZScale' as const, label: 'Depth', value: isoZScaleState, setter: setIsoZScaleState, min: 0.2, max: 5, step: 0.1 },
+                ]).map(({ key, label, value, setter, min, max, step }) => (
+                  <label key={key} className="flex flex-col gap-1">
+                    <span className="flex items-center justify-between text-[var(--text-muted)]">
+                      <span>{label}</span>
+                      <span className="text-[var(--text)] font-medium">{value.toFixed(1)}</span>
+                    </span>
+                    <input
+                      type="range"
+                      min={min}
+                      max={max}
+                      step={step}
+                      value={value}
+                      onChange={e => setter(parseFloat(e.target.value))}
+                      className="w-full"
+                    />
+                  </label>
+                ))}
+                {isoViewSaveError && (
+                  <span className="text-red-500">{isoViewSaveError}</span>
+                )}
+                <div className="flex gap-2 pt-1">
+                  <button
+                    onClick={() => { setIsoTW(ISO_TW_DEFAULT); setIsoTH(ISO_TH_DEFAULT); setIsoZScaleState(ISO_Z_SCALE_DEFAULT); }}
+                    className="flex-1 px-2 py-1.5 rounded border border-[var(--border)] text-[var(--text-muted)] hover:bg-[var(--surface-2)] font-medium"
+                  >
+                    Reset
+                  </button>
+                  <button
+                    onClick={handleSaveIsoViewSettings}
+                    disabled={isoViewSaving}
+                    className="flex-1 px-2 py-1.5 rounded bg-[var(--primary)] text-white font-medium disabled:opacity-60"
+                  >
+                    {isoViewSaving ? 'Saving…' : 'Save'}
+                  </button>
+                </div>
               </div>
             </div>
           );
-        })()}
 
-        {viewMode === 'isometric' && isoViewOpen && (
-          <div className="absolute top-3 right-3 z-20 w-60 rounded border border-[var(--border)] bg-[var(--surface)] shadow-lg text-xs overflow-hidden">
-            <div className="flex items-center justify-between px-2.5 py-1.5 border-b border-[var(--border)]">
-              <span className="font-medium text-[var(--text)]">Iso View Settings</span>
-              <button
-                className="text-[var(--text-muted)] hover:text-[var(--text)] px-1"
-                title="Close"
-                onClick={() => setIsoViewOpen(false)}
-              >
-                ✕
-              </button>
+          const panels = lastOpenedIsoPanel === 'objects'
+            ? [objectsPanel, viewSettingsPanel]
+            : [viewSettingsPanel, objectsPanel];
+
+          return (
+            <div className="absolute top-3 right-3 z-20 flex flex-col gap-2 items-end">
+              {panels}
             </div>
-            <div className="px-2.5 py-2.5 flex flex-col gap-2.5">
-              {/* Presets */}
-              {(() => {
-                const presets = [
-                  { label: 'Main',      tw: 3.2, th: 1.3, z: 1.6 },
-                  { label: 'Dollhouse', tw: 3.2, th: 1.4, z: 1.6 },
-                  { label: 'Miniature', tw: 2.7, th: 0.65, z: 1.3 },
-                  { label: '2.5D',      tw: 2.8, th: 0.55, z: 1.2 },
-                ];
-                return (
-                  <div className="grid grid-cols-2 gap-1">
-                    {presets.map(p => {
-                      const active = isoTW === p.tw && isoTH === p.th && isoZScaleState === p.z;
-                      return (
-                        <button
-                          key={p.label}
-                          onClick={() => { setIsoTW(p.tw); setIsoTH(p.th); setIsoZScaleState(p.z); }}
-                          className={`px-1.5 py-1 rounded border text-xs font-medium transition-colors ${active ? 'bg-[var(--primary)] text-white border-[var(--primary)]' : 'border-[var(--border)] text-[var(--text-muted)] hover:bg-[var(--surface-2)]'}`}
-                        >
-                          {p.label}
-                        </button>
-                      );
-                    })}
-                  </div>
-                );
-              })()}
-              {([
-                { key: 'isoTW' as const, label: 'Width', value: isoTW, setter: setIsoTW, min: 0.5, max: 8, step: 0.1 },
-                { key: 'isoTH' as const, label: 'Height', value: isoTH, setter: setIsoTH, min: 0.5, max: 8, step: 0.1 },
-                { key: 'isoZScale' as const, label: 'Depth', value: isoZScaleState, setter: setIsoZScaleState, min: 0.2, max: 5, step: 0.1 },
-              ]).map(({ key, label, value, setter, min, max, step }) => (
-                <label key={key} className="flex flex-col gap-1">
-                  <span className="flex items-center justify-between text-[var(--text-muted)]">
-                    <span>{label}</span>
-                    <span className="text-[var(--text)] font-medium">{value.toFixed(1)}</span>
-                  </span>
-                  <input
-                    type="range"
-                    min={min}
-                    max={max}
-                    step={step}
-                    value={value}
-                    onChange={e => setter(parseFloat(e.target.value))}
-                    className="w-full"
-                  />
-                </label>
-              ))}
-              {isoViewSaveError && (
-                <span className="text-red-500">{isoViewSaveError}</span>
-              )}
-              <div className="flex gap-2 pt-1">
-                <button
-                  onClick={() => { setIsoTW(ISO_TW_DEFAULT); setIsoTH(ISO_TH_DEFAULT); setIsoZScaleState(ISO_Z_SCALE_DEFAULT); }}
-                  className="flex-1 px-2 py-1.5 rounded border border-[var(--border)] text-[var(--text-muted)] hover:bg-[var(--surface-2)] font-medium"
-                >
-                  Reset
-                </button>
-                <button
-                  onClick={handleSaveIsoViewSettings}
-                  disabled={isoViewSaving}
-                  className="flex-1 px-2 py-1.5 rounded bg-[var(--primary)] text-white font-medium disabled:opacity-60"
-                >
-                  {isoViewSaving ? 'Saving…' : 'Save'}
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
+          );
+        })()}
 
         {viewMode === 'isometric' && isoEditMode && selectedIsoObject && (() => {
           const selectedPlan = allPlans.find(p => p.id === selectedIsoObject.planId);
