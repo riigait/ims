@@ -1979,8 +1979,13 @@ function buildIsoFloorNodes(
           larger than the building shell, so corners[] (planCorners) would
           place labels far outside the actual building. Same NW/NE/SE/SW
           order as planCorners for consistency. Ground markings, drawn
-          under all objects, so they never interfere with hover/click. */}
-      {(['NW', 'NE', 'SE', 'SW'] as const).map((compass, i) => {
+          under all objects, so they never interfere with hover/click.
+          In "All floors" mode every stacked slab shares the same compass
+          orientation, so repeating it on each floor is pure clutter —
+          show it once on floor 1 only. Clicking a floor switches to
+          isoMode 'single' (see isoFloorFilter), which always shows its
+          own compass regardless of floor number. */}
+      {(ctx.isoMode === 'single' || fn === 1) && (['NW', 'NE', 'SE', 'SW'] as const).map((compass, i) => {
         const [bx, by] = [
           [floorMinX, floorMinY],
           [floorMaxX, floorMinY],
@@ -3432,12 +3437,21 @@ export default function Building2D() {
           }
           const btnClass = "flex flex-col items-center gap-0.5 px-2 py-1 border border-[var(--border)] rounded text-[var(--text-muted)] hover:bg-[var(--surface-2)] disabled:opacity-30 disabled:cursor-not-allowed";
           return (
-            <div className="absolute top-3 left-1/2 -translate-x-1/2 z-20 flex items-center gap-2 px-2 py-1.5 rounded border border-[var(--border)] bg-[var(--surface)] shadow-lg text-xs">
-              <span className="text-[var(--text-muted)] pl-1 whitespace-nowrap">
-                {selectedRect.label || selectedRect.type} <span className="opacity-70">({layerLabel})</span>
-              </span>
+            <div className="absolute top-3 left-1/2 -translate-x-1/2 z-20 flex flex-col gap-1.5 px-2.5 py-2 rounded border border-[var(--border)] bg-[var(--surface)] shadow-lg text-xs max-w-[min(92vw,560px)]">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-[var(--text-muted)] whitespace-nowrap truncate">
+                  {selectedRect.label || selectedRect.type} <span className="opacity-70">({layerLabel})</span>
+                </span>
+                <button
+                  className="text-[var(--text-muted)] hover:text-[var(--text)] px-1 flex-shrink-0"
+                  title="Deselect"
+                  onClick={() => { setSelectedIsoObject(null); setLayerJumpInput(''); }}
+                >
+                  ✕
+                </button>
+              </div>
               {!isOutdoorOpening && (
-                <>
+                <div className="flex flex-wrap items-center gap-2">
                   <div className="grid grid-cols-4 gap-1">
                     <button onClick={() => handleSendToBack(selectedPlan.id, selectedRect.id)} disabled={isBack} title="Send to Back" className={btnClass}>
                       <ChevronsDown size={13} />
@@ -3495,15 +3509,8 @@ export default function Building2D() {
                       </button>
                     ))}
                   </div>
-                </>
+                </div>
               )}
-              <button
-                className="text-[var(--text-muted)] hover:text-[var(--text)] px-1"
-                title="Deselect"
-                onClick={() => { setSelectedIsoObject(null); setLayerJumpInput(''); }}
-              >
-                ✕
-              </button>
             </div>
           );
         })()}

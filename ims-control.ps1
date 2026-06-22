@@ -27,7 +27,7 @@ function Get-IMSDevProcessIds {
         Where-Object {
             $_.CommandLine -and
             $_.CommandLine -match $escapedRoot -and
-            $_.CommandLine -match '(scripts[\\/]dev-start\.js|concurrently|backend[\\/].*(nodemon|ts-node)|frontend[\\/].*vite)'
+            $_.CommandLine -match '(scripts[\\/]dev-start\.js|concurrently|backend[\\/].*(nodemon|ts-node)|frontend[\\/].*vite|graphify-live[\\/]server\.mjs)'
         } |
         Select-Object -ExpandProperty ProcessId -Unique)
 }
@@ -171,6 +171,18 @@ function Start-IMSApp {
         Pop-Location
     }
 
+    $graphServerScript = Join-Path $rootPath 'tools\graphify-live\server.mjs'
+    if (Test-Path $graphServerScript) {
+        Write-Output "Starting graphify-live server (port 5501)..."
+        Start-Process -FilePath 'node' -ArgumentList @($graphServerScript) -WorkingDirectory $rootPath -WindowStyle Hidden
+    }
+
+    # Live Preview's file= param only accepts a workspace file path, not an
+    # arbitrary URL, so it still opens graph.html directly (its own internal
+    # server/auto-reload) rather than the graphify-live server above. The
+    # graphify-live server on 5501 stays up for anyone opening it manually
+    # to get graph.json-change live-reload, which Live Preview's own
+    # file-watch does not cover.
     $graphPath = Join-Path $rootPath 'graphify-out\graph.html'
     if (Test-Path $graphPath) {
         $graphUri = "vscode://ms-vscode.live-server/start?file=$([uri]::EscapeDataString($graphPath))"

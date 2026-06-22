@@ -1,11 +1,11 @@
 # Graph Report - ims  (2026-06-20)
 
 ## Corpus Check
-- 211 files · ~235,945 words
+- 211 files · ~235,353 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
-- 1798 nodes · 3056 edges · 125 communities (91 shown, 34 thin omitted)
+- 1776 nodes · 3033 edges · 124 communities (90 shown, 34 thin omitted)
 - Extraction: 99% EXTRACTED · 1% INFERRED · 0% AMBIGUOUS · INFERRED: 28 edges (avg confidence: 0.83)
 - Token cost: 0 input · 0 output
 
@@ -131,7 +131,6 @@
 - [[_COMMUNITY_Community 121|Community 121]]
 - [[_COMMUNITY_Community 122|Community 122]]
 - [[_COMMUNITY_Community 123|Community 123]]
-- [[_COMMUNITY_Community 124|Community 124]]
 
 ## God Nodes (most connected - your core abstractions)
 1. `prisma` - 32 edges
@@ -160,7 +159,7 @@
 ## Import Cycles
 - None detected.
 
-## Communities (125 total, 34 thin omitted)
+## Communities (124 total, 34 thin omitted)
 
 ### Community 0 - "Isometric Floor-Plan View"
 Cohesion: 0.10
@@ -183,8 +182,8 @@ Cohesion: 0.06
 Nodes (21): FloorGrid, Props, SketchWall(), wallAngle(), wallLength(), computeSketch25DBounds(), ContentBounds, FURNITURE_TYPES (+13 more)
 
 ### Community 5 - "Building 2D Canvas View"
-Cohesion: 0.03
-Nodes (62): AABB, avgScore, BG_BUILDINGS, BuildingGroup, dragCandidateRef, DragPreview, [dragPreview, setDragPreview], dragPreviewNode (+54 more)
+Cohesion: 0.04
+Nodes (43): AABB, aabbOverlap(), BG_BUILDINGS, BuildingGroup, compareIsoRenderEntries(), ELEVATION_SIDE_LABELS, ElevationFixedCore, ElevationFloorBandProps (+35 more)
 
 ### Community 6 - "Floor Plan Sketch (2.5D) Rendering"
 Cohesion: 0.06
@@ -211,8 +210,8 @@ Cohesion: 0.10
 Nodes (26): applyDataQualityFilter(), applyDateAddedFilter(), applyPriceStatusFilter(), applyProductQueryFilters(), createDepartmentTransferMovement(), createOpeningStockForProduct(), findExistingProduct(), formatCsvRangeId() (+18 more)
 
 ### Community 12 - "Frontend Dependencies"
-Cohesion: 0.14
-Nodes (21): FloorPlanObjectType, applySmartGuides(), ContentBounds, CropDimensions, cropDimensionsForBounds(), cropFloorPlanToContent(), CropResult, getContentBounds() (+13 more)
+Cohesion: 0.11
+Nodes (33): FloorPlanObject, FloorPlanObjectType, applySmartGuides(), clampRectToPage(), ContentBounds, createFloorplanObject(), createObjectAtPointer(), CropDimensions (+25 more)
 
 ### Community 13 - "Products API & Filtering"
 Cohesion: 0.09
@@ -304,7 +303,7 @@ Nodes (9): app, GRAPH_HTML, GRAPH_JSON, lastHash, OUT_DIR, PORT, ROOT, server (+
 
 ### Community 35 - "Import Requests & Settings Routes"
 Cohesion: 0.09
-Nodes (25): DEFAULT_RECT_FILL, FloorPlanEditor(), OBJECT_ICON_PATH, PRESET_SIZE_TOOLS, RECT_DRAWING_TOOLS, RECTANGLE_OBJECT_TYPES, ROOM_PRESET_LABELS, STATUS_COLORS (+17 more)
+Nodes (27): DEFAULT_RECT_FILL, FloorPlanEditor(), OBJECT_ICON_PATH, PRESET_SIZE_TOOLS, RECT_DRAWING_TOOLS, RECTANGLE_OBJECT_TYPES, ROOM_PRESET_LABELS, STATUS_COLORS (+19 more)
 
 ### Community 36 - "Architecture Map Doc"
 Cohesion: 0.13
@@ -339,8 +338,8 @@ Cohesion: 0.16
 Nodes (16): frontend/src/services/api.ts, backend/src/middleware/auth.ts, Missing X-Department-Id header mistake, frontend/src/pages/AdminAssignment.tsx, frontend/src/pages/AdminUsers.tsx, frontend/src/components/DepartmentGuard.tsx, frontend/src/pages/Register.tsx, frontend/src/pages/Requests.tsx (+8 more)
 
 ### Community 45 - "Floorplan Auto-Fixer"
-Cohesion: 0.28
-Nodes (10): BaseFloorPlanObject, DoorObject, EntranceObject, InventoryMarkerObject, LabelObject, PolygonRoomObject, RectangleObject, WallObject (+2 more)
+Cohesion: 0.23
+Nodes (14): extrudedFaces(), isoFaceCenter(), isoFrontEdge(), IsoObjectShape(), isoPresetBaseLift(), isoPresetHeight(), IsoPresetKind, IsoPrism() (+6 more)
 
 ### Community 46 - "Misc Small Cluster 46"
 Cohesion: 0.17
@@ -351,8 +350,8 @@ Cohesion: 0.15
 Nodes (11): Field(), FilterDropdown(), CONDITION_LABELS, CONDITION_OPTIONS, emptyForm, MOVEMENT_COLOR, MOVEMENT_LABEL, STATUS_COLOR (+3 more)
 
 ### Community 48 - "Floor Plan Layout Builders"
-Cohesion: 0.13
-Nodes (31): aabbFromPoints(), aabbOverlap(), buildIsoFloorNodes(), compareIsoRenderEntries(), depthKey(), extrudedFaces(), getIsoEdgeScale(), hexToRgba() (+23 more)
+Cohesion: 0.21
+Nodes (15): aabbFromPoints(), buildIsoFloorNodes(), depthKey(), getIsoEdgeScale(), hexToRgba(), IsoOpeningShape(), isoPoint(), isoRenderPriority() (+7 more)
 
 ### Community 49 - "Community 49"
 Cohesion: 0.13
@@ -490,10 +489,6 @@ Nodes (4): frontend/index.html, icon.svg (App Icon), logo-img.svg (Logo), logo-i
 Cohesion: 0.67
 Nodes (3): buildWallElevationData(), findAttachedWall(), pointToWallDistance()
 
-### Community 124 - "Community 124"
-Cohesion: 0.70
-Nodes (4): FloorPlanStore, FloorPlanEditorState, FloorPlanObject, LoadedFloorPlan
-
 ## Ambiguous Edges - Review These
 - `Repository Policy` → `Vulnerability Reporting Process`  [AMBIGUOUS]
   SECURITY.md · relation: conceptually_related_to
@@ -501,7 +496,7 @@ Nodes (4): FloorPlanStore, FloorPlanEditorState, FloorPlanObject, LoadedFloorPla
   CHANGELOG.md · relation: conceptually_related_to
 
 ## Knowledge Gaps
-- **657 isolated node(s):** `notification-token-display.sh script`, `post-write-token-diff.sh script`, `pre-tool-bash-guard.sh script`, `pre-tool-read-guard.sh script`, `pre-tool-token-guard.sh script` (+652 more)
+- **637 isolated node(s):** `notification-token-display.sh script`, `post-write-token-diff.sh script`, `pre-tool-bash-guard.sh script`, `pre-tool-read-guard.sh script`, `pre-tool-token-guard.sh script` (+632 more)
   These have ≤1 connection - possible missing edges or undocumented components.
 - **34 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
@@ -514,11 +509,11 @@ _Questions this graph is uniquely positioned to answer:_
   _Edge tagged AMBIGUOUS (relation: conceptually_related_to) - confidence is low._
 - **Why does `applyFloorplanAutoFixes()` connect `Products API & Filtering` to `Auth & App Bootstrap`?**
   _High betweenness centrality (0.011) - this node is a cross-community bridge._
-- **Why does `FloorPlanObject` connect `Community 124` to `Import Requests & Settings Routes`, `Floor Plan Routes & Layout Fixes`, `Building 2D Canvas View`, `Inventory Items & Filters`, `Map Search/Geocoding`, `Frontend Dependencies`, `Floorplan Auto-Fixer`, `Birds-Eye Floorplan Renderer`, `Deployment Map Picker`, `Community 52`, `Categories & Locations Routes`, `Test/Dev Dependencies`?**
-  _High betweenness centrality (0.010) - this node is a cross-community bridge._
+- **Why does `FloorPlanObject` connect `Frontend Dependencies` to `Import Requests & Settings Routes`, `Floor Plan Routes & Layout Fixes`, `Building 2D Canvas View`, `Inventory Items & Filters`, `Map Search/Geocoding`, `Birds-Eye Floorplan Renderer`, `Deployment Map Picker`, `Community 52`, `Categories & Locations Routes`, `Test/Dev Dependencies`?**
+  _High betweenness centrality (0.011) - this node is a cross-community bridge._
 - **Why does `prisma` connect `Floor Plan Validation` to `Indoor Object Placement`, `Auth & App Bootstrap`, `Community 69`, `Floorplan BEV Adapter`, `Community 72`, `Isometric Node Geometry`, `Floor Plan Generator (Perimeter/Doors)`, `Community 75`, `Community 81`, `Community 50`, `Department Guard & Theme Context`, `Community 57`?**
-  _High betweenness centrality (0.006) - this node is a cross-community bridge._
+  _High betweenness centrality (0.007) - this node is a cross-community bridge._
 - **What connects `notification-token-display.sh script`, `post-write-token-diff.sh script`, `pre-tool-bash-guard.sh script` to the rest of the system?**
-  _675 weakly-connected nodes found - possible documentation gaps or missing edges._
+  _655 weakly-connected nodes found - possible documentation gaps or missing edges._
 - **Should `Isometric Floor-Plan View` be split into smaller, more focused modules?**
   _Cohesion score 0.09585585585585586 - nodes in this community are weakly interconnected._
