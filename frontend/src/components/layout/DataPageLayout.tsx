@@ -44,7 +44,7 @@ export default function DataPageLayout({
             onClick={onAddClick}
             className="flex items-center gap-2 bg-[var(--primary)] text-white px-4 py-2 rounded-lg hover:bg-[var(--primary-hover)]"
           >
-            <Plus size={20} /> Add {title.slice(0, -1)}
+            <Plus size={20} /> Add {title.endsWith('ies') ? title.slice(0, -3) + 'y' : title.slice(0, -1)}
           </button>
         ))}
       </div>

@@ -637,14 +637,18 @@ export default function FloorPlanEditor() {
     ctx.translate(editorState.panX, editorState.panY);
     ctx.scale(editorState.zoomLevel, editorState.zoomLevel);
 
+    // Doors/windows/entrances are openings cut INTO a wall — they must always
+    // paint after every wall, regardless of array order, or a wall placed
+    // later in currentFloorPlan.objects (opaque stroke, full thickness) paints
+    // straight over the opening's thin swing-arc/jamb lines and hides it
+    // entirely. Drawn here in a second pass instead of inline in the main
+    // loop below.
+    const openings: FloorPlanObject[] = [];
+
     currentFloorPlan.objects.forEach(obj => {
       const isSelected = selectedObjectIds.includes(obj.id);
-      if (obj.type === 'door') {
-        drawDoor(ctx, obj as DoorObject, isSelected);
-      } else if (obj.type === 'window') {
-        drawWindow(ctx, obj as WindowObject, isSelected);
-      } else if (obj.type === 'entrance') {
-        drawEntrance(ctx, obj as EntranceObject, isSelected);
+      if (obj.type === 'door' || obj.type === 'window' || obj.type === 'entrance') {
+        openings.push(obj);
       } else if (obj.type === 'marker') {
         drawMarker(ctx, obj as InventoryMarkerObject, isSelected, products);
       } else {
@@ -660,6 +664,17 @@ export default function FloorPlanEditor() {
         ctx.strokeRect(r.x - 3, r.y - 3, r.width + 6, r.height + 6);
         ctx.setLineDash([]);
         ctx.restore();
+      }
+    });
+
+    openings.forEach(obj => {
+      const isSelected = selectedObjectIds.includes(obj.id);
+      if (obj.type === 'door') {
+        drawDoor(ctx, obj as DoorObject, isSelected);
+      } else if (obj.type === 'window') {
+        drawWindow(ctx, obj as WindowObject, isSelected);
+      } else {
+        drawEntrance(ctx, obj as EntranceObject, isSelected);
       }
     });
 
@@ -1422,91 +1437,115 @@ export default function FloorPlanEditor() {
     ctx.lineWidth = isSelected ? 2.5 : 2;
 
     if (entrance.style === 'single') {
-      // Single opening
-      ctx.beginPath();
-      ctx.moveTo(-entrance.width / 2, -8);
-      ctx.lineTo(-entrance.width / 2, 8);
-      ctx.stroke();
-
-      ctx.beginPath();
-      ctx.moveTo(entrance.width / 2, -8);
-      ctx.lineTo(entrance.width / 2, 8);
-      ctx.stroke();
-
-      // Center line
-      ctx.setLineDash([3, 3]);
-      ctx.lineWidth = isSelected ? 2 : 1.5;
-      ctx.beginPath();
-      ctx.moveTo(-entrance.width / 2, 0);
-      ctx.lineTo(entrance.width / 2, 0);
-      ctx.stroke();
-    } else if (entrance.style === 'double') {
-      // Double doors (two openings with center divider)
+      // Single door: one jamb pair, one leaf, one swing arc from the hinge.
       const halfWidth = entrance.width / 2;
-      const quarterWidth = entrance.width / 4;
+      const hingeX = -halfWidth;
+      const leafLen = entrance.width * 0.85;
 
-      // Left door frame
+      ctx.setLineDash([]);
       ctx.beginPath();
-      ctx.moveTo(-halfWidth, -8);
-      ctx.lineTo(-halfWidth, 8);
-      ctx.stroke();
-
-      // Center divider
-      ctx.lineWidth = 2.5;
-      ctx.beginPath();
-      ctx.moveTo(0, -8);
-      ctx.lineTo(0, 8);
-      ctx.stroke();
-
-      // Right door frame
-      ctx.lineWidth = isSelected ? 2.5 : 2;
-      ctx.beginPath();
+      ctx.moveTo(hingeX, -8);
+      ctx.lineTo(hingeX, 8);
       ctx.moveTo(halfWidth, -8);
       ctx.lineTo(halfWidth, 8);
       ctx.stroke();
 
-      // Center dashes
-      ctx.setLineDash([3, 3]);
-      ctx.lineWidth = isSelected ? 2 : 1.5;
-      ctx.beginPath();
-      ctx.moveTo(-quarterWidth, 0);
-      ctx.lineTo(quarterWidth, 0);
-      ctx.stroke();
-    } else if (entrance.style === 'archway') {
-      // Arched opening
-      ctx.setLineDash([]);
-      const arcRadius = entrance.width / 2;
-
-      // Left vertical line
-      ctx.beginPath();
-      ctx.moveTo(-entrance.width / 2, -8);
-      ctx.lineTo(-entrance.width / 2, 6);
-      ctx.stroke();
-
-      // Right vertical line
-      ctx.beginPath();
-      ctx.moveTo(entrance.width / 2, -8);
-      ctx.lineTo(entrance.width / 2, 6);
-      ctx.stroke();
-
-      // Arch curve
+      // Door leaf, swung open toward the top
       ctx.lineWidth = isSelected ? 2.5 : 2;
       ctx.beginPath();
-      ctx.arc(0, 6, arcRadius, Math.PI, 0, true);
+      ctx.moveTo(hingeX, 0);
+      ctx.lineTo(hingeX + leafLen * 0.7, -leafLen * 0.7);
       ctx.stroke();
 
-      // Center dashed line
-      ctx.lineWidth = isSelected ? 2 : 1.5;
-      ctx.setLineDash([3, 3]);
+      // Swing arc from closed (along threshold) to open position
+      ctx.lineWidth = isSelected ? 1.6 : 1.2;
       ctx.beginPath();
-      ctx.moveTo(-entrance.width / 2 + 5, 0);
-      ctx.lineTo(entrance.width / 2 - 5, 0);
+      ctx.arc(hingeX, 0, leafLen, -Math.PI / 2 - 0.78, 0);
       ctx.stroke();
+
+      ctx.fillStyle = isSelected ? '#2563eb' : (entrance.color ?? '#10b981');
+      ctx.beginPath();
+      ctx.arc(hingeX, 0, 2, 0, Math.PI * 2);
+      ctx.fill();
+    } else if (entrance.style === 'double') {
+      // Double doors: two leaves, two swing arcs, dashed center seam.
+      const halfWidth = entrance.width / 2;
+      const leftHinge = -halfWidth;
+      const rightHinge = halfWidth;
+      const leafLen = entrance.width * 0.42;
+
+      ctx.setLineDash([]);
+      ctx.beginPath();
+      ctx.moveTo(leftHinge, -8);
+      ctx.lineTo(leftHinge, 8);
+      ctx.moveTo(rightHinge, -8);
+      ctx.lineTo(rightHinge, 8);
+      ctx.stroke();
+
+      // Center seam
+      ctx.setLineDash([3, 3]);
+      ctx.lineWidth = isSelected ? 1.6 : 1.2;
+      ctx.beginPath();
+      ctx.moveTo(0, -8);
+      ctx.lineTo(0, 8);
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      // Left + right leaves, both swung open toward the top
+      ctx.lineWidth = isSelected ? 2.5 : 2;
+      ctx.beginPath();
+      ctx.moveTo(leftHinge, 0);
+      ctx.lineTo(leftHinge + leafLen * 0.72, -leafLen * 0.7);
+      ctx.moveTo(rightHinge, 0);
+      ctx.lineTo(rightHinge - leafLen * 0.72, -leafLen * 0.7);
+      ctx.stroke();
+
+      // Left + right swing arcs
+      ctx.lineWidth = isSelected ? 1.6 : 1.2;
+      ctx.beginPath();
+      ctx.arc(leftHinge, 0, leafLen, -Math.PI / 2 - 0.78, 0);
+      ctx.arc(rightHinge, 0, leafLen, Math.PI, Math.PI / 2 + 0.78, true);
+      ctx.stroke();
+
+      ctx.fillStyle = isSelected ? '#2563eb' : (entrance.color ?? '#10b981');
+      ctx.beginPath();
+      ctx.arc(leftHinge, 0, 2, 0, Math.PI * 2);
+      ctx.arc(rightHinge, 0, 2, 0, Math.PI * 2);
+      ctx.fill();
+    } else if (entrance.style === 'archway') {
+      // Open arch: no door swing, just a curved passage with side posts.
+      ctx.setLineDash([]);
+      const halfWidth = entrance.width / 2;
+      const archRadius = Math.min(halfWidth, 14);
+
+      // Side posts
+      ctx.beginPath();
+      ctx.moveTo(-halfWidth, 8);
+      ctx.lineTo(-halfWidth, -8 + archRadius);
+      ctx.moveTo(halfWidth, 8);
+      ctx.lineTo(halfWidth, -8 + archRadius);
+      ctx.stroke();
+
+      // Arch curve spanning the opening
+      ctx.lineWidth = isSelected ? 2.5 : 2;
+      ctx.beginPath();
+      ctx.arc(0, -8 + archRadius, halfWidth, Math.PI, 0);
+      ctx.stroke();
+
+      // Faint open-passage hint along the threshold (no door leaf)
+      ctx.lineWidth = isSelected ? 1.3 : 1;
+      ctx.globalAlpha = 0.35;
+      ctx.beginPath();
+      ctx.moveTo(-halfWidth + 4, 8);
+      ctx.lineTo(halfWidth - 4, 8);
+      ctx.stroke();
+      ctx.globalAlpha = 1;
     } else if (entrance.style === 'stairway') {
+      // Steps + side rails — entrance with raised/stepped access.
       const halfWidth = entrance.width / 2;
       const steps = 5;
-      const startX = -halfWidth + 8;
-      const endX = halfWidth - 8;
+      const startX = -halfWidth + 6;
+      const endX = halfWidth - 6;
       const stepW = (endX - startX) / steps;
       const stepH = 16 / steps;
       let x = startX;
@@ -1520,6 +1559,7 @@ export default function FloorPlanEditor() {
       ctx.lineTo(halfWidth, 8);
       ctx.stroke();
 
+      // Tread lines, descending toward the threshold
       ctx.lineWidth = isSelected ? 2.2 : 1.8;
       ctx.beginPath();
       ctx.moveTo(x, y);
@@ -1531,7 +1571,15 @@ export default function FloorPlanEditor() {
       }
       ctx.stroke();
 
-      ctx.lineWidth = isSelected ? 2 : 1.5;
+      // Side rails running the full length of the stair
+      ctx.lineWidth = isSelected ? 1.8 : 1.4;
+      ctx.beginPath();
+      ctx.moveTo(startX, 8);
+      ctx.lineTo(startX, -9);
+      ctx.moveTo(endX, 8);
+      ctx.lineTo(endX, -9);
+      ctx.stroke();
+
       ctx.beginPath();
       ctx.moveTo(startX, -9);
       ctx.lineTo(endX, -9);

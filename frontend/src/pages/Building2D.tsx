@@ -1369,6 +1369,12 @@ type RQ = {
     rect: RectangleObject | DoorObject | WindowObject | EntranceObject;
     floorOx: number; floorOy: number; points: number[];
   };
+  // Set only on outdoor/perimeter wall entries. Lets "All floors" mode keep
+  // the building's outer shell visible while skipping every interior
+  // object/indoor-wall/opening node — those scale with floor count and are
+  // the actual cost driver at 50-100 floors (thousands of shapes redrawn on
+  // every pan/hover), while exterior walls stay a fixed ~4 segments/floor.
+  isExterior?: boolean;
 };
 
 type IsoSortable = Omit<RQ, 'node'>;
@@ -1720,6 +1726,7 @@ function buildIsoFloorNodes(
     // so every object depth-sorts in front of every outer wall segment.
     queue.push({
       depth: depthKey(w.startX + w.endX, w.startY + w.endY) / 2 - 99999,
+      isExterior: true,
       node: (
         <Group key={`owall-${plan.id}-${w.id}`} listening={false}>
           <Line closed
@@ -2001,8 +2008,10 @@ function buildIsoFloorNodes(
           />
         );
       })}
-      {/* Depth-sorted content */}
-      {showObjects && queue.map(item => item.node)}
+      {/* Depth-sorted content. When interior objects are hidden (showObjects
+          false), still draw exterior/perimeter walls so the building shell
+          stays visible — only furniture/indoor-walls/openings are dropped. */}
+      {(showObjects ? queue : queue.filter(item => item.isExterior)).map(item => item.node)}
       {/* Floor chip — sits exactly at the right diamond tip */}
       <Group
         visible={ctx.isoMode === 'single'}
@@ -2076,8 +2085,13 @@ function buildIsoBuilding(
       floorAlpha  = ISO_STYLE.selectedFloorAlpha;
       showObjects = true;
     } else {
+      // "All floors" mode: shape count scales with floor count, so at 50-100
+      // floors rendering every interior object/indoor-wall/opening on every
+      // floor is the actual perf cost (thousands of shapes redrawn on every
+      // pan/hover). Only the exterior shell is shown — click a floor to drop
+      // into single mode for full interior detail.
       floorAlpha  = 1;
-      showObjects = true;
+      showObjects = false;
     }
 
     const { visual, hitTargets: floorHitTargets } = buildIsoFloorNodes(plan, origin.originX, origin.originY, ctx, floorAlpha, showObjects, sharedSize);
@@ -2886,25 +2900,25 @@ export default function Building2D() {
   const hasBuildings = buildings.length > 0;
 
   return (
-    <div className="flex flex-col h-full min-h-0 bg-[var(--surface)] text-[var(--text)]">
+    <div className="flex flex-col h-full min-h-0 gap-4 text-[var(--text)]">
 
-      {/* ── Header ─────────────────────────────────────────────────────── */}
-      <div className="flex flex-col gap-2 px-6 py-3 border-b border-[var(--border)] flex-shrink-0">
+      {/* ── Title ──────────────────────────────────────────────────────── */}
+      <div className="flex flex-col gap-2 flex-shrink-0">
         {user.role === 'admin' && localStorage.getItem('currentDepartmentId') === ALL_DEPARTMENTS_ID && (
           <AllDepartmentsBanner />
         )}
-        <div className="flex items-center gap-3">
-          <Building2 size={20} className="text-[var(--primary)]" />
-          <div>
-            <h1 className="text-lg font-bold leading-tight">2D Building View</h1>
-            <p className="text-xs text-[var(--text-muted)]">
-              {viewMode === 'topDown25D'
-                ? 'Top-down 2.5D presentation - editable JSON floorplan with depth'
-                : 'Isometric dollhouse — floor slabs stacked per building'}
-            </p>
-          </div>
+        <div className="flex justify-between items-center">
+          <h1 className="text-3xl font-bold text-[var(--text)]">2D Building View</h1>
         </div>
+        <p className="text-sm text-[var(--text-muted)]">
+          {viewMode === 'topDown25D'
+            ? 'Top-down 2.5D presentation - editable JSON floorplan with depth'
+            : 'Isometric dollhouse — floor slabs stacked per building'}
+        </p>
+      </div>
 
+      {/* ── Toolbar ────────────────────────────────────────────────────── */}
+      <div className="flex flex-col gap-2 bg-[var(--surface)] rounded-lg shadow p-4 flex-shrink-0">
         <div className="flex items-center gap-2 flex-wrap">
           {/* Floor filter — isometric only */}
           {(viewMode === 'isometric' || viewMode === 'topDown25D') &&
@@ -3015,10 +3029,9 @@ export default function Building2D() {
             <RefreshCw size={13} className={loading ? 'animate-spin' : ''} />
           </button>
         </div>
-      </div>
 
       {/* ── Stats + Legend ─────────────────────────────────────────────── */}
-      <div className="flex flex-wrap gap-x-6 gap-y-1 px-6 py-2 border-b border-[var(--border)] bg-[var(--surface-2)] flex-shrink-0 text-xs items-center">
+      <div className="flex flex-wrap gap-x-6 gap-y-1 pt-3 border-t border-[var(--border)] text-xs items-center">
         <span className="text-[var(--text-muted)]">
           <span className="font-bold text-[var(--text)]">{buildings.length}</span> building{buildings.length === 1 ? '' : 's'}
         </span>
@@ -3054,9 +3067,11 @@ export default function Building2D() {
             : 'Click any floor to open editor · Drag to pan · Scroll to zoom'}
         </span>
       </div>
+      </div>
 
       {/* ── Canvas ─────────────────────────────────────────────────────── */}
-      <div ref={containerRef} className="flex-1 overflow-hidden relative min-h-0">
+      <div className="flex-1 min-h-0 bg-[var(--surface)] rounded-lg shadow overflow-hidden">
+      <div ref={containerRef} className="w-full h-full overflow-hidden relative min-h-0">
         {(viewMode === 'isometric' || viewMode === 'topDown25D') && buildings.length > 1 && (
           <>
             <button
@@ -3599,6 +3614,7 @@ export default function Building2D() {
             </div>
           </div>
         )}
+      </div>
       </div>
     </div>
   );
