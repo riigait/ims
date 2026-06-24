@@ -171,11 +171,9 @@ function Start-IMSApp {
         Pop-Location
     }
 
-    $graphServerScript = Join-Path $rootPath 'tools\graphify-live\server.mjs'
-    if (Test-Path $graphServerScript) {
-        Write-Output "Starting graphify-live server (port 5501)..."
-        Start-Process -FilePath 'node' -ArgumentList @($graphServerScript) -WorkingDirectory $rootPath -WindowStyle Hidden
-    }
+    # graphify-live server (port 5501) is launched by the "Graphify: live server"
+    # VS Code task (runOn folderOpen), not here, to avoid a duplicate process
+    # fighting over port 5501.
 
     # Live Preview's file= param only accepts a workspace file path, not an
     # arbitrary URL, so it still opens graph.html directly (its own internal
