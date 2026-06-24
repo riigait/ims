@@ -1,0 +1,20 @@
+# IMS — system requirements (not Python pip, plain setup list)
+
+Node.js >= 18 LTS
+npm >= 9
+PostgreSQL 16 (or Docker image postgres:16-alpine)
+Docker + Docker Compose (optional, for docker-compose.yml / docker-compose.prod.yml)
+Git
+
+# Install
+npm run install        # installs frontend + backend deps
+npm run backend:db:migrate   # apply Prisma migrations
+
+# Run
+npm run dev             # starts backend + frontend concurrently
+# or
+npm run control          # ims-control.ps1 start/stop/restart/status (Windows)
+
+# Ports
+backend: 3001
+frontend: 5173
