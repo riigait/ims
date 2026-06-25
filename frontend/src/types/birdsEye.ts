@@ -41,6 +41,8 @@ export interface FloorplanElement {
   height: number;
   rotation?: number;
   swingDirection?: 'left' | 'right';
+  /** Only set when this element was adapted from an EntranceObject — drives which door variant renderDoor draws. */
+  entranceStyle?: 'single' | 'double' | 'archway' | 'stairway';
   /** For walls adapted from line-segment data: [x1, y1, x2, y2] */
   linePoints?: [number, number, number, number];
   /** For rooms adapted from polygon data: flat [x0,y0, x1,y1, ...] */

@@ -13,6 +13,7 @@ import { floorPlansApi, locationsApi, productsApi } from '@/services/api';
 import { useFloorPlanStore } from '@/services/floorPlanStore';
 import { FloorPlanObject, WallObject, PolygonRoomObject, RectangleObject, RectangleObjectType, LabelObject, DoorObject, WindowObject, EntranceObject, InventoryMarkerObject } from '@/types/floorplan';
 import type { FloorplanValidationResult } from '@/utils/floorplanValidation';
+import { isStorageRectType, isRectangleObjectType } from '@/utils/floorplanObjectTypes';
 import {
   DEFAULT_OBJECT_SIZES,
   A4_PAGE_HEIGHT,
@@ -119,23 +120,11 @@ const DEFAULT_RECT_FILL: Record<string, string> = {
 };
 
 const RECT_DRAWING_TOOLS = ['room', 'rack', 'shelf', 'work-surface', 'chair', 'cabinet', 'drawer', 'locker', 'storage-box', 'bin', 'pallet', 'stairs', 'elevator', 'bathroom', 'human'];
-// Storage-capable rect types: support width/height editing, the rotation
-// handle, and linking to an inventory location. Excludes chair/human
-// (not storage) and stairs/elevator/bathroom (fixed building structures).
-const STORAGE_RECT_TYPES = new Set([
-  'rack', 'shelf', 'work-surface', 'cabinet', 'drawer', 'locker', 'storage-box', 'bin', 'pallet',
-]);
 function isStorageRectObject(object: { type: string }): boolean {
-  return STORAGE_RECT_TYPES.has(object.type);
+  return isStorageRectType(object.type);
 }
-// Every rect-shaped object type (drag/resize/rotate geometry applies to all
-// of these, regardless of storage capability above).
-const RECTANGLE_OBJECT_TYPES = new Set<RectangleObjectType>([
-  'rack', 'shelf', 'stairs', 'elevator',
-  'work-surface', 'chair', 'cabinet', 'drawer', 'locker', 'storage-box', 'bin', 'pallet', 'bathroom', 'human',
-]);
 function isRectObject(object: { type: string }): boolean {
-  return RECTANGLE_OBJECT_TYPES.has(object.type as RectangleObjectType);
+  return isRectangleObjectType(object.type);
 }
 // Clicking within this distance of the first room-path point closes the polygon.
 const ROOM_CLOSE_RADIUS = 14;

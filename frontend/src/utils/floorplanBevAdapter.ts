@@ -120,6 +120,7 @@ function doorToEl(obj: DoorObject | EntranceObject): FloorplanElement {
     x: obj.x, y: obj.y, width: obj.width, height: 0,
     rotation: (obj.angle ?? 0) * 180 / Math.PI,
     swingDirection: obj.type === 'door' ? obj.swingDirection : undefined,
+    entranceStyle: obj.type === 'entrance' ? obj.style : undefined,
     layer: 'opening',
   };
 }

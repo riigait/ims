@@ -3,6 +3,7 @@ import prisma from '../utils/prisma';
 import { AuthRequest, canAccessDepartment } from '../middleware/auth';
 import { csvToJson } from '../utils/csv';
 import { applyFloorplanAutoFixes, validateFloorplanObjects } from '../utils/floorPlanValidation';
+import { isRectObjectType } from '../utils/floorPlanObjectTypes';
 import {
   GENERATED_FLOORPLAN_SUFFIXES,
   GENERATED_FLOORPLAN_PREFIX,
@@ -34,12 +35,7 @@ const isFixedFloorObject = (o: FloorPlanObject) =>
   o.id.includes('reserved-stairs') || o.id.includes('reserved-elevator') || isRestroomObject(o);
 const isOutdoorWallObject = (object: FloorPlanObject) => object.type === 'wall' && object.id.includes('-ow-');
 
-// Every rect-shaped furniture/fixture type — mirrors frontend RectangleObjectType.
-const RECT_OBJECT_TYPES = new Set([
-  'rack', 'shelf', 'stairs', 'elevator',
-  'work-surface', 'chair', 'cabinet', 'drawer', 'locker', 'storage-box', 'bin', 'pallet', 'bathroom', 'human',
-]);
-const isRectObject = (object: FloorPlanObject) => RECT_OBJECT_TYPES.has(object.type);
+const isRectObject = (object: FloorPlanObject) => isRectObjectType(object.type);
 
 function deriveBuildingMetadata(name: string, departmentId: string | null) {
   const match = name.match(/ - Building (\d+) - Floor (\d+) - /);
@@ -2067,6 +2063,25 @@ router.put('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
       name, width, height, scale, objects, locationId, isTemplate, isApproved,
       buildingKey, floorNumber, validationIgnored, isAligned, alignmentData,
     } = req.body;
+
+    // Observe-only (Phase 4a of the floor-plan dedup plan): log what server-side
+    // validation would say about this save, without blocking it. Gathers real
+    // false-positive-rate data before any enforcement (Phase 4b) is turned on.
+    if (Array.isArray(objects)) {
+      try {
+        const observed = validateFloorplanObjects(objects);
+        if (!observed.valid) {
+          console.log('[floorplan-validate-observe]', JSON.stringify({
+            floorPlanId: req.params.id,
+            errorCount: observed.errors.length,
+            codes: observed.errors.map(e => e.code),
+            validationIgnored: Boolean(validationIgnored),
+          }));
+        }
+      } catch (validationError) {
+        console.error('[floorplan-validate-observe] validation threw', validationError);
+      }
+    }
 
     const floorPlan = await prisma.floorPlan.update({
       where: { id: req.params.id },

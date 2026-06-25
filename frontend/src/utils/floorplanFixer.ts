@@ -1,16 +1,11 @@
 import { FloorPlanObject, RectangleObject, WindowObject } from '@/types/floorplan';
 import { getDoorClearanceZone, validateFloorplanObjects, FloorplanValidationResult } from './floorplanValidation';
 import { generateId } from '@/utils/ids';
+import { isStorageRectType } from '@/utils/floorplanObjectTypes';
 
 const MARGIN = 12;
 const WINDOW_W = 140;
 const WINDOW_H = 18;
-
-// Storage-capable rect types — can carry linkedLocationId, mirrors
-// FloorPlanEditor.tsx's STORAGE_RECT_TYPES.
-const STORAGE_RECT_TYPES = new Set([
-  'rack', 'shelf', 'work-surface', 'cabinet', 'drawer', 'locker', 'storage-box', 'bin', 'pallet',
-]);
 
 // ── door-blocked fix ────────────────────────────────────────────────────────
 
@@ -116,7 +111,7 @@ function addMissingRoomWindows(fixed: FloorPlanObject[]): number {
 
 function fixOverlappingObjects(fixed: FloorPlanObject[]): number {
   const furniture = fixed.filter(
-    o => STORAGE_RECT_TYPES.has(o.type) && (o as any).linkedLocationId,
+    o => isStorageRectType(o.type) && (o as any).linkedLocationId,
   );
   let count = 0;
 

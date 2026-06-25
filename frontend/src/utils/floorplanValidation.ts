@@ -2,13 +2,9 @@ import booleanContains from '@turf/boolean-contains';
 import booleanIntersects from '@turf/boolean-intersects';
 import { bboxPolygon } from '@turf/turf';
 import { Feature, Polygon } from 'geojson';
-import { DoorObject, EntranceObject, FloorPlanObject, PolygonRoomObject, RectangleObject, RectangleObjectType, WallObject } from '@/types/floorplan';
+import { DoorObject, EntranceObject, FloorPlanObject, PolygonRoomObject, RectangleObject, WallObject } from '@/types/floorplan';
 import { polygonBounds } from '@/utils/floorplanGrid';
-
-const RECTANGLE_OBJECT_TYPES = new Set<RectangleObjectType>([
-  'rack', 'shelf', 'stairs', 'elevator',
-  'work-surface', 'chair', 'cabinet', 'drawer', 'locker', 'storage-box', 'bin', 'pallet', 'bathroom', 'human',
-]);
+import { isRectangleObjectType, isFixedReservedObject } from '@/utils/floorplanObjectTypes';
 
 export type FloorplanValidationError =
   | 'object_outside_room'
@@ -59,7 +55,7 @@ function wallPolygon(wall: WallObject): Feature<Polygon> {
 }
 
 function isRectObject(obj: FloorPlanObject): obj is RectangleObject {
-  return RECTANGLE_OBJECT_TYPES.has(obj.type as RectangleObjectType);
+  return isRectangleObjectType(obj.type);
 }
 
 function isPolygonRoom(obj: FloorPlanObject): obj is PolygonRoomObject {
@@ -80,10 +76,7 @@ function isOutdoorWall(wall: WallObject): boolean {
 }
 
 function isFixedObject(obj: FloorPlanObject): boolean {
-  return obj.id.includes('reserved-stairs') ||
-    obj.id.includes('reserved-elevator') ||
-    /reserved-(male-|female-)?restroom/.test(obj.id) ||
-    obj.id.includes('reserved-column');
+  return isFixedReservedObject(obj.id);
 }
 
 function isServiceRoom(obj: FloorPlanObject): boolean {

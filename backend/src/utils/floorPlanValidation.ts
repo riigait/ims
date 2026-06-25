@@ -1,3 +1,5 @@
+import { isRectObjectType, isFixedReservedObject } from './floorPlanObjectTypes';
+
 type FloorPlanObject = {
   id: string;
   type: string;
@@ -46,14 +48,8 @@ const EDGE_TOLERANCE = 20;
 const DOOR_CLEARANCE_DEPTH = 92;
 const FIX_MARGIN = 12;
 
-// Every rect-shaped furniture/fixture type — mirrors frontend RectangleObjectType.
-const RECT_OBJECT_TYPES = new Set([
-  'rack', 'shelf', 'stairs', 'elevator',
-  'work-surface', 'chair', 'cabinet', 'drawer', 'locker', 'storage-box', 'bin', 'pallet', 'bathroom', 'human',
-]);
-
 const isRect = (object: FloorPlanObject): object is FloorPlanObject & Rect =>
-  RECT_OBJECT_TYPES.has(object.type)
+  isRectObjectType(object.type)
   && [object.x, object.y, object.width, object.height].every(Number.isFinite);
 
 const isPolygonRoom = (object: FloorPlanObject): object is FloorPlanObject & { points: number[] } =>
@@ -61,11 +57,7 @@ const isPolygonRoom = (object: FloorPlanObject): object is FloorPlanObject & { p
 
 const isDoorLike = (object: FloorPlanObject) => object.type === 'door' || object.type === 'entrance';
 const isOutdoorWall = (object: FloorPlanObject) => object.type === 'wall' && object.id.includes('-ow-');
-const isFixed = (object: FloorPlanObject) =>
-  object.id.includes('reserved-stairs')
-  || object.id.includes('reserved-elevator')
-  || /reserved-(male-|female-)?restroom/.test(object.id)
-  || object.id.includes('reserved-column');
+const isFixed = (object: FloorPlanObject) => isFixedReservedObject(object.id);
 
 const isServiceRoom = (object: FloorPlanObject): boolean => {
   if (isFixed(object)) return true;

@@ -11,14 +11,10 @@ import type {
   WallObject,
   WindowObject,
 } from '@/types/floorplan';
-
-const RECTANGLE_OBJECT_TYPES = new Set<RectangleObjectType>([
-  'rack', 'shelf', 'stairs', 'elevator',
-  'work-surface', 'chair', 'cabinet', 'drawer', 'locker', 'storage-box', 'bin', 'pallet', 'bathroom', 'human',
-]);
+import { isRectangleObjectType } from '@/utils/floorplanObjectTypes';
 
 function isRectangleObject(object: FloorPlanObject): object is RectangleObject {
-  return RECTANGLE_OBJECT_TYPES.has(object.type as RectangleObjectType);
+  return isRectangleObjectType(object.type);
 }
 
 // Scale: 1 m = 100 SVG units. Grid cell = 10 cm.
@@ -292,7 +288,7 @@ export function createFloorplanObject(type: FloorPlanObjectType, x: number, y: n
     return { id, type, points: [snapToGrid(x), snapToGrid(y)], color: '#e0e0e0' };
   }
 
-  if (RECTANGLE_OBJECT_TYPES.has(type as RectangleObjectType)) {
+  if (isRectangleObjectType(type)) {
     const rectType = type as RectangleObjectType;
     const size = DEFAULT_OBJECT_SIZES[rectType];
     return normalizeObject({
