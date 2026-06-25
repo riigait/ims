@@ -57,6 +57,21 @@ export interface PolygonRoomObject extends BaseFloorPlanObject {
   color?: string;
 }
 
+/** Only meaningful when type === 'work-surface' — selects which of the 12 front-view table designs to render. */
+export type TableFrontVariant =
+  | 'table01_trestle_double'
+  | 'table02_center_pedestal'
+  | 'table03_braced_frame'
+  | 'table04_simple_legs'
+  | 'table05_apron_tapered'
+  | 'table06_full_panel_base'
+  | 'table07_double_cabinet'
+  | 'table08_drawer_pedestal'
+  | 'table09_outward_tapered'
+  | 'table10_a_frame'
+  | 'table11_corner_braced'
+  | 'table12_left_pedestal_right_leg';
+
 export interface RectangleObject extends BaseFloorPlanObject {
   type: RectangleObjectType;
   x: number;
@@ -65,6 +80,7 @@ export interface RectangleObject extends BaseFloorPlanObject {
   height: number;
   rotation?: number;
   color?: string;
+  frontViewStyle?: TableFrontVariant;
 }
 
 export interface LabelObject extends BaseFloorPlanObject {

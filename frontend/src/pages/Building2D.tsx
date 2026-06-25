@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { Stage, Layer, Rect, Line, Group, Text, Circle } from 'react-konva';
 import Konva from 'konva';
-import { authApi, floorPlansApi } from '@/services/api';
+import { authApi, floorPlansApi, productsApi } from '@/services/api';
 import type {
   DoorObject,
   EntranceObject,
@@ -11,9 +11,12 @@ import type {
   LabelObject,
   PolygonRoomObject,
   RectangleObject,
+  TableFrontVariant,
   WallObject,
   WindowObject,
 } from '@/types/floorplan';
+import type { Product } from '@/types/inventory';
+import ObjectFrontView from '@/components/floorplan/ObjectFrontView';
 import { Lock, Building2, RefreshCw, ZoomIn, ZoomOut, Maximize2, Layers, Box, ChevronLeft, ChevronRight, Pencil, ChevronsDown, ChevronDown, ChevronUp, ChevronsUp, List } from 'lucide-react';
 import { extractOutdoorWall } from '@/utils/floorplanGeometry';
 import { useTheme } from '@/contexts/ThemeContext';
@@ -2205,6 +2208,20 @@ export default function Building2D() {
 
   useEffect(() => { load(); }, [load]);
 
+  // Loaded once for the object front-view panel (double-click a rack/shelf/
+  // etc. in isometric mode) — not used by the canvas render itself.
+  const [products, setProducts] = useState<Product[]>([]);
+  useEffect(() => {
+    productsApi.getAll({ limit: 500 }).then(res => {
+      setProducts((res.data.data ?? res.data) as Product[]);
+    }).catch(() => { /* non-critical for the front-view panel */ });
+  }, []);
+
+  const [frontViewTarget, setFrontViewTarget] = useState<{ planId: string; object: RectangleObject } | null>(null);
+  const FRONT_VIEW_TYPES = new Set([
+    'rack', 'shelf', 'cabinet', 'locker', 'storage-box', 'bin', 'pallet', 'drawer', 'work-surface',
+  ]);
+
   useEffect(() => {
     const obs = new ResizeObserver(entries => {
       const { width, height } = entries[0].contentRect;
@@ -2356,7 +2373,12 @@ export default function Building2D() {
   // the memo deps so mouse movement never triggers a full rebuild.
   const centerX = stageSize.w / 2;
   const baseY   = stageSize.h * 0.72;
-  const isoMode: 'single' | 'all' = isoFloorFilter !== null ? 'single' : 'all';
+  // Buildings with exactly one floor never show the All/1/2/.. filter chip
+  // (rendered only when allFloorNumbers.length > 1), so isoFloorFilter can
+  // never become non-null for them — without this they'd be stuck in "all
+  // floors" mode forever and never render their own objects.
+  const isoMode: 'single' | 'all' =
+    (isoFloorFilter !== null || allFloorNumbers.length <= 1) ? 'single' : 'all';
 
   // ── Object dragging (isometric, single-floor mode only) ──────────────────
   // dragPreview drives a lightweight overlay layer only — never written into
@@ -2379,6 +2401,7 @@ export default function Building2D() {
     isDragging: boolean;
     canDrag: boolean; // false for read-only plans, or "All floors" mode — drag needs single-floor mode
     canSelect: boolean; // Edit mode + not read-only; allowed in "All floors" mode too (selection only, no drag)
+    isLeftButton: boolean; // front-view panel opens on left-click release regardless of edit mode
   } | null>(null);
 
   const DRAG_THRESHOLD_PX = 5;
@@ -2447,8 +2470,12 @@ export default function Building2D() {
     // Doors/windows/entrances are selectable (for the layer toolbar + outline)
     // but stay pinned to their host wall — never draggable.
     const isOpening = rect.type === 'door' || rect.type === 'window' || rect.type === 'entrance';
-    const canSelect = isoEditMode && !isPlanReadOnly(plan);
-    const canDrag = canSelect && isoMode === 'single' && !isOpening;
+    const isRightButton = e.evt.button === 2;
+    // Select + front-view open on left-click only; drag-to-move on right-click
+    // only (middle-click does neither — it's reserved for nothing here, so it
+    // just falls through to the Stage's own pan).
+    const canSelect = !isRightButton && isoEditMode && !isPlanReadOnly(plan);
+    const canDrag = isRightButton && isoEditMode && !isPlanReadOnly(plan) && isoMode === 'single' && !isOpening;
     if (canDrag) e.cancelBubble = true; // stop the Stage's own pan-drag from also starting
     const size = isoSharedSize ?? { planW: 800, planH: 600 };
     const [cursorWx, cursorWy] = fromIso(pos.x - floorOx, pos.y - floorOy, size.planW, size.planH);
@@ -2462,8 +2489,18 @@ export default function Building2D() {
       isDragging: false,
       canDrag,
       canSelect,
+      isLeftButton: !isRightButton,
     };
   }, [viewMode, getIsoStagePoint, getIsoObjectAtPoint, isoEditMode, isoMode, isoSharedSize, isPlanReadOnly]);
+
+  // Front-view detail panel — isometric object shows where something is
+  // located; this panel shows what's inside it. Only rectangle types that
+  // can plausibly hold inventory get it. Opens on a plain left-click (same
+  // click that also selects the object in Edit mode) — no double-click.
+  const openFrontViewIfEligible = useCallback((target: { planId: string; rect: FloorPlanObject } | null) => {
+    if (!target || !FRONT_VIEW_TYPES.has(target.rect.type)) return;
+    setFrontViewTarget({ planId: target.planId, object: target.rect as RectangleObject });
+  }, []);
 
   const handleStageMouseMove = useCallback((e: Konva.KonvaEventObject<MouseEvent>) => {
     const stage = e.target.getStage();
@@ -2526,6 +2563,7 @@ export default function Building2D() {
         );
         setLayerJumpInput('');
       }
+      if (candidate.isLeftButton) openFrontViewIfEligible({ planId: candidate.plan.id, rect: candidate.rect });
       dragCandidateRef.current = null;
       setIsObjectDragActive(false);
       setDragPreview(null);
@@ -2556,7 +2594,28 @@ export default function Building2D() {
       setDragError('Failed to save the new position — change reverted.');
       setTimeout(() => setDragError(null), 4000);
     });
-  }, [dragPreview]);
+  }, [dragPreview, openFrontViewIfEligible]);
+
+  // Persist a chosen front-view table design — same single-PUT pattern as the
+  // drag commit above. Updates both allPlans and the open front-view panel's
+  // local copy so the preview reflects the change immediately.
+  const handleSaveFrontViewStyle = useCallback((planId: string, objectId: string, style: TableFrontVariant) => {
+    setAllPlans(prev => prev.map(plan => {
+      if (plan.id !== planId) return plan;
+      const previousObjects = plan.objects ?? [];
+      const updatedObjects = previousObjects.map(o =>
+        o.id === objectId ? { ...o, frontViewStyle: style } as FloorPlanObject : o
+      );
+      const updatedPlan = { ...plan, objects: updatedObjects };
+      floorPlansApi.update(planId, { ...updatedPlan }).catch(() => {
+        setAllPlans(p => p.map(pl => pl.id === planId ? { ...pl, objects: previousObjects } : pl));
+      });
+      return updatedPlan;
+    }));
+    setFrontViewTarget(prev => prev && prev.object.id === objectId
+      ? { ...prev, object: { ...prev.object, frontViewStyle: style } }
+      : prev);
+  }, []);
 
   // Manual layer-order override (Edit mode selection control) — same
   // array-reorder convention as the 2D editor's Bring to Front/Send to
@@ -3558,6 +3617,7 @@ export default function Building2D() {
             onMouseDown={handleStageMouseDown}
             onMouseMove={handleStageMouseMove}
             onMouseUp={handleStageMouseUp}
+            onContextMenu={e => e.evt.preventDefault()}
             onMouseLeave={() => {
               if (!isObjectDragActive) document.body.style.cursor = 'default';
             }}
@@ -3616,6 +3676,14 @@ export default function Building2D() {
         )}
       </div>
       </div>
+      {frontViewTarget && (
+        <ObjectFrontView
+          object={frontViewTarget.object}
+          products={products.filter(p => p.locationId === frontViewTarget.object.linkedLocationId)}
+          onClose={() => setFrontViewTarget(null)}
+          onChangeStyle={style => handleSaveFrontViewStyle(frontViewTarget.planId, frontViewTarget.object.id, style)}
+        />
+      )}
     </div>
   );
 }
