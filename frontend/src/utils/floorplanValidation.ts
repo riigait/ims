@@ -5,6 +5,7 @@ import { Feature, Polygon } from 'geojson';
 import { DoorObject, EntranceObject, FloorPlanObject, PolygonRoomObject, RectangleObject, WallObject } from '@/types/floorplan';
 import { polygonBounds } from '@/utils/floorplanGrid';
 import { isRectangleObjectType, isFixedReservedObject } from '@/utils/floorplanObjectTypes';
+import { getLinkedLocationIds } from '@/utils/floorplanLocationLinks';
 
 export type FloorplanValidationError =
   | 'object_outside_room'
@@ -199,11 +200,11 @@ export function validateFloorplanObjects(objects: FloorPlanObject[]): FloorplanV
   const errors: FloorplanValidationResult['errors'] = [];
   // Polygon rooms (new type) — unlinked are structural, linked are placed
   const polygonRooms = objects.filter(isPolygonRoom);
-  const structuralPolyRooms = polygonRooms.filter(r => !r.linkedLocationId);
+  const structuralPolyRooms = polygonRooms.filter(r => getLinkedLocationIds(r).length === 0);
 
   // Rect-only structural (racks/shelves used as room dividers, fixed service objects, etc.)
-  const structuralRooms = objects.filter((obj): obj is RectangleObject => isRectObject(obj) && !obj.linkedLocationId);
-  const placedObjects = objects.filter((obj): obj is RectangleObject => isRectObject(obj) && !!obj.linkedLocationId);
+  const structuralRooms = objects.filter((obj): obj is RectangleObject => isRectObject(obj) && getLinkedLocationIds(obj).length === 0);
+  const placedObjects = objects.filter((obj): obj is RectangleObject => isRectObject(obj) && getLinkedLocationIds(obj).length > 0);
   const placedFurniture = placedObjects.filter(o => o.type === 'rack' || o.type === 'shelf');
   const walls = objects.filter((obj): obj is WallObject => obj.type === 'wall');
   const doors = objects.filter(isDoorLike);

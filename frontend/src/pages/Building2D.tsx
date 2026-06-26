@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { Stage, Layer, Rect, Line, Group, Text, Circle } from 'react-konva';
 import Konva from 'konva';
-import { authApi, floorPlansApi, productsApi } from '@/services/api';
+import { authApi, floorPlansApi, productsApi, locationsApi } from '@/services/api';
 import type {
   DoorObject,
   EntranceObject,
@@ -15,7 +15,7 @@ import type {
   WallObject,
   WindowObject,
 } from '@/types/floorplan';
-import type { Product } from '@/types/inventory';
+import type { Product, Location } from '@/types/inventory';
 import ObjectFrontView from '@/components/floorplan/ObjectFrontView';
 import { Lock, Building2, RefreshCw, ZoomIn, ZoomOut, Maximize2, Layers, Box, ChevronLeft, ChevronRight, Pencil, ChevronsDown, ChevronDown, ChevronUp, ChevronsUp, List } from 'lucide-react';
 import { extractOutdoorWall } from '@/utils/floorplanGeometry';
@@ -23,6 +23,7 @@ import { useTheme } from '@/contexts/ThemeContext';
 import TopDown25DFloorplanView from '@/components/floorplan/TopDown25DFloorplanView';
 import { floorPlanToBevData } from '@/utils/floorplanBevAdapter';
 import { moveObjectWithGrid } from '@/utils/floorplanGrid';
+import { getLinkedLocationIds } from '@/utils/floorplanLocationLinks';
 import { IsoHumanFigure, HUMAN_WIDTH_U, HUMAN_DEPTH_U, HUMAN_HEIGHT_U } from '@/components/floorplan/iso/IsoHumanFigure';
 import AllDepartmentsBanner from '@/components/AllDepartmentsBanner';
 import { ALL_DEPARTMENTS_ID } from '@/constants/app';
@@ -2208,12 +2209,19 @@ export default function Building2D() {
 
   useEffect(() => { load(); }, [load]);
 
-  // Loaded once for the object front-view panel (double-click a rack/shelf/
+  // Loaded once for the object front-view panel (left-click a rack/shelf/
   // etc. in isometric mode) — not used by the canvas render itself.
   const [products, setProducts] = useState<Product[]>([]);
   useEffect(() => {
     productsApi.getAll({ limit: 500 }).then(res => {
       setProducts((res.data.data ?? res.data) as Product[]);
+    }).catch(() => { /* non-critical for the front-view panel */ });
+  }, []);
+
+  const [locations, setLocations] = useState<Location[]>([]);
+  useEffect(() => {
+    locationsApi.getAll({ limit: 500 }).then(res => {
+      setLocations((res.data.data ?? res.data) as Location[]);
     }).catch(() => { /* non-critical for the front-view panel */ });
   }, []);
 
@@ -2616,6 +2624,41 @@ export default function Building2D() {
       ? { ...prev, object: { ...prev.object, frontViewStyle: style } }
       : prev);
   }, []);
+
+  // Same single-PUT pattern, for toggling which locations the front-view
+  // panel's object links to — the same field FloorPlanEditor's Linked
+  // Locations tab writes, so both surfaces stay on one source of truth.
+  const handleSaveFrontViewLocations = useCallback((planId: string, objectId: string, locationIds: string[]) => {
+    setAllPlans(prev => prev.map(plan => {
+      if (plan.id !== planId) return plan;
+      const previousObjects = plan.objects ?? [];
+      const updatedObjects = previousObjects.map(o =>
+        o.id === objectId
+          ? { ...o, linkedLocationIds: locationIds.length > 0 ? locationIds : undefined, linkedLocationId: undefined } as FloorPlanObject
+          : o
+      );
+      const updatedPlan = { ...plan, objects: updatedObjects };
+      floorPlansApi.update(planId, { ...updatedPlan }).catch(() => {
+        setAllPlans(p => p.map(pl => pl.id === planId ? { ...pl, objects: previousObjects } : pl));
+      });
+      return updatedPlan;
+    }));
+    setFrontViewTarget(prev => prev && prev.object.id === objectId
+      ? { ...prev, object: { ...prev.object, linkedLocationIds: locationIds.length > 0 ? locationIds : undefined, linkedLocationId: undefined } }
+      : prev);
+  }, []);
+
+  // Dropping a Product row onto the front-view object assigns it to one of
+  // the object's linked locations — same effect as editing the product's
+  // location elsewhere in the app, just via drag instead of a form.
+  const handleAssignProductLocation = useCallback((productId: string, locationId: string) => {
+    const previous = products.find(p => p.id === productId);
+    if (!previous) return;
+    setProducts(prev => prev.map(p => p.id === productId ? { ...p, locationId } : p));
+    productsApi.update(productId, { locationId }).catch(() => {
+      setProducts(prev => prev.map(p => p.id === productId ? previous : p));
+    });
+  }, [products]);
 
   // Manual layer-order override (Edit mode selection control) — same
   // array-reorder convention as the 2D editor's Bring to Front/Send to
@@ -3679,9 +3722,13 @@ export default function Building2D() {
       {frontViewTarget && (
         <ObjectFrontView
           object={frontViewTarget.object}
-          products={products.filter(p => p.locationId === frontViewTarget.object.linkedLocationId)}
+          products={products.filter(p => p.locationId && getLinkedLocationIds(frontViewTarget.object).includes(p.locationId))}
+          allLocations={locations}
+          allProducts={products}
           onClose={() => setFrontViewTarget(null)}
           onChangeStyle={style => handleSaveFrontViewStyle(frontViewTarget.planId, frontViewTarget.object.id, style)}
+          onChangeLocations={ids => handleSaveFrontViewLocations(frontViewTarget.planId, frontViewTarget.object.id, ids)}
+          onAssignProductLocation={handleAssignProductLocation}
         />
       )}
     </div>

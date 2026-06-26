@@ -60,5 +60,31 @@ Rules:
 
 ---
 
+## No Question Rule
+
+Never stop work to ask preference or clarification questions.
+
+Do not use AskUserQuestion.
+
+If information is missing:
+- Make the safest reasonable assumption.
+- Continue implementation.
+- Document the assumption in the final summary.
+
+Do not ask:
+- "Should I proceed?"
+- "Which option do you prefer?"
+- "Do you want me to continue?"
+- "Should I implement this?"
+
+For IMS:
+- Prefer backend/data-driven logic.
+- Preserve existing behavior unless broken.
+- Fix bugs directly.
+- Run TypeScript check after edits.
+- Summarize files changed, what changed, and any assumptions.
+
+---
+
 **Last Updated**: 2026-06-15
 **Optimized with**: [Claude Token Optimizer](https://github.com/nadimtuhin/claude-token-optimizer)

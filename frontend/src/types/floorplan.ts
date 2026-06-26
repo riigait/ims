@@ -16,7 +16,10 @@ export interface BaseFloorPlanObject {
   layer?: number;
   label?: string;
   notes?: string;
+  /** @deprecated use linkedLocationIds — kept for plans saved before multi-location support. */
   linkedLocationId?: string;
+  /** Locations whose products show up in this object's front-view panel. Source of truth going forward; linkedLocationId is a single-value legacy fallback. */
+  linkedLocationIds?: string[];
   groupId?: string;
   /**
    * Set only when the user explicitly uses the isometric view's layer-order

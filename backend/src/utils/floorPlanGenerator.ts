@@ -1,3 +1,5 @@
+import { getLinkedLocationIds } from './floorPlanObjectTypes';
+
 export const GENERATED_FLOORPLAN_SUFFIXES = [
   '1st Floor Complete Inventory Map',
   '2nd Floor Complete Inventory Map',
@@ -159,6 +161,7 @@ export type FloorPlanObject = {
   label?: string;
   color?: string;
   linkedLocationId?: string;
+  linkedLocationIds?: string[];
   groupId?: string;
   startX?: number;
   startY?: number;
@@ -1201,10 +1204,10 @@ export function validateGeneratedFloorPlan(objects: FloorPlanObject[], templateT
 } {
   const passes: string[] = [];
   const fails: string[] = [];
-  const rooms = objects.filter(o => o.type === 'room' && !o.linkedLocationId);
+  const rooms = objects.filter(o => o.type === 'room' && getLinkedLocationIds(o).length === 0);
   const entrances = objects.filter(o => o.type === 'entrance');
   const walls = objects.filter(o => o.type === 'wall');
-  const linkedLocations = objects.filter(o => o.linkedLocationId);
+  const linkedLocations = objects.filter(o => getLinkedLocationIds(o).length > 0);
 
   if (entrances.length > 0) passes.push('Has entry or door defined');
   else fails.push('Missing entrance or door');

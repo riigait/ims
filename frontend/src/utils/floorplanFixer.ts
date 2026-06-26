@@ -2,6 +2,7 @@ import { FloorPlanObject, RectangleObject, WindowObject } from '@/types/floorpla
 import { getDoorClearanceZone, validateFloorplanObjects, FloorplanValidationResult } from './floorplanValidation';
 import { generateId } from '@/utils/ids';
 import { isStorageRectType } from '@/utils/floorplanObjectTypes';
+import { getLinkedLocationIds } from '@/utils/floorplanLocationLinks';
 
 const MARGIN = 12;
 const WINDOW_W = 140;
@@ -111,7 +112,7 @@ function addMissingRoomWindows(fixed: FloorPlanObject[]): number {
 
 function fixOverlappingObjects(fixed: FloorPlanObject[]): number {
   const furniture = fixed.filter(
-    o => isStorageRectType(o.type) && (o as any).linkedLocationId,
+    o => isStorageRectType(o.type) && getLinkedLocationIds(o).length > 0,
   );
   let count = 0;
 

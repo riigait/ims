@@ -2,6 +2,7 @@ import { memo, useEffect, useRef, useState } from 'react';
 import { Circle, Group, Layer, Line, Rect, Stage, Text } from 'react-konva';
 import { FloorPlan, FloorPlanObject, RectangleObject } from '@/types/floorplan';
 import { polygonBounds } from '@/utils/floorplanGrid';
+import { getLinkedLocationIds } from '@/utils/floorplanLocationLinks';
 
 interface Props {
   readonly plan: FloorPlan;
@@ -260,7 +261,7 @@ function FloorPlanThumbnailBase({ plan, width = 200, height = 200, highlightLoca
             {objects.length === 0 ? (
               <Text x={0} y={height / 2 - 8} width={width} text="Empty floor plan" align="center" fontSize={11} fill="#cbd5e1" />
             ) : (
-              objects.map((obj) => renderObject(obj, !!highlightLocationId && obj.linkedLocationId === highlightLocationId, scale, tx, ty))
+              objects.map((obj) => renderObject(obj, !!highlightLocationId && getLinkedLocationIds(obj).includes(highlightLocationId), scale, tx, ty))
             )}
             <Rect x={width - 48} y={height - 21} width={44} height={17} fill="rgba(15,23,42,0.55)" cornerRadius={3} />
             <Text x={width - 48} y={height - 17} width={44} text={`${objects.length} objects`} align="center" fontSize={9} fill="#ffffff" />

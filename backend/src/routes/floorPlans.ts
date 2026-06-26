@@ -3,7 +3,7 @@ import prisma from '../utils/prisma';
 import { AuthRequest, canAccessDepartment } from '../middleware/auth';
 import { csvToJson } from '../utils/csv';
 import { applyFloorplanAutoFixes, validateFloorplanObjects } from '../utils/floorPlanValidation';
-import { isRectObjectType } from '../utils/floorPlanObjectTypes';
+import { isRectObjectType, getLinkedLocationIds } from '../utils/floorPlanObjectTypes';
 import {
   GENERATED_FLOORPLAN_SUFFIXES,
   GENERATED_FLOORPLAN_PREFIX,
@@ -608,7 +608,7 @@ function resolveIndoorObjectOverlaps(objects: FloorPlanObject[], minGap = 16): F
   // Only push zone rects — racks/shelves follow their zone via groupId so grid alignment is preserved.
   // linkedLocationId marks individual inventory items — they are never zone containers
   // and must not be pushed by the overlap resolver even if type === 'room'.
-  const isMovableZone = (o: FloorPlanObject) => o.type === 'room' && !isFixed(o) && !o.linkedLocationId;
+  const isMovableZone = (o: FloorPlanObject) => o.type === 'room' && !isFixed(o) && getLinkedLocationIds(o).length === 0;
 
   const movable: FloorPlanObject[] = objects.filter(isMovableZone).map(o => ({ ...o }));
   if (movable.length < 2) return objects;
@@ -710,7 +710,7 @@ function resolveIndoorObjectOverlaps(objects: FloorPlanObject[], minGap = 16): F
 function resolveMovableObjectOverlapsWithFixed(objects: FloorPlanObject[], fixedObjects: FloorPlanObject[], minGap = 16): FloorPlanObject[] {
   const isOW = (o: FloorPlanObject) => o.type === 'wall' && o.id.includes('-ow-');
   const isMovableZone = (o: FloorPlanObject) =>
-    o.type === 'room' && !isOW(o) && !isFixedFloorObject(o) && !o.linkedLocationId;
+    o.type === 'room' && !isOW(o) && !isFixedFloorObject(o) && getLinkedLocationIds(o).length === 0;
   const blockerObjects = fixedObjects.filter((object) =>
     object.type === 'room' || isRectObject(object));
   const movable = objects.filter(isMovableZone).map((object) => ({ ...object }));
@@ -816,7 +816,7 @@ function rectsOverlap(a: ReturnType<typeof objectBounds>, b: ReturnType<typeof o
 function hasMovableRoomOverlap(objects: FloorPlanObject[]): boolean {
   const isOW = (o: FloorPlanObject) => o.type === 'wall' && o.id.includes('-ow-');
   const rooms = objects.filter((object) =>
-    object.type === 'room' && !isOW(object) && !isFixedFloorObject(object) && !object.linkedLocationId);
+    object.type === 'room' && !isOW(object) && !isFixedFloorObject(object) && getLinkedLocationIds(object).length === 0);
   for (let i = 0; i < rooms.length; i++) {
     for (let j = i + 1; j < rooms.length; j++) {
       if (rectsOverlap(objectBounds(rooms[i]), objectBounds(rooms[j]))) return true;
@@ -828,7 +828,7 @@ function hasMovableRoomOverlap(objects: FloorPlanObject[]): boolean {
 function hasMovableFixedOverlap(objects: FloorPlanObject[], fixedObjects: FloorPlanObject[]): boolean {
   const isOW = (o: FloorPlanObject) => o.type === 'wall' && o.id.includes('-ow-');
   const rooms = objects.filter((object) =>
-    object.type === 'room' && !isOW(object) && !isFixedFloorObject(object) && !object.linkedLocationId);
+    object.type === 'room' && !isOW(object) && !isFixedFloorObject(object) && getLinkedLocationIds(object).length === 0);
   const blockers = fixedObjects.filter((object) =>
     object.type === 'room' || isRectObject(object));
   return rooms.some((room) => blockers.some((blocker) => rectsOverlap(objectBounds(room), objectBounds(blocker))));
@@ -1040,7 +1040,7 @@ router.get('/by-location/:locationId', async (req: AuthRequest, res: Response, n
 
     for (const plan of floorPlans) {
       const objects = JSON.parse(plan.planJson || '[]');
-      const matchingObject = objects.find((obj: any) => obj.linkedLocationId === req.params.locationId);
+      const matchingObject = objects.find((obj: any) => getLinkedLocationIds(obj).includes(req.params.locationId));
 
       if (matchingObject) {
         return res.json({
@@ -1209,7 +1209,7 @@ router.post('/auto-generate', async (req: AuthRequest, res: Response, next: Next
       try {
         const objects: FloorPlanObject[] = JSON.parse(plan.planJson || '[]');
         for (const obj of objects) {
-          if (obj.linkedLocationId) usedLocationIds.add(obj.linkedLocationId);
+          for (const id of getLinkedLocationIds(obj)) usedLocationIds.add(id);
         }
       } catch { /* ignore malformed JSON */ }
     }
@@ -1834,7 +1834,7 @@ router.post('/:id/regenerate', async (req: AuthRequest, res: Response, next: Nex
       const isOW = (o: FloorPlanObject) => o.type === 'wall' && o.id.includes('-ow-');
       const existingOutdoorWalls = existingObjects.filter(isOW);
       const existingAccessObjects = existingObjects.filter(isFixedFloorObject);
-      const assignedIds = existingObjects.filter(o => o.linkedLocationId).map(o => o.linkedLocationId as string);
+      const assignedIds = existingObjects.flatMap(o => getLinkedLocationIds(o));
 
       const dept = await prisma.department.findUnique({ where: { id: departmentId } });
       if (!dept) return res.status(404).json({ error: 'Department not found' });
@@ -2064,22 +2064,23 @@ router.put('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
       buildingKey, floorNumber, validationIgnored, isAligned, alignmentData,
     } = req.body;
 
-    // Observe-only (Phase 4a of the floor-plan dedup plan): log what server-side
-    // validation would say about this save, without blocking it. Gathers real
-    // false-positive-rate data before any enforcement (Phase 4b) is turned on.
-    if (Array.isArray(objects)) {
+    // Phase 4b of the floor-plan dedup plan: enforce what Phase 4a only
+    // logged. Mirrors the editor's own live /validate endpoint, so a 422 here
+    // is "the server enforcing what the UI already showed", not a surprise.
+    // validationIgnored (user-facing "Ignore issues" button, or an internal
+    // save of already-computed/transformed objects) bypasses this — same
+    // escape hatch the editor already persists on the FloorPlan model.
+    if (Array.isArray(objects) && !validationIgnored) {
       try {
-        const observed = validateFloorplanObjects(objects);
-        if (!observed.valid) {
-          console.log('[floorplan-validate-observe]', JSON.stringify({
-            floorPlanId: req.params.id,
-            errorCount: observed.errors.length,
-            codes: observed.errors.map(e => e.code),
-            validationIgnored: Boolean(validationIgnored),
-          }));
+        const result = validateFloorplanObjects(objects);
+        if (!result.valid) {
+          return res.status(422).json({
+            error: 'Floor plan has unresolved validation issues.',
+            errors: result.errors,
+          });
         }
       } catch (validationError) {
-        console.error('[floorplan-validate-observe] validation threw', validationError);
+        console.error('[floorplan-validate-enforce] validation threw, allowing save', validationError);
       }
     }
 

@@ -14,6 +14,7 @@ import { useFloorPlanStore } from '@/services/floorPlanStore';
 import { FloorPlanObject, WallObject, PolygonRoomObject, RectangleObject, RectangleObjectType, LabelObject, DoorObject, WindowObject, EntranceObject, InventoryMarkerObject } from '@/types/floorplan';
 import type { FloorplanValidationResult } from '@/utils/floorplanValidation';
 import { isStorageRectType, isRectangleObjectType } from '@/utils/floorplanObjectTypes';
+import { getLinkedLocationIds } from '@/utils/floorplanLocationLinks';
 import {
   DEFAULT_OBJECT_SIZES,
   A4_PAGE_HEIGHT,
@@ -189,6 +190,7 @@ export default function FloorPlanEditor() {
   const [prodSearch, setProdSearch] = useState('');
   const [prodPage, setProdPage] = useState(1);
   const [prodPageSize, setProdPageSize] = useState(20);
+  const [propertyTab, setPropertyTab] = useState<'display' | 'locations'>('display');
 
   // Drawing state
   const [startPos, setStartPos] = useState<{ x: number; y: number } | null>(null);
@@ -1211,9 +1213,9 @@ export default function FloorPlanEditor() {
       const pts = room.points;
       if (pts.length < 4) return;
       const objColor = room.color;
-      const linkedId = obj.linkedLocationId;
-      const locProds = linkedId ? (productsByLocation.get(linkedId) ?? []) : [];
-      const status: StockStatus = linkedId ? getStockStatus(locProds) : 'unlinked';
+      const linkedIds = getLinkedLocationIds(obj);
+      const locProds = linkedIds.flatMap(id => productsByLocation.get(id) ?? []);
+      const status: StockStatus = linkedIds.length > 0 ? getStockStatus(locProds) : 'unlinked';
       const colors = STATUS_COLORS[status];
       ctx.beginPath();
       ctx.moveTo(pts[0], pts[1]);
@@ -1224,7 +1226,7 @@ export default function FloorPlanEditor() {
       ctx.strokeStyle = isSelected ? '#2563eb' : (objColor ?? colors.stroke);
       ctx.lineWidth = isSelected ? 2.5 : 1.5;
       ctx.stroke();
-      if (!linkedId && obj.label) {
+      if (linkedIds.length === 0 && obj.label) {
         const bounds = polygonBounds(pts);
         ctx.save();
         ctx.textAlign = 'center';
@@ -1269,9 +1271,9 @@ export default function FloorPlanEditor() {
 
     // Rectangle objects (rack / shelf)
     const rect = obj as RectangleObject;
-    const linkedId = obj.linkedLocationId;
-    const locProds = linkedId ? (productsByLocation.get(linkedId) ?? []) : [];
-    const status: StockStatus = linkedId ? getStockStatus(locProds) : 'unlinked';
+    const linkedIds = getLinkedLocationIds(obj);
+    const locProds = linkedIds.flatMap(id => productsByLocation.get(id) ?? []);
+    const status: StockStatus = linkedIds.length > 0 ? getStockStatus(locProds) : 'unlinked';
     const colors = STATUS_COLORS[status];
 
     // Use custom color if user set one, otherwise use status color
@@ -1285,7 +1287,7 @@ export default function FloorPlanEditor() {
     ctx.lineWidth = isSelected ? 2.5 : 1.5;
     ctx.strokeRect(rect.x, rect.y, rect.width, rect.height);
 
-    if (!linkedId && obj.label) {
+    if (linkedIds.length === 0 && obj.label) {
       ctx.save();
       ctx.textAlign = 'center';
       ctx.font = `11px Inter, Arial, sans-serif`;
@@ -1302,7 +1304,7 @@ export default function FloorPlanEditor() {
     }
 
     // Status dot indicator (top-right corner)
-    if (linkedId && rect.width > 30 && rect.height > 20) {
+    if (linkedIds.length > 0 && rect.width > 30 && rect.height > 20) {
       const dotR = 5;
       const dotX = rect.x + rect.width - dotR - 4;
       const dotY = rect.y + dotR + 4;
@@ -2847,7 +2849,17 @@ export default function FloorPlanEditor() {
       setIsDirty(false);
       loadedObjectsRef.current = JSON.stringify(currentFloorPlan.objects);
       setTimeout(() => setSaveSuccess(false), 2000);
-    } catch { alert('Failed to save'); } finally { setSaving(false); }
+    } catch (error) {
+      // 422 means server-side validation rejected the save — same issues the
+      // live-validation banner already shows. Point at it instead of a
+      // generic message; "Ignore issues" (validationIgnored) bypasses this.
+      const status = (error as { response?: { status?: number } })?.response?.status;
+      if (status === 422) {
+        alert('This floor plan has unresolved validation issues — fix them or use "Ignore issues" before saving.');
+      } else {
+        alert('Failed to save');
+      }
+    } finally { setSaving(false); }
   };
 
   const getCursor = () => {
@@ -2868,11 +2880,11 @@ export default function FloorPlanEditor() {
   // ─── Render helpers ─────────────────────────────────────────────────────────
 
   const selectedObject = getSelectedObject();
-  const linkedLocId = selectedObject?.linkedLocationId;
-  const linkedLoc = linkedLocId ? locationsMap.get(linkedLocId) : null;
-  const linkedProducts = linkedLocId ? (productsByLocation.get(linkedLocId) ?? []) : [];
+  const linkedLocIds = selectedObject ? getLinkedLocationIds(selectedObject) : [];
+  const linkedLocs = linkedLocIds.map(id => locationsMap.get(id)).filter((l): l is Location => !!l);
+  const linkedProducts = linkedLocIds.flatMap(id => productsByLocation.get(id) ?? []);
 
-  useEffect(() => { setProdSearch(''); setProdPage(1); }, [linkedLocId]);
+  useEffect(() => { setProdSearch(''); setProdPage(1); }, [linkedLocIds.join(',')]);
   useEffect(() => { setGroupRotationDeg(0); }, [selectedObjectIds.join(',')]);
 
   const stockStatusLabel: Record<StockStatus, { label: string; className: string; icon: JSX.Element }> = {
@@ -3208,9 +3220,9 @@ export default function FloorPlanEditor() {
 
     if (obj.type === 'room') {
       const room = obj as PolygonRoomObject;
-      const linkedId = obj.linkedLocationId;
-      const locProds = linkedId ? (productsByLocation.get(linkedId) ?? []) : [];
-      const status: StockStatus = linkedId ? getStockStatus(locProds) : 'unlinked';
+      const linkedIds = getLinkedLocationIds(obj);
+      const locProds = linkedIds.flatMap(id => productsByLocation.get(id) ?? []);
+      const status: StockStatus = linkedIds.length > 0 ? getStockStatus(locProds) : 'unlinked';
       const colors = STATUS_COLORS[status];
       const fillColor = room.color ? `${room.color}44` : colors.fill;
       const strokeColor = isSelected ? '#2563eb' : (room.color ?? colors.stroke);
@@ -3226,7 +3238,7 @@ export default function FloorPlanEditor() {
             stroke={strokeColor}
             strokeWidth={isSelected ? 2.5 : 1.5}
           />
-          {!linkedId && (
+          {linkedIds.length === 0 && (
             <KonvaText
               x={bounds.x + 4}
               y={bounds.y + bounds.height / 2 - fontSize}
@@ -3237,7 +3249,7 @@ export default function FloorPlanEditor() {
               fill={isSelected ? '#1e40af' : '#1e293b'}
             />
           )}
-          {linkedId && (
+          {linkedIds.length > 0 && (
             <Circle x={bounds.x + bounds.width - 9} y={bounds.y + 9} radius={5} fill={colors.badge} />
           )}
         </Group>
@@ -3245,9 +3257,9 @@ export default function FloorPlanEditor() {
     }
 
     const rect = obj as RectangleObject;
-    const linkedId = obj.linkedLocationId;
-    const locProds = linkedId ? (productsByLocation.get(linkedId) ?? []) : [];
-    const status: StockStatus = linkedId ? getStockStatus(locProds) : 'unlinked';
+    const linkedIds = getLinkedLocationIds(obj);
+    const locProds = linkedIds.flatMap(id => productsByLocation.get(id) ?? []);
+    const status: StockStatus = linkedIds.length > 0 ? getStockStatus(locProds) : 'unlinked';
     const colors = STATUS_COLORS[status];
     const fillColor = rect.color ? `${rect.color}44` : colors.fill;
     const strokeColor = isSelected ? '#2563eb' : (rect.color ?? colors.stroke);
@@ -3291,7 +3303,7 @@ export default function FloorPlanEditor() {
     const iconColor = isSelected ? '#1e40af' : '#374151';
 
     // Label sits below the icon when both fit, otherwise alone
-    const showLabel = !linkedId && rect.height >= (showIcon ? iconSize + 14 : 14);
+    const showLabel = linkedIds.length === 0 && rect.height >= (showIcon ? iconSize + 14 : 14);
     const fontSize = Math.min(10, Math.max(7, rect.height / 5));
     const labelY = showIcon ? iconY + iconSize + 2 : rectCy - fontSize / 2;
 
@@ -3338,7 +3350,7 @@ export default function FloorPlanEditor() {
               <KonvaText x={sx + 2} y={sy + sh - fontSize - 3} width={Math.max(10, sw - 4)}
                 text="Stairs" align="center" fontSize={fontSize} fill={arrowColor} />
             )}
-            {linkedId && sw > 30 && sh > 20 && (
+            {linkedIds.length > 0 && sw > 30 && sh > 20 && (
               <Circle x={sx + sw - 9} y={sy + 9} radius={5} fill={colors.badge} />
             )}
           </Group>
@@ -3384,7 +3396,7 @@ export default function FloorPlanEditor() {
             fill={iconColor}
           />
         )}
-        {linkedId && rect.width > 30 && rect.height > 20 && (
+        {linkedIds.length > 0 && rect.width > 30 && rect.height > 20 && (
           <Circle x={rect.x + rect.width - 9} y={rect.y + 9} radius={5} fill={colors.badge} />
         )}
       </Group>
@@ -4101,8 +4113,216 @@ export default function FloorPlanEditor() {
           </div>
         </div>
 
-        {/* Right panel */}
+        {/* Merged Display + Linked Locations panel */}
         <div className="w-80 bg-[var(--surface)] border-l border-[var(--border)] flex flex-col overflow-hidden shadow-sm flex-shrink-0">
+          <div className="flex border-b border-[var(--border)] flex-shrink-0">
+            <button
+              onClick={() => setPropertyTab('display')}
+              className={`flex-1 px-3 py-2 text-sm font-medium ${propertyTab === 'display' ? 'text-[var(--primary)] border-b-2 border-[var(--primary)]' : 'text-[var(--text-muted)] hover:text-[var(--text)]'}`}
+            >
+              Display
+            </button>
+            <button
+              onClick={() => setPropertyTab('locations')}
+              className={`flex-1 px-3 py-2 text-sm font-medium ${propertyTab === 'locations' ? 'text-[var(--primary)] border-b-2 border-[var(--primary)]' : 'text-[var(--text-muted)] hover:text-[var(--text)]'}`}
+            >
+              Linked Locations
+            </button>
+          </div>
+          {propertyTab === 'locations' && (
+          <div className="flex flex-col h-full overflow-hidden">
+          {selectedObjectIds.length === 1 && selectedObject && (selectedObject.type === 'room' || isStorageRectObject(selectedObject)) ? (
+            <div className="flex flex-col h-full overflow-y-auto">
+              {/* Location link — multi-select; ctrl/cmd-click to pick more than one. Shown
+                  regardless of whether a location is already linked, since this is how
+                  a first location gets linked in the first place. */}
+              <div className="p-4 border-b">
+                <label className="block text-xs font-medium text-[var(--text-muted)] mb-1">Linked Locations</label>
+                {isReadOnly ? (
+                  <div className="w-full px-2.5 py-1.5 border border-[var(--border)] rounded text-sm bg-[var(--surface-2)] text-[var(--text)]">
+                    {(() => {
+                      const ids = getLinkedLocationIds(selectedObject);
+                      if (ids.length === 0) return '— No location linked —';
+                      return ids.map(id => locations.find(loc => loc.id === id)?.name || 'Location not found').join(', ');
+                    })()}
+                  </div>
+                ) : (
+                  <select multiple value={getLinkedLocationIds(selectedObject)}
+                    onChange={e => {
+                      const ids = Array.from(e.target.selectedOptions, option => option.value);
+                      updateObject(selectedObject.id, {
+                        linkedLocationIds: ids.length > 0 ? ids : undefined,
+                        linkedLocationId: undefined,
+                      });
+                    }}
+                    className="w-full px-2.5 py-1.5 border border-[var(--border)] rounded text-sm bg-[var(--surface)] text-[var(--text)]"
+                    size={Math.min(6, Math.max(3, locations.length))}>
+                    {locations.map(loc => (
+                      <option key={loc.id} value={loc.id}>{loc.name} ({loc.type})</option>
+                    ))}
+                  </select>
+                )}
+              </div>
+              {/* ── Location & Products section ── */}
+              {linkedLocs.length > 0 && (
+                <div className="p-4 space-y-3 flex-1">
+                  {/* Location header(s) — one row per linked location */}
+                  <div className="flex items-start justify-between">
+                    <div className="space-y-1.5">
+                      {linkedLocs.map(loc => (
+                        <div key={loc.id}>
+                          <div className="flex items-center gap-1.5 mb-0.5">
+                            <MapPin size={14} className="text-[var(--primary)]" />
+                            <span className="font-semibold text-[var(--text)] text-sm">{loc.name}</span>
+                          </div>
+                          <span className="text-xs text-[var(--text-muted)] capitalize">{loc.type}</span>
+                          {loc.notes && <p className="text-xs text-[var(--text-muted)] mt-0.5">{loc.notes}</p>}
+                        </div>
+                      ))}
+                    </div>
+                    {(() => {
+                      const status = getStockStatus(linkedProducts);
+                      const s = stockStatusLabel[status];
+                      return (
+                        <span className={`flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full ${s.className}`}>
+                          {s.icon} {s.label}
+                        </span>
+                      );
+                    })()}
+                  </div>
+
+                  {/* Product list */}
+                  {(() => {
+                    const term = prodSearch.trim().toLowerCase();
+                    const filteredProds = term
+                      ? linkedProducts.filter(p =>
+                          p.name.toLowerCase().includes(term) ||
+                          (p.sku || '').toLowerCase().includes(term)
+                        )
+                      : linkedProducts;
+                    const totalProdPages = Math.ceil(filteredProds.length / prodPageSize);
+                    const pagedProds = filteredProds.slice((prodPage - 1) * prodPageSize, prodPage * prodPageSize);
+                    return (
+                      <div>
+                        <div className="flex items-center justify-between mb-2">
+                          <h4 className="text-xs font-semibold text-[var(--text)] uppercase tracking-wide">
+                            Products ({linkedProducts.length})
+                          </h4>
+                          <div className="flex items-center gap-1">
+                            <span className="text-xs text-[var(--text-muted)]">Show</span>
+                            {[20, 50, 100].map(size => (
+                              <button
+                                key={size}
+                                type="button"
+                                onClick={() => { setProdPageSize(size); setProdPage(1); }}
+                                className={`text-xs px-1.5 py-0.5 rounded border transition-colors ${prodPageSize === size ? 'bg-[var(--primary)] text-white border-[var(--primary)]' : 'border-[var(--border)] text-[var(--text-muted)] hover:bg-[var(--surface-2)]'}`}
+                              >
+                                {size}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+
+                        {linkedProducts.length === 0 ? (
+                          <div className="text-center py-6 text-[var(--text-muted)]">
+                            <Package size={28} className="mx-auto mb-2 opacity-40" />
+                            <p className="text-xs">No products assigned to this location.</p>
+                            <p className="text-xs mt-0.5">Go to Products to assign items here.</p>
+                          </div>
+                        ) : (
+                          <>
+                            {/* Search bar */}
+                            <div className="flex items-center gap-2 px-2 py-1.5 border border-[var(--border)] rounded bg-[var(--surface-2)] mb-2">
+                              <Search size={12} className="text-[var(--text-muted)] flex-shrink-0" />
+                              <input
+                                type="text"
+                                value={prodSearch}
+                                onChange={e => { setProdSearch(e.target.value); setProdPage(1); }}
+                                placeholder="Search by name or SKU…"
+                                className="flex-1 text-xs bg-transparent outline-none text-[var(--text)] placeholder:text-[var(--text-muted)]"
+                              />
+                              {prodSearch && (
+                                <button type="button" onClick={() => { setProdSearch(''); setProdPage(1); }} className="text-[var(--text-muted)] hover:text-[var(--text)]">
+                                  <XIcon size={11} />
+                                </button>
+                              )}
+                            </div>
+                            {term && (
+                              <p className="text-xs text-[var(--text-muted)] mb-2">{filteredProds.length} of {linkedProducts.length} products</p>
+                            )}
+                            <div className="space-y-2">
+                              {pagedProds.map(product => {
+                                const status: StockStatus =
+                                  product.currentStock === 0 ? 'out' :
+                                  product.currentStock <= product.lowStockThreshold ? 'low' : 'ok';
+                                const s = stockStatusLabel[status];
+                                return (
+                                  <div key={product.id} className="border border-[var(--border)] rounded-lg p-2.5 bg-[var(--surface-2)] hover:bg-[var(--border)] transition">
+                                    <div className="flex items-start justify-between gap-2">
+                                      <div className="min-w-0 flex-1">
+                                        <p className="text-sm font-medium text-[var(--text)] truncate">{product.name}</p>
+                                        <p className="text-xs text-[var(--text-muted)]">{product.sku}</p>
+                                      </div>
+                                      <span className={`flex items-center gap-0.5 text-xs font-medium px-1.5 py-0.5 rounded-full flex-shrink-0 ${s.className}`}>
+                                        {s.icon}
+                                      </span>
+                                    </div>
+                                    <div className="mt-1.5 flex items-center justify-between">
+                                      <div className="text-sm">
+                                        <span className={`font-bold ${status === 'out' ? 'text-red-600' : status === 'low' ? 'text-amber-600' : 'text-green-700'}`}>
+                                          {product.currentStock}
+                                        </span>
+                                        <span className="text-[var(--text-muted)] text-xs"> / {product.lowStockThreshold} min · {product.unit}</span>
+                                      </div>
+                                      <div className="w-16 h-1.5 bg-[var(--border)] rounded-full overflow-hidden">
+                                        <div className={`h-full rounded-full ${status === 'out' ? 'bg-red-500' : status === 'low' ? 'bg-amber-500' : 'bg-green-500'}`}
+                                          style={{ width: `${Math.min(100, (product.currentStock / Math.max(product.lowStockThreshold * 2, 1)) * 100)}%` }} />
+                                      </div>
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                            {totalProdPages > 1 && (
+                              <div className="flex items-center justify-between mt-3 pt-3 border-t border-[var(--border)]">
+                                <button
+                                  type="button"
+                                  onClick={() => setProdPage(p => Math.max(1, p - 1))}
+                                  disabled={prodPage === 1}
+                                  className="flex items-center gap-1 px-2 py-1 text-xs rounded border border-[var(--border)] hover:bg-[var(--surface-2)] disabled:opacity-40 disabled:cursor-not-allowed"
+                                >
+                                  <ChevronLeft size={12} /> Prev
+                                </button>
+                                <span className="text-xs text-[var(--text-muted)]">
+                                  Page {prodPage} of {totalProdPages} · {filteredProds.length} products
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => setProdPage(p => Math.min(totalProdPages, p + 1))}
+                                  disabled={prodPage === totalProdPages}
+                                  className="flex items-center gap-1 px-2 py-1 text-xs rounded border border-[var(--border)] hover:bg-[var(--surface-2)] disabled:opacity-40 disabled:cursor-not-allowed"
+                                >
+                                  Next <ChevronRight size={12} />
+                                </button>
+                              </div>
+                            )}
+                          </>
+                        )}
+                      </div>
+                    );
+                  })()}
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="p-4 text-sm text-[var(--text-muted)]">
+              Select a room, rack, shelf, or other storage object to link a location and see its products here.
+            </div>
+          )}
+          </div>
+          )}
+          {propertyTab === 'display' && (
+          <div className="flex flex-col h-full overflow-hidden">
           {selectedObjectIds.length > 0 ? (
             <div className="flex flex-col h-full overflow-y-auto">
               {(() => {
@@ -4655,30 +4875,6 @@ export default function FloorPlanEditor() {
                   </div>
                 )}
 
-                {/* Location link */}
-                {(selectedObject.type === 'room' || isStorageRectObject(selectedObject)) && (
-                  <div>
-                    <label className="block text-xs font-medium text-[var(--text-muted)] mb-1">Linked Location</label>
-                    {isReadOnly ? (
-                      <div className="w-full px-2.5 py-1.5 border border-[var(--border)] rounded text-sm bg-[var(--surface-2)] text-[var(--text)]">
-                        {selectedObject.linkedLocationId
-                          ? locations.find(loc => loc.id === selectedObject.linkedLocationId)?.name || 'Location not found'
-                          : '— No location linked —'
-                        }
-                      </div>
-                    ) : (
-                      <select value={selectedObject.linkedLocationId || ''}
-                        onChange={e => updateObject(selectedObject.id, { linkedLocationId: e.target.value || undefined })}
-                        className="w-full px-2.5 py-1.5 border border-[var(--border)] rounded text-sm bg-[var(--surface)] text-[var(--text)]">
-                        <option value="">— No location linked —</option>
-                        {locations.map(loc => (
-                          <option key={loc.id} value={loc.id}>{loc.name} ({loc.type})</option>
-                        ))}
-                      </select>
-                    )}
-                  </div>
-                )}
-
                 {/* Notes */}
                 {!isReadOnly && (
                   <div>
@@ -4741,153 +4937,6 @@ export default function FloorPlanEditor() {
               </div>
               ) : null;
               })()}
-
-              {/* ── Location & Products section ── */}
-              {linkedLoc && (
-                <div className="p-4 space-y-3 flex-1">
-                  {/* Location header */}
-                  <div className="flex items-start justify-between">
-                    <div>
-                      <div className="flex items-center gap-1.5 mb-0.5">
-                        <MapPin size={14} className="text-[var(--primary)]" />
-                        <span className="font-semibold text-[var(--text)] text-sm">{linkedLoc.name}</span>
-                      </div>
-                      <span className="text-xs text-[var(--text-muted)] capitalize">{linkedLoc.type}</span>
-                      {linkedLoc.notes && <p className="text-xs text-[var(--text-muted)] mt-0.5">{linkedLoc.notes}</p>}
-                    </div>
-                    {(() => {
-                      const status = getStockStatus(linkedProducts);
-                      const s = stockStatusLabel[status];
-                      return (
-                        <span className={`flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full ${s.className}`}>
-                          {s.icon} {s.label}
-                        </span>
-                      );
-                    })()}
-                  </div>
-
-                  {/* Product list */}
-                  {(() => {
-                    const term = prodSearch.trim().toLowerCase();
-                    const filteredProds = term
-                      ? linkedProducts.filter(p =>
-                          p.name.toLowerCase().includes(term) ||
-                          (p.sku || '').toLowerCase().includes(term)
-                        )
-                      : linkedProducts;
-                    const totalProdPages = Math.ceil(filteredProds.length / prodPageSize);
-                    const pagedProds = filteredProds.slice((prodPage - 1) * prodPageSize, prodPage * prodPageSize);
-                    return (
-                      <div>
-                        <div className="flex items-center justify-between mb-2">
-                          <h4 className="text-xs font-semibold text-[var(--text)] uppercase tracking-wide">
-                            Products ({linkedProducts.length})
-                          </h4>
-                          <div className="flex items-center gap-1">
-                            <span className="text-xs text-[var(--text-muted)]">Show</span>
-                            {[20, 50, 100].map(size => (
-                              <button
-                                key={size}
-                                type="button"
-                                onClick={() => { setProdPageSize(size); setProdPage(1); }}
-                                className={`text-xs px-1.5 py-0.5 rounded border transition-colors ${prodPageSize === size ? 'bg-[var(--primary)] text-white border-[var(--primary)]' : 'border-[var(--border)] text-[var(--text-muted)] hover:bg-[var(--surface-2)]'}`}
-                              >
-                                {size}
-                              </button>
-                            ))}
-                          </div>
-                        </div>
-
-                        {linkedProducts.length === 0 ? (
-                          <div className="text-center py-6 text-[var(--text-muted)]">
-                            <Package size={28} className="mx-auto mb-2 opacity-40" />
-                            <p className="text-xs">No products assigned to this location.</p>
-                            <p className="text-xs mt-0.5">Go to Products to assign items here.</p>
-                          </div>
-                        ) : (
-                          <>
-                            {/* Search bar */}
-                            <div className="flex items-center gap-2 px-2 py-1.5 border border-[var(--border)] rounded bg-[var(--surface-2)] mb-2">
-                              <Search size={12} className="text-[var(--text-muted)] flex-shrink-0" />
-                              <input
-                                type="text"
-                                value={prodSearch}
-                                onChange={e => { setProdSearch(e.target.value); setProdPage(1); }}
-                                placeholder="Search by name or SKU…"
-                                className="flex-1 text-xs bg-transparent outline-none text-[var(--text)] placeholder:text-[var(--text-muted)]"
-                              />
-                              {prodSearch && (
-                                <button type="button" onClick={() => { setProdSearch(''); setProdPage(1); }} className="text-[var(--text-muted)] hover:text-[var(--text)]">
-                                  <XIcon size={11} />
-                                </button>
-                              )}
-                            </div>
-                            {term && (
-                              <p className="text-xs text-[var(--text-muted)] mb-2">{filteredProds.length} of {linkedProducts.length} products</p>
-                            )}
-                            <div className="space-y-2">
-                              {pagedProds.map(product => {
-                                const status: StockStatus =
-                                  product.currentStock === 0 ? 'out' :
-                                  product.currentStock <= product.lowStockThreshold ? 'low' : 'ok';
-                                const s = stockStatusLabel[status];
-                                return (
-                                  <div key={product.id} className="border border-[var(--border)] rounded-lg p-2.5 bg-[var(--surface-2)] hover:bg-[var(--border)] transition">
-                                    <div className="flex items-start justify-between gap-2">
-                                      <div className="min-w-0 flex-1">
-                                        <p className="text-sm font-medium text-[var(--text)] truncate">{product.name}</p>
-                                        <p className="text-xs text-[var(--text-muted)]">{product.sku}</p>
-                                      </div>
-                                      <span className={`flex items-center gap-0.5 text-xs font-medium px-1.5 py-0.5 rounded-full flex-shrink-0 ${s.className}`}>
-                                        {s.icon}
-                                      </span>
-                                    </div>
-                                    <div className="mt-1.5 flex items-center justify-between">
-                                      <div className="text-sm">
-                                        <span className={`font-bold ${status === 'out' ? 'text-red-600' : status === 'low' ? 'text-amber-600' : 'text-green-700'}`}>
-                                          {product.currentStock}
-                                        </span>
-                                        <span className="text-[var(--text-muted)] text-xs"> / {product.lowStockThreshold} min · {product.unit}</span>
-                                      </div>
-                                      <div className="w-16 h-1.5 bg-[var(--border)] rounded-full overflow-hidden">
-                                        <div className={`h-full rounded-full ${status === 'out' ? 'bg-red-500' : status === 'low' ? 'bg-amber-500' : 'bg-green-500'}`}
-                                          style={{ width: `${Math.min(100, (product.currentStock / Math.max(product.lowStockThreshold * 2, 1)) * 100)}%` }} />
-                                      </div>
-                                    </div>
-                                  </div>
-                                );
-                              })}
-                            </div>
-                            {totalProdPages > 1 && (
-                              <div className="flex items-center justify-between mt-3 pt-3 border-t border-[var(--border)]">
-                                <button
-                                  type="button"
-                                  onClick={() => setProdPage(p => Math.max(1, p - 1))}
-                                  disabled={prodPage === 1}
-                                  className="flex items-center gap-1 px-2 py-1 text-xs rounded border border-[var(--border)] hover:bg-[var(--surface-2)] disabled:opacity-40 disabled:cursor-not-allowed"
-                                >
-                                  <ChevronLeft size={12} /> Prev
-                                </button>
-                                <span className="text-xs text-[var(--text-muted)]">
-                                  Page {prodPage} of {totalProdPages} · {filteredProds.length} products
-                                </span>
-                                <button
-                                  type="button"
-                                  onClick={() => setProdPage(p => Math.min(totalProdPages, p + 1))}
-                                  disabled={prodPage === totalProdPages}
-                                  className="flex items-center gap-1 px-2 py-1 text-xs rounded border border-[var(--border)] hover:bg-[var(--surface-2)] disabled:opacity-40 disabled:cursor-not-allowed"
-                                >
-                                  Next <ChevronRight size={12} />
-                                </button>
-                              </div>
-                            )}
-                          </>
-                        )}
-                      </div>
-                    );
-                  })()}
-                </div>
-              )}
             </div>
           ) : (
             /* Empty state */
@@ -4920,6 +4969,8 @@ export default function FloorPlanEditor() {
                 })}
               </div>
             </div>
+          )}
+          </div>
           )}
         </div>
       </div>

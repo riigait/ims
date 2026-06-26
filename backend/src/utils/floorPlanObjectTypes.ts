@@ -26,3 +26,11 @@ export function isFixedReservedObject(id: string): boolean {
     || /reserved-(male-|female-)?restroom/.test(id)
     || id.includes('reserved-column');
 }
+
+// Mirrors frontend/src/utils/floorplanLocationLinks.ts — resolves the
+// effective set of linked location ids: linkedLocationIds (multi-location,
+// current) if present, else the single-value legacy linkedLocationId.
+export function getLinkedLocationIds(object: { linkedLocationId?: string; linkedLocationIds?: string[] }): string[] {
+  if (object.linkedLocationIds && object.linkedLocationIds.length > 0) return object.linkedLocationIds;
+  return object.linkedLocationId ? [object.linkedLocationId] : [];
+}

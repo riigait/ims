@@ -1,4 +1,4 @@
-import { isRectObjectType, isFixedReservedObject } from './floorPlanObjectTypes';
+import { isRectObjectType, isFixedReservedObject, getLinkedLocationIds } from './floorPlanObjectTypes';
 
 type FloorPlanObject = {
   id: string;
@@ -10,6 +10,7 @@ type FloorPlanObject = {
   points?: number[];
   label?: string;
   linkedLocationId?: string;
+  linkedLocationIds?: string[];
   groupId?: string;
   startX?: number;
   startY?: number;
@@ -212,9 +213,9 @@ const labelFor = (object: FloorPlanObject) => object.label ? `"${object.label}"`
 export function validateFloorplanObjects(objects: FloorPlanObject[]): FloorplanValidationResult {
   const errors: FloorplanValidationIssue[] = [];
   const polygonRooms = objects.filter(isPolygonRoom);
-  const structuralPolygonRooms = polygonRooms.filter(room => !room.linkedLocationId);
-  const structuralRooms = objects.filter(isRect).filter(room => !room.linkedLocationId);
-  const furniture = objects.filter(isRect).filter(object => !!object.linkedLocationId);
+  const structuralPolygonRooms = polygonRooms.filter(room => getLinkedLocationIds(room).length === 0);
+  const structuralRooms = objects.filter(isRect).filter(room => getLinkedLocationIds(room).length === 0);
+  const furniture = objects.filter(isRect).filter(object => getLinkedLocationIds(object).length > 0);
   const walls = objects.filter(object => object.type === 'wall');
   const indoorWalls = walls.filter(wall => !isOutdoorWall(wall));
   const doors = objects.filter(isDoorLike);
