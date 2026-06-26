@@ -653,7 +653,13 @@ export default function ObjectFrontView({
   useEffect(() => { setReady(true); }, []);
 
   const [dragOver, setDragOver] = useState(false);
+  const [dropMessage, setDropMessage] = useState<string | null>(null);
   const linkedIds = getLinkedLocationIds(object);
+
+  const flashMessage = (msg: string) => {
+    setDropMessage(msg);
+    setTimeout(() => setDropMessage(null), 2500);
+  };
 
   const handleDrop = (e: DragEvent) => {
     e.preventDefault();
@@ -662,13 +668,20 @@ export default function ObjectFrontView({
     if (!raw) return;
     const payload = JSON.parse(raw) as DragPayload;
     if (payload.kind === 'location') {
-      if (!onChangeLocations || linkedIds.includes(payload.locationId)) return;
+      if (!onChangeLocations) return;
+      if (linkedIds.includes(payload.locationId)) {
+        flashMessage('That location is already linked.');
+        return;
+      }
       onChangeLocations([...linkedIds, payload.locationId]);
     } else {
       // Drop a product onto the object — assign it to the object's first
-      // linked location. Needs at least one location linked already (drop a
-      // Location row first if the object has none).
-      if (!onAssignProductLocation || linkedIds.length === 0) return;
+      // linked location. Needs at least one location linked already.
+      if (!onAssignProductLocation) return;
+      if (linkedIds.length === 0) {
+        flashMessage('Link a location first — drag one from the Locations tab.');
+        return;
+      }
       onAssignProductLocation(payload.productId, linkedIds[0]);
     }
   };
@@ -705,6 +718,9 @@ export default function ObjectFrontView({
           )}
 
           <div className="flex-1 flex flex-col min-w-0">
+            {dropMessage && (
+              <div className="px-4 pt-2 text-xs text-amber-600 text-center flex-shrink-0">{dropMessage}</div>
+            )}
             <div
               className={`p-4 flex-shrink-0 flex justify-center transition-colors ${dragOver ? 'bg-[var(--primary)]/10' : ''}`}
               onDragOver={e => { e.preventDefault(); setDragOver(true); }}
