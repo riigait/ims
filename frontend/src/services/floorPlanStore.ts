@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { FloorPlanEditorState, FloorPlanObject, LoadedFloorPlan } from '@/types/floorplan';
+import { GRID_SIZE, normalizeObject } from '@/utils/floorplanGrid';
 
 interface FloorPlanStore {
   currentFloorPlan: LoadedFloorPlan | null;
@@ -18,10 +19,12 @@ interface FloorPlanStore {
   clearSelection: () => void;
   setZoomLevel: (zoom: number) => void;
   setPan: (x: number, y: number) => void;
+  toggleBackground: () => void;
 
   addObject: (object: FloorPlanObject) => void;
   updateObject: (id: string, object: Partial<FloorPlanObject>) => void;
   updateMultipleObjects: (ids: string[], updates: Partial<FloorPlanObject>) => void;
+  updateObjectsBatch: (batch: { id: string; updates: Partial<FloorPlanObject> }[]) => void;
   deleteObject: (id: string) => void;
   deleteMultipleObjects: (ids: string[]) => void;
   bringToFront: (id: string) => void;
@@ -51,6 +54,7 @@ export const useFloorPlanStore = create<FloorPlanStore>((set, get) => ({
     zoomLevel: 1,
     panX: 0,
     panY: 0,
+    darkBackground: true,
   },
   selectedObjectIds: [],
   clipboard: null,
@@ -109,6 +113,11 @@ export const useFloorPlanStore = create<FloorPlanStore>((set, get) => ({
     set((state) => ({
       editorState: { ...state.editorState, panX: x, panY: y },
     })),
+
+  toggleBackground: () =>
+    set((state) => ({
+      editorState: { ...state.editorState, darkBackground: !state.editorState.darkBackground },
+    })),
   
   addObject: (object) =>
     set((state) => {
@@ -142,6 +151,20 @@ export const useFloorPlanStore = create<FloorPlanStore>((set, get) => ({
           ...state.currentFloorPlan,
           objects: state.currentFloorPlan.objects.map((obj) =>
             ids.includes(obj.id) ? { ...obj, ...updates } as FloorPlanObject : obj
+          ),
+        },
+      };
+    }),
+
+  updateObjectsBatch: (batch) =>
+    set((state) => {
+      if (!state.currentFloorPlan) return state;
+      const map = new Map(batch.map(({ id, updates }) => [id, updates]));
+      return {
+        currentFloorPlan: {
+          ...state.currentFloorPlan,
+          objects: state.currentFloorPlan.objects.map((obj) =>
+            map.has(obj.id) ? { ...obj, ...map.get(obj.id) } as FloorPlanObject : obj
           ),
         },
       };
@@ -275,8 +298,8 @@ export const useFloorPlanStore = create<FloorPlanStore>((set, get) => ({
   pasteObjects: () =>
     set((state) => {
       if (!state.currentFloorPlan || !state.clipboard) return state;
-      const offset = 20;
-      const newObjects = state.clipboard.map(obj => ({
+      const offset = GRID_SIZE * 2;
+      const newObjects = state.clipboard.map(obj => normalizeObject({
         ...obj,
         id: obj.type + '_' + Date.now() + Math.random(),
         ...(obj.type === 'wall' && {
@@ -289,7 +312,7 @@ export const useFloorPlanStore = create<FloorPlanStore>((set, get) => ({
           x: (obj as any).x + offset,
           y: (obj as any).y + offset,
         }),
-      })) as FloorPlanObject[];
+      } as FloorPlanObject)) as FloorPlanObject[];
 
       const newPlan = {
         ...state.currentFloorPlan,

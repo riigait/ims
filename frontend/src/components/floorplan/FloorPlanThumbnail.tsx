@@ -1,6 +1,8 @@
-import { Fragment, memo, useEffect, useRef, useState } from 'react';
-import { Circle, Layer, Line, Rect, Stage, Text } from 'react-konva';
-import { FloorPlan, FloorPlanObject } from '@/types/floorplan';
+import { memo, useEffect, useRef, useState } from 'react';
+import { Circle, Group, Layer, Line, Rect, Stage, Text } from 'react-konva';
+import { FloorPlan, FloorPlanObject, RectangleObject } from '@/types/floorplan';
+import { polygonBounds } from '@/utils/floorplanGrid';
+import { getLinkedLocationIds } from '@/utils/floorplanLocationLinks';
 
 interface Props {
   readonly plan: FloorPlan;
@@ -12,9 +14,22 @@ interface Props {
 
 const RECT_FILL: Record<string, string> = {
   room: '#e5e7eb',
-  rack: '#fef3c7',
-  shelf: '#dbeafe',
+  rack: '#fef3c7', shelf: '#dbeafe',
+  stairs: '#fef3c7', elevator: '#ede9fe',
+  'work-surface': '#f3e8ff', chair: '#f3e8ff', cabinet: '#d1fae5',
+  drawer: '#dbeafe', locker: '#fef3c7', 'storage-box': '#fee2e2',
+  bin: '#f1f5f9', pallet: '#ffedd5', bathroom: '#dbeafe', human: '#dbeafe',
 };
+
+const ALL_THUMB_RECT_TYPES = new Set([
+  'rack', 'shelf', 'stairs', 'elevator',
+  'work-surface', 'chair', 'cabinet', 'drawer', 'locker',
+  'storage-box', 'bin', 'pallet', 'bathroom', 'human',
+]);
+
+function isThumbRectObj(obj: FloorPlanObject): obj is RectangleObject {
+  return ALL_THUMB_RECT_TYPES.has(obj.type);
+}
 
 const CSS_GRID_BG: React.CSSProperties = {
   backgroundImage:
@@ -24,8 +39,12 @@ const CSS_GRID_BG: React.CSSProperties = {
   backgroundColor: '#f8fafc',
 };
 
-function getServiceRoomKind(label?: string): 'stairs' | 'elevator' | 'bathroom' | null {
-  const normalized = label?.toLowerCase() ?? '';
+function getServiceRoomKind(obj: RectangleObject): 'stairs' | 'elevator' | 'bathroom' | null {
+  const t = (obj as { type: string }).type;
+  if (t === 'stairs') return 'stairs';
+  if (t === 'elevator') return 'elevator';
+  if (t === 'bathroom') return 'bathroom';
+  const normalized = obj.label?.toLowerCase() ?? '';
   if (normalized.startsWith('stairs')) return 'stairs';
   if (normalized.startsWith('elevator')) return 'elevator';
   if (normalized.includes('bathroom') || normalized.includes('restroom')) return 'bathroom';
@@ -43,11 +62,13 @@ function getBounds(objects: FloorPlanObject[], plan: FloorPlan) {
       minY = Math.min(minY, obj.startY, obj.endY);
       maxX = Math.max(maxX, obj.startX, obj.endX);
       maxY = Math.max(maxY, obj.startY, obj.endY);
-    } else if (obj.type === 'room' || obj.type === 'rack' || obj.type === 'shelf') {
-      minX = Math.min(minX, obj.x);
-      minY = Math.min(minY, obj.y);
-      maxX = Math.max(maxX, obj.x + obj.width);
-      maxY = Math.max(maxY, obj.y + obj.height);
+    } else if (obj.type === 'room') {
+      const b = polygonBounds(obj.points);
+      minX = Math.min(minX, b.x); minY = Math.min(minY, b.y);
+      maxX = Math.max(maxX, b.x + b.width); maxY = Math.max(maxY, b.y + b.height);
+    } else if (isThumbRectObj(obj)) {
+      minX = Math.min(minX, obj.x); minY = Math.min(minY, obj.y);
+      maxX = Math.max(maxX, obj.x + obj.width); maxY = Math.max(maxY, obj.y + obj.height);
     } else if (obj.type === 'label') {
       minX = Math.min(minX, obj.x);
       minY = Math.min(minY, obj.y);
@@ -61,31 +82,35 @@ function getBounds(objects: FloorPlanObject[], plan: FloorPlan) {
 }
 
 function renderRoom(
-  obj: Extract<FloorPlanObject, { type: 'room' | 'rack' | 'shelf' }>,
+  obj: RectangleObject,
   x: number, y: number, w: number, h: number,
   isHighlighted: boolean,
   scale: number,
 ) {
   const label = obj.label ?? '';
-  const kind = getServiceRoomKind(label);
+  const kind = getServiceRoomKind(obj);
+  const rotDeg = (obj.rotation ?? 0) * (180 / Math.PI);
+  const cx = x + w / 2;
+  const cy = y + h / 2;
   return (
-    <Fragment key={obj.id}>
-      <Rect
-        x={x} y={y} width={w} height={h}
-        fill={isHighlighted ? '#dbeafe' : (obj.color ?? RECT_FILL[obj.type])}
-        opacity={isHighlighted ? 0.9 : 0.65}
-        stroke={isHighlighted ? '#2563eb' : (obj.color ?? '#64748b')}
-        strokeWidth={isHighlighted ? 1.5 : 0.8}
-      />
-      {kind === 'stairs' && [0, 1, 2, 3].map((i) => (
-        <Line key={`stair-${obj.id}-${i}`} points={[x + w * 0.2, y + h * (i + 1) / 6, x + w * 0.8, y + h * (i + 1) / 6]} stroke="#b45309" strokeWidth={Math.max(0.8, scale * 2)} />
-      ))}
-      {kind === 'elevator' && (
-        <Rect x={x + w * 0.25} y={y + h * 0.18} width={w * 0.5} height={h * 0.5} stroke="#7e22ce" strokeWidth={Math.max(0.8, scale * 2)} />
-      )}
-      {kind === 'bathroom' && (
-        <Circle x={x + w / 2} y={y + h * 0.34} radius={Math.min(w, h) * 0.12} stroke="#0369a1" strokeWidth={Math.max(0.8, scale * 2)} />
-      )}
+    <Group key={obj.id} x={cx} y={cy} rotation={rotDeg} listening={false}>
+      <Group x={-cx} y={-cy} listening={false}>
+        <Rect
+          x={x} y={y} width={w} height={h}
+          fill={isHighlighted ? '#dbeafe' : (obj.color ?? RECT_FILL[obj.type])}
+          opacity={isHighlighted ? 0.9 : 0.65}
+          stroke={isHighlighted ? '#2563eb' : (obj.color ?? '#64748b')}
+          strokeWidth={isHighlighted ? 1.5 : 0.8}
+        />
+        {kind === 'stairs' && [0, 1, 2, 3].map((i) => (
+          <Line key={`stair-${obj.id}-${i}`} points={[x + w * 0.2, y + h * (i + 1) / 6, x + w * 0.8, y + h * (i + 1) / 6]} stroke="#b45309" strokeWidth={Math.max(0.8, scale * 2)} />
+        ))}
+        {kind === 'elevator' && (
+          <Rect x={x + w * 0.25} y={y + h * 0.18} width={w * 0.5} height={h * 0.5} stroke="#7e22ce" strokeWidth={Math.max(0.8, scale * 2)} />
+        )}
+        {kind === 'bathroom' && (
+          <Circle x={x + w / 2} y={y + h * 0.34} radius={Math.min(w, h) * 0.12} stroke="#0369a1" strokeWidth={Math.max(0.8, scale * 2)} />
+        )}
       {w > 24 && h > 14 && label && (
         <Text
           x={x + 3} y={y + h / 2 - 5}
@@ -96,7 +121,67 @@ function renderRoom(
           fill="#334155"
         />
       )}
-    </Fragment>
+      </Group>
+    </Group>
+  );
+}
+
+function renderWall(
+  obj: Extract<FloorPlanObject, { type: 'wall' }>,
+  isHighlighted: boolean,
+  scale: number,
+  tx: (v: number) => number,
+  ty: (v: number) => number,
+) {
+  return (
+    <Line
+      key={obj.id}
+      points={[tx(obj.startX), ty(obj.startY), tx(obj.endX), ty(obj.endY)]}
+      stroke={isHighlighted ? '#2563eb' : (obj.color ?? '#1e293b')}
+      strokeWidth={Math.max(1, obj.thickness * scale)}
+      lineCap="round"
+    />
+  );
+}
+
+function renderPolygonRoom(
+  obj: Extract<FloorPlanObject, { type: 'room' }>,
+  isHighlighted: boolean,
+  tx: (v: number) => number,
+  ty: (v: number) => number,
+) {
+  const pts = obj.points;
+  if (!Array.isArray(pts) || pts.length < 6) return null;
+  const scaledPts: number[] = [];
+  for (let i = 0; i < pts.length; i += 2) scaledPts.push(tx(pts[i]), ty(pts[i + 1]));
+  return (
+    <Line key={obj.id} points={scaledPts} closed
+      fill={isHighlighted ? '#dbeafe' : (obj.color ?? '#e0e0e0')}
+      opacity={isHighlighted ? 0.9 : 0.65}
+      stroke={isHighlighted ? '#2563eb' : '#64748b'}
+      strokeWidth={isHighlighted ? 1.5 : 0.8}
+    />
+  );
+}
+
+function renderOpening(
+  obj: Extract<FloorPlanObject, { type: 'door' | 'entrance' | 'window' }>,
+  scale: number,
+  tx: (v: number) => number,
+  ty: (v: number) => number,
+) {
+  const shape = obj as { x: number; y: number; width: number; angle?: number };
+  if (!Number.isFinite(shape.x) || !Number.isFinite(shape.y) || !Number.isFinite(shape.width)) return null;
+  return (
+    <Line
+      key={obj.id}
+      points={[tx(shape.x - shape.width / 2), ty(shape.y), tx(shape.x + shape.width / 2), ty(shape.y)]}
+      stroke={obj.type === 'window' ? '#38bdf8' : '#16a34a'}
+      strokeWidth={Math.max(2, 4 * scale)}
+      rotation={(shape.angle ?? 0) * (180 / Math.PI)}
+      x={tx(shape.x)} y={ty(shape.y)}
+      offsetX={tx(shape.x)} offsetY={ty(shape.y)}
+    />
   );
 }
 
@@ -107,35 +192,15 @@ function renderObject(
   tx: (v: number) => number,
   ty: (v: number) => number,
 ) {
-  if (obj.type === 'wall') {
-    return (
-      <Line
-        key={obj.id}
-        points={[tx(obj.startX), ty(obj.startY), tx(obj.endX), ty(obj.endY)]}
-        stroke={isHighlighted ? '#2563eb' : (obj.color ?? '#1e293b')}
-        strokeWidth={Math.max(1, obj.thickness * scale)}
-        lineCap="round"
-      />
-    );
-  }
+  if (obj.type === 'wall') return renderWall(obj, isHighlighted, scale, tx, ty);
+  if (obj.type === 'room') return renderPolygonRoom(obj, isHighlighted, tx, ty);
 
-  if (obj.type === 'room' || obj.type === 'rack' || obj.type === 'shelf') {
+  if (isThumbRectObj(obj)) {
     return renderRoom(obj, tx(obj.x), ty(obj.y), obj.width * scale, obj.height * scale, isHighlighted, scale);
   }
 
   if (obj.type === 'door' || obj.type === 'entrance' || obj.type === 'window') {
-    const shape = obj as { x: number; y: number; width: number; angle?: number };
-    return (
-      <Line
-        key={obj.id}
-        points={[tx(shape.x - shape.width / 2), ty(shape.y), tx(shape.x + shape.width / 2), ty(shape.y)]}
-        stroke={obj.type === 'window' ? '#38bdf8' : '#16a34a'}
-        strokeWidth={Math.max(2, 4 * scale)}
-        rotation={(shape.angle ?? 0) * (180 / Math.PI)}
-        x={tx(shape.x)} y={ty(shape.y)}
-        offsetX={tx(shape.x)} offsetY={ty(shape.y)}
-      />
-    );
+    return renderOpening(obj, scale, tx, ty);
   }
 
   if (obj.type === 'label') {
@@ -196,7 +261,7 @@ function FloorPlanThumbnailBase({ plan, width = 200, height = 200, highlightLoca
             {objects.length === 0 ? (
               <Text x={0} y={height / 2 - 8} width={width} text="Empty floor plan" align="center" fontSize={11} fill="#cbd5e1" />
             ) : (
-              objects.map((obj) => renderObject(obj, !!highlightLocationId && obj.linkedLocationId === highlightLocationId, scale, tx, ty))
+              objects.map((obj) => renderObject(obj, !!highlightLocationId && getLinkedLocationIds(obj).includes(highlightLocationId), scale, tx, ty))
             )}
             <Rect x={width - 48} y={height - 21} width={44} height={17} fill="rgba(15,23,42,0.55)" cornerRadius={3} />
             <Text x={width - 48} y={height - 17} width={44} text={`${objects.length} objects`} align="center" fontSize={9} fill="#ffffff" />

@@ -2,7 +2,10 @@ import booleanContains from '@turf/boolean-contains';
 import booleanIntersects from '@turf/boolean-intersects';
 import { bboxPolygon } from '@turf/turf';
 import { Feature, Polygon } from 'geojson';
-import { DoorObject, EntranceObject, FloorPlanObject, RectangleObject, WallObject } from '@/types/floorplan';
+import { DoorObject, EntranceObject, FloorPlanObject, PolygonRoomObject, RectangleObject, WallObject } from '@/types/floorplan';
+import { polygonBounds } from '@/utils/floorplanGrid';
+import { isRectangleObjectType, isFixedReservedObject } from '@/utils/floorplanObjectTypes';
+import { getLinkedLocationIds } from '@/utils/floorplanLocationLinks';
 
 export type FloorplanValidationError =
   | 'object_outside_room'
@@ -53,7 +56,16 @@ function wallPolygon(wall: WallObject): Feature<Polygon> {
 }
 
 function isRectObject(obj: FloorPlanObject): obj is RectangleObject {
-  return obj.type === 'room' || obj.type === 'rack' || obj.type === 'shelf';
+  return isRectangleObjectType(obj.type);
+}
+
+function isPolygonRoom(obj: FloorPlanObject): obj is PolygonRoomObject {
+  return obj.type === 'room' && Array.isArray((obj as PolygonRoomObject).points) && (obj as PolygonRoomObject).points.length >= 6;
+}
+
+function polygonRoomRect(room: PolygonRoomObject, inset = 0): Feature<Polygon> {
+  const b = polygonBounds(room.points);
+  return bboxPolygon([b.x + inset, b.y + inset, b.x + b.width - inset, b.y + b.height - inset]);
 }
 
 function isDoorLike(obj: FloorPlanObject): obj is DoorObject | EntranceObject {
@@ -65,10 +77,17 @@ function isOutdoorWall(wall: WallObject): boolean {
 }
 
 function isFixedObject(obj: FloorPlanObject): boolean {
-  return obj.id.includes('reserved-stairs') ||
-    obj.id.includes('reserved-elevator') ||
-    /reserved-(male-|female-)?restroom/.test(obj.id) ||
-    obj.id.includes('reserved-column');
+  return isFixedReservedObject(obj.id);
+}
+
+function isServiceRoom(obj: FloorPlanObject): boolean {
+  if (isFixedObject(obj)) return true;
+  const lbl = (obj.label ?? '').toLowerCase().trim();
+  return (
+    lbl === 'restroom' || lbl === 'bathroom' || lbl === 'toilet' ||
+    lbl.startsWith('stairs') || lbl === 'elevator' ||
+    lbl.includes('restroom') || lbl.includes('bathroom')
+  );
 }
 
 function rectsOverlap(a: RectangleObject, b: RectangleObject, gap = 0): boolean {
@@ -179,9 +198,13 @@ function distToLoop(px: number, py: number, loop: [number, number][]): number {
 
 export function validateFloorplanObjects(objects: FloorPlanObject[]): FloorplanValidationResult {
   const errors: FloorplanValidationResult['errors'] = [];
-  const structuralRooms = objects.filter((obj): obj is RectangleObject => isRectObject(obj) && !obj.linkedLocationId);
-  const placedObjects = objects.filter((obj): obj is RectangleObject => isRectObject(obj) && !!obj.linkedLocationId);
-  // Furniture = racks/shelves only; rooms linked to locations are excluded from placement/clearance checks
+  // Polygon rooms (new type) — unlinked are structural, linked are placed
+  const polygonRooms = objects.filter(isPolygonRoom);
+  const structuralPolyRooms = polygonRooms.filter(r => getLinkedLocationIds(r).length === 0);
+
+  // Rect-only structural (racks/shelves used as room dividers, fixed service objects, etc.)
+  const structuralRooms = objects.filter((obj): obj is RectangleObject => isRectObject(obj) && getLinkedLocationIds(obj).length === 0);
+  const placedObjects = objects.filter((obj): obj is RectangleObject => isRectObject(obj) && getLinkedLocationIds(obj).length > 0);
   const placedFurniture = placedObjects.filter(o => o.type === 'rack' || o.type === 'shelf');
   const walls = objects.filter((obj): obj is WallObject => obj.type === 'wall');
   const doors = objects.filter(isDoorLike);
@@ -189,15 +212,19 @@ export function validateFloorplanObjects(objects: FloorPlanObject[]): FloorplanV
   const fixedStructuralRooms = structuralRooms.filter(isFixedObject);
   const movableStructuralRooms = structuralRooms.filter(room => !isFixedObject(room));
 
-  // Only check containment when there are explicit structural rooms drawn
-  if (structuralRooms.length > 0) {
+  // All "room boundary" polys for containment checks — polygon rooms + rect structural rooms
+  const allRoomPolys = [
+    ...structuralRooms.map(r => rectPolygon(r, CLEARANCE)),
+    ...structuralPolyRooms.map(r => polygonRoomRect(r, CLEARANCE)),
+  ];
+
+  if (allRoomPolys.length > 0) {
     placedFurniture.forEach((obj) => {
       const objPoly = rectPolygon(obj);
-      const containingRoom = structuralRooms.find((room) => booleanContains(rectPolygon(room, CLEARANCE), objPoly));
+      const containingRoom = allRoomPolys.find(rp => booleanContains(rp, objPoly));
       if (!containingRoom) {
         errors.push({ code: 'object_outside_room', objectId: obj.id, message: 'Object is outside the room boundary.' });
       }
-
       if (walls.some((wall) => booleanIntersects(wallPolygon(wall), objPoly))) {
         errors.push({ code: 'object_crosses_wall', objectId: obj.id, message: 'Wall is crossing an object.' });
       }
@@ -205,7 +232,7 @@ export function validateFloorplanObjects(objects: FloorPlanObject[]): FloorplanV
   }
 
   movableStructuralRooms.forEach((room) => {
-    const overlappingRoom = structuralRooms.find((other) => other.id !== room.id && rectsOverlap(room, other));
+    const overlappingRoom = structuralRooms.find((other) => other.id !== room.id && !other.id.includes('reserved-column') && rectsOverlap(room, other));
     if (overlappingRoom) {
       errors.push({
         code: 'object_overlap',
@@ -240,6 +267,14 @@ export function validateFloorplanObjects(objects: FloorPlanObject[]): FloorplanV
     }
   });
 
+  structuralPolyRooms.filter(r => !r.id.includes('reserved-column')).forEach((room) => {
+    const roomPoly = polygonRoomRect(room, CLEARANCE);
+    const crossingWall = indoorWalls.find((wall) => wall.groupId !== room.groupId && booleanIntersects(wallPolygon(wall), roomPoly));
+    if (crossingWall) {
+      errors.push({ code: 'object_crosses_wall', objectId: room.id, message: `Indoor wall crosses ${labelFor(room)}.` });
+    }
+  });
+
   placedFurniture.forEach((obj) => {
     const objPoly = rectPolygon(obj);
     if (placedFurniture.some((other) => other.id !== obj.id && booleanIntersects(rectPolygon(other), objPoly))) {
@@ -247,7 +282,7 @@ export function validateFloorplanObjects(objects: FloorPlanObject[]): FloorplanV
     }
   });
 
-  structuralRooms.filter(r => !r.id.includes('reserved-column')).forEach((room) => {
+  structuralRooms.filter(r => !isServiceRoom(r)).forEach((room) => {
     if (!doors.some((door) => pointNearRectEdge(door.x, door.y, room))) {
       errors.push({ code: 'door_missing', objectId: room.id, message: 'Door is missing in this enclosed area.' });
     }
@@ -283,12 +318,19 @@ export function validateFloorplanObjects(objects: FloorPlanObject[]): FloorplanV
           !pointInsideLoop(px, py, loop) && distToLoop(px, py, loop) > TOLERANCE
         );
         if (overflows) {
-          const label = obj.label ? `"${obj.label}"` : obj.type;
-          errors.push({
-            code: 'object_outside_outdoor_walls',
-            objectId: obj.id,
-            message: `${label} is outside the outdoor wall boundary.`,
-          });
+          errors.push({ code: 'object_outside_outdoor_walls', objectId: obj.id, message: `${obj.label ? `"${obj.label}"` : obj.type} is outside the outdoor wall boundary.` });
+        }
+      });
+      // Polygon rooms
+      objects.filter(isPolygonRoom).filter(o => !o.id.includes('reserved-column')).forEach(obj => {
+        const pts = obj.points;
+        const overflows = pts.some((_, i) => {
+          if (i % 2 !== 0) return false;
+          const px = pts[i], py = pts[i + 1];
+          return !pointInsideLoop(px, py, loop) && distToLoop(px, py, loop) > TOLERANCE;
+        });
+        if (overflows) {
+          errors.push({ code: 'object_outside_outdoor_walls', objectId: obj.id, message: `${obj.label ? `"${obj.label}"` : 'Room'} is outside the outdoor wall boundary.` });
         }
       });
     }

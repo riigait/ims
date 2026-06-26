@@ -1,7 +1,9 @@
 import { useState, useEffect } from 'react';
 import { Search, X, ChevronLeft, ChevronRight } from 'lucide-react';
 import { Location } from '@/types/inventory';
-import { FloorPlan, FloorPlanObject } from '@/types/floorplan';
+import { FloorPlan, FloorPlanObject, PolygonRoomObject, RectangleObject } from '@/types/floorplan';
+import { polygonBounds } from '@/utils/floorplanGrid';
+import { getLinkedLocationIds } from '@/utils/floorplanLocationLinks';
 
 export function MapLocationPicker({
   locations,
@@ -20,7 +22,7 @@ export function MapLocationPicker({
   const plansWithLinks = floorPlans
     .map(plan => ({
       plan,
-      linkedCount: (plan.objects || []).filter(obj => obj.linkedLocationId && locationIds.has(obj.linkedLocationId)).length,
+      linkedCount: (plan.objects || []).filter(obj => getLinkedLocationIds(obj).some(id => locationIds.has(id))).length,
     }))
     .filter(entry => entry.linkedCount > 0)
     .sort((a, b) => Number(b.plan.isApproved) - Number(a.plan.isApproved) || b.linkedCount - a.linkedCount);
@@ -55,33 +57,45 @@ export function MapLocationPicker({
   }, [locationPage, totalLocationPages]);
 
   const renderObject = (obj: FloorPlanObject) => {
-    const linked = obj.linkedLocationId && locationIds.has(obj.linkedLocationId);
-    const selected = !!obj.linkedLocationId && obj.linkedLocationId === selectedLocationId;
+    // Picker click selects one location, so when an object links to several,
+    // clicking it selects the first — a small dropdown to choose among them
+    // would be the fuller fix, not needed for this secondary helper UI.
+    const linkedIds = getLinkedLocationIds(obj);
+    const firstLinkedId = linkedIds.find(id => locationIds.has(id));
+    const linked = !!firstLinkedId;
+    const selected = linkedIds.includes(selectedLocationId);
     const common = {
       key: obj.id,
-      onClick: linked ? () => onSelect(obj.linkedLocationId as string) : undefined,
+      onClick: linked ? () => onSelect(firstLinkedId as string) : undefined,
       style: { cursor: linked ? 'pointer' : 'default' },
     };
 
     if (obj.type === 'wall') {
       return <line {...common} x1={obj.startX} y1={obj.startY} x2={obj.endX} y2={obj.endY} stroke={selected ? '#2563eb' : obj.color || '#1e293b'} strokeWidth={Math.max(1, obj.thickness ?? 1)} strokeLinecap="round" />;
     }
-    if (obj.type === 'room' || obj.type === 'rack' || obj.type === 'shelf') {
+    if (obj.type === 'room') {
+      const pts = (obj as PolygonRoomObject).points;
+      const d = `M ${pts[0]},${pts[1]} ` + pts.slice(2).reduce((acc, v, i) => i % 2 === 0 ? acc + `L ${v},` : acc + `${v} `, '') + 'Z';
+      const b = polygonBounds(pts);
       return (
         <g {...common}>
-          <rect
-            x={obj.x}
-            y={obj.y}
-            width={obj.width}
-            height={obj.height}
-            fill={selected ? '#bfdbfe' : obj.color || rectFill[obj.type]}
-            stroke={selected ? '#2563eb' : linked ? '#0f766e' : '#64748b'}
-            strokeWidth={selected ? 4 : linked ? 2 : 1}
-            opacity={linked ? 0.9 : 0.55}
-          />
-          {(obj.label || obj.linkedLocationId) && obj.width > 48 && obj.height > 24 && (
-            <text x={obj.x + obj.width / 2} y={obj.y + obj.height / 2} textAnchor="middle" dominantBaseline="middle" fontSize={14} fill="#334155">
-              {(obj.label || locationName(obj.linkedLocationId)).slice(0, 24)}
+          <path d={d} fill={selected ? '#bfdbfe' : obj.color || rectFill.room} stroke={selected ? '#2563eb' : linked ? '#0f766e' : '#64748b'} strokeWidth={selected ? 4 : linked ? 2 : 1} opacity={linked ? 0.9 : 0.55} />
+          {(obj.label || firstLinkedId) && b.width > 48 && b.height > 24 && (
+            <text x={b.x + b.width / 2} y={b.y + b.height / 2} textAnchor="middle" dominantBaseline="middle" fontSize={14} fill="#334155">
+              {(obj.label || locationName(firstLinkedId)).slice(0, 24)}
+            </text>
+          )}
+        </g>
+      );
+    }
+    if (obj.type === 'rack' || obj.type === 'shelf') {
+      const r = obj as RectangleObject;
+      return (
+        <g {...common}>
+          <rect x={r.x} y={r.y} width={r.width} height={r.height} fill={selected ? '#bfdbfe' : r.color || rectFill[r.type]} stroke={selected ? '#2563eb' : linked ? '#0f766e' : '#64748b'} strokeWidth={selected ? 4 : linked ? 2 : 1} opacity={linked ? 0.9 : 0.55} />
+          {(r.label || firstLinkedId) && r.width > 48 && r.height > 24 && (
+            <text x={r.x + r.width / 2} y={r.y + r.height / 2} textAnchor="middle" dominantBaseline="middle" fontSize={14} fill="#334155">
+              {(r.label || locationName(firstLinkedId)).slice(0, 24)}
             </text>
           )}
         </g>
@@ -94,7 +108,7 @@ export function MapLocationPicker({
       return (
         <g {...common}>
           <circle cx={obj.x} cy={obj.y} r={selected ? 12 : 8} fill={selected ? '#2563eb' : linked ? '#0f766e' : '#94a3b8'} />
-          {linked && <text x={obj.x + 12} y={obj.y + 4} fontSize={12} fill="#334155">{locationName(obj.linkedLocationId).slice(0, 18)}</text>}
+          {linked && <text x={obj.x + 12} y={obj.y + 4} fontSize={12} fill="#334155">{locationName(firstLinkedId).slice(0, 18)}</text>}
         </g>
       );
     }

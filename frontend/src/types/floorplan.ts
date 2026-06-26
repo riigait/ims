@@ -1,5 +1,14 @@
 // Floor Plan Types
-export type FloorPlanObjectType = 'wall' | 'room' | 'rack' | 'shelf' | 'label' | 'door' | 'window' | 'entrance' | 'marker';
+export type FloorPlanObjectType =
+  | 'wall' | 'room'
+  | 'rack' | 'shelf' | 'stairs' | 'elevator'
+  | 'work-surface' | 'chair' | 'cabinet' | 'drawer' | 'locker' | 'storage-box' | 'bin' | 'pallet' | 'bathroom' | 'human'
+  | 'label' | 'door' | 'window' | 'entrance' | 'marker';
+
+/** Real distinct rectangle types — each is its own stored type, not a guessed label on a rack/shelf. */
+export type RectangleObjectType =
+  | 'rack' | 'shelf' | 'stairs' | 'elevator'
+  | 'work-surface' | 'chair' | 'cabinet' | 'drawer' | 'locker' | 'storage-box' | 'bin' | 'pallet' | 'bathroom' | 'human';
 
 export interface BaseFloorPlanObject {
   id: string;
@@ -7,8 +16,27 @@ export interface BaseFloorPlanObject {
   layer?: number;
   label?: string;
   notes?: string;
+  /** @deprecated use linkedLocationIds — kept for plans saved before multi-location support. */
   linkedLocationId?: string;
+  /** Locations whose products show up in this object's front-view panel. Source of truth going forward; linkedLocationId is a single-value legacy fallback. */
+  linkedLocationIds?: string[];
   groupId?: string;
+  /**
+   * Set only when the user explicitly uses the isometric view's layer-order
+   * buttons (Bring to Front/Send to Back/etc). Higher = drawn later = more
+   * "front". Unset objects are never compared on this field — they fall
+   * through to the automatic depth/height/priority sort, which must stay
+   * authoritative for every object the user never manually reordered.
+   */
+  isoManualOrder?: number;
+  meta?: {
+    sourceFloorId?: string;
+    alignmentApplied?: boolean;
+    alignmentTransformId?: string;
+    wallKind?: 'source_floor_outdoor_wall' | 'finalized_shared_perimeter';
+    isFinalizedPerimeter?: boolean;
+    generatedBy?: 'finalize_floorplan';
+  };
 }
 
 export type WallType = 'floor_original_outdoor' | 'floor_indoor' | 'finalized_building_perimeter';
@@ -25,14 +53,37 @@ export interface WallObject extends BaseFloorPlanObject {
   isFinalizedPerimeter?: boolean;
 }
 
+export interface PolygonRoomObject extends BaseFloorPlanObject {
+  type: 'room';
+  /** Flat array of world-space coords: [x0,y0, x1,y1, ...] — at least 3 points (6 numbers). */
+  points: number[];
+  color?: string;
+}
+
+/** Only meaningful when type === 'work-surface' — selects which of the 12 front-view table designs to render. */
+export type TableFrontVariant =
+  | 'table01_trestle_double'
+  | 'table02_center_pedestal'
+  | 'table03_braced_frame'
+  | 'table04_simple_legs'
+  | 'table05_apron_tapered'
+  | 'table06_full_panel_base'
+  | 'table07_double_cabinet'
+  | 'table08_drawer_pedestal'
+  | 'table09_outward_tapered'
+  | 'table10_a_frame'
+  | 'table11_corner_braced'
+  | 'table12_left_pedestal_right_leg';
+
 export interface RectangleObject extends BaseFloorPlanObject {
-  type: 'room' | 'rack' | 'shelf';
+  type: RectangleObjectType;
   x: number;
   y: number;
   width: number;
   height: number;
   rotation?: number;
   color?: string;
+  frontViewStyle?: TableFrontVariant;
 }
 
 export interface LabelObject extends BaseFloorPlanObject {
@@ -70,7 +121,7 @@ export interface EntranceObject extends BaseFloorPlanObject {
   y: number;
   width: number;
   angle: number;
-  style: 'single' | 'double' | 'archway';
+  style: 'single' | 'double' | 'archway' | 'stairway';
   color?: string;
 }
 
@@ -81,7 +132,7 @@ export interface InventoryMarkerObject extends BaseFloorPlanObject {
   linkedProductId?: string;
 }
 
-export type FloorPlanObject = WallObject | RectangleObject | LabelObject | DoorObject | WindowObject | EntranceObject | InventoryMarkerObject;
+export type FloorPlanObject = WallObject | PolygonRoomObject | RectangleObject | LabelObject | DoorObject | WindowObject | EntranceObject | InventoryMarkerObject;
 
 export interface FloorPlan {
   id: string;
@@ -96,7 +147,13 @@ export interface FloorPlan {
   objects?: FloorPlanObject[];
   isApproved?: boolean;
   isTemplate?: boolean;
+  validationIgnored?: boolean;
   generationScore?: number;
+  buildingKey?: string | null;
+  floorNumber?: number | null;
+  isAligned?: boolean;
+  alignmentData?: Record<string, unknown> | null;
+  alignedAt?: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -104,11 +161,35 @@ export interface FloorPlan {
 // Floor plan with objects guaranteed present — used by the editor store (GET /:id always returns full data)
 export type LoadedFloorPlan = FloorPlan & { objects: FloorPlanObject[] };
 
+// Map footprint import types
+export interface MapFootprintMeasurements {
+  areaSqM: number;
+  perimeterM: number;
+  widthM: number;
+  lengthM: number;
+  orientationDeg: number;
+}
+
+export type FootprintConfidence = 'High' | 'Medium' | 'Low';
+
+export interface BuildingFootprint {
+  coordinates: [number, number][];
+  source: 'drawn' | 'osm';
+  osmId?: string;
+  measurements: MapFootprintMeasurements;
+  confidence: FootprintConfidence;
+  warnings: string[];
+  walls: WallObject[];
+  suggestedWidth: number;
+  suggestedHeight: number;
+}
+
 // Editor state
 export interface FloorPlanEditorState {
   selectedObjectId: string | null;
-  tool: 'select' | 'wall' | 'room' | 'rack' | 'shelf' | 'stairs' | 'elevator' | 'bathroom' | 'label' | 'door' | 'window' | 'entrance' | 'marker' | 'delete';
+  tool: 'select' | 'wall' | 'room' | 'rack' | 'shelf' | 'work-surface' | 'chair' | 'cabinet' | 'drawer' | 'locker' | 'storage-box' | 'bin' | 'pallet' | 'stairs' | 'elevator' | 'bathroom' | 'label' | 'door' | 'window' | 'entrance' | 'marker' | 'human' | 'delete';
   zoomLevel: number;
   panX: number;
   panY: number;
+  darkBackground: boolean;
 }

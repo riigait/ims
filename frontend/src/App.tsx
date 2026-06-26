@@ -27,6 +27,7 @@ const PasswordRequests = lazy(() => import('@/pages/PasswordRequests'));
 const SuperadminSettings = lazy(() => import('@/pages/SuperadminSettings'));
 const NotFound = lazy(() => import('@/pages/NotFound'));
 const FloorPlans = lazy(() => import('@/pages/FloorPlans'));
+const Building2D = lazy(() => import('@/pages/Building2D'));
 const ImportPCLSF = lazy(() => import('@/pages/ImportPCLSF'));
 const FloorPlanEditor = lazy(() => import('@/pages/FloorPlanEditor'));
 const Scanner = lazy(() => import('@/pages/Scanner'));
@@ -84,7 +85,7 @@ function App() {
     <ErrorBoundary>
       <BellProvider>
         <ThemeProvider>
-          <BrowserRouter>
+          <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
             <Routes>
               {/* Public routes */}
               <Route path="/login" element={<PageSuspense><Login /></PageSuspense>} />
@@ -111,6 +112,7 @@ function App() {
                   <Route path="/inventory-items" element={<InventoryItems />} />
                   <Route path="/stock-movements" element={<StockMovements />} />
                   <Route path="/floor-plans" element={<FloorPlans />} />
+                  <Route path="/building-view" element={<Building2D />} />
                   <Route path="/import-pclsf" element={<ImportPCLSF />} />
                   <Route path="/scanner" element={<Scanner />} />
                   <Route path="/admin/requests" element={<Requests />} />

@@ -461,6 +461,7 @@ export default function InventoryItems() {
         formContent={null}
         onAddClick={() => {}}
         showAddButton={false}
+        showAllDepartmentsBanner={user.role === 'admin' && localStorage.getItem('currentDepartmentId') === ALL_DEPARTMENTS_ID}
         filterContent={
           <>
             <p className="text-sm text-[var(--text-muted)]">

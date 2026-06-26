@@ -151,4 +151,101 @@ router.get('/reverse', async (req: AuthRequest, res: Response, next: NextFunctio
   }
 });
 
+const OVERPASS_MIRRORS = [
+  'https://overpass.kumi.systems/api/interpreter',
+  'https://overpass-api.de/api/interpreter',
+];
+
+// out geom embeds lat/lon on each geometry node directly — no separate node lookup needed
+type OsmGeomNode = { lat: number; lon: number };
+type OsmWayWithGeom = { type: 'way'; id: number; geometry?: OsmGeomNode[]; tags?: Record<string, string> };
+type OsmElement = OsmWayWithGeom | { type: 'node' | 'relation' };
+
+type BuildingResult = {
+  id: string;
+  coordinates: [number, number][];
+  tags: Record<string, string>;
+};
+
+function parseOverpassResponse(elements: OsmElement[]): BuildingResult[] {
+  const results: BuildingResult[] = [];
+
+  for (const el of elements) {
+    if (el.type !== 'way') continue;
+    if (!('geometry' in el) || !el.geometry || el.geometry.length < 3) continue;
+
+    const coords: [number, number][] = el.geometry.map((n: OsmGeomNode) => [n.lon, n.lat]);
+    // Close ring if not already closed
+    const first = coords[0];
+    const last = coords[coords.length - 1];
+    if (first[0] !== last[0] || first[1] !== last[1]) {
+      coords.push([first[0], first[1]]);
+    }
+    results.push({ id: String(el.id), coordinates: coords, tags: el.tags || {} });
+  }
+  return results;
+}
+
+router.get('/buildings', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const south = Number(req.query.south);
+    const west = Number(req.query.west);
+    const north = Number(req.query.north);
+    const east = Number(req.query.east);
+
+    if (!Number.isFinite(south) || !Number.isFinite(west) || !Number.isFinite(north) || !Number.isFinite(east)) {
+      return res.status(400).json({ error: 'Valid south, west, north, east bounds are required' });
+    }
+
+    // Clamp bbox size to ~2km × 2km to avoid overloading Overpass
+    const latSpan = Math.min(Math.abs(north - south), 0.02);
+    const lngSpan = Math.min(Math.abs(east - west), 0.02);
+    const latMid = (south + north) / 2;
+    const lngMid = (west + east) / 2;
+    const s = latMid - latSpan / 2;
+    const n = latMid + latSpan / 2;
+    const w = lngMid - lngSpan / 2;
+    const e = lngMid + lngSpan / 2;
+
+    const cacheKey = `buildings|${s.toFixed(4)}|${w.toFixed(4)}|${n.toFixed(4)}|${e.toFixed(4)}`;
+    const cached = cache.get(cacheKey);
+    if (cached && cached.expiresAt > Date.now()) {
+      return res.json(cached.data);
+    }
+
+    // bbox order for Overpass: south,west,north,east
+    const query = `[out:json][timeout:25];way["building"](${s},${w},${n},${e});out geom;`;
+
+    let buildings: BuildingResult[] = [];
+    for (const mirror of OVERPASS_MIRRORS) {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 20_000);
+      try {
+        const overpassRes = await fetch(mirror, {
+          method: 'POST',
+          body: query,
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          signal: controller.signal,
+        });
+        if (!overpassRes.ok) continue;
+        const json = await overpassRes.json() as { elements?: OsmElement[] };
+        buildings = parseOverpassResponse(json.elements || []);
+        break; // success — stop trying mirrors
+      } catch {
+        // mirror failed or timed out — try next
+      } finally {
+        clearTimeout(timer);
+      }
+    }
+
+    if (buildings.length === 0) return res.json([]);
+
+    // Cache for 10 minutes — empty results are never cached (handled above)
+    cache.set(cacheKey, { expiresAt: Date.now() + 10 * 60 * 1000, data: buildings as unknown as MapSearchResult[] });
+    return res.json(buildings);
+  } catch (error) {
+    return next(error);
+  }
+});
+
 export default router;

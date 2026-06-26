@@ -2,6 +2,8 @@
 import prisma from '../utils/prisma';
 import { AuthRequest, canAccessDepartment } from '../middleware/auth';
 import { csvToJson } from '../utils/csv';
+import { applyFloorplanAutoFixes, validateFloorplanObjects } from '../utils/floorPlanValidation';
+import { isRectObjectType, getLinkedLocationIds } from '../utils/floorPlanObjectTypes';
 import {
   GENERATED_FLOORPLAN_SUFFIXES,
   GENERATED_FLOORPLAN_PREFIX,
@@ -32,6 +34,26 @@ const isRestroomObject = (o: FloorPlanObject) => /reserved-(male-|female-)?restr
 const isFixedFloorObject = (o: FloorPlanObject) =>
   o.id.includes('reserved-stairs') || o.id.includes('reserved-elevator') || isRestroomObject(o);
 const isOutdoorWallObject = (object: FloorPlanObject) => object.type === 'wall' && object.id.includes('-ow-');
+
+const isRectObject = (object: FloorPlanObject) => isRectObjectType(object.type);
+
+function deriveBuildingMetadata(name: string, departmentId: string | null) {
+  const match = name.match(/ - Building (\d+) - Floor (\d+) - /);
+  if (!match) return { buildingKey: null, floorNumber: null };
+  return {
+    buildingKey: `dept-${departmentId ?? 'unassigned'}-building-${Number(match[1])}`,
+    floorNumber: Number(match[2]),
+  };
+}
+
+function parseAlignmentJson(alignmentJson: string | null): unknown {
+  if (!alignmentJson) return null;
+  try {
+    return JSON.parse(alignmentJson);
+  } catch {
+    return null;
+  }
+}
 
 type OutdoorWallBounds = {
   minX: number;
@@ -146,9 +168,18 @@ function translateOutdoorWallsToSharedAnchor(
 
   const alignedBounds = outdoorWallBounds(alignedWalls);
 
+  // Translate the interior by the same delta as the walls so the floor stays
+  // internally consistent in the shared building space — rooms, cores, and
+  // fixtures keep their footprint-relative positions on every floor.
+  const movedInterior = translateFloorPlanObjects(
+    objects.filter((object) => !isOutdoorWallObject(object)),
+    dx,
+    dy,
+  );
+
   return {
     objects: [
-      ...objects.filter((object) => !isOutdoorWallObject(object)),
+      ...movedInterior,
       ...alignedWalls,
     ],
     selectedAnchor,
@@ -159,6 +190,19 @@ function translateOutdoorWallsToSharedAnchor(
     wallCountBefore: originalWalls.length,
     wallCountAfter: alignedWalls.length,
   };
+}
+
+function translateFloorPlanObjects(objects: FloorPlanObject[], dx: number, dy: number): FloorPlanObject[] {
+  if (dx === 0 && dy === 0) return objects;
+  return objects.map((object) => ({
+    ...object,
+    x: object.x + dx,
+    y: object.y + dy,
+    ...(object.startX !== undefined ? { startX: object.startX + dx } : {}),
+    ...(object.endX !== undefined ? { endX: object.endX + dx } : {}),
+    ...(object.startY !== undefined ? { startY: object.startY + dy } : {}),
+    ...(object.endY !== undefined ? { endY: object.endY + dy } : {}),
+  }));
 }
 
 function centerFloorPlanObjects(objects: FloorPlanObject[], width: number, height: number): FloorPlanObject[] {
@@ -271,6 +315,42 @@ function getDepartmentFilter(req: AuthRequest) {
 function canManageFloorPlan(req: AuthRequest, departmentId: string | null) {
   if (req.userRole === 'superadmin') return true;
   return req.userRole === 'admin' && Boolean(req.departmentId) && departmentId === req.departmentId;
+}
+
+function importedFloorPlanIsFinalized(plan: any) {
+  return plan?.status === 'finalized' || plan?.isFinalized === true || plan?.isApproved === true;
+}
+
+function parseImportedFloorPlanObjects(plan: any): FloorPlanObject[] {
+  if (Array.isArray(plan?.objects)) return plan.objects;
+  if (typeof plan?.planJson === 'string') {
+    const parsed = JSON.parse(plan.planJson);
+    if (Array.isArray(parsed)) return parsed;
+  }
+  throw new Error('objects array is required');
+}
+
+function exportedFloorPlan(plan: any) {
+  const isFinalized = plan.isApproved === true;
+  return {
+    sourceId: plan.id,
+    name: plan.name,
+    width: plan.width,
+    height: plan.height,
+    locationId: plan.locationId,
+    objects: JSON.parse(plan.planJson || '[]'),
+    status: isFinalized ? 'finalized' : 'draft',
+    isFinalized,
+    isApproved: isFinalized,
+    isTemplate: plan.isTemplate,
+    validationIgnored: plan.validationIgnored,
+    generationScore: plan.generationScore,
+    buildingKey: plan.buildingKey,
+    floorNumber: plan.floorNumber,
+    isAligned: plan.isAligned,
+    alignmentData: parseAlignmentJson(plan.alignmentJson),
+    alignedAt: plan.alignedAt,
+  };
 }
 
 type LocationKind = 'rack' | 'shelf' | 'room';
@@ -419,7 +499,7 @@ function fitIndoorObjectsInsideOutdoorWalls(objects: FloorPlanObject[]): FloorPl
   const scaledH = sourceHeight * scale;
 
   const rectangles = indoorObjects.filter((object) =>
-    (object.type === 'room' || object.type === 'rack' || object.type === 'shelf')
+    (object.type === 'room' || isRectObject(object))
     && !isFixedVerticalAccess(object));
   // offsetX/Y is the target-space coordinate of the scaled content's top-left corner.
   const transformFits = (ox: number, oy: number) => rectangles.every((object) => {
@@ -528,7 +608,7 @@ function resolveIndoorObjectOverlaps(objects: FloorPlanObject[], minGap = 16): F
   // Only push zone rects — racks/shelves follow their zone via groupId so grid alignment is preserved.
   // linkedLocationId marks individual inventory items — they are never zone containers
   // and must not be pushed by the overlap resolver even if type === 'room'.
-  const isMovableZone = (o: FloorPlanObject) => o.type === 'room' && !isFixed(o) && !o.linkedLocationId;
+  const isMovableZone = (o: FloorPlanObject) => o.type === 'room' && !isFixed(o) && getLinkedLocationIds(o).length === 0;
 
   const movable: FloorPlanObject[] = objects.filter(isMovableZone).map(o => ({ ...o }));
   if (movable.length < 2) return objects;
@@ -630,9 +710,9 @@ function resolveIndoorObjectOverlaps(objects: FloorPlanObject[], minGap = 16): F
 function resolveMovableObjectOverlapsWithFixed(objects: FloorPlanObject[], fixedObjects: FloorPlanObject[], minGap = 16): FloorPlanObject[] {
   const isOW = (o: FloorPlanObject) => o.type === 'wall' && o.id.includes('-ow-');
   const isMovableZone = (o: FloorPlanObject) =>
-    o.type === 'room' && !isOW(o) && !isFixedFloorObject(o) && !o.linkedLocationId;
+    o.type === 'room' && !isOW(o) && !isFixedFloorObject(o) && getLinkedLocationIds(o).length === 0;
   const blockerObjects = fixedObjects.filter((object) =>
-    object.type === 'room' || object.type === 'rack' || object.type === 'shelf');
+    object.type === 'room' || isRectObject(object));
   const movable = objects.filter(isMovableZone).map((object) => ({ ...object }));
   if (movable.length === 0 || blockerObjects.length === 0) return objects;
 
@@ -736,7 +816,7 @@ function rectsOverlap(a: ReturnType<typeof objectBounds>, b: ReturnType<typeof o
 function hasMovableRoomOverlap(objects: FloorPlanObject[]): boolean {
   const isOW = (o: FloorPlanObject) => o.type === 'wall' && o.id.includes('-ow-');
   const rooms = objects.filter((object) =>
-    object.type === 'room' && !isOW(object) && !isFixedFloorObject(object) && !object.linkedLocationId);
+    object.type === 'room' && !isOW(object) && !isFixedFloorObject(object) && getLinkedLocationIds(object).length === 0);
   for (let i = 0; i < rooms.length; i++) {
     for (let j = i + 1; j < rooms.length; j++) {
       if (rectsOverlap(objectBounds(rooms[i]), objectBounds(rooms[j]))) return true;
@@ -748,9 +828,9 @@ function hasMovableRoomOverlap(objects: FloorPlanObject[]): boolean {
 function hasMovableFixedOverlap(objects: FloorPlanObject[], fixedObjects: FloorPlanObject[]): boolean {
   const isOW = (o: FloorPlanObject) => o.type === 'wall' && o.id.includes('-ow-');
   const rooms = objects.filter((object) =>
-    object.type === 'room' && !isOW(object) && !isFixedFloorObject(object) && !object.linkedLocationId);
+    object.type === 'room' && !isOW(object) && !isFixedFloorObject(object) && getLinkedLocationIds(object).length === 0);
   const blockers = fixedObjects.filter((object) =>
-    object.type === 'room' || object.type === 'rack' || object.type === 'shelf');
+    object.type === 'room' || isRectObject(object));
   return rooms.some((room) => blockers.some((blocker) => rectsOverlap(objectBounds(room), objectBounds(blocker))));
 }
 
@@ -761,24 +841,24 @@ function correctRegeneratedLayoutIssues(
 ): FloorPlanObject[] {
   let corrected = objects;
 
-  if (hasMovableRoomOverlap(corrected)) {
-    corrected = resolveIndoorObjectOverlaps(corrected);
+  if (fixedObjects.length > 0 && regenerateOutdoorWalls) {
+    corrected = expandOutdoorWallsToContainFixedObjects(corrected, fixedObjects);
   }
 
-  if (fixedObjects.length > 0) {
-    if (regenerateOutdoorWalls) {
-      corrected = expandOutdoorWallsToContainFixedObjects(corrected, fixedObjects);
-    }
-    if (hasMovableFixedOverlap(corrected, fixedObjects)) {
+  // Moving a room away from a fixed core can push it into another room, and
+  // resolving that room overlap can move it back into the core. Treat both
+  // constraints as one bounded correction cycle.
+  for (let pass = 0; pass < 8; pass++) {
+    const roomOverlap = hasMovableRoomOverlap(corrected);
+    const fixedOverlap = fixedObjects.length > 0 && hasMovableFixedOverlap(corrected, fixedObjects);
+    if (!roomOverlap && !fixedOverlap) break;
+
+    if (fixedOverlap) {
       corrected = resolveMovableObjectOverlapsWithFixed(corrected, fixedObjects);
     }
-  }
-
-  if (hasMovableRoomOverlap(corrected)) {
-    corrected = resolveIndoorObjectOverlaps(corrected);
-  }
-  if (fixedObjects.length > 0 && hasMovableFixedOverlap(corrected, fixedObjects)) {
-    corrected = resolveMovableObjectOverlapsWithFixed(corrected, fixedObjects, 0);
+    if (hasMovableRoomOverlap(corrected)) {
+      corrected = resolveIndoorObjectOverlaps(corrected);
+    }
   }
 
   return corrected;
@@ -804,12 +884,23 @@ router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
           isApproved: true,
           isTemplate: true,
           generationScore: true,
+          buildingKey: true,
+          floorNumber: true,
+          isAligned: true,
+          alignedAt: true,
           createdAt: true,
           updatedAt: true,
           location: { select: { id: true, name: true } },
         },
       });
-      return res.json(plans);
+      return res.json(plans.map(plan => {
+        const derived = deriveBuildingMetadata(plan.name, plan.departmentId);
+        return {
+          ...plan,
+          buildingKey: plan.buildingKey ?? derived.buildingKey,
+          floorNumber: plan.floorNumber ?? derived.floorNumber,
+        };
+      }));
     }
 
     const floorPlans = await prisma.floorPlan.findMany({
@@ -820,6 +911,7 @@ router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
     const parsed = floorPlans.map((plan) => ({
       ...plan,
       objects: JSON.parse(plan.planJson || '[]'),
+      alignmentData: parseAlignmentJson(plan.alignmentJson),
     }));
 
     res.json(parsed);
@@ -827,6 +919,116 @@ router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
     next(error);
   }
 });
+
+async function exportFloorPlans(req: AuthRequest, res: Response, next: NextFunction, finalizedOnly: boolean) {
+  try {
+    if (req.userRole !== 'admin' && req.userRole !== 'superadmin') {
+      return res.status(403).json({ error: 'Only admins can export floor plans' });
+    }
+    const floorPlans = await prisma.floorPlan.findMany({
+      where: {
+        ...getDepartmentFilter(req),
+        ...(finalizedOnly ? { isApproved: true } : {}),
+      },
+      orderBy: [{ buildingKey: 'asc' }, { floorNumber: 'asc' }, { createdAt: 'asc' }],
+    });
+    return res.json({
+      format: 'ims-floorplans',
+      version: 1,
+      scope: finalizedOnly ? 'finalized' : 'all',
+      exportedAt: new Date().toISOString(),
+      plans: floorPlans.map(exportedFloorPlan),
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
+async function importFloorPlans(req: AuthRequest, res: Response, next: NextFunction, finalizedOnly: boolean) {
+  try {
+    if (req.userRole !== 'admin' && req.userRole !== 'superadmin') {
+      return res.status(403).json({ error: 'Only admins can import floor plans' });
+    }
+    const departmentId = req.departmentId || (req.userRole === 'superadmin' ? req.body.departmentId : undefined);
+    if (!departmentId) {
+      return res.status(400).json({ error: 'Select a department before importing floor plans' });
+    }
+    const backup = req.body.backup ?? req.body;
+    if (backup?.format !== 'ims-floorplans' || !Array.isArray(backup?.plans)) {
+      return res.status(400).json({ error: 'Invalid IMS floorplan backup file' });
+    }
+
+    const created = [];
+    const errors: Array<{ plan: number; name?: string; error: string }> = [];
+    for (let index = 0; index < backup.plans.length; index++) {
+      const plan = backup.plans[index];
+      try {
+        const isFinalized = importedFloorPlanIsFinalized(plan);
+        if (finalizedOnly && !isFinalized) {
+          throw new Error('Finalized-only import cannot contain draft floorplans');
+        }
+        const width = Number.parseInt(String(plan.width), 10);
+        const height = Number.parseInt(String(plan.height), 10);
+        if (!plan.name || !Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
+          throw new Error('name, width, and height are required');
+        }
+        const objects = parseImportedFloorPlanObjects(plan);
+        let locationId: string | null = null;
+        if (typeof plan.locationId === 'string' && plan.locationId) {
+          const location = await prisma.location.findFirst({ where: { id: plan.locationId, departmentId } });
+          locationId = location?.id ?? null;
+        }
+        const imported = await prisma.floorPlan.create({
+          data: {
+            name: plan.name,
+            width,
+            height,
+            locationId,
+            departmentId,
+            planJson: JSON.stringify(objects),
+            isApproved: isFinalized,
+            isTemplate: plan.isTemplate === true,
+            validationIgnored: plan.validationIgnored === true,
+            generationScore: Number.isFinite(plan.generationScore) ? plan.generationScore : null,
+            buildingKey: typeof plan.buildingKey === 'string' ? plan.buildingKey : null,
+            floorNumber: Number.isFinite(plan.floorNumber) ? plan.floorNumber : null,
+            isAligned: plan.isAligned === true,
+            alignmentJson: plan.alignmentData === undefined || plan.alignmentData === null
+              ? null
+              : JSON.stringify(plan.alignmentData),
+            alignedAt: plan.isAligned === true ? new Date() : null,
+          },
+        });
+        created.push({ id: imported.id, name: imported.name, isFinalized: imported.isApproved });
+      } catch (error: any) {
+        errors.push({ plan: index + 1, name: plan?.name, error: error.message });
+      }
+    }
+
+    return res.json({
+      created: created.length,
+      finalized: created.filter(plan => plan.isFinalized).length,
+      drafts: created.filter(plan => !plan.isFinalized).length,
+      plans: created,
+      errors,
+      message: `Imported ${created.length} floor plans (${created.filter(plan => plan.isFinalized).length} finalized, ${created.filter(plan => !plan.isFinalized).length} draft)${errors.length > 0 ? ` with ${errors.length} errors` : ''}`,
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
+router.get('/export/json', (req: AuthRequest, res: Response, next: NextFunction) =>
+  exportFloorPlans(req, res, next, false));
+
+router.get('/export/finalized/json', (req: AuthRequest, res: Response, next: NextFunction) =>
+  exportFloorPlans(req, res, next, true));
+
+router.post('/import/json', (req: AuthRequest, res: Response, next: NextFunction) =>
+  importFloorPlans(req, res, next, false));
+
+router.post('/import/finalized/json', (req: AuthRequest, res: Response, next: NextFunction) =>
+  importFloorPlans(req, res, next, true));
 
 // Find the first floor plan containing a linked location
 router.get('/by-location/:locationId', async (req: AuthRequest, res: Response, next: NextFunction) => {
@@ -838,7 +1040,7 @@ router.get('/by-location/:locationId', async (req: AuthRequest, res: Response, n
 
     for (const plan of floorPlans) {
       const objects = JSON.parse(plan.planJson || '[]');
-      const matchingObject = objects.find((obj: any) => obj.linkedLocationId === req.params.locationId);
+      const matchingObject = objects.find((obj: any) => getLinkedLocationIds(obj).includes(req.params.locationId));
 
       if (matchingObject) {
         return res.json({
@@ -982,14 +1184,45 @@ router.post('/auto-generate', async (req: AuthRequest, res: Response, next: Next
       return res.status(404).json({ error: 'Department not found' });
     }
 
-    const locations = await prisma.location.findMany({
+    const withoutLocations = req.body.withoutLocations === true;
+
+    const allLocations = await prisma.location.findMany({
       where: { departmentId },
       orderBy: { name: 'asc' },
       select: { id: true, name: true },
     });
 
-    if (locations.length === 0) {
-      return res.status(400).json({ error: 'No locations found for this department' });
+    if (allLocations.length === 0 && !withoutLocations) {
+      return res.status(400).json({
+        error: 'No locations found for this department. Add locations before generating floor plans.',
+        insufficientLocations: true,
+      });
+    }
+
+    // Collect locationIds already placed in finalized floor plans so they are not re-assigned
+    const finalizedPlans = await prisma.floorPlan.findMany({
+      where: { departmentId, isApproved: true },
+      select: { planJson: true },
+    });
+    const usedLocationIds = new Set<string>();
+    for (const plan of finalizedPlans) {
+      try {
+        const objects: FloorPlanObject[] = JSON.parse(plan.planJson || '[]');
+        for (const obj of objects) {
+          for (const id of getLinkedLocationIds(obj)) usedLocationIds.add(id);
+        }
+      } catch { /* ignore malformed JSON */ }
+    }
+
+    const locations = allLocations.filter(l => !usedLocationIds.has(l.id));
+
+    if (!withoutLocations && allLocations.length > 0 && locations.length === 0) {
+      return res.status(409).json({
+        error: `All ${allLocations.length} location${allLocations.length === 1 ? '' : 's'} in this department are already placed in finalized floor plans.`,
+        allLocationsInUse: true,
+        totalLocations: allLocations.length,
+        usedCount: usedLocationIds.size,
+      });
     }
 
     const requestedFloorTemplates: unknown[] = Array.isArray(req.body.floorTemplates) ? req.body.floorTemplates : [];
@@ -1041,43 +1274,119 @@ router.post('/auto-generate', async (req: AuthRequest, res: Response, next: Next
       }
       const regenerateOutdoorWalls = req.body.regenerateOutdoorWalls !== false;
       const addRooftopFloor = req.body.addRooftopFloor !== false;
-      const preservedOutdoorWalls = new Map<number, FloorPlanObject[]>();
-      const preservedFixedObjects = new Map<number, FloorPlanObject[]>();
+
+      // Backfill buildingKey/floorNumber on finalized plans that predate this field
+      const unkeyed = await prisma.floorPlan.findMany({
+        where: {
+          departmentId,
+          isApproved: true,
+          buildingKey: null,
+          name: { startsWith: `${GENERATED_FLOORPLAN_PREFIX}${department.name} - Building ` },
+        },
+        select: { id: true, name: true },
+      });
+      for (const plan of unkeyed) {
+        const bMatch = plan.name.match(/ - Building (\d+) - Floor (\d+) - /);
+        if (!bMatch) continue;
+        const bNum = Number(bMatch[1]);
+        const fNum = Number(bMatch[2]);
+        await prisma.floorPlan.update({
+          where: { id: plan.id },
+          data: { buildingKey: `dept-${departmentId}-building-${bNum}`, floorNumber: fNum },
+        });
+      }
+
+      // Find highest building number already used (finalized or non-finalized)
+      const allExistingBuildings = await prisma.floorPlan.findMany({
+        where: { departmentId, buildingKey: { not: null } },
+        select: { buildingKey: true, isApproved: true, floorNumber: true },
+      });
+      const buildingNums = allExistingBuildings
+        .map(p => Number(p.buildingKey?.replace(`dept-${departmentId}-building-`, '') ?? 0))
+        .filter(n => n > 0);
+      const highestExisting = buildingNums.length > 0 ? Math.max(...buildingNums) : 0;
+
+      // Load finalized slots keyed by buildingKey:floorNumber
+      const finalizedSlots = new Set(
+        allExistingBuildings
+          .filter(p => p.isApproved)
+          .map(p => `${p.buildingKey}:${p.floorNumber}`)
+      );
+
+      // Determine which existing building numbers still have non-finalized floors to replace
+      const partiallyFinalizedKeys = new Set(
+        allExistingBuildings
+          .filter(p => !p.isApproved && p.buildingKey)
+          .map(p => p.buildingKey as string)
+      );
+      const fullyFinalizedKeys = new Set(
+        allExistingBuildings
+          .filter(p => p.isApproved && p.buildingKey)
+          .map(p => p.buildingKey as string)
+      );
+      // Keys that are finalized but have no non-finalized siblings are fully locked
+      const lockedKeys = new Set(
+        [...fullyFinalizedKeys].filter(k => !partiallyFinalizedKeys.has(k))
+      );
+
+      // Assign building keys: reuse partially-finalized buildings first, then add new ones
+      const reuseKeys = [...partiallyFinalizedKeys].slice(0, planCount);
+      let nextBuildingNum = highestExisting + 1;
+      const buildingKeys: string[] = [];
+      for (let i = 0; i < planCount; i++) {
+        if (i < reuseKeys.length) {
+          buildingKeys.push(reuseKeys[i]);
+        } else {
+          // Skip building numbers that are fully finalized (locked)
+          while (lockedKeys.has(`dept-${departmentId}-building-${nextBuildingNum}`)) {
+            nextBuildingNum++;
+          }
+          buildingKeys.push(`dept-${departmentId}-building-${nextBuildingNum}`);
+          nextBuildingNum++;
+        }
+      }
+
+      const preservedOutdoorWalls = new Map<string, FloorPlanObject[]>();
+      const preservedFixedObjects = new Map<string, FloorPlanObject[]>();
       if (!regenerateOutdoorWalls) {
         const existingBuildingFloors = await prisma.floorPlan.findMany({
-          where: {
-            departmentId,
-            name: { startsWith: `${GENERATED_FLOORPLAN_PREFIX}${department.name} - Building ` },
-          },
+          where: { departmentId, buildingKey: { in: buildingKeys }, floorNumber: 1 },
         });
         existingBuildingFloors.forEach((plan) => {
-          const match = plan.name.match(/ - Building (\d+) - Floor 1 - /);
-          if (!match) return;
+          if (!plan.buildingKey) return;
           try {
             const objects = centerFloorPlanObjects(JSON.parse(plan.planJson || '[]'), plan.width, plan.height);
-            preservedOutdoorWalls.set(Number(match[1]), objects.filter((object) => object.type === 'wall' && object.id.includes('-ow-')));
-            preservedFixedObjects.set(Number(match[1]), objects.filter((object) => (
+            preservedOutdoorWalls.set(plan.buildingKey, objects.filter((object) => object.type === 'wall' && object.id.includes('-ow-')));
+            preservedFixedObjects.set(plan.buildingKey, objects.filter((object) => (
               object.id.includes('reserved-stairs')
               || object.id.includes('reserved-elevator')
               || isRestroomObject(object)
             )));
-          } catch {
-            // Existing invalid JSON cannot provide a reusable outdoor shell.
-          }
+          } catch { /* ignore */ }
         });
       }
 
+      // Delete non-finalized floors only for the buildings we are regenerating
+      await prisma.floorPlan.deleteMany({
+        where: { departmentId, buildingKey: { in: buildingKeys }, isApproved: false },
+      });
+      // Also clean up old name-based non-finalized plans with no buildingKey
       await prisma.floorPlan.deleteMany({
         where: {
           departmentId,
+          buildingKey: null,
           name: { startsWith: `${GENERATED_FLOORPLAN_PREFIX}${department.name} - ` },
+          isApproved: false,
         },
       });
 
       const created = [];
       for (let buildingIndex = 0; buildingIndex < planCount; buildingIndex++) {
-        const preservedFloorOneOutdoorWalls = (preservedOutdoorWalls.get(buildingIndex + 1) ?? []).map((wall) => ({ ...wall }));
-        const preservedFixed = preservedFixedObjects.get(buildingIndex + 1) ?? [];
+        const buildingKey = buildingKeys[buildingIndex];
+        const bNumMatch = buildingKey.match(/building-(\d+)$/);
+        const buildingDisplayNum = bNumMatch ? Number(bNumMatch[1]) : buildingIndex + 1;
+        const preservedFloorOneOutdoorWalls = (preservedOutdoorWalls.get(buildingKey) ?? []).map((wall) => ({ ...wall }));
+        const preservedFixed = preservedFixedObjects.get(buildingKey) ?? [];
         let buildingAlignmentAnchor: OutdoorWallAlignmentAnchor | null = null;
         const sharedStairs = new Map<number, FloorPlanObject[]>();
         if (preservedFixed.some((object) => object.id.includes('reserved-stairs'))) {
@@ -1087,11 +1396,14 @@ router.post('/auto-generate', async (req: AuthRequest, res: Response, next: Next
         let sharedRestrooms = preservedFixed.filter(isRestroomObject).map((object) => ({ ...object }));
 
         const generatedFloorCount = floorCount + (addRooftopFloor ? 1 : 0);
+        const pendingFloors: Array<{ name: string; templateName: string; floorNumber: number; objects: FloorPlanObject[] }> = [];
         for (let floorIndex = 0; floorIndex < generatedFloorCount; floorIndex++) {
           const isRooftop = addRooftopFloor && floorIndex === floorCount;
           const templateName = isRooftop ? 'Rooftop' : floorTemplates[floorIndex];
           const assignedLocations = isRooftop ? [] : locationPlan.assignments[buildingIndex * floorCount + floorIndex];
-          const name = `${GENERATED_FLOORPLAN_PREFIX}${department.name} - Building ${buildingIndex + 1} - Floor ${floorIndex + 1} - ${templateName}`;
+          const floorNumber = floorIndex + 1;
+          const name = `${GENERATED_FLOORPLAN_PREFIX}${department.name} - Building ${buildingDisplayNum} - Floor ${floorNumber} - ${templateName}`;
+          if (finalizedSlots.has(`${buildingKey}:${floorNumber}`)) continue;
           let objects = buildKnowledgeTemplateFloorPlan(templateName, department.name, assignedLocations, {
             verticalAccess,
             totalFloors: generatedFloorCount,
@@ -1114,7 +1426,7 @@ router.post('/auto-generate', async (req: AuthRequest, res: Response, next: Next
           if (floorIndex === 0 && centeredOutdoorBounds) {
             buildingAlignmentAnchor = detectOutdoorWallAlignmentAnchor(objects, centeredOutdoorBounds);
             console.debug('[OutdoorWallGenerateAlign]', {
-              buildingNumber: buildingIndex + 1,
+              buildingNumber: buildingDisplayNum,
               floorNumber: floorIndex + 1,
               originalBounds: centeredOutdoorBounds,
               selectedAnchor: buildingAlignmentAnchor,
@@ -1129,7 +1441,7 @@ router.post('/auto-generate', async (req: AuthRequest, res: Response, next: Next
             const alignment = translateOutdoorWallsToSharedAnchor(objects, buildingAlignmentAnchor);
             objects = alignment.objects;
             console.debug('[OutdoorWallGenerateAlign]', {
-              buildingNumber: buildingIndex + 1,
+              buildingNumber: buildingDisplayNum,
               floorNumber: floorIndex + 1,
               originalBounds: alignment.originalBounds,
               selectedAnchor: alignment.selectedAnchor,
@@ -1172,23 +1484,58 @@ router.post('/auto-generate', async (req: AuthRequest, res: Response, next: Next
             sharedRestrooms = objects.filter(isRestroomObject).map((object) => ({ ...object }));
           }
 
-          objects = resolveIndoorObjectOverlaps(objects);
-          const templateType = determineTemplateType(templateName);
+          // Shared stairs/elevator/restrooms may replace this floor's original
+          // core positions. Re-clear movable rooms and their grouped contents
+          // after substitution so no room can claim a vertical-service core.
+          const fixedCoreObjects = objects.filter(isFixedFloorObject);
+          objects = correctRegeneratedLayoutIssues(objects, fixedCoreObjects, true);
+          pendingFloors.push({ name, templateName, floorNumber, objects });
+        }
+
+        // Normalize the whole building at once: floors are anchor-aligned in a
+        // shared coordinate space, so apply one common shift into positive
+        // canvas space and one shared canvas size. Per-floor shifts would
+        // un-stack the cores again.
+        const CANVAS_MARGIN = 60;
+        let bMinX = Infinity;
+        let bMinY = Infinity;
+        let bMaxX = -Infinity;
+        let bMaxY = -Infinity;
+        for (const floor of pendingFloors) {
+          for (const object of floor.objects) {
+            const b = objectBounds(object);
+            bMinX = Math.min(bMinX, b.minX);
+            bMinY = Math.min(bMinY, b.minY);
+            bMaxX = Math.max(bMaxX, b.maxX);
+            bMaxY = Math.max(bMaxY, b.maxY);
+          }
+        }
+        const hasContent = Number.isFinite(bMinX) && Number.isFinite(bMinY);
+        const shiftX = hasContent ? Math.round((CANVAS_MARGIN - bMinX) / 20) * 20 : 0;
+        const shiftY = hasContent ? Math.round((CANVAS_MARGIN - bMinY) / 20) * 20 : 0;
+        const planWidth = hasContent ? Math.max(GENERATED_FLOOR_WIDTH, Math.ceil(bMaxX - bMinX) + CANVAS_MARGIN * 2) : GENERATED_FLOOR_WIDTH;
+        const planHeight = hasContent ? Math.max(GENERATED_FLOOR_HEIGHT, Math.ceil(bMaxY - bMinY) + CANVAS_MARGIN * 2) : GENERATED_FLOOR_HEIGHT;
+
+        for (const floor of pendingFloors) {
+          const objects = translateFloorPlanObjects(floor.objects, shiftX, shiftY);
+          const templateType = determineTemplateType(floor.templateName);
           const validation = validateGeneratedFloorPlan(objects, templateType);
           const floorPlan = await prisma.floorPlan.create({
             data: {
-              name,
-              width: GENERATED_FLOOR_WIDTH,
-              height: GENERATED_FLOOR_HEIGHT,
+              name: floor.name,
+              width: planWidth,
+              height: planHeight,
               departmentId,
               generationScore: validation.score,
               planJson: JSON.stringify(objects),
+              buildingKey,
+              floorNumber: floor.floorNumber,
             },
           });
           await prisma.floorPlanGenerationLog.create({
             data: {
               floorPlanId: floorPlan.id,
-              templateUsed: templateName,
+              templateUsed: floor.templateName,
               score: validation.score,
               validationResult: JSON.stringify(validation),
             },
@@ -1225,6 +1572,7 @@ router.post('/auto-generate', async (req: AuthRequest, res: Response, next: Next
     await prisma.floorPlan.deleteMany({
       where: {
         departmentId,
+        isApproved: false,
         OR: [
           { name: { in: [...new Set(generatedNames)] } },
           { name: { startsWith: `${GENERATED_FLOORPLAN_PREFIX}${department.name} - ` } },
@@ -1232,11 +1580,19 @@ router.post('/auto-generate', async (req: AuthRequest, res: Response, next: Next
       },
     });
 
+    const finalizedNames = new Set(
+      (await prisma.floorPlan.findMany({
+        where: { departmentId, isApproved: true },
+        select: { name: true },
+      })).map(p => p.name)
+    );
+
     const created = [];
 
     const groupSlots = Math.max(0, planCount - templatesToGenerate.length);
     for (const [groupName, groupLocations] of Array.from(locationGroups.entries()).slice(0, groupSlots)) {
       const name = `${GENERATED_FLOORPLAN_PREFIX}${department.name} - ${groupName}`;
+      if (finalizedNames.has(name)) continue;
       let objects = buildGeneratedFloorPlan(name, groupLocations);
       objects = centerFloorPlanObjects(objects, GENERATED_FLOOR_WIDTH, GENERATED_FLOOR_HEIGHT);
       objects = resolveIndoorObjectOverlaps(objects);
@@ -1264,6 +1620,7 @@ router.post('/auto-generate', async (req: AuthRequest, res: Response, next: Next
 
     for (const templateName of templatesToGenerate) {
       const name = `${GENERATED_FLOORPLAN_PREFIX}${department.name} - ${templateName}`;
+      if (finalizedNames.has(name)) continue;
       let objects = buildKnowledgeTemplateFloorPlan(templateName, department.name, locations);
       objects = centerFloorPlanObjects(objects, GENERATED_FLOOR_WIDTH, GENERATED_FLOOR_HEIGHT);
       objects = resolveIndoorObjectOverlaps(objects);
@@ -1304,6 +1661,37 @@ router.post('/auto-generate', async (req: AuthRequest, res: Response, next: Next
   }
 });
 
+// Get all floors for a building (ordered by floorNumber) — used by 2D building view
+router.get('/building/:buildingKey', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const { buildingKey } = req.params;
+    const plans = await prisma.floorPlan.findMany({
+      where: { buildingKey },
+      orderBy: { floorNumber: 'asc' },
+    });
+    const result = plans.map(p => ({
+      ...p,
+      objects: (() => { try { return JSON.parse(p.planJson); } catch { return []; } })(),
+      alignmentData: parseAlignmentJson(p.alignmentJson),
+    }));
+    res.json(result);
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post('/validate', (req: AuthRequest, res: Response) => {
+  const { objects } = req.body;
+  if (!Array.isArray(objects)) return res.status(400).json({ error: 'objects array is required' });
+  return res.json(validateFloorplanObjects(objects));
+});
+
+router.post('/auto-fix', (req: AuthRequest, res: Response) => {
+  const { objects } = req.body;
+  if (!Array.isArray(objects)) return res.status(400).json({ error: 'objects array is required' });
+  return res.json(applyFloorplanAutoFixes(objects));
+});
+
 // Get floor plan by ID
 router.get('/:id', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
@@ -1323,6 +1711,7 @@ router.get('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
     res.json({
       ...floorPlan,
       objects: JSON.parse(floorPlan.planJson || '[]'),
+      alignmentData: parseAlignmentJson(floorPlan.alignmentJson),
     });
   } catch (error) {
     next(error);
@@ -1413,7 +1802,8 @@ router.post('/:id/feedback', async (req: AuthRequest, res: Response, next: NextF
   }
 });
 
-// Regenerate a single auto-generated floor plan
+// Regenerate a single auto-generated floor plan — runs up to maxAttempts internally,
+// returns the best result in a single HTTP response so the browser only sees 1 request.
 router.post('/:id/regenerate', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     if (req.userRole !== 'admin' && req.userRole !== 'superadmin') {
@@ -1428,9 +1818,13 @@ router.post('/:id/regenerate', async (req: AuthRequest, res: Response, next: Nex
 
     const departmentId = floorPlan.departmentId;
     if (!departmentId) return res.status(400).json({ error: 'Floor plan has no department' });
+
     const regenerateOutdoorWalls = req.body.regenerateOutdoorWalls !== false;
+    const maxAttempts: number = Math.min(50, Math.max(1, Number(req.body.maxAttempts) || 50));
+    const TARGET_ISSUES = 1;
 
     const buildingMatch = floorPlan.name.match(/^(Auto - .+ - Building \d+) - Floor \d+ - /);
+
     if (buildingMatch) {
       const floorNum = Number(floorPlan.name.match(/ - Floor (\d+) - /)?.[1] ?? 1);
       let existingObjects: FloorPlanObject[] = [];
@@ -1440,27 +1834,20 @@ router.post('/:id/regenerate', async (req: AuthRequest, res: Response, next: Nex
       const isOW = (o: FloorPlanObject) => o.type === 'wall' && o.id.includes('-ow-');
       const existingOutdoorWalls = existingObjects.filter(isOW);
       const existingAccessObjects = existingObjects.filter(isFixedFloorObject);
-      const assignedIds = existingObjects
-        .filter(o => o.linkedLocationId)
-        .map(o => o.linkedLocationId as string);
+      const assignedIds = existingObjects.flatMap(o => getLinkedLocationIds(o));
 
       const dept = await prisma.department.findUnique({ where: { id: departmentId } });
       if (!dept) return res.status(404).json({ error: 'Department not found' });
 
       const floorLocations = assignedIds.length > 0
-        ? await prisma.location.findMany({
-            where: { id: { in: assignedIds } },
-            orderBy: { name: 'asc' },
-            select: { id: true, name: true },
-          })
+        ? await prisma.location.findMany({ where: { id: { in: assignedIds } }, orderBy: { name: 'asc' }, select: { id: true, name: true } })
         : [];
 
       const floorTemplate =
         FLOORPLAN_KNOWLEDGE.imsUseful.find(t => floorPlan.name.endsWith(` - ${t}`)) ||
-        floorPlan.name.split(' - ').pop() ||
-        floorPlan.name;
+        floorPlan.name.split(' - ').pop() || floorPlan.name;
 
-      const hasStairs = existingObjects.some(o => o.id.includes('reserved-stairs'));
+      const hasStairs  = existingObjects.some(o => o.id.includes('reserved-stairs'));
       const hasElevator = existingObjects.some(o => o.id.includes('reserved-elevator'));
       const floorVerticalAccess: 'stairs' | 'elevator' | 'both' =
         hasStairs && hasElevator ? 'both' : hasElevator ? 'elevator' : 'stairs';
@@ -1476,57 +1863,60 @@ router.post('/:id/regenerate', async (req: AuthRequest, res: Response, next: Nex
         if (ySpan > 0) maxLayoutHeight = Math.max(0, ySpan - 2 * OUTDOOR_WALL_MARGIN);
       }
 
-      let newFloorObjects = buildKnowledgeTemplateFloorPlan(floorTemplate, dept.name, floorLocations, {
-        verticalAccess: floorVerticalAccess,
-        totalFloors: 1,
-        ...(maxLayoutWidth  ? { maxLayoutWidth  } : {}),
-        ...(maxLayoutHeight ? { maxLayoutHeight } : {}),
-      });
+      // Retry loop — runs entirely on the backend, only 1 HTTP request per user click.
+      let bestObjects: FloorPlanObject[] = [];
+      let bestIssues = Number.POSITIVE_INFINITY;
+      let bestRank = Number.POSITIVE_INFINITY;
+      let attemptsUsed = 0;
+      const templateType = determineTemplateType(floorTemplate);
 
-      if (!regenerateOutdoorWalls) {
-        newFloorObjects = [
-          ...newFloorObjects.filter(o => !isOW(o)),
-          ...existingOutdoorWalls,
-        ];
-        newFloorObjects = fitIndoorObjectsInsideOutdoorWalls(newFloorObjects);
+      for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+        attemptsUsed = attempt;
+        let candidate = buildKnowledgeTemplateFloorPlan(floorTemplate, dept.name, floorLocations, {
+          verticalAccess: floorVerticalAccess, totalFloors: 1,
+          ...(maxLayoutWidth  ? { maxLayoutWidth  } : {}),
+          ...(maxLayoutHeight ? { maxLayoutHeight } : {}),
+        });
+        if (!regenerateOutdoorWalls) {
+          candidate = [...candidate.filter(o => !isOW(o)), ...existingOutdoorWalls];
+          candidate = fitIndoorObjectsInsideOutdoorWalls(candidate);
+        }
+        candidate = centerFloorPlanObjects(candidate, floorPlan.width, floorPlan.height);
+        candidate = resolveIndoorObjectOverlaps(candidate);
+        if (existingAccessObjects.length > 0) {
+          candidate = [...candidate.filter(o => !isFixedFloorObject(o)), ...existingAccessObjects];
+          candidate = correctRegeneratedLayoutIssues(candidate, existingAccessObjects, regenerateOutdoorWalls);
+        }
+        const issues = validateFloorplanObjects(candidate).errors.length;
+        const hasCoreOverlap = hasMovableFixedOverlap(candidate, candidate.filter(isFixedFloorObject));
+        const rank = issues + (hasCoreOverlap ? 10_000 : 0);
+        if (rank < bestRank) {
+          bestRank = rank;
+          bestIssues = issues;
+          bestObjects = candidate;
+        }
+        if (!hasCoreOverlap && issues <= TARGET_ISSUES) break;
       }
 
-      newFloorObjects = centerFloorPlanObjects(newFloorObjects, floorPlan.width, floorPlan.height);
-      newFloorObjects = resolveIndoorObjectOverlaps(newFloorObjects);
-      if (existingAccessObjects.length > 0) {
-        newFloorObjects = [
-          ...newFloorObjects.filter(o => !isFixedFloorObject(o)),
-          ...existingAccessObjects,
-        ];
-        newFloorObjects = correctRegeneratedLayoutIssues(newFloorObjects, existingAccessObjects, regenerateOutdoorWalls);
-      }
-
-      const floorValidation = validateGeneratedFloorPlan(newFloorObjects, determineTemplateType(floorTemplate));
+      const floorValidation = validateGeneratedFloorPlan(bestObjects, templateType);
       const updatedFloor = await prisma.floorPlan.update({
         where: { id: floorPlan.id },
-        data: {
-          planJson: JSON.stringify(newFloorObjects),
-          generationScore: floorValidation.score,
-          isApproved: false,
-        },
+        data: { planJson: JSON.stringify(bestObjects), generationScore: floorValidation.score, isApproved: false },
       });
       await prisma.floorPlanGenerationLog.create({
-        data: {
-          floorPlanId: updatedFloor.id,
-          templateUsed: floorTemplate,
-          score: floorValidation.score,
-          validationResult: JSON.stringify(floorValidation),
-        },
+        data: { floorPlanId: updatedFloor.id, templateUsed: floorTemplate, score: floorValidation.score, validationResult: JSON.stringify(floorValidation) },
       });
       return res.json({
         ...updatedFloor,
-        objects: newFloorObjects,
+        objects: bestObjects,
         generationScore: floorValidation.score,
-        message: `Regenerated Floor ${floorNum}${regenerateOutdoorWalls ? '' : ' with outdoor walls fixed'}`,
+        attemptsUsed,
+        issuesRemaining: bestIssues,
+        message: `Regenerated Floor ${floorNum} in ${attemptsUsed} attempt${attemptsUsed === 1 ? '' : 's'}${regenerateOutdoorWalls ? '' : ' with outdoor walls fixed'}`,
       });
     }
 
-    // Extract template from plan name: "Auto - DeptName - TemplateName"
+    // Simple (non-building) path
     const prefix = GENERATED_FLOORPLAN_PREFIX;
     let templateName = floorPlan.name;
     if (floorPlan.name.startsWith(prefix)) {
@@ -1534,82 +1924,121 @@ router.post('/:id/regenerate', async (req: AuthRequest, res: Response, next: Nex
       const knownTemplate = FLOORPLAN_KNOWLEDGE.imsUseful.find((template) => suffix.endsWith(` - ${template}`));
       templateName = knownTemplate || suffix.split(' - ').pop() || suffix;
     }
-
     if (!templateName) {
-      return res.status(400).json({ error: 'Cannot determine template from plan name â€” only auto-generated plans can be regenerated' });
+      return res.status(400).json({ error: 'Cannot determine template from plan name — only auto-generated plans can be regenerated' });
     }
 
     const department = await prisma.department.findUnique({ where: { id: departmentId } });
     if (!department) return res.status(404).json({ error: 'Department not found' });
 
     const locations = await prisma.location.findMany({
-      where: { departmentId },
-      orderBy: { name: 'asc' },
-      select: { id: true, name: true },
+      where: { departmentId }, orderBy: { name: 'asc' }, select: { id: true, name: true },
     });
-
     if (locations.length === 0) return res.status(400).json({ error: 'No locations found for department' });
 
     const isKnownTemplate = FLOORPLAN_KNOWLEDGE.imsUseful.includes(templateName);
     let existingObjects: FloorPlanObject[] = [];
-    try {
-      existingObjects = JSON.parse(floorPlan.planJson || '[]');
-    } catch {
-      existingObjects = [];
-    }
+    try { existingObjects = JSON.parse(floorPlan.planJson || '[]'); } catch { existingObjects = []; }
     existingObjects = centerFloorPlanObjects(existingObjects, floorPlan.width, floorPlan.height);
-    const hasStairs = existingObjects.some((object) => object.id.includes('reserved-stairs'));
-    const hasElevator = existingObjects.some((object) => object.id.includes('reserved-elevator'));
+    const hasStairs  = existingObjects.some(o => o.id.includes('reserved-stairs'));
+    const hasElevator = existingObjects.some(o => o.id.includes('reserved-elevator'));
     const verticalAccess = hasStairs && hasElevator ? 'both' : hasElevator ? 'elevator' : 'stairs';
     const existingFixedObjects = existingObjects.filter(isFixedFloorObject);
-    let objects = isKnownTemplate
-      ? buildKnowledgeTemplateFloorPlan(templateName, department.name, locations, { verticalAccess })
-      : buildGeneratedFloorPlan(floorPlan.name, locations, { verticalAccess });
-    if (!regenerateOutdoorWalls) {
-      const isOutdoorWall = (object: FloorPlanObject) => object.type === 'wall' && object.id.includes('-ow-');
-      objects = [
-        ...objects.filter((object) => !isOutdoorWall(object)),
-        ...existingObjects.filter(isOutdoorWall),
-      ];
-      objects = fitIndoorObjectsInsideOutdoorWalls(objects);
-    }
-    objects = centerFloorPlanObjects(objects, floorPlan.width, floorPlan.height);
-    objects = resolveIndoorObjectOverlaps(objects);
-    if (existingFixedObjects.length > 0) {
-      objects = [
-        ...objects.filter((object) => !isFixedFloorObject(object)),
-        ...existingFixedObjects,
-      ];
-      objects = correctRegeneratedLayoutIssues(objects, existingFixedObjects, regenerateOutdoorWalls);
-    }
-
+    const isOutdoorWall = (o: FloorPlanObject) => o.type === 'wall' && o.id.includes('-ow-');
     const templateType = determineTemplateType(templateName);
-    const validation = validateGeneratedFloorPlan(objects, templateType);
 
+    // Retry loop on backend
+    let bestObjects: FloorPlanObject[] = [];
+    let bestIssues = Number.POSITIVE_INFINITY;
+    let bestRank = Number.POSITIVE_INFINITY;
+    let attemptsUsed = 0;
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      attemptsUsed = attempt;
+      let candidate = isKnownTemplate
+        ? buildKnowledgeTemplateFloorPlan(templateName, department.name, locations, { verticalAccess })
+        : buildGeneratedFloorPlan(floorPlan.name, locations, { verticalAccess });
+      if (!regenerateOutdoorWalls) {
+        candidate = [...candidate.filter(o => !isOutdoorWall(o)), ...existingObjects.filter(isOutdoorWall)];
+        candidate = fitIndoorObjectsInsideOutdoorWalls(candidate);
+      }
+      candidate = centerFloorPlanObjects(candidate, floorPlan.width, floorPlan.height);
+      candidate = resolveIndoorObjectOverlaps(candidate);
+      if (existingFixedObjects.length > 0) {
+        candidate = [...candidate.filter(o => !isFixedFloorObject(o)), ...existingFixedObjects];
+        candidate = correctRegeneratedLayoutIssues(candidate, existingFixedObjects, regenerateOutdoorWalls);
+      }
+      const issues = validateFloorplanObjects(candidate).errors.length;
+      const hasCoreOverlap = hasMovableFixedOverlap(candidate, candidate.filter(isFixedFloorObject));
+      const rank = issues + (hasCoreOverlap ? 10_000 : 0);
+      if (rank < bestRank) {
+        bestRank = rank;
+        bestIssues = issues;
+        bestObjects = candidate;
+      }
+      if (!hasCoreOverlap && issues <= TARGET_ISSUES) break;
+    }
+
+    const validation = validateGeneratedFloorPlan(bestObjects, templateType);
     const updated = await prisma.floorPlan.update({
       where: { id: req.params.id },
-      data: {
-        planJson: JSON.stringify(objects),
-        generationScore: validation.score,
-        isApproved: false,
-      },
+      data: { planJson: JSON.stringify(bestObjects), generationScore: validation.score, isApproved: false },
     });
-
     await prisma.floorPlanGenerationLog.create({
-      data: {
-        floorPlanId: updated.id,
-        templateUsed: templateName,
-        score: validation.score,
-        validationResult: JSON.stringify(validation),
-      },
+      data: { floorPlanId: updated.id, templateUsed: templateName, score: validation.score, validationResult: JSON.stringify(validation) },
     });
-
     res.json({
       ...updated,
-      objects,
+      objects: bestObjects,
       validation,
-      message: `Regenerated${regenerateOutdoorWalls ? '' : ' with outdoor walls fixed'} â€” layout score: ${validation.score}%`,
+      attemptsUsed,
+      issuesRemaining: bestIssues,
+      message: `Regenerated in ${attemptsUsed} attempt${attemptsUsed === 1 ? '' : 's'}${regenerateOutdoorWalls ? '' : ' with outdoor walls fixed'} — layout score: ${validation.score}%`,
     });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Replace finalized perimeter walls while preserving every other floorplan object.
+router.patch('/:id/perimeter', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const floorPlan = await prisma.floorPlan.findUnique({ where: { id: req.params.id } });
+    if (!floorPlan) return res.status(404).json({ error: 'Floor plan not found' });
+    if (!canManageFloorPlan(req, floorPlan.departmentId)) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    const { walls, alignmentData } = req.body;
+    if (!Array.isArray(walls)) {
+      return res.status(400).json({ error: 'walls array is required' });
+    }
+
+    const perimeterWalls = (walls as FloorPlanObject[]).map(w => ({
+      ...w,
+      wallType: 'finalized_building_perimeter',
+      isFinalizedPerimeter: true,
+    }));
+    let existingObjects: FloorPlanObject[] = [];
+    try { existingObjects = JSON.parse(floorPlan.planJson || '[]'); } catch { existingObjects = []; }
+    const preservedObjects = existingObjects.filter(object => {
+      const wall = object as FloorPlanObject & { wallType?: string; isFinalizedPerimeter?: boolean };
+      return !(object.type === 'wall' && (
+        wall.wallType === 'finalized_building_perimeter' || wall.isFinalizedPerimeter === true
+      ));
+    });
+
+    await prisma.floorPlan.update({
+      where: { id: req.params.id },
+      data: {
+        planJson: JSON.stringify([...preservedObjects, ...perimeterWalls]),
+        isAligned: true,
+        alignmentJson: alignmentData === undefined ? floorPlan.alignmentJson : JSON.stringify(alignmentData),
+        alignedAt: new Date(),
+      },
+    });
+
+    res.json({ perimeterWallCount: perimeterWalls.length });
   } catch (error) {
     next(error);
   }
@@ -1623,8 +2052,37 @@ router.put('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
     if (!canManageFloorPlan(req, existing.departmentId)) {
       return res.status(403).json({ error: 'Access denied' });
     }
+    // Allow writing isApproved=true (finalize), but block writes once already finalized
+    // unless the caller is an admin or superadmin.
+    const callerIsAdmin = req.userRole === 'admin' || req.userRole === 'superadmin';
+    if (existing.isApproved && req.body.isApproved !== false && !callerIsAdmin) {
+      return res.status(403).json({ error: 'This floor plan is finalized and cannot be modified.' });
+    }
 
-    const { name, width, height, scale, objects, locationId, isTemplate, isApproved } = req.body;
+    const {
+      name, width, height, scale, objects, locationId, isTemplate, isApproved,
+      buildingKey, floorNumber, validationIgnored, isAligned, alignmentData,
+    } = req.body;
+
+    // Phase 4b of the floor-plan dedup plan: enforce what Phase 4a only
+    // logged. Mirrors the editor's own live /validate endpoint, so a 422 here
+    // is "the server enforcing what the UI already showed", not a surprise.
+    // validationIgnored (user-facing "Ignore issues" button, or an internal
+    // save of already-computed/transformed objects) bypasses this — same
+    // escape hatch the editor already persists on the FloorPlan model.
+    if (Array.isArray(objects) && !validationIgnored) {
+      try {
+        const result = validateFloorplanObjects(objects);
+        if (!result.valid) {
+          return res.status(422).json({
+            error: 'Floor plan has unresolved validation issues.',
+            errors: result.errors,
+          });
+        }
+      } catch (validationError) {
+        console.error('[floorplan-validate-enforce] validation threw, allowing save', validationError);
+      }
+    }
 
     const floorPlan = await prisma.floorPlan.update({
       where: { id: req.params.id },
@@ -1636,6 +2094,16 @@ router.put('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
         planJson: JSON.stringify(objects || []),
         ...(isTemplate !== undefined && { isTemplate }),
         ...(isApproved !== undefined && { isApproved }),
+        ...(buildingKey !== undefined && { buildingKey: buildingKey || null }),
+        ...(floorNumber !== undefined && { floorNumber: floorNumber ?? null }),
+        ...(validationIgnored !== undefined && { validationIgnored: Boolean(validationIgnored) }),
+        ...(isAligned !== undefined && {
+          isAligned: Boolean(isAligned),
+          alignedAt: isAligned ? new Date() : null,
+        }),
+        ...(alignmentData !== undefined && {
+          alignmentJson: alignmentData === null ? null : JSON.stringify(alignmentData),
+        }),
       },
     });
 
@@ -1643,6 +2111,7 @@ router.put('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
       ...floorPlan,
       objects: objects || [],
       scale: scale || { pixelsPerMeter: 50 },
+      alignmentData: parseAlignmentJson(floorPlan.alignmentJson),
     });
   } catch (error) {
     next(error);

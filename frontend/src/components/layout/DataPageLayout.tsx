@@ -1,5 +1,6 @@
 import React from 'react';
 import { Plus } from 'lucide-react';
+import AllDepartmentsBanner from '@/components/AllDepartmentsBanner';
 
 interface DataPageLayoutProps {
   title: string;
@@ -11,6 +12,7 @@ interface DataPageLayoutProps {
   filterContent: React.ReactNode;
   children: React.ReactNode;
   actions?: React.ReactNode;
+  showAllDepartmentsBanner?: boolean;
 }
 
 export default function DataPageLayout({
@@ -23,9 +25,12 @@ export default function DataPageLayout({
   filterContent,
   children,
   actions,
+  showAllDepartmentsBanner,
 }: DataPageLayoutProps) {
   return (
     <div className="space-y-6">
+      {showAllDepartmentsBanner && <AllDepartmentsBanner />}
+
       {error && (
         <div className="p-4 rounded-lg border border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-950 text-red-900 dark:text-red-100">
           {error}
@@ -39,7 +44,7 @@ export default function DataPageLayout({
             onClick={onAddClick}
             className="flex items-center gap-2 bg-[var(--primary)] text-white px-4 py-2 rounded-lg hover:bg-[var(--primary-hover)]"
           >
-            <Plus size={20} /> Add {title.slice(0, -1)}
+            <Plus size={20} /> Add {title.endsWith('ies') ? title.slice(0, -3) + 'y' : title.slice(0, -1)}
           </button>
         ))}
       </div>

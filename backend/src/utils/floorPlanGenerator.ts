@@ -1,3 +1,5 @@
+import { getLinkedLocationIds } from './floorPlanObjectTypes';
+
 export const GENERATED_FLOORPLAN_SUFFIXES = [
   '1st Floor Complete Inventory Map',
   '2nd Floor Complete Inventory Map',
@@ -159,6 +161,7 @@ export type FloorPlanObject = {
   label?: string;
   color?: string;
   linkedLocationId?: string;
+  linkedLocationIds?: string[];
   groupId?: string;
   startX?: number;
   startY?: number;
@@ -189,6 +192,7 @@ type RoomZone = {
   windowAngle?: number;
   snappedEdge?: 'left' | 'right' | 'top' | 'bottom';
   objectGroupId?: string;
+  placementGroupId?: string; // groups zones into a single placement unit during reflow
   fixedSize?: boolean;
 };
 
@@ -203,6 +207,14 @@ const MIN_CELL_H    = 28;
 const ROW_SPLIT_Y   = 400;  // zones with y < this are "top row"
 const GENERATED_PIXELS_PER_METER = 50;
 const mmToGeneratedPixels = (millimetres: number) => Math.round((millimetres / 1000) * GENERATED_PIXELS_PER_METER);
+
+// Coordinate grid for placed rack/shelf objects — must stay in sync with
+// GRID_SIZE in frontend/src/utils/floorplanGrid.ts (both = 10).
+// Objects render/resize about their center in the editor, so:
+//   - snap only dimensions to this grid
+//   - derive x/y from the exact center (never snap the corner separately)
+const FIXTURE_GRID_SIZE = 10;
+const snapFixture = (value: number) => Math.max(FIXTURE_GRID_SIZE, Math.round(value / FIXTURE_GRID_SIZE) * FIXTURE_GRID_SIZE);
 const OUTER_T = mmToGeneratedPixels(200);
 const INNER_T = mmToGeneratedPixels(120);
 const INTERIOR_DOOR_WIDTH = mmToGeneratedPixels(FLOORPLAN_SIZE_REFERENCE.interiorDoor.w);
@@ -595,7 +607,7 @@ function expandAndReflow(
     };
   });
   const placementUnits = [...expanded.reduce((units, zone) => {
-    const key = zone.objectGroupId ?? zone.key;
+    const key = zone.placementGroupId ?? zone.objectGroupId ?? zone.key;
     const unit = units.get(key) ?? [];
     unit.push(zone);
     units.set(key, unit);
@@ -610,7 +622,9 @@ function expandAndReflow(
   const reflowed: RoomZone[] = [];
 
   placementUnits.forEach((unit) => {
-    const unitGap = unit.some(zone => zone.objectGroupId?.includes('restroom-group')) ? 0 : 24;
+    const isRestroomUnit   = unit.some(zone => zone.objectGroupId?.includes('restroom-group'));
+    const isVerticalAccess = unit.some(zone => zone.placementGroupId?.includes('vertical-access'));
+    const unitGap = isRestroomUnit ? 0 : isVerticalAccess ? 30 : 24;
     const unitWidth = unit.reduce((width, zone) => width + zone.w, 0) + unitGap * (unit.length - 1);
     if (cursorX > startX && cursorX + unitWidth > startX + targetRowWidth) {
       // Don't start a new row if it would push outerBottomY past the shared wall height.
@@ -930,8 +944,32 @@ function openingTouchesRoom(room: FloorPlanObject, opening: FloorPlanObject): bo
 }
 
 function addRoomShell(objects: FloorPlanObject[], prefix: string, room: RoomZone) {
-  // One shared groupId for the room rect, all its indoor walls, door, and window.
   const roomGroupId = room.objectGroupId ?? `${prefix}-${room.key}-group`;
+  const isStairsOrElevator = room.key.includes('reserved-stairs') || room.key.includes('reserved-elevator');
+  const isRestroom = /reserved-(male-|female-)?restroom/.test(room.key);
+
+  if (isStairsOrElevator) {
+    // Vertical-access core: fully enclosed by 4 solid walls, no opening.
+    const coreType = room.key.includes('reserved-elevator') ? 'elevator' : 'stairs';
+    addSpace(objects, `${prefix}-${room.key}`, room.label, room.x, room.y, room.w, room.h, room.color, coreType, roomGroupId);
+    addWall(objects, `${prefix}-${room.key}-wall-top`,    room.x,          room.y,          room.x + room.w, room.y,          INNER_T, roomGroupId);
+    addWall(objects, `${prefix}-${room.key}-wall-bottom`, room.x,          room.y + room.h, room.x + room.w, room.y + room.h, INNER_T, roomGroupId);
+    addWall(objects, `${prefix}-${room.key}-wall-left`,   room.x,          room.y,          room.x,          room.y + room.h, INNER_T, roomGroupId);
+    addWall(objects, `${prefix}-${room.key}-wall-right`,  room.x + room.w, room.y,          room.x + room.w, room.y + room.h, INNER_T, roomGroupId);
+    return;
+  }
+
+  if (isRestroom) {
+    // Restroom: fully enclosed by 4 solid walls, no opening.
+    addSpace(objects, `${prefix}-${room.key}`, room.label, room.x, room.y, room.w, room.h, room.color, 'rack', roomGroupId);
+    addWall(objects, `${prefix}-${room.key}-wall-top`,    room.x,          room.y,          room.x + room.w, room.y,          INNER_T, roomGroupId);
+    addWall(objects, `${prefix}-${room.key}-wall-bottom`, room.x,          room.y + room.h, room.x + room.w, room.y + room.h, INNER_T, roomGroupId);
+    addWall(objects, `${prefix}-${room.key}-wall-left`,   room.x,          room.y,          room.x,          room.y + room.h, INNER_T, roomGroupId);
+    addWall(objects, `${prefix}-${room.key}-wall-right`,  room.x + room.w, room.y,          room.x + room.w, room.y + room.h, INNER_T, roomGroupId);
+    return;
+  }
+
+  // Regular room — room fill + 4 walls + door + optional window.
   addSpace(objects, `${prefix}-${room.key}`, room.label, room.x, room.y, room.w, room.h, room.color, 'room', roomGroupId);
   addWall(objects, `${prefix}-${room.key}-wall-top`, room.x, room.y, room.x + room.w, room.y, INNER_T, roomGroupId);
   addWall(objects, `${prefix}-${room.key}-wall-bottom`, room.x, room.y + room.h, room.x + room.w, room.y + room.h, INNER_T, roomGroupId);
@@ -955,7 +993,8 @@ function placeLocationsInZone(
   locations: Array<{ id: string; name: string }>,
   groupId?: string,
 ) {
-  if (!objects.some(o => o.type === 'room' && o.label === zone.label && o.x === zone.x && o.y === zone.y)) {
+  // Guard: don't add a fallback room background if addRoomShell already placed an object here.
+  if (!objects.some(o => o.label === zone.label && o.x === zone.x && o.y === zone.y)) {
     objects.push({ id: `zone-${zone.key}`, type: 'room', x: zone.x, y: zone.y, width: zone.w, height: zone.h, label: zone.label, color: zone.color, layer: FLOORPLAN_LAYERS.ROOM_FILL, ...(groupId ? { groupId } : {}) });
   }
 
@@ -982,14 +1021,20 @@ function placeLocationsInZone(
     const row = Math.floor(index / cols);
     const type = classifyLocation(location.name);
     const footprint = generatedFixtureSize(location.name, type);
-    const width = Math.min(cellWidth, footprint.width);
-    const height = Math.min(cellHeight, footprint.height);
+    // Snap dimensions to the fixture grid so the editor's center-based resize
+    // keeps objects stable (same invariant as resizeObjectWithGrid on the frontend).
+    const width  = snapFixture(Math.min(cellWidth,  footprint.width));
+    const height = snapFixture(Math.min(cellHeight, footprint.height));
     const slotX = zone.x + 15 + col * (cellWidth + gap);
     const slotY = zone.y + topPadding + row * (cellHeight + gap);
+    // Position from the cell center — never snap the corner; the center is
+    // the stable anchor for all editor transforms (rotation, resize).
+    const cx = slotX + cellWidth  / 2;
+    const cy = slotY + cellHeight / 2;
     objects.push({
       id: `loc-${location.id}`, type,
-      x: slotX + (cellWidth - width) / 2,
-      y: slotY + (cellHeight - height) / 2,
+      x: cx - width  / 2,
+      y: cy - height / 2,
       width, height,
       label: location.name, linkedLocationId: location.id,
       color: type === 'rack' ? '#f59e0b' : type === 'shelf' ? '#8b5cf6' : '#3b82f6',
@@ -999,25 +1044,64 @@ function placeLocationsInZone(
   });
 }
 
+// ─── Service-object spacing ────────────────────────────────────────────────────
+
+const FIXED_SERVICE_MIN_GAP = 80;
+
+function separateServiceObjects(zones: RoomZone[]): RoomZone[] {
+  const isVA = (z: RoomZone) => z.key.includes('reserved-stairs') || z.key.includes('reserved-elevator');
+  const isWC = (z: RoomZone) => /reserved-(male-|female-)?restroom/.test(z.key);
+  const vaZones = zones.filter(isVA);
+  if (vaZones.length === 0) return zones;
+
+  return zones.map(zone => {
+    if (!isWC(zone)) return zone;
+    let adj = { ...zone };
+    for (const va of vaZones) {
+      const rightGap = adj.x - (va.x + va.w);
+      const leftGap  = va.x - (adj.x + adj.w);
+      const belowGap = adj.y - (va.y + va.h);
+      const aboveGap = va.y - (adj.y + adj.h);
+      const overlapping = rightGap < 0 && leftGap < 0 && belowGap < 0 && aboveGap < 0;
+      if (overlapping || (rightGap >= 0 && rightGap < FIXED_SERVICE_MIN_GAP)) {
+        adj = { ...adj, x: va.x + va.w + FIXED_SERVICE_MIN_GAP };
+      } else if (leftGap >= 0 && leftGap < FIXED_SERVICE_MIN_GAP) {
+        adj = { ...adj, x: va.x - adj.w - FIXED_SERVICE_MIN_GAP };
+      } else if (belowGap >= 0 && belowGap < FIXED_SERVICE_MIN_GAP) {
+        adj = { ...adj, y: va.y + va.h + FIXED_SERVICE_MIN_GAP };
+      } else if (aboveGap >= 0 && aboveGap < FIXED_SERVICE_MIN_GAP) {
+        adj = { ...adj, y: va.y - adj.h - FIXED_SERVICE_MIN_GAP };
+      }
+    }
+    return adj;
+  });
+}
+
 // ─── Core layout builder ───────────────────────────────────────────────────────
 
 function buildValidatedLayoutFloorPlan(floorLabel: string, locations: Array<{ id: string; name: string }>, zones: RoomZone[], options: GenerationOptions = {}) {
   const prefix = slug(floorLabel, 'auto-floorplan');
   const layoutVariant = createLayoutVariant();
   const usePairedRestrooms = Math.random() < 0.5;
-  const restroomGroupId = `${prefix}-restroom-group`;
+  const restroomGroupId    = `${prefix}-restroom-group`;
+  const verticalAccessGroupId = `${prefix}-vertical-access`;
+  // Restroom(s) form their own placement unit so they are never packed directly
+  // against stairs/elevator. The objectGroupId keeps paired restrooms together
+  // (male/female side-by-side with unitGap = 0).
   const reservedSpaces: RoomZone[] = usePairedRestrooms ? [
-    { key: 'reserved-male-restroom', label: 'Male Restroom', x: 1900, y: 660, w: RESTROOM_WIDTH, h: RESTROOM_HEIGHT, color: '#bfdbfe', cols: 1, doorX: 1900 + RESTROOM_WIDTH / 2, doorY: 660, objectGroupId: restroomGroupId },
-    { key: 'reserved-female-restroom', label: 'Female Restroom', x: 1900 + RESTROOM_WIDTH, y: 660, w: RESTROOM_WIDTH, h: RESTROOM_HEIGHT, color: '#fbcfe8', cols: 1, doorX: 1900 + RESTROOM_WIDTH * 1.5, doorY: 660, objectGroupId: restroomGroupId },
+    { key: 'reserved-male-restroom', label: 'Male Restroom', x: 1900, y: 660, w: RESTROOM_WIDTH, h: RESTROOM_HEIGHT, color: '#bfdbfe', cols: 1, doorX: 1900 + RESTROOM_WIDTH / 2, doorY: 660, objectGroupId: restroomGroupId, placementGroupId: restroomGroupId },
+    { key: 'reserved-female-restroom', label: 'Female Restroom', x: 1900 + RESTROOM_WIDTH, y: 660, w: RESTROOM_WIDTH, h: RESTROOM_HEIGHT, color: '#fbcfe8', cols: 1, doorX: 1900 + RESTROOM_WIDTH * 1.5, doorY: 660, objectGroupId: restroomGroupId, placementGroupId: restroomGroupId },
   ] : [{
-    key: 'reserved-restroom', label: 'Restroom', x: 1900, y: 660, w: RESTROOM_WIDTH, h: RESTROOM_HEIGHT, color: '#dbeafe', cols: 1, doorX: 1900 + RESTROOM_WIDTH / 2, doorY: 660,
+    key: 'reserved-restroom', label: 'Restroom', x: 1900, y: 660, w: RESTROOM_WIDTH, h: RESTROOM_HEIGHT, color: '#dbeafe', cols: 1, doorX: 1900 + RESTROOM_WIDTH / 2, doorY: 660, objectGroupId: restroomGroupId, placementGroupId: restroomGroupId,
   }];
+  // Stairs and elevator share a vertical-access unit (placed together with a
+  // small clearance gap) but are separated from the restroom unit.
   const verticalAccess = options.verticalAccess ?? 'both';
   if (verticalAccess === 'stairs' || verticalAccess === 'both') {
-    reservedSpaces.push({ key: 'reserved-stairs', label: 'Stairs', x: 2800, y: 660, w: STAIR_LANDING_WIDTH, h: STAIR_LANDING_HEIGHT, color: '#fef3c7', cols: 1, doorX: 2800 + STAIR_LANDING_WIDTH / 2, doorY: 660, fixedSize: true });
+    reservedSpaces.push({ key: 'reserved-stairs', label: 'Stairs', x: 2800, y: 660, w: STAIR_LANDING_WIDTH, h: STAIR_LANDING_HEIGHT, color: '#fef3c7', cols: 1, doorX: 2800 + STAIR_LANDING_WIDTH / 2, doorY: 660, fixedSize: true, placementGroupId: verticalAccessGroupId });
   }
   if (verticalAccess === 'elevator' || verticalAccess === 'both') {
-    reservedSpaces.push({ key: 'reserved-elevator', label: 'Elevator', x: 3100, y: 660, w: ELEVATOR_SHAFT_WIDTH, h: ELEVATOR_SHAFT_HEIGHT, color: '#e9d5ff', cols: 1, doorX: 3100 + ELEVATOR_SHAFT_WIDTH / 2, doorY: 660, fixedSize: true });
+    reservedSpaces.push({ key: 'reserved-elevator', label: 'Elevator', x: 3100, y: 660, w: ELEVATOR_SHAFT_WIDTH, h: ELEVATOR_SHAFT_HEIGHT, color: '#e9d5ff', cols: 1, doorX: 3100 + ELEVATOR_SHAFT_WIDTH / 2, doorY: 660, fixedSize: true, placementGroupId: verticalAccessGroupId });
   }
   const layoutZones = [...zones, ...reservedSpaces];
 
@@ -1055,15 +1139,21 @@ function buildValidatedLayoutFloorPlan(floorLabel: string, locations: Array<{ id
   });
 
   // 2. Expand zone heights (capped at 2× default) + reflow positions
-  const { zones: reflowed, outerBottomY } = expandAndReflow(layoutZones, grouped, layoutVariant, options.maxLayoutWidth, options.maxLayoutHeight);
+  const { zones: reflowed, outerBottomY: rawOuterBottomY } = expandAndReflow(layoutZones, grouped, layoutVariant, options.maxLayoutWidth, options.maxLayoutHeight);
+
+  // 2b. Push restroom zones away from stairs/elevator if closer than FIXED_SERVICE_MIN_GAP
+  const separated = separateServiceObjects(reflowed);
+  const outerBottomY = separated.length
+    ? Math.max(...separated.map(z => z.y + z.h)) + layoutVariant.bottomPad
+    : rawOuterBottomY;
 
   // 3. Outer building walls with hard turns around occupied room areas
-  const perimeterPts = traceHardTurnPerimeter(reflowed, layoutVariant);
+  const perimeterPts = traceHardTurnPerimeter(separated, layoutVariant);
 
   // 3b. Snap boundary zones flush to the perimeter so there are no thin gaps
   //     between a zone edge and the outer wall. fixedSize zones (stairs, elevators)
   //     are excluded inside snapBoundaryRoomsToPerimeter.
-  const snapped = snapBoundaryRoomsToPerimeter(reflowed, perimeterPts);
+  const snapped = snapBoundaryRoomsToPerimeter(separated, perimeterPts);
 
   const objects = buildPerimeterWalls(floorLabel, perimeterPts, outerBottomY);
 
@@ -1114,10 +1204,10 @@ export function validateGeneratedFloorPlan(objects: FloorPlanObject[], templateT
 } {
   const passes: string[] = [];
   const fails: string[] = [];
-  const rooms = objects.filter(o => o.type === 'room' && !o.linkedLocationId);
+  const rooms = objects.filter(o => o.type === 'room' && getLinkedLocationIds(o).length === 0);
   const entrances = objects.filter(o => o.type === 'entrance');
   const walls = objects.filter(o => o.type === 'wall');
-  const linkedLocations = objects.filter(o => o.linkedLocationId);
+  const linkedLocations = objects.filter(o => getLinkedLocationIds(o).length > 0);
 
   if (entrances.length > 0) passes.push('Has entry or door defined');
   else fails.push('Missing entrance or door');

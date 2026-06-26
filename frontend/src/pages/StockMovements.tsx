@@ -430,6 +430,7 @@ export default function StockMovements() {
         formContent={null}
         onAddClick={openNewDrawer}
         showAddButton={user.role === 'admin' && localStorage.getItem('currentDepartmentId') !== ALL_DEPARTMENTS_ID}
+        showAllDepartmentsBanner={user.role === 'admin' && localStorage.getItem('currentDepartmentId') === ALL_DEPARTMENTS_ID}
         filterContent={filterContent}>
         <div className="space-y-3">
           {filteredAndSortedMovements.length === 0 ? (

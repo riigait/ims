@@ -20,6 +20,7 @@ export default function Sidebar({ collapsed, onToggle }: { collapsed: boolean; o
   const isActive = (path: string) => location.pathname === path;
 
   const handleDepartmentChange = (deptId: string) => {
+    setDeptDropdownOpen(false);
     setDeptChangeConfirm(deptId);
   };
 
@@ -48,6 +49,7 @@ export default function Sidebar({ collapsed, onToggle }: { collapsed: boolean; o
     { path: '/inventory-items', icon: Boxes,           label: 'Inventory Items', roles: ['superadmin', 'admin', 'staff'], section: 'main' },
     { path: '/stock-movements', icon: ArrowLeftRight,  label: 'Stock Movements', roles: ['superadmin', 'admin', 'staff'], section: 'main' },
     { path: '/floor-plans',     icon: Map,             label: 'Floor Plans',     roles: ['superadmin', 'admin', 'staff'], section: 'main' },
+    { path: '/building-view',   icon: Building2,       label: '2D Building',     roles: ['superadmin', 'admin', 'staff'], section: 'main' },
     { path: '/import-pclsf',    icon: Upload,          label: 'Import / Export',    roles: ['admin', 'staff'], section: 'main' },
     { path: '/admin/requests',    icon: ClipboardList, label: 'Requests',         roles: ['superadmin', 'admin', 'staff'], section: 'admin' },
     { path: '/admin/departments', icon: Building2, label: 'Departments', roles: ['superadmin', 'admin'], section: 'admin' },

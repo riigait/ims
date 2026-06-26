@@ -15,10 +15,16 @@
     "backend:db:migrate": "cd backend && npx prisma migrate dev",
     "backend:db:studio": "cd backend && npx prisma studio",
     "start": "npm run dev",
-    "control": "powershell -ExecutionPolicy Bypass -File ims-control.ps1"
+    "control": "powershell -ExecutionPolicy Bypass -File ims-control.ps1",
+    "graphify:watch": "graphify watch .",
+    "graphify:serve": "node tools/graphify-live/server.mjs",
+    "graphify:live": "concurrently \"npm run graphify:watch\" \"npm run graphify:serve\""
   },
   "devDependencies": {
+    "chokidar": "^3.6.0",
     "concurrently": "^8.2.2",
-    "playwright": "^1.60.0"
+    "express": "^4.21.2",
+    "playwright": "^1.60.0",
+    "ws": "^8.18.0"
   }
 }

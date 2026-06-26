@@ -110,6 +110,12 @@ export interface AdminDepartment {
   department: Department;
 }
 
+export interface IsoViewSettings {
+  isoTW: number;
+  isoTH: number;
+  isoZScale: number;
+}
+
 export interface User {
   id: string;
   name: string;
@@ -121,6 +127,7 @@ export interface User {
   staffDepartments?: AdminDepartment[];
   createdAt?: string;
   updatedAt?: string;
+  isoViewSettings?: IsoViewSettings | null;
 }
 
 export interface AuthResponse {

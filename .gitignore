@@ -53,11 +53,21 @@ $RECYCLE.BIN/
 # Claude Code — only machine-specific files are ignored; Markdown memory is committed
 .claude/settings.local.json
 .claude/generated/
+requirements_claude.txt
+
+# Obsidian — app state is machine-local; vault content notes stay tracked
+IMS-Vault/.obsidian/
+
+# graphify — machine-local paths/state; graph outputs (graph.json, GRAPH_REPORT.md, etc) stay tracked
+graphify-out/.graphify_python
+graphify-out/.graphify_root
+graphify-out/needs_update
 .claude/sessions/
 CLAUDE.local.md
 
 # Generated / tool output
 repomix-output.xml
+.playwright-mcp/
 
 # Deployment
 .vercel/

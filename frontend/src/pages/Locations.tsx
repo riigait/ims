@@ -245,6 +245,7 @@ export default function Locations() {
         formContent={null}
         onAddClick={openNewDrawer}
         showAddButton={user.role === 'admin' && localStorage.getItem('currentDepartmentId') !== ALL_DEPARTMENTS_ID}
+        showAllDepartmentsBanner={user.role === 'admin' && localStorage.getItem('currentDepartmentId') === ALL_DEPARTMENTS_ID}
         filterContent={filterContent}>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">

@@ -535,6 +535,7 @@ export default function Products() {
         onAddClick={openNewDrawer}
         showAddButton={false}
         actions={headerActions}
+        showAllDepartmentsBanner={user.role === 'admin' && localStorage.getItem('currentDepartmentId') === ALL_DEPARTMENTS_ID}
         filterContent={filterContent}>
         <div className="space-y-0">
           {filteredProducts.length === 0 ? (

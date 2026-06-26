@@ -1,0 +1,73 @@
+import type { FloorplanData } from '@/types/birdsEye';
+
+export const topDown25DDemoFloorplan: FloorplanData = {
+  id: 'demo-top-down-25d',
+  name: 'Top-Down 2.5D Demo Floorplan',
+  width: 1200,
+  height: 850,
+  viewMode: 'topDown25D',
+  elements: [
+    { id: 'room-bed-1', type: 'room', x: 80, y: 80, width: 330, height: 300, label: 'Bedroom 1', layer: 'room', style: { fill: '#eee9df' } },
+    { id: 'room-bed-2', type: 'room', x: 80, y: 470, width: 330, height: 300, label: 'Bedroom 2', layer: 'room', style: { fill: '#eee9df' } },
+    { id: 'room-bed-3', type: 'room', x: 790, y: 80, width: 330, height: 300, label: 'Bedroom 3', layer: 'room', style: { fill: '#e8f0ee' } },
+    { id: 'room-bed-4', type: 'room', x: 790, y: 470, width: 330, height: 300, label: 'Bedroom 4', layer: 'room', style: { fill: '#eee9df' } },
+    { id: 'room-bath', type: 'room', x: 430, y: 80, width: 340, height: 210, label: 'Bathroom', layer: 'room', style: { fill: '#e5eeee' } },
+    { id: 'room-center', type: 'room', x: 410, y: 290, width: 380, height: 480, label: 'Common Area', layer: 'room', style: { fill: '#e7f1f2' } },
+
+    { id: 'rug-bed-1', type: 'rug', x: 135, y: 135, width: 215, height: 170, layer: 'object', style: { fill: '#d9d7cc', opacity: 0.62 } },
+    { id: 'rug-bed-2', type: 'rug', x: 135, y: 525, width: 215, height: 170, layer: 'object', style: { fill: '#d9d7cc', opacity: 0.62 } },
+    { id: 'rug-bed-3', type: 'rug', x: 850, y: 135, width: 215, height: 170, layer: 'object', style: { fill: '#c6d9d8', opacity: 0.62 } },
+    { id: 'rug-bed-4', type: 'rug', x: 850, y: 525, width: 215, height: 170, layer: 'object', style: { fill: '#d9d7cc', opacity: 0.62 } },
+    { id: 'center-rug', type: 'rug', x: 470, y: 345, width: 260, height: 285, layer: 'object', style: { fill: '#cfe1e2', opacity: 0.64 } },
+
+    { id: 'bed-1', type: 'bed', x: 145, y: 145, width: 190, height: 135, layer: 'object' },
+    { id: 'bed-2', type: 'bed', x: 145, y: 535, width: 190, height: 135, layer: 'object' },
+    { id: 'bed-3', type: 'bed', x: 865, y: 145, width: 190, height: 135, layer: 'object' },
+    { id: 'bed-4', type: 'bed', x: 865, y: 535, width: 190, height: 135, layer: 'object' },
+
+    { id: 'cab-1', type: 'cabinet', x: 125, y: 325, width: 240, height: 40, layer: 'object' },
+    { id: 'cab-2', type: 'cabinet', x: 125, y: 485, width: 240, height: 40, layer: 'object' },
+    { id: 'cab-3', type: 'cabinet', x: 835, y: 325, width: 240, height: 40, layer: 'object' },
+    { id: 'cab-4', type: 'cabinet', x: 835, y: 485, width: 240, height: 40, layer: 'object' },
+    { id: 'cab-side-1', type: 'cabinet', x: 365, y: 130, width: 35, height: 130, layer: 'object' },
+    { id: 'cab-side-2', type: 'cabinet', x: 365, y: 585, width: 35, height: 130, layer: 'object' },
+    { id: 'cab-side-3', type: 'cabinet', x: 800, y: 130, width: 35, height: 130, layer: 'object' },
+    { id: 'cab-side-4', type: 'cabinet', x: 800, y: 585, width: 35, height: 130, layer: 'object' },
+
+    { id: 'sink-bath', type: 'sink', x: 455, y: 125, width: 72, height: 55, layer: 'object' },
+    { id: 'toilet-bath', type: 'toilet', x: 555, y: 120, width: 65, height: 85, layer: 'object' },
+    { id: 'tub-bath', type: 'bathtub', x: 665, y: 105, width: 75, height: 150, layer: 'object' },
+
+    { id: 'table-main', type: 'table', x: 555, y: 410, width: 90, height: 90, layer: 'object' },
+    { id: 'chair-main-1', type: 'chair', x: 500, y: 425, width: 48, height: 48, layer: 'object', rotation: 270 },
+    { id: 'chair-main-2', type: 'chair', x: 652, y: 425, width: 48, height: 48, layer: 'object', rotation: 90 },
+    { id: 'chair-main-3', type: 'chair', x: 575, y: 355, width: 48, height: 48, layer: 'object' },
+    { id: 'sofa-main', type: 'sofa', x: 690, y: 385, width: 70, height: 155, layer: 'object' },
+    { id: 'kitchen-counter', type: 'kitchen_counter', x: 470, y: 660, width: 260, height: 62, layer: 'object' },
+    { id: 'plant-main', type: 'plant', x: 435, y: 610, width: 55, height: 55, layer: 'object' },
+
+    { id: 'wall-top', type: 'outdoor_wall', x: 65, y: 65, width: 1070, height: 30, layer: 'wall' },
+    { id: 'wall-bottom', type: 'outdoor_wall', x: 65, y: 755, width: 1070, height: 30, layer: 'wall' },
+    { id: 'wall-left', type: 'outdoor_wall', x: 65, y: 65, width: 30, height: 720, layer: 'wall' },
+    { id: 'wall-right', type: 'outdoor_wall', x: 1105, y: 65, width: 30, height: 720, layer: 'wall' },
+    { id: 'iw-left-top', type: 'indoor_wall', x: 400, y: 65, width: 28, height: 315, layer: 'wall' },
+    { id: 'iw-left-bottom', type: 'indoor_wall', x: 400, y: 470, width: 28, height: 315, layer: 'wall' },
+    { id: 'iw-right-top', type: 'indoor_wall', x: 772, y: 65, width: 28, height: 315, layer: 'wall' },
+    { id: 'iw-right-bottom', type: 'indoor_wall', x: 772, y: 470, width: 28, height: 315, layer: 'wall' },
+    { id: 'iw-bath-bottom', type: 'indoor_wall', x: 400, y: 280, width: 400, height: 28, layer: 'wall' },
+    { id: 'iw-center-bottom', type: 'indoor_wall', x: 400, y: 755, width: 400, height: 30, layer: 'wall' },
+
+    { id: 'door-bed-1', type: 'door', x: 400, y: 380, width: 72, height: 72, rotation: 90, layer: 'opening' },
+    { id: 'door-bed-2', type: 'door', x: 400, y: 470, width: 72, height: 72, rotation: 0, layer: 'opening' },
+    { id: 'door-bed-3', type: 'door', x: 728, y: 380, width: 72, height: 72, rotation: 180, layer: 'opening' },
+    { id: 'door-bed-4', type: 'door', x: 728, y: 470, width: 72, height: 72, rotation: 270, layer: 'opening' },
+    { id: 'door-bath', type: 'door', x: 570, y: 280, width: 68, height: 68, rotation: 180, layer: 'opening' },
+
+    { id: 'window-top-left', type: 'window', x: 135, y: 75, width: 225, height: 10, layer: 'opening' },
+    { id: 'window-top-center', type: 'window', x: 485, y: 75, width: 230, height: 10, layer: 'opening' },
+    { id: 'window-top-right', type: 'window', x: 840, y: 75, width: 225, height: 10, layer: 'opening' },
+    { id: 'window-bottom-left', type: 'window', x: 135, y: 765, width: 225, height: 10, layer: 'opening' },
+    { id: 'window-bottom-center', type: 'window', x: 485, y: 765, width: 230, height: 10, layer: 'opening' },
+    { id: 'window-bottom-right', type: 'window', x: 840, y: 765, width: 225, height: 10, layer: 'opening' },
+  ],
+};

@@ -15,3 +15,8 @@
 
 ## Skills
 - Release checklist: `.claude/skills/release-check/SKILL.md`
+
+## Design knowledge vault
+- `IMS-Vault/` — Obsidian vault, design rules/decisions for floor-plan + isometric rendering.
+- Before editing `FloorPlanEditor.tsx` or `Building2D.tsx` rendering logic, check `IMS-Vault/Object Design Rules.md`, `IMS-Vault/Isometric Depth Sorting.md`, `IMS-Vault/Entrance Style Logic.md`.
+- Log fixed/open bugs in `IMS-Vault/Bug Tracker.md`.
